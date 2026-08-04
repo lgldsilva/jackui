@@ -40,10 +40,10 @@ function taskBreakdown(s: AISlotScore, t: TFunction) {
 }
 
 type RowProps = {
-  onRunSingle: (provider: string, model: string) => void
-  busy: boolean
-  runningSlotId: string | null
-  t: TFunction
+  readonly onRunSingle: (provider: string, model: string) => void
+  readonly busy: boolean
+  readonly runningSlotId: string | null
+  readonly t: TFunction
 }
 
 function scoreRow(s: AISlotScore, { onRunSingle, busy, runningSlotId, t }: RowProps) {

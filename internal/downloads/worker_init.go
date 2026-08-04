@@ -37,6 +37,27 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
+	td, name, ok := w.resolveAndTrackDownload(ctx, d)
+	if !ok {
+		return
+	}
+	// Snapshot inicial dos bytes já completos. Sem isso, o usuário que clica
+	// Download enquanto está streamando vê 0% nos primeiros 2-4s (entre o
+	// init terminar e o primeiro tick rodar UpdateProgress) — interpreta como
+	// "recomeçou". VerifyFile acima já reconciliou o estado de pieces, então
+	// BytesCompleted aqui reflete a realidade do disco.
+	initialBytes, totalBytes, _ := td.progress()
+	if initialBytes > 0 {
+		if err := w.store.UpdateProgress(d.UserID, d.ID, initialBytes); err != nil {
+			log.Printf("downloads: failed to update initial progress for download %d: %v", d.ID, err)
+		}
+	}
+	log.Printf("downloads: started #%d %q (file %d, %d bytes, completed=%d)", d.ID, name, d.FileIndex, totalBytes, initialBytes)
+}
+
+// resolveAndTrackDownload resolves metadata, prepares the target file, and
+// promotes the initialized download into the worker's tracked set.
+func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trackedDL, string, bool) {
 	// EffectiveMagnet is the active alternative source when rotation has switched
 	// away from the original, otherwise the original magnet. A common failure is
 	// an ephemeral indexer .torrent URL (Jackett /dl/...) that has since 404'd —
@@ -44,12 +65,12 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	hash, err := w.ensureActiveWithFallback(ctx, &d)
 	if err != nil {
 		w.failOrRetry(d, "load torrent: "+err.Error())
-		return
+		return nil, "", false
 	}
 	t, ok := w.streamer.Client().Torrent(hash)
 	if !ok {
 		w.failOrRetry(d, "torrent gone after EnsureActive")
-		return
+		return nil, "", false
 	}
 	// Block waiting for metadata so the file slice is populated. ctx already
 	// carries the 90s deadline, so we lean on it instead of a second timer.
@@ -57,12 +78,12 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	case <-t.GotInfo():
 	case <-ctx.Done():
 		w.failOrRetry(d, "timeout aguardando metadados")
-		return
+		return nil, "", false
 	}
 
 	f, whole, ok := w.initTarget(ctx, &d, hash, t)
 	if !ok {
-		return
+		return nil, "", false
 	}
 
 	name := t.Name()
@@ -104,20 +125,9 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	}
 	td.lastProgressBytes, _, _ = td.progress()
 	if !w.promoteOrAbort(d, td, name) {
-		return
+		return nil, "", false
 	}
-	// Snapshot inicial dos bytes já completos. Sem isso, o usuário que clica
-	// Download enquanto está streamando vê 0% nos primeiros 2-4s (entre o
-	// init terminar e o primeiro tick rodar UpdateProgress) — interpreta como
-	// "recomeçou". VerifyFile acima já reconciliou o estado de pieces, então
-	// BytesCompleted aqui reflete a realidade do disco.
-	initialBytes, totalBytes, _ := td.progress()
-	if initialBytes > 0 {
-		if err := w.store.UpdateProgress(d.UserID, d.ID, initialBytes); err != nil {
-			log.Printf("downloads: failed to update initial progress for download %d: %v", d.ID, err)
-		}
-	}
-	log.Printf("downloads: started #%d %q (file %d, %d bytes, completed=%d)", d.ID, name, d.FileIndex, totalBytes, initialBytes)
+	return td, name, true
 }
 
 // promoteOrAbort moves a freshly-initialized download into `tracked` UNLESS it

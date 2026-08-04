@@ -6,11 +6,11 @@ import TrailerModal from './TrailerModal'
 
 type Props = {
   // Either the TMDB identity directly (Discover cards)...
-  kind?: 'movie' | 'tv'
-  tmdbId?: number
+  readonly kind?: 'movie' | 'tv'
+  readonly tmdbId?: number
   // ...or a raw release title to resolve first (search/contents modal).
-  title?: string
-  className?: string
+  readonly title?: string
+  readonly className?: string
 }
 
 // TrailerButton lazily resolves a title's trailer on click (TMDB match by

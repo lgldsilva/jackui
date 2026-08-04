@@ -10,9 +10,9 @@ export const RESOLUTIONS = ['', '480p', '720p', '1080p', '2160p'] as const
 export const CODECS = ['', 'x264', 'x265', 'av1'] as const
 
 type Props = {
-  initial?: Watchlist
-  onSave: (input: WatchlistInput) => void | Promise<void>
-  onCancel: () => void
+  readonly initial?: Watchlist
+  readonly onSave: (input: WatchlistInput) => void | Promise<void>
+  readonly onCancel: () => void
 }
 
 // Create/edit form for a watchlist, including the auto-download quality

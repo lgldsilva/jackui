@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/middleware"
 )
 
@@ -32,7 +33,7 @@ func ClientLog() gin.HandlerFunc {
 
 		var p ClientLogPayload
 		if err := c.ShouldBindJSON(&p); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)

@@ -86,13 +86,13 @@ func ConvertTorrentToMagnet() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		torrentURL := c.Query("url")
 		if torrentURL == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "URL requerida"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "URL requerida")
 			return
 		}
 
 		res, cerr := resolveTorrentToMagnet(torrentURL)
 		if cerr != nil {
-			c.JSON(cerr.Code, gin.H{"error": cerr.Message})
+			httpshared.RespondErrorMessage(c, cerr.Code, cerr.Message)
 			return
 		}
 
@@ -233,12 +233,12 @@ func ConvertMagnetToTorrent(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		magnet := c.Query("magnet")
 		if magnet == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "magnet link requerido"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "magnet link requerido")
 			return
 		}
 		mi, err := metainfo.ParseMagnetUri(magnet)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "magnet link inválido"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "magnet link inválido")
 			return
 		}
 		h := mi.InfoHash
@@ -257,7 +257,7 @@ func ensureMetainfo(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, magne
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 	if _, err := s.Add(ctx, magnet); err != nil {
-		c.JSON(http.StatusGatewayTimeout, gin.H{"error": fmt.Sprintf("tempo limite atingido aguardando metadados: %v", err)})
+		httpshared.RespondErrorMessage(c, http.StatusGatewayTimeout, fmt.Sprintf("tempo limite atingido aguardando metadados: %v", err))
 		return true
 	}
 	return false
@@ -268,7 +268,7 @@ func serveTorrentFile(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, mi 
 	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(path)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("falha ao ler arquivo .torrent gerado: %v", err)})
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, fmt.Sprintf("falha ao ler arquivo .torrent gerado: %v", err))
 		return
 	}
 	defer func() { _ = f.Close() }()

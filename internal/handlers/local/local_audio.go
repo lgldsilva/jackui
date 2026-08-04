@@ -27,7 +27,7 @@ func resolveLocalAudio(b *lb.Browser, c *gin.Context) (abs string, stat os.FileI
 	mount := c.Query("mount")
 	path := c.Query("path")
 	if mount == "" || path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 		return "", nil, false
 	}
 	if !CheckMountAccess(b, c, mount) {
@@ -39,7 +39,7 @@ func resolveLocalAudio(b *lb.Browser, c *gin.Context) (abs string, stat os.FileI
 	}
 	resolved, err := resolveLocalAbs(b, mount, ScopePath(b, c, mount, path))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return "", nil, false
 	}
 	if resolved == "" {

@@ -24,7 +24,7 @@ func LocalHLSMaster(b *lb.Browser, mgr *transcode.HLSSessionManager, reg *locals
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -115,7 +115,7 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 	key += httpshared.PlaybackSessionSuffix(c)
 	f, oerr := os.Open(src.abs)
 	if oerr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": oerr.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, oerr)
 		return nil, oerr
 	}
 	// Wrap the file in a metered, read-ahead Session before handing it to the
@@ -139,7 +139,7 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 	})
 	if err != nil {
 		closeSource(reg, meterKey, source, f)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return nil, err
 	}
 	return sess, nil
@@ -173,7 +173,7 @@ func closeSource(reg *localstream.Registry, meterKey string, source io.ReadSeeke
 
 func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
 	if err := sess.WaitForMaster(60 * time.Second); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error(), "code": "transcode_failed"})
+		httpshared.RespondErrorFields(c, http.StatusServiceUnavailable, err, gin.H{"code": "transcode_failed"})
 		return false
 	}
 	return true
@@ -228,7 +228,7 @@ func serveLocalPlaylist(c *gin.Context, sess *transcode.HLSSession, segURL func(
 	}
 	data, rerr := os.ReadFile(filepath.Join(sess.Dir, "index.m3u8"))
 	if rerr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "playlist not readable")
 		return
 	}
 	lines := strings.Split(string(data), "\n")
@@ -281,14 +281,14 @@ func LocalHLSSegment(b *lb.Browser, mgr *transcode.HLSSessionManager) gin.Handle
 		path := c.Query("path")
 		segName := c.Query("seg")
 		if mount == "" || path == "" || segName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount, path or seg parameter"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "missing mount, path or seg parameter")
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
 			return
 		}
 		if !validSegName(segName) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid segment name"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid segment name")
 			return
 		}
 		// Must mirror LocalHLSMaster: scope both the path validation and the
@@ -326,7 +326,7 @@ func resolveLocalSession(c *gin.Context, mgr *transcode.HLSSessionManager, mount
 	key := mgr.EffectiveKey(raw, httpshared.NativeHLSParam(c))
 	sess, err := mgr.Peek(key)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, "session not active — request the playlist again")
 		return nil
 	}
 	return sess

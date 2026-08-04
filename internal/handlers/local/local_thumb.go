@@ -14,8 +14,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
+
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 // localVideoExts mirrors the frontend's video detection — only these get a
@@ -33,7 +34,7 @@ func localThumbHandler(b *lb.Browser, c *gin.Context) {
 	mount := c.Query("mount")
 	path := c.Query("path")
 	if mount == "" || path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 		return
 	}
 	if !CheckMountAccess(b, c, mount) {
@@ -45,7 +46,7 @@ func localThumbHandler(b *lb.Browser, c *gin.Context) {
 	}
 	abs, err := resolveLocalAbs(b, mount, ScopePath(b, c, mount, path))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
 	if abs == "" {

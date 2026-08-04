@@ -64,7 +64,7 @@ func EnsureVODSegment(sess *transcode.HLSSession, segName string) {
 func ServeSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
 	path, err := sess.WaitForSegment(segName, 30*time.Second)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		RespondError(c, http.StatusNotFound, err)
 		return
 	}
 	c.Header("Content-Type", "video/mp2t")

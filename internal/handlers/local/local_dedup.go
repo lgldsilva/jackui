@@ -58,7 +58,7 @@ func LocalDuplicates(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		if mount == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount parameter"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "missing mount parameter")
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -72,10 +72,10 @@ func LocalDuplicates(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 		})
 		if err != nil {
 			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
+				httpshared.RespondErrorMessage(c, http.StatusNotFound, "path not found")
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"groups": groups, "total": len(groups)})
@@ -213,12 +213,13 @@ func LocalDuplicatesDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Stre
 		}
 		visible := filterVisibleDedupPaths(c, s, req.Mount, req.Paths)
 		if len(visible) == 0 {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+			c.Abort()
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 			return
 		}
 		baseAbs, err := b.ResolvePath(req.Mount, ScopePath(b, c, req.Mount, ""))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		deleted, errs := deleteDuplicates(b, dls, s, req.Mount, baseAbs, visible)
@@ -229,11 +230,11 @@ func LocalDuplicatesDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Stre
 func bindDedupDeleteReq(c *gin.Context) (dedupDeleteReq, bool) {
 	var req dedupDeleteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return req, false
 	}
 	if req.Mount == "" || len(req.Paths) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "mount and paths are required"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "mount and paths are required")
 		return req, false
 	}
 	return req, true

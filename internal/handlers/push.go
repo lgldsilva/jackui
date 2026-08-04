@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/push"
 )
 
@@ -16,7 +17,7 @@ const errPushDisabled = "push notifications unavailable"
 func PushVapidKey(sender *push.Sender) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sender == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errPushDisabled})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, errPushDisabled)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"key": sender.PublicKey()})
@@ -36,17 +37,17 @@ type pushSubscribeInput struct {
 func PushSubscribe(store *push.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if store == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errPushDisabled})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, errPushDisabled)
 			return
 		}
 		var in pushSubscribeInput
 		if err := c.BindJSON(&in); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if err := store.Subscribe(userID, in.Endpoint, in.Keys.P256dh, in.Keys.Auth); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -57,19 +58,19 @@ func PushSubscribe(store *push.Store) gin.HandlerFunc {
 func PushUnsubscribe(store *push.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if store == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errPushDisabled})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, errPushDisabled)
 			return
 		}
 		var in struct {
 			Endpoint string `json:"endpoint"`
 		}
 		if err := c.BindJSON(&in); err != nil || in.Endpoint == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "endpoint is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "endpoint is required")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if err := store.Unsubscribe(userID, in.Endpoint); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -88,7 +89,7 @@ func NotificationsList(store *push.Store) gin.HandlerFunc {
 		limit, _ := strconv.Atoi(c.Query("limit"))
 		items, err := store.Notifications(userID, limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		unread, _ := store.UnreadCount(userID)
@@ -106,7 +107,7 @@ func NotificationsMarkRead(store *push.Store) gin.HandlerFunc {
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if err := store.MarkAllRead(userID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

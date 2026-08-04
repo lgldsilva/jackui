@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/stats"
@@ -44,7 +45,7 @@ func Stats(lib *library.Store, dl *downloads.Store, hist *history.Store, wl *wat
 		userID, _, _ := auth.UserIDFromCtx(c)
 		out, err := buildUserStats(userID, lib, dl, hist, wl)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, out)

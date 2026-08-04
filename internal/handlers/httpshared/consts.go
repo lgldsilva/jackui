@@ -7,6 +7,7 @@ package httpshared
 const (
 	CacheControl        = "Cache-Control"
 	ContentType         = "Content-Type"
+	ErrorField          = "error"
 	HeaderAuthorization = "Authorization"
 
 	MIMEJPEG    = "image/jpeg"

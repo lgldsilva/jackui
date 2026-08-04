@@ -2,9 +2,9 @@ import { useEffect } from 'react'
 import { X } from 'lucide-react'
 
 type Props = {
-  videoKey: string
-  title: string
-  onClose: () => void
+  readonly videoKey: string
+  readonly title: string
+  readonly onClose: () => void
 }
 
 // TrailerModal embeds a YouTube trailer via the privacy-enhanced

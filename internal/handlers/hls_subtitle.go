@@ -31,7 +31,7 @@ func StreamHLSSubtitle(s *streamer.Streamer, mgr *transcode.HLSSessionManager, s
 		}
 		track, err := strconv.Atoi(c.Param("track"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid track index"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid track index")
 			return
 		}
 		pr, _ := probeSource(hc)

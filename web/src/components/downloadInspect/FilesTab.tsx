@@ -21,15 +21,15 @@ export function fileIcon(f: StreamFile, primary: boolean) {
 }
 
 export type FilesTabProps = {
-  torrent: TorrentInfo | null | undefined
-  syntheticFile: StreamFile | null
-  filePath: string
-  fileIndex: number
-  fileIcon: (f: StreamFile, primary: boolean) => React.ReactNode
-  siblings: readonly DownloadEntry[]
-  adopting: number | null
-  onAdopt: (f: StreamFile) => void
-  t: TFn
+  readonly torrent: TorrentInfo | null | undefined
+  readonly syntheticFile: StreamFile | null
+  readonly filePath: string
+  readonly fileIndex: number
+  readonly fileIcon: (f: StreamFile, primary: boolean) => React.ReactNode
+  readonly siblings: readonly DownloadEntry[]
+  readonly adopting: number | null
+  readonly onAdopt: (f: StreamFile) => void
+  readonly t: TFn
 }
 
 // Tracked-file status cell: OK check when complete, amber percentage while

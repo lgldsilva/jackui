@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -42,7 +43,7 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req streamAddReq
 		if err := c.ShouldBindJSON(&req); err != nil || req.Magnet == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "magnet is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "magnet is required")
 			return
 		}
 		info, err := s.Add(c.Request.Context(), req.Magnet)
@@ -53,7 +54,7 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 				preview = preview[:80] + "..."
 			}
 			fmt.Printf("[stream/add] failed for %q: %v\n", preview, err)
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 		// Persist into the user's library (idempotent upsert). Kind comes from the
@@ -74,25 +75,25 @@ func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		file, err := c.FormFile("file")
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "file is required")
 			return
 		}
 		src, err := file.Open()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		defer func() { _ = src.Close() }()
 
 		mi, err := metainfo.Load(src)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid torrent file: " + err.Error()})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid torrent file: "+err.Error())
 			return
 		}
 
 		t, err := s.Client().AddTorrent(mi)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add torrent: " + err.Error()})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to add torrent: "+err.Error())
 			return
 		}
 
@@ -104,13 +105,13 @@ func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
 
 		m, merr := mi.MagnetV2()
 		if merr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": merr.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, merr)
 			return
 		}
 		magnet := m.String()
 		info, err := s.Add(c.Request.Context(), magnet)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -127,7 +128,7 @@ func StreamInfo(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		info, err := s.Get(h)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		c.JSON(http.StatusOK, info)

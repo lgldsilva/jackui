@@ -36,7 +36,7 @@ func StreamArt(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		cache := s.MetadataCache()
@@ -119,12 +119,12 @@ func ResolveArt(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Clie
 func resolveArtHandler(c *gin.Context, s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai.Client, webSearch *imagesearch.Chain, frameJobs *sync.Map) {
 	h, err := parseHash(c.Param("hash"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
 	cache := s.MetadataCache()
 	if cache == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "metadata cache disabled")
 		return
 	}
 	fileIdx, _ := strconv.Atoi(c.DefaultQuery("file", "-1"))
@@ -159,16 +159,16 @@ func ResolveArtBatch(s *streamer.Streamer, tmdbClient *tmdb.Client, aiClient *ai
 			Items []artBatchItem `json:"items"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || len(req.Items) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "items is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "items is required")
 			return
 		}
 		if len(req.Items) > 50 {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many items"})
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many items")
 			return
 		}
 		cache := s.MetadataCache()
 		if cache == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "metadata cache disabled")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"results": resolveArtBatchConcurrent(

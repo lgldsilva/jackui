@@ -3,7 +3,7 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/rand"
-	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
+	// #nosec G505 -- SHA-1 is required by RFC 6238 for TOTP interoperability; this is HMAC-SHA1, not a general-purpose hash.
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
@@ -47,6 +47,7 @@ func totpAt(secret string, counter uint64) string {
 	}
 	var buf [8]byte
 	binary.BigEndian.PutUint64(buf[:], counter)
+	// #nosec G401 -- HMAC-SHA1 is the RFC 6238 TOTP algorithm used for authenticator interoperability.
 	mac := hmac.New(sha1.New, key)
 	mac.Write(buf[:])
 	sum := mac.Sum(nil)

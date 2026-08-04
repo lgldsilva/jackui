@@ -13,6 +13,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/contentid"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -57,19 +58,19 @@ func DedupCheck(s *streamer.Streamer, dls *downloads.Store, b *local.Browser) gi
 	return func(c *gin.Context) {
 		var req dedupCheckReq
 		if err := c.ShouldBindJSON(&req); err != nil || req.Magnet == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "magnet is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "magnet is required")
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), dedupCheckTimeout)
 		defer cancel()
 		info, err := s.Add(ctx, req.Magnet)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		var hash metainfo.Hash
 		if err := hash.FromHexString(info.InfoHash); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "bad info hash"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "bad info hash")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -258,7 +259,7 @@ func DedupLink(dls *downloads.Store, b *local.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req dedupLinkReq
 		if err := c.ShouldBindJSON(&req); err != nil || req.InfoHash == "" || len(req.Items) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "infoHash and items are required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "infoHash and items are required")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)

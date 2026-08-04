@@ -42,7 +42,7 @@ func transferKeyHLS(mount, scoped string) string    { return localSessionKey(mou
 
 func resolveLocalFile(b *lb.Browser, c *gin.Context, mount, path string) (string, bool) {
 	if mount == "" || path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 		return "", false
 	}
 	if !CheckMountAccess(b, c, mount) {
@@ -50,20 +50,20 @@ func resolveLocalFile(b *lb.Browser, c *gin.Context, mount, path string) (string
 	}
 	abs, err := b.ResolvePath(mount, ScopePath(b, c, mount, path))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return "", false
 	}
 	stat, err := os.Stat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 			return "", false
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return "", false
 	}
 	if stat.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": httpshared.ErrPathIsDir})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, httpshared.ErrPathIsDir)
 		return "", false
 	}
 	return abs, true
@@ -293,11 +293,11 @@ func LocalPlayBatch(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 			ForceHLS bool `json:"forceHLS"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Mount == "" || len(req.Paths) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		if len(req.Paths) > localPlayBatchMax {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many paths"})
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many paths")
 			return
 		}
 		if !CheckMountAccess(b, c, req.Mount) {

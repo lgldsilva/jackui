@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/playlists"
 )
 
@@ -16,7 +17,7 @@ func PlaylistsList(store *playlists.Store) gin.HandlerFunc {
 		includeAll := isAdmin && queryBool(c, "all")
 		list, err := store.List(userID, includeAll)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, list)
@@ -31,13 +32,13 @@ func PlaylistsCreate(store *playlists.Store) gin.HandlerFunc {
 			Description string `json:"description"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrNameRequired})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrNameRequired)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		p, err := store.Create(userID, req.Name, req.Description)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, p)
@@ -49,17 +50,17 @@ func PlaylistsGet(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		p, err := store.Get(id, userID, isAdmin)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if p == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
 		items, _ := store.Items(id, userID, isAdmin)
@@ -72,7 +73,7 @@ func PlaylistsUpdate(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		var req struct {
@@ -80,12 +81,12 @@ func PlaylistsUpdate(store *playlists.Store) gin.HandlerFunc {
 			Description string `json:"description"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.Update(id, userID, req.Name, req.Description, isAdmin); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "updated"})
@@ -97,12 +98,12 @@ func PlaylistsDelete(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.Delete(id, userID, isAdmin); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -114,18 +115,18 @@ func PlaylistsAddItem(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		var req playlists.Item
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		it, err := store.AddItem(id, userID, req, isAdmin)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, it)
@@ -139,7 +140,7 @@ func PlaylistsRemoveItem(store *playlists.Store) gin.HandlerFunc {
 		itemID, _ := strconv.Atoi(c.Param("itemId"))
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.RemoveItem(id, itemID, userID, isAdmin); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "removed"})
@@ -155,12 +156,12 @@ func PlaylistsReorderItem(store *playlists.Store) gin.HandlerFunc {
 			Position int `json:"position"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.Reorder(id, itemID, userID, req.Position, isAdmin); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "reordered"})

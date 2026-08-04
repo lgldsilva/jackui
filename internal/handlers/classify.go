@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 // Rótulos legíveis das categorias (consts p/ não duplicar literais — go:S1192).
@@ -115,7 +116,7 @@ func ClassifyCategory(aiClient *ai.Client) gin.HandlerFunc {
 		title := c.Query("title")
 		jackettCat := c.DefaultQuery("jackett_category", "")
 		if title == "" && jackettCat == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "title or jackett_category required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "title or jackett_category required")
 			return
 		}
 		c.JSON(http.StatusOK, resolveCategory(c.Request.Context(), aiClient, title, jackettCat))

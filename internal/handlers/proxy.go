@@ -19,28 +19,28 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rawURL := c.Query("url")
 		if rawURL == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "url requerida"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "url requerida")
 			return
 		}
 		u, err := url.Parse(rawURL)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "url inválida"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "url inválida")
 			return
 		}
 		if !isJackettURL(u, client) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "URL não pertence ao Jackett configurado"})
+			httpshared.RespondErrorMessage(c, http.StatusForbidden, "URL não pertence ao Jackett configurado")
 			return
 		}
 		injectAPIKey(u, client)
 
 		resp, err := proxyHTTP.Get(u.String())
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "falha ao contactar Jackett"})
+			httpshared.RespondErrorMessage(c, http.StatusBadGateway, "falha ao contactar Jackett")
 			return
 		}
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
-			c.JSON(resp.StatusCode, gin.H{"error": "Jackett retornou erro"})
+			httpshared.RespondErrorMessage(c, resp.StatusCode, "Jackett retornou erro")
 			return
 		}
 		proxyResponse(c, resp)

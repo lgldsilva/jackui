@@ -55,32 +55,11 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 		return err
 	}
 
-	d := net.Dialer{Timeout: 10 * time.Second}
-	conn, err := d.Dial("tcp", addr)
+	c, err := m.dialAndNegotiate(addr)
 	if err != nil {
-		return fmt.Errorf("smtp dial: %w", err)
-	}
-	c, err := smtp.NewClient(conn, m.cfg.Host)
-	if err != nil {
-		_ = conn.Close()
-		return fmt.Errorf("smtp dial: %w", err)
-	}
-	defer func() { _ = c.Close() }()
-	if err := c.Hello("jackui"); err != nil {
 		return err
 	}
-	// Upgrade to TLS when the server advertises STARTTLS (port 587 / submission).
-	if ok, _ := c.Extension("STARTTLS"); ok {
-		if err := c.StartTLS(&tls.Config{ServerName: m.cfg.Host}); err != nil {
-			return fmt.Errorf("starttls: %w", err)
-		}
-	}
-	if ok, _ := c.Extension("AUTH"); ok && m.cfg.Username != "" {
-		auth := smtp.PlainAuth("", m.cfg.Username, m.cfg.Password, m.cfg.Host)
-		if err := c.Auth(auth); err != nil {
-			return fmt.Errorf("smtp auth: %w", err)
-		}
-	}
+	defer func() { _ = c.Close() }()
 	if err := c.Mail(from); err != nil {
 		return err
 	}
@@ -98,6 +77,40 @@ func (m *Mailer) Send(to, subject, htmlBody string) error {
 		return err
 	}
 	return c.Quit()
+}
+
+// dialAndNegotiate opens the SMTP connection and completes the greeting,
+// optional STARTTLS upgrade, and optional authentication.
+func (m *Mailer) dialAndNegotiate(addr string) (*smtp.Client, error) {
+	d := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := d.Dial("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("smtp dial: %w", err)
+	}
+	c, err := smtp.NewClient(conn, m.cfg.Host)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("smtp dial: %w", err)
+	}
+	if err := c.Hello("jackui"); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	// Upgrade to TLS when the server advertises STARTTLS (port 587 / submission).
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err := c.StartTLS(&tls.Config{ServerName: m.cfg.Host}); err != nil {
+			_ = c.Close()
+			return nil, fmt.Errorf("starttls: %w", err)
+		}
+	}
+	if ok, _ := c.Extension("AUTH"); ok && m.cfg.Username != "" {
+		auth := smtp.PlainAuth("", m.cfg.Username, m.cfg.Password, m.cfg.Host)
+		if err := c.Auth(auth); err != nil {
+			_ = c.Close()
+			return nil, fmt.Errorf("smtp auth: %w", err)
+		}
+	}
+	return c, nil
 }
 
 // headerField rejects CR/LF so callers cannot inject extra SMTP headers.

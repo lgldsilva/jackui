@@ -115,12 +115,12 @@ func DownloadsDestinationBrowse(ds *DestinationService) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		base, _, err := ds.Resolve(userID, c.Query("base"), "")
 		if err != nil || base == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "destino inválido"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "destino inválido")
 			return
 		}
 		sub, err := httpshared.SanitizeSubdir(c.Query("path"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		entries, err := os.ReadDir(joinIfSub(base, sub))

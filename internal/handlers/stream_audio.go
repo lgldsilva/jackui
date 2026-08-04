@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/audiometa"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -54,12 +55,12 @@ func StreamAudioMeta(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
 			return
 		}
 		key := h.HexString() + ":" + strconv.Itoa(fileIdx)

@@ -31,7 +31,7 @@ func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
 		defer cancel()
 		probe, err := s.Probe(ctx, h, fileIdx)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 		c.JSON(http.StatusOK, probe)
@@ -51,7 +51,7 @@ func StreamSidecars(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		subs, err := s.Sidecars(h, fileIdx)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 		c.JSON(http.StatusOK, subs)
@@ -75,7 +75,7 @@ func StreamSidecarRead(s *streamer.Streamer) gin.HandlerFunc {
 		defer cancel()
 		raw, format, err := s.ReadSidecar(ctx, h, fileIdx)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 		var body []byte
@@ -112,7 +112,7 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		trackIdx, err := strconv.Atoi(c.Param("track"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid track index"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid track index")
 			return
 		}
 		// Sub extraction can be slow on a fresh stream because MKV interleaves sub data
@@ -120,7 +120,7 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 		defer cancel()
 		vtt, err := s.ExtractSubtitle(ctx, h, fileIdx, trackIdx)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 		c.Header(httpshared.ContentType, httpshared.MIMEVTT)
@@ -149,7 +149,7 @@ func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 		defer cancel()
 		data, _, err := s.ExtractThumbnail(ctx, h, fileIdx, at)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		if len(data) == 0 {
@@ -175,12 +175,12 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		cache := s.MetadataCache()
 		if cache == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "metadata cache disabled")
 			return
 		}
 		meta := cache.Get(h.HexString())
 		if meta == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "no cached metadata"})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "no cached metadata")
 			return
 		}
 		c.Header(httpshared.CacheControl, httpshared.CachePublicDay) // 1d browser cache
@@ -230,16 +230,16 @@ func StreamMetadataBatch(s *streamer.Streamer) gin.HandlerFunc {
 			Hashes []string `json:"hashes"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || len(req.Hashes) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "hashes is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "hashes is required")
 			return
 		}
 		if len(req.Hashes) > 500 {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many hashes"})
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many hashes")
 			return
 		}
 		cache := s.MetadataCache()
 		if cache == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "metadata cache disabled"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "metadata cache disabled")
 			return
 		}
 		normalized, keyForRaw := metadataBatchNormalize(req.Hashes)
@@ -266,7 +266,7 @@ func StreamArtwork(s *streamer.Streamer) gin.HandlerFunc {
 		defer cancel()
 		data, _, err := s.ExtractArtwork(ctx, h, fileIdx)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		if len(data) == 0 {
@@ -326,11 +326,11 @@ func StreamHealthBatch(s *streamer.Streamer) gin.HandlerFunc {
 			Hashes []string `json:"hashes"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || len(req.Hashes) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "hashes is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "hashes is required")
 			return
 		}
 		if len(req.Hashes) > 300 {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many hashes"})
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many hashes")
 			return
 		}
 		results := make(map[string]gin.H, len(req.Hashes))
@@ -378,7 +378,7 @@ func StreamCacheStats(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		stats, err := s.Stats()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, stats)
@@ -399,14 +399,14 @@ func StreamCacheClear(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if entry := c.Query("entry"); entry != "" {
 			if err := s.ClearEntry(entry); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "entry cleared"})
 			return
 		}
 		if err := s.ClearAll(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "cache cleared"})

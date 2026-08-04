@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
@@ -32,7 +33,7 @@ func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		if err := s.Prefetch(h, fileIdx); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		c.JSON(http.StatusAccepted, gin.H{"status": "prefetching"})
@@ -69,11 +70,11 @@ func StreamDropBatch(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) 
 			Hashes []string `json:"hashes"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || len(req.Hashes) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "hashes is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "hashes is required")
 			return
 		}
 		if len(req.Hashes) > streamDropBatchMax {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many hashes"})
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many hashes")
 			return
 		}
 		seen := make(map[string]struct{}, len(req.Hashes))
@@ -151,7 +152,7 @@ func StreamFavorite(s *streamer.Streamer) gin.HandlerFunc {
 			Reason   string `json:"reason"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrNameRequired})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrNameRequired)
 			return
 		}
 		if req.Reason == "" {
@@ -159,12 +160,12 @@ func StreamFavorite(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		favs := s.Favorites()
 		if favs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store not initialized"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "favorites store not initialized")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if err := favs.Add(req.Name, req.InfoHash, req.Magnet, req.Reason, userID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "favorited"})
@@ -177,13 +178,13 @@ func StreamUnfavorite(s *streamer.Streamer) gin.HandlerFunc {
 		name := c.Param("name")
 		favs := s.Favorites()
 		if favs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store not initialized"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "favorites store not initialized")
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
 		if err := favs.Remove(name, userID, includeAll); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "unfavorited"})
@@ -205,7 +206,7 @@ func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
 		// legacy ?includeHidden=1 reveal favourites inside hidden folders.
 		list, err := favs.List(userID, includeAll, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if list == nil {
@@ -254,7 +255,7 @@ func StreamPause(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		if err := s.Pause(h); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "paused"})
@@ -269,7 +270,7 @@ func StreamResume(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		if err := s.Resume(h); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "resumed"})
@@ -287,7 +288,7 @@ func StreamSetPriority(s *streamer.Streamer) gin.HandlerFunc {
 			Priority string `json:"priority"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if err := s.SetPriority(h, req.Priority); err != nil {
@@ -295,7 +296,7 @@ func StreamSetPriority(s *streamer.Streamer) gin.HandlerFunc {
 			if errors.Is(err, streamer.ErrTorrentNotActive) {
 				code = http.StatusNotFound
 			}
-			c.JSON(code, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, code, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"priority": strings.ToLower(req.Priority)})
@@ -311,14 +312,14 @@ func StreamSetFilePriority(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		idx, err := strconv.Atoi(c.Param("idx"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
 			return
 		}
 		var req struct {
 			Priority string `json:"priority"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if err := s.SetFilePriority(h, idx, req.Priority); err != nil {
@@ -326,7 +327,7 @@ func StreamSetFilePriority(s *streamer.Streamer) gin.HandlerFunc {
 			if errors.Is(err, streamer.ErrTorrentNotActive) {
 				code = http.StatusNotFound
 			}
-			c.JSON(code, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, code, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"priority": strings.ToLower(req.Priority)})
@@ -377,11 +378,11 @@ func StreamSetLimits(s *streamer.Streamer) gin.HandlerFunc {
 			Up   int64 `json:"up"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if req.Down < 0 || req.Up < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "limits must be >= 0 (0 = unlimited)"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "limits must be >= 0 (0 = unlimited)")
 			return
 		}
 		s.SetRateLimits(req.Down, req.Up)

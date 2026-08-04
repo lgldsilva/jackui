@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/tmdb"
 )
 
@@ -17,20 +18,20 @@ func TmdbMatch(c *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		title := ctx.Query("title")
 		if title == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "title is required"})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, "title is required")
 			return
 		}
 		if c == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		m, err := c.Match(ctx.Request.Context(), title)
 		if err != nil {
 			if errors.Is(err, tmdb.ErrDisabled) {
-				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+				httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 				return
 			}
-			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadGateway, err)
 			return
 		}
 		if m == nil {
@@ -52,15 +53,15 @@ func TmdbMatchBatch(c *tmdb.Client) gin.HandlerFunc {
 			Titles []string `json:"titles"`
 		}
 		if err := ctx.ShouldBindJSON(&req); err != nil || len(req.Titles) == 0 {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "titles is required"})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, "titles is required")
 			return
 		}
 		if c == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		if len(req.Titles) > 100 {
-			ctx.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many titles"})
+			httpshared.RespondErrorMessage(ctx, http.StatusRequestEntityTooLarge, "too many titles")
 			return
 		}
 		ctx.JSON(http.StatusOK, gin.H{"matches": matchTitlesConcurrent(ctx.Request.Context(), c, req.Titles)})
@@ -102,7 +103,7 @@ func matchTitlesConcurrent(rctx context.Context, c *tmdb.Client, titles []string
 func TmdbTrending(c *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if c == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		year, _ := strconv.Atoi(ctx.Query("year"))
@@ -116,10 +117,10 @@ func TmdbTrending(c *tmdb.Client) gin.HandlerFunc {
 		}
 		if err != nil {
 			if errors.Is(err, tmdb.ErrDisabled) {
-				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+				httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 				return
 			}
-			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadGateway, err)
 			return
 		}
 		ctx.JSON(http.StatusOK, items)
@@ -134,20 +135,20 @@ func TmdbVideos(c *tmdb.Client) gin.HandlerFunc {
 		kind := ctx.Query("kind")
 		id, _ := strconv.Atoi(ctx.Query("id"))
 		if (kind != "movie" && kind != "tv") || id <= 0 {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "kind (movie|tv) and id are required"})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, "kind (movie|tv) and id are required")
 			return
 		}
 		if c == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		videos, err := c.Videos(ctx.Request.Context(), kind, id)
 		if err != nil {
 			if errors.Is(err, tmdb.ErrDisabled) {
-				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+				httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 				return
 			}
-			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadGateway, err)
 			return
 		}
 		ctx.JSON(http.StatusOK, videos)
@@ -159,16 +160,16 @@ func TmdbVideos(c *tmdb.Client) gin.HandlerFunc {
 func TmdbGenres(c *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if c == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		genres, err := c.Genres(ctx.Request.Context())
 		if err != nil {
 			if errors.Is(err, tmdb.ErrDisabled) {
-				ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+				httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 				return
 			}
-			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadGateway, err)
 			return
 		}
 		ctx.JSON(http.StatusOK, genres)

@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/jackett"
 	"github.com/lgldsilva/jackui/internal/middleware"
@@ -78,7 +79,7 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrQueryRequired)
 			return
 		}
 		indexers := parseIndexers(c)
@@ -91,7 +92,7 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 		merged := searchMerged(store, query, userID, includeAll, liveResults, enricher)
 
 		if liveErr != nil && len(merged) == 0 {
-			c.JSON(http.StatusBadGateway, gin.H{"error": liveErr.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, liveErr)
 			return
 		}
 		c.JSON(http.StatusOK, merged)
@@ -159,7 +160,7 @@ func GetIndexers(client *jackett.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		indexers, err := client.GetIndexers()
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 		c.JSON(http.StatusOK, indexers)

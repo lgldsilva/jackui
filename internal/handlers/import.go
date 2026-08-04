@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -36,19 +37,19 @@ func StreamImport(s *streamer.Streamer) gin.HandlerFunc {
 func streamImportHandler(c *gin.Context, s *streamer.Streamer) {
 	var req importReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "corpo inválido"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "corpo inválido")
 		return
 	}
 
 	favs := s.Favorites()
 	if favs == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "favorites store não inicializado"})
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "favorites store não inicializado")
 		return
 	}
 
 	hash, name, magnet, err := resolveImportSource(s, &req)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
 
@@ -58,7 +59,7 @@ func streamImportHandler(c *gin.Context, s *streamer.Streamer) {
 
 	userID, _, _ := auth.UserIDFromCtx(c)
 	if err := favs.Add(name, hash, magnet, "import", userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	if req.FolderID != nil {

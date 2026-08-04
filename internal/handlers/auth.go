@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 const (
@@ -44,7 +45,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 	return func(c *gin.Context) {
 		var req loginReq
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "username + password required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username + password required")
 			return
 		}
 		if respondIfLocked(c, lockout, req.Username) {
@@ -53,7 +54,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 		user, err := store.VerifyPassword(req.Username, req.Password)
 		if err != nil {
 			lockout.Fail(req.Username)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusUnauthorized, err)
 			return
 		}
 		if respondIfInactive(c, user.Status) {
@@ -65,7 +66,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 		lockout.Reset(req.Username)
 		resp, err := issueTokens(store, tm, user, req.Remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
 		}
 		c.JSON(http.StatusOK, resp)
@@ -78,19 +79,17 @@ func respondIfLocked(c *gin.Context, lockout *auth.Lockout, username string) boo
 		return false
 	}
 	c.Header("Retry-After", strconv.Itoa(int(rem.Seconds())+1))
-	c.JSON(http.StatusTooManyRequests, gin.H{
-		"error": "muitas tentativas — tente novamente em " + rem.Round(time.Second).String(),
-	})
+	httpshared.RespondErrorMessage(c, http.StatusTooManyRequests, "muitas tentativas — tente novamente em "+rem.Round(time.Second).String())
 	return true
 }
 
 func respondIfInactive(c *gin.Context, status auth.Status) bool {
 	switch status {
 	case auth.StatusPending:
-		c.JSON(http.StatusForbidden, gin.H{"error": "conta aguardando aprovação ou confirmação de e-mail", "status": "pending"})
+		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta aguardando aprovação ou confirmação de e-mail", gin.H{"status": "pending"})
 		return true
 	case auth.StatusDisabled:
-		c.JSON(http.StatusForbidden, gin.H{"error": "conta desabilitada", "status": "disabled"})
+		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta desabilitada", gin.H{"status": "disabled"})
 		return true
 	}
 	return false
@@ -101,7 +100,7 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 		return true
 	}
 	if totp == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA obrigatório", "mfaRequired": true})
+		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA obrigatório", gin.H{"mfaRequired": true})
 		return false
 	}
 	secret, _, _ := store.GetTOTPSecret(user.ID)
@@ -109,7 +108,7 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 		return true
 	}
 	lockout.Fail(user.Username)
-	c.JSON(http.StatusUnauthorized, gin.H{"error": "código MFA inválido", "mfaRequired": true})
+	httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA inválido", gin.H{"mfaRequired": true})
 	return false
 }
 
@@ -137,14 +136,14 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			Refresh string `json:"refresh"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Refresh == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "refresh token required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "refresh token required")
 			return
 		}
 		// Atomic rotation with a grace window: distinguishes a benign concurrent
 		// refresh (reissue) from a real replay of a long-rotated token (revoke).
 		user, remember, outcome, err := store.RotateRefreshToken(req.Refresh, refreshGrace)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if !refreshOutcomeOK(c, store, user, outcome) {
@@ -152,7 +151,7 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		}
 		resp, err := issueTokenPair(store, tm, user, remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, resp)
@@ -164,18 +163,18 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 func refreshOutcomeOK(c *gin.Context, store *auth.Store, user *auth.User, outcome auth.RefreshOutcome) bool {
 	switch outcome {
 	case auth.RefreshInvalid:
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
+		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "refresh token inválido")
 		return false
 	case auth.RefreshReuse:
 		// Rotated token replayed after the grace → treat as theft: revoke all.
 		_ = store.RevokeAllSessions(user.ID)
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token inválido"})
+		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "refresh token inválido")
 		return false
 	}
 	// Disabled/pending accounts must not keep renewing access.
 	if user.Status != auth.StatusActive && user.Status != "" {
 		_ = store.RevokeAllSessions(user.ID)
-		c.JSON(http.StatusForbidden, gin.H{"error": "conta inativa", "status": string(user.Status)})
+		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta inativa", gin.H{"status": string(user.Status)})
 		return false
 	}
 	return true
@@ -208,17 +207,17 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		user, err := store.GetUserByID(claims.UserID)
 		if err != nil || user == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "user not found")
 			return
 		}
 		token, exp, err := tm.SignMedia(user)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"token": token, "expiresAt": exp})
@@ -325,12 +324,12 @@ func ClearIncognito(cleaners ...incognitoCleanable) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
 		for _, cl := range cleaners {
 			if err := cl.DeleteIncognito(claims.UserID); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
 		}
@@ -345,7 +344,7 @@ func ListSessions(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		var req struct {
@@ -354,7 +353,7 @@ func ListSessions(store *auth.Store) gin.HandlerFunc {
 		_ = c.ShouldBindJSON(&req)
 		sessions, err := store.ListSessions(claims.UserID, req.Refresh)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"sessions": sessions})
@@ -366,11 +365,11 @@ func RevokeSession(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		if err := store.RevokeSession(claims.UserID, c.Param("id")); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "sessão encerrada"})
@@ -383,19 +382,19 @@ func RevokeOtherSessions(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		var req struct {
 			Refresh string `json:"refresh"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Refresh == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "refresh token required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "refresh token required")
 			return
 		}
 		n, err := store.RevokeOtherSessions(claims.UserID, req.Refresh)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "outras sessões encerradas", "revoked": n})
@@ -407,12 +406,12 @@ func Me(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		user, err := store.GetUserByID(claims.UserID)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusUnauthorized, err)
 			return
 		}
 		c.JSON(http.StatusOK, user)
@@ -427,7 +426,7 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		var req struct {
@@ -436,15 +435,15 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 			Refresh string `json:"refresh"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.New == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "senha atual e nova são obrigatórias"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha atual e nova são obrigatórias")
 			return
 		}
 		if len(req.New) < 6 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "a nova senha precisa ter ao menos 6 caracteres"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "a nova senha precisa ter ao menos 6 caracteres")
 			return
 		}
 		if err := store.ChangePassword(claims.UserID, req.Current, req.New); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		revoked := 0

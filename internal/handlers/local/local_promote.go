@@ -37,7 +37,7 @@ type LocalPromoteDeps struct {
 func LocalPromote(d LocalPromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if d.SharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusConflict, httpshared.ErrSharedDirNotConfig)
 			return
 		}
 		req, base, ok := extractLocalPromoteReq(c, d.Browser, d.SharedDir, d.Dests)
@@ -49,14 +49,14 @@ func LocalPromote(d LocalPromoteDeps) gin.HandlerFunc {
 		}
 		targetDir, err := localPromoteTargetDir(base, req.TargetSubdir)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		username := scopeUser(c)
 		orig := originalLocalPaths(req)
 		paths := resolveLocalPaths(d.Browser, req, username)
 		if len(paths) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "nenhum arquivo para promover"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "nenhum arquivo para promover")
 			return
 		}
 		deps := &promoteDstDeps{
@@ -124,7 +124,7 @@ func execPromoteMoves(b *lb.Browser, deps *promoteDstDeps, mount string, paths, 
 		if e := promoteOnePath(b, deps, mount, scopedRel, targetDir); e != nil {
 			e["path"] = key
 			errs = append(errs, e)
-			results = append(results, gin.H{"path": key, "ok": false, "error": e["error"]})
+			results = append(results, gin.H{"path": key, "ok": false, httpshared.ErrorField: e[httpshared.ErrorField]})
 		} else {
 			moved++
 			results = append(results, gin.H{"path": key, "ok": true})
@@ -166,15 +166,15 @@ func promoteJobLabel(req *localPromoteReq, paths []string) string {
 func promoteOnePath(b *lb.Browser, deps *promoteDstDeps, mount, scopedRel, targetDir string) gin.H {
 	clean := filepath.Clean(scopedRel)
 	if clean == "" || clean == "." || clean == "/" {
-		return gin.H{"path": scopedRel, "error": "cannot promote mount root"}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: "cannot promote mount root"}
 	}
 	src, err := b.ResolvePath(mount, scopedRel)
 	if err != nil {
-		return gin.H{"path": scopedRel, "error": err.Error()}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: err.Error()}
 	}
 	stat, err := os.Stat(src)
 	if err != nil {
-		return gin.H{"path": scopedRel, "error": "arquivo de origem não existe"}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: "arquivo de origem não existe"}
 	}
 	baseName := filepath.Base(src)
 	dst, dir := computePromoteDst(deps, baseName, scopedRel, targetDir)
@@ -183,14 +183,14 @@ func promoteOnePath(b *lb.Browser, deps *promoteDstDeps, mount, scopedRel, targe
 	}
 	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return gin.H{"path": scopedRel, "error": "criar destino: " + err.Error()}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: "criar destino: " + err.Error()}
 	}
 	files, bytes := CountTree(src)
 	if err := MovePathJob(src, dst, stat, deps.job, files, bytes); err != nil {
 		// Remove the empty dir we created if the move failed — avoids orphan dirs
 		// (e.g. FUSE mounts that reject cross-device writes).
 		_ = os.Remove(filepath.Dir(dst))
-		return gin.H{"path": scopedRel, "error": "mover arquivo: " + err.Error()}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: "mover arquivo: " + err.Error()}
 	}
 	relinkMovedTorrents(deps.dls, deps.s, src, dst)
 	return nil
@@ -280,7 +280,7 @@ const maxPromoteContextFolders = 40
 func LocalPromotePreview(b *lb.Browser, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusConflict, httpshared.ErrSharedDirNotConfig)
 			return
 		}
 		req, base, ok := extractLocalPromoteReq(c, b, sharedDir, dests)
@@ -359,11 +359,11 @@ type localPromoteReq struct {
 func extractLocalPromoteReq(c *gin.Context, b *lb.Browser, sharedDir string, dests []httpshared.PromoteDest) (*localPromoteReq, string, bool) {
 	var req localPromoteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": httpshared.ErrInvalidData})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, httpshared.ErrInvalidData)
 		return nil, "", false
 	}
 	if req.Mount == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount parameter"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "missing mount parameter")
 		return nil, "", false
 	}
 	if !CheckMountAccess(b, c, req.Mount) {
@@ -374,7 +374,7 @@ func extractLocalPromoteReq(c *gin.Context, b *lb.Browser, sharedDir string, des
 	}
 	base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return nil, "", false
 	}
 	return &req, base, true
@@ -418,23 +418,23 @@ func buildLocalPreviews(d *localPreviewDeps, paths, orig []string) []gin.H {
 func previewItem(d *localPreviewDeps, p, key string) gin.H {
 	cleanPath := filepath.Clean(p)
 	if cleanPath == "" || cleanPath == "." || cleanPath == "/" {
-		return gin.H{"path": key, "error": "cannot promote mount root"}
+		return gin.H{"path": key, httpshared.ErrorField: "cannot promote mount root"}
 	}
 
 	src, err := d.b.ResolvePath(d.mount, p)
 	if err != nil {
-		return gin.H{"path": key, "error": err.Error()}
+		return gin.H{"path": key, httpshared.ErrorField: err.Error()}
 	}
 
 	if _, err := os.Stat(src); err != nil {
-		return gin.H{"path": key, "error": "arquivo não existe"}
+		return gin.H{"path": key, httpshared.ErrorField: "arquivo não existe"}
 	}
 
 	baseName := filepath.Base(src)
 	lc := localContextFor(d.base, d.mount, currentDirOf(p))
 	preview, err := renamer.GeneratePreviewWithContext(d.c.Request.Context(), d.aiClient, d.tmdbClient, baseName, lc)
 	if err != nil {
-		return gin.H{"path": key, "error": err.Error()}
+		return gin.H{"path": key, httpshared.ErrorField: err.Error()}
 	}
 
 	nonConflicting := renamer.ResolveTargetConflict(d.base, preview.TargetPath)

@@ -15,13 +15,13 @@ import (
 func MusicTrending(mc *musictrending.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if mc == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "music trending disabled"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "music trending disabled")
 			return
 		}
 		limit, _ := strconv.Atoi(c.Query("limit"))
 		albums, err := mc.Top(c.Request.Context(), c.Query("country"), limit)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "upstream error"})
+			httpshared.RespondErrorMessage(c, http.StatusBadGateway, "upstream error")
 			return
 		}
 		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)

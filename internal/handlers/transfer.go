@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
@@ -32,7 +33,7 @@ func TransfersCancel(tr *transfer.Tracker) gin.HandlerFunc {
 		id := c.Param("id")
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if id == "" || !tr.Cancel(id, userID, isAdmin) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "transferência não encontrada"})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "transferência não encontrada")
 			return
 		}
 		c.Status(http.StatusNoContent)

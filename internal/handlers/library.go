@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -25,7 +26,7 @@ func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 		}
 		list, err := lib.List(userID, includeAll, limit)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, includeAll))
@@ -39,18 +40,18 @@ func LibraryGet(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin
 		entry, err := lib.GetByID(id, userID, includeAll)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if entry == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, entry)
@@ -63,7 +64,7 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		var req struct {
@@ -72,7 +73,7 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 			FileIndex       *int    `json:"fileIndex"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		// Pointer so an omitted fileIndex stays -1 (don't touch the column).
@@ -85,7 +86,7 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 		// allows the user to resume within their incognito session.
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := lib.UpdateResume(id, userID, req.ResumeSeconds, req.DurationSeconds, fileIndex, isAdmin); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "saved"})
@@ -100,7 +101,7 @@ func LibraryDeleteAll(lib *library.Store) gin.HandlerFunc {
 		includeAll := isAdmin && queryBool(c, "all")
 		n, err := lib.DeleteAll(userID, includeAll)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": n})
@@ -112,12 +113,12 @@ func LibraryDelete(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := lib.Delete(id, userID, isAdmin); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "deleted"})

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -144,11 +145,11 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 	return func(c *gin.Context) {
 		var b streamSettingsBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid request body")
 			return
 		}
 		if msg := validateStreamSettings(&b); msg != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, msg)
 			return
 		}
 
@@ -167,7 +168,7 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 		cfg.Stream.HLSMediaRenditions = b.HLSMediaRenditions
 
 		if err := cfg.Save(configPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error())
 			return
 		}
 

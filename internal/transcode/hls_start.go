@@ -90,36 +90,19 @@ func (m *HLSSessionManager) resolveDuration(ctx context.Context, effKey string, 
 	return durationSec
 }
 
-// buildSession does the slow part of GetOrStart (loopback server, duration
-// probe, ffmpeg launch) outside the manager lock. The caller holds the
-// `starting` slot for effKey, so exactly one build runs per key.
-func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opts HLSStartOpts) (*HLSSession, error) {
-	caps := Cached()
-	if caps == nil {
-		return nil, errors.New("transcode caps not probed yet")
-	}
-
-	dir := filepath.Join(m.baseDir, effKey)
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("mkdir hls dir: %w", err)
-	}
-
-	encoder := caps.Preferred
-	if opts.VideoCodec != "" {
-		encoder = opts.VideoCodec
-	}
-
+// startSourceServer exposes the seekable input through the loopback Range
+// server used by ffmpeg.
+func startSourceServer(opts HLSStartOpts) (*http.Server, string, error) {
 	// Stand up an ephemeral loopback HTTP server that serves the source via
 	// http.ServeContent — gives ffmpeg full Range support so it can seek to
 	// `moov` atoms at end of file (the production failure mode with MP4
 	// torrents that aren't faststart-encoded).
 	if opts.Source == nil {
-		return nil, errors.New("HLSStartOpts.Source is required (seekable input)")
+		return nil, "", errors.New("HLSStartOpts.Source is required (seekable input)")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return nil, fmt.Errorf("loopback listen: %w", err)
+		return nil, "", fmt.Errorf("loopback listen: %w", err)
 	}
 	srcSize := opts.SourceSize
 	sourceReader := &readSeekerContent{ReadSeeker: opts.Source}
@@ -142,7 +125,33 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	// bound is free hardening; the body read stays unbounded for long streams.
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 30 * time.Second}
 	go func() { _ = srv.Serve(listener) }()
-	inputURL := fmt.Sprintf("http://%s/source", listener.Addr().String())
+	return srv, fmt.Sprintf("http://%s/source", listener.Addr().String()), nil
+}
+
+// buildSession does the slow part of GetOrStart (loopback server, duration
+// probe, ffmpeg launch) outside the manager lock. The caller holds the
+// `starting` slot for effKey, so exactly one build runs per key.
+func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opts HLSStartOpts) (*HLSSession, error) {
+	caps := Cached()
+	if caps == nil {
+		return nil, errors.New("transcode caps not probed yet")
+	}
+
+	dir := filepath.Join(m.baseDir, effKey)
+	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir hls dir: %w", err)
+	}
+
+	encoder := caps.Preferred
+	if opts.VideoCodec != "" {
+		encoder = opts.VideoCodec
+	}
+
+	srv, inputURL, err := startSourceServer(opts)
+	if err != nil {
+		return nil, err
+	}
 
 	durationSec := m.resolveDuration(ctx, effKey, opts, caps.FFmpegPath, inputURL)
 	m.cacheDuration(opts.Key, durationSec)

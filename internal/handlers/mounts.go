@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/local"
 )
 
@@ -27,11 +28,11 @@ func MountsUpdate(cfg *config.Config, configPath string, browser *local.Browser)
 	return func(c *gin.Context) {
 		var mounts []config.ExternalMount
 		if err := c.ShouldBindJSON(&mounts); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid request body")
 			return
 		}
 		if msg := validateMounts(mounts); msg != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, msg)
 			return
 		}
 		// Snapshot → mutate → Save. On a Save failure the in-memory config is
@@ -41,10 +42,8 @@ func MountsUpdate(cfg *config.Config, configPath string, browser *local.Browser)
 		cfg.External.Mounts = mounts
 		if err := cfg.Save(configPath); err != nil {
 			cfg.External.Mounts = old
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "failed to save config: " + err.Error() +
-					" — nada foi alterado; o config.yaml precisa ser gravável pelo uid do container (ajuste dono/permissão no host)",
-			})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error()+
+				" — nada foi alterado; o config.yaml precisa ser gravável pelo uid do container (ajuste dono/permissão no host)")
 			return
 		}
 		if browser != nil {

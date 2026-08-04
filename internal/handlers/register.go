@@ -63,34 +63,34 @@ func Register(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Hand
 func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) {
 	var req registerReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": httpshared.ErrInvalidData})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, httpshared.ErrInvalidData)
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	if req.Username == "" || req.Email == "" || len(req.Password) < 6 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "usuário, e-mail e senha (≥6) são obrigatórios"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "usuário, e-mail e senha (≥6) são obrigatórios")
 		return
 	}
 	taken, err := store.Exists(req.Username, req.Email)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	if taken {
-		c.JSON(http.StatusConflict, gin.H{"error": "usuário ou e-mail já cadastrado"})
+		httpshared.RespondErrorMessage(c, http.StatusConflict, "usuário ou e-mail já cadastrado")
 		return
 	}
 
 	status, invited, ierr := resolveInviteStatus(store, req.Invite)
 	if ierr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ierr.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, ierr)
 		return
 	}
 
 	uid, err := store.CreateUserFull(req.Username, req.Email, req.Password, auth.RoleUser, status)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -136,12 +136,12 @@ func Invite(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 		base := baseURL(c, cfgBaseURL)
 		if base == "" {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "base URL pública não configurada"})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "base URL pública não configurada")
 			return
 		}
 		tok, err := store.CreateToken(auth.TokenInvite, 0, req.Email, inviteTTL)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		link := base + "/register?invite=" + tok
@@ -159,16 +159,16 @@ func VerifyEmail(store *auth.Store) gin.HandlerFunc {
 			Token string `json:"token"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Token == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "token obrigatório"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token obrigatório")
 			return
 		}
 		ti, err := store.ConsumeToken(req.Token, auth.TokenVerifyEmail)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if err := store.SetEmailVerified(ti.UserID, ""); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "e-mail confirmado"})
@@ -207,16 +207,16 @@ func Reset(store *auth.Store) gin.HandlerFunc {
 			Password string `json:"password"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Token == "" || len(req.Password) < 6 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "token e nova senha (≥6) obrigatórios"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token e nova senha (≥6) obrigatórios")
 			return
 		}
 		ti, err := store.ConsumeToken(req.Token, auth.TokenResetPassword)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if err := store.SetPassword(ti.UserID, req.Password); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "senha redefinida"})
