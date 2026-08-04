@@ -3,6 +3,7 @@ package streamer
 import (
 	"context"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -93,8 +94,12 @@ func (s *Streamer) gcLoop() {
 // caller can purge their dedup keys outside s.mu.
 func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 	var dropped []metainfo.Hash
+	type accessStamp struct {
+		name string
+		at   time.Time
+	}
+	var stamps []accessStamp
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for h, e := range s.active {
 		if now.Sub(e.lastAccess) <= s.cfg.IdleTimeout {
 			continue
@@ -109,9 +114,21 @@ func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 			continue
 		}
 		log.Printf("streamer: dropping idle torrent %s (%s)", e.t.Name(), h.HexString()[:8])
+		stamps = append(stamps, accessStamp{e.t.Name(), e.lastAccess})
 		delete(s.active, h)
 		e.t.Drop()
 		dropped = append(dropped, h)
+	}
+	s.mu.Unlock()
+
+	// Persist last-access into the on-disk mtime (outside the lock). Eviction
+	// orders by mtime, and without this stamp a fully-downloaded torrent's mtime
+	// is its last PIECE WRITE: a favorite watched daily would still sort "old"
+	// and get evicted first. With the stamp, LRU means "least recently USED"
+	// (played or written), which is what the cache cap should honor.
+	for _, st := range stamps {
+		p := filepath.Join(s.cfg.DataDir, st.name)
+		_ = os.Chtimes(p, st.at, st.at) // best-effort: entry dir may be gone
 	}
 	return dropped
 }
