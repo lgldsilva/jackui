@@ -21,7 +21,7 @@ type CacheEntry struct {
 	Size       int64     `json:"size"`
 	ModTime    time.Time `json:"modTime"`
 	IsActive   bool      `json:"isActive"`   // currently being downloaded/seeded
-	IsFavorite bool      `json:"isFavorite"` // protected from eviction
+	IsFavorite bool      `json:"isFavorite"` // evicted LAST — only when nothing else can bring the cache under the cap
 	// InfoHash is the torrent's hex-encoded SHA1 info hash. Populated when the
 	// torrent is either active or has a persisted .torrent in metainfoDir.
 	// Empty string when we can't resolve the hash — the UI hides Play in that case.
@@ -206,6 +206,10 @@ func (s *Streamer) ClearEntry(name string) error {
 
 // enforceCacheLimit evicts oldest inactive entries until total size <= maxSize.
 // Only inactive entries are touched — active torrents are protected.
+// Two-tier LRU: plain entries go first; favorites are only touched when the
+// cache is STILL over the cap after every non-favorite candidate is gone.
+// Favorites are "evicted last", not "never": with a never-evict rule a cache
+// full of favorites stays over MaxCacheSize forever, silently breaking the cap.
 func (s *Streamer) enforceCacheLimit() {
 	if s.cfg.MaxCacheSize <= 0 {
 		return
@@ -218,26 +222,47 @@ func (s *Streamer) enforceCacheLimit() {
 		return
 	}
 
-	// Sort oldest first (LRU based on mtime). Favorites, active torrents, and
-	// in-flight background downloads are protected from eviction.
-	inactive := make([]CacheEntry, 0, len(stats.Entries))
+	// Oldest-first (LRU by mtime) within each tier. mtime is stamped with the
+	// entry's lastAccess at idle-drop time (dropIdleTorrents), so ordering means
+	// "least recently USED" (played or written), not "downloaded longest ago".
+	// Active torrents and in-flight background downloads are protected from
+	// eviction entirely; favorites are deferred to tier 2.
+	plain := make([]CacheEntry, 0, len(stats.Entries))
+	favorited := make([]CacheEntry, 0)
 	for _, e := range stats.Entries {
-		if !e.IsActive && !e.IsFavorite && !s.IsDownloadProtected(e.Path) {
-			inactive = append(inactive, e)
+		if e.IsActive || s.IsDownloadProtected(e.Path) {
+			continue
 		}
+		if e.IsFavorite {
+			favorited = append(favorited, e)
+			continue
+		}
+		plain = append(plain, e)
 	}
-	sort.Slice(inactive, func(i, j int) bool {
-		return inactive[i].ModTime.Before(inactive[j].ModTime)
+	sort.Slice(plain, func(i, j int) bool {
+		return plain[i].ModTime.Before(plain[j].ModTime)
 	})
 
-	s.evictCandidates(inactive, stats.TotalSize)
+	remaining := s.evictCandidates(plain, stats.TotalSize)
+	if remaining <= s.cfg.MaxCacheSize {
+		return
+	}
+
+	// Tier 2: still over the cap (cache full of favorites) — evict favorites
+	// oldest-first. The favorite FLAG stays in the DB; only the cached bytes go
+	// (next playback re-downloads). Without this tier the cap is unenforceable.
+	sort.Slice(favorited, func(i, j int) bool {
+		return favorited[i].ModTime.Before(favorited[j].ModTime)
+	})
+	s.evictCandidates(favorited, remaining)
 }
 
 // evictCandidates deletes entries oldest-first until total size drops to/below
 // MaxCacheSize. `candidates` are the entries that looked evictable at snapshot
 // time; each is re-checked with evictionBlocked under the lock right before
 // removal, so one that became active in the gap is skipped instead of deleted.
-func (s *Streamer) evictCandidates(candidates []CacheEntry, total int64) {
+// Returns the total size left after eviction so callers can chain a second tier.
+func (s *Streamer) evictCandidates(candidates []CacheEntry, total int64) int64 {
 	current := total
 	for _, e := range candidates {
 		if current <= s.cfg.MaxCacheSize {
@@ -256,6 +281,7 @@ func (s *Streamer) evictCandidates(candidates []CacheEntry, total int64) {
 			s.recordEviction(e.Size)
 		}
 	}
+	return current
 }
 
 // recordEviction bumps the lifetime eviction counters surfaced by Stats().
