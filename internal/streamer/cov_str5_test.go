@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 
@@ -376,5 +377,129 @@ func Test_str5_DirSizeAndMTime_SingleFile(t *testing.T) {
 	}
 	if mtime.IsZero() {
 		t.Error("expected non-zero mtime")
+	}
+}
+
+// ───── enforceCacheLimit: favorites are evicted LAST, not never ─────
+//
+// A cache whose only evictable content is favorites must still shrink to the
+// cap (tier 2); otherwise MaxCacheSize is silently unenforceable once enough
+// torrents are favorited. The favorite FLAG survives — only the bytes go.
+
+func Test_str5_EnforceCacheLimit_PrefersPlainOverFavorites(t *testing.T) {
+	dir := t.TempDir()
+	favs := str5NewFavorites(t)
+	payload := make([]byte, 128*1024)
+	for _, n := range []string{"str5-fav", "str5-plain"} {
+		if err := os.WriteFile(filepath.Join(dir, n), payload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := favs.Add("str5-fav", "", "", "test", 1); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewForTesting()
+	s.cfg.DataDir = dir
+	s.cfg.MaxCacheSize = 200 * 1024 // room for exactly one of the two
+	s.favs = favs
+
+	s.enforceCacheLimit()
+
+	if _, err := os.Stat(filepath.Join(dir, "str5-plain")); !os.IsNotExist(err) {
+		t.Errorf("plain entry should be evicted first, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "str5-fav")); err != nil {
+		t.Errorf("favorite must survive while plain entries can pay the toll: %v", err)
+	}
+}
+
+func Test_str5_EnforceCacheLimit_EvictsOldestFavoriteWhenNothingElseLeft(t *testing.T) {
+	dir := t.TempDir()
+	favs := str5NewFavorites(t)
+	payload := make([]byte, 128*1024)
+	old, recent := "str5-fav-old", "str5-fav-recent"
+	for _, n := range []string{old, recent} {
+		if err := os.WriteFile(filepath.Join(dir, n), payload, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := favs.Add(n, "", "", "test", 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Distinct mtimes drive the LRU order inside tier 2.
+	past := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(filepath.Join(dir, old), past, past); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NewForTesting()
+	s.cfg.DataDir = dir
+	s.cfg.MaxCacheSize = 130 * 1024 // room for exactly one favorite
+	s.favs = favs
+
+	s.enforceCacheLimit()
+
+	if _, err := os.Stat(filepath.Join(dir, old)); !os.IsNotExist(err) {
+		t.Errorf("oldest favorite should be the tier-2 victim, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, recent)); err != nil {
+		t.Errorf("recent favorite should survive: %v", err)
+	}
+	// The FLAG stays in the DB — eviction only drops the cached bytes.
+	if !favs.IsFavorite(old) {
+		t.Error("evicting a favorite's cache must not remove the favorite marking")
+	}
+}
+
+// ───── dropIdleTorrents stamps lastAccess onto the on-disk mtime ─────
+//
+// Eviction orders by mtime. Without the stamp, a fully-downloaded torrent's
+// mtime is its last PIECE WRITE: a favorite watched daily would still sort
+// "old" and get evicted first. The stamp makes LRU mean "least recently USED".
+
+func Test_str5_DropIdleTorrents_StampsLastAccess(t *testing.T) {
+	dir := t.TempDir()
+	s, err := newTestStreamer(t, Config{DataDir: dir, IdleTimeout: time.Minute})
+	if err != nil {
+		t.Fatalf("newTestStreamer: %v", err)
+	}
+	defer s.Close()
+
+	spec := str3TorrentSpec(t) // on-disk name: "str3-sample.bin"
+	tor, _, err := s.client.AddTorrentSpec(spec)
+	if err != nil {
+		t.Fatalf("AddTorrentSpec: %v", err)
+	}
+
+	access := time.Now().Add(-2 * time.Hour) // last played 2h ago → idle
+	s.mu.Lock()
+	s.active[tor.InfoHash()] = &entry{t: tor, lastAccess: access}
+	s.mu.Unlock()
+
+	// Simulate an old download: the on-disk entry predates the recent playback.
+	// MUST match the torrent layout — str3 is a single-FILE torrent (16 KB), so
+	// the entry is a regular file; a directory here breaks anacrolix's mapping.
+	p := filepath.Join(dir, "str3-sample.bin")
+	if err := os.WriteFile(p, make([]byte, 1<<14), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ancient := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(p, ancient, ancient); err != nil {
+		t.Fatal(err)
+	}
+
+	dropped := s.dropIdleTorrents(time.Now())
+	if len(dropped) != 1 {
+		t.Fatalf("expected 1 idle torrent dropped, got %d", len(dropped))
+	}
+
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatalf("entry vanished after drop: %v", err)
+	}
+	if info.ModTime().Before(access.Add(-time.Minute)) {
+		t.Errorf("mtime not stamped with lastAccess: mtime=%s lastAccess=%s",
+			info.ModTime().Format(time.RFC3339), access.Format(time.RFC3339))
 	}
 }

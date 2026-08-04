@@ -150,7 +150,11 @@ func TestEnforceCacheLimit_UnderLimit_Extra(t *testing.T) {
 	}
 }
 
-func TestEnforceCacheLimit_ProtectsFavorites_Extra(t *testing.T) {
+// Contract change (2026-08): favorites are no longer NEVER evicted — they are
+// evicted LAST. When the only content over the cap is a favorite, tier-2 LRU
+// evicts it so MaxCacheSize stays enforceable; the favorite MARKING survives in
+// the DB (only cached bytes go, next playback re-downloads).
+func TestEnforceCacheLimit_FavoritesEvictedLast_Extra(t *testing.T) {
 	dir := t.TempDir()
 	data := make([]byte, 100*1024)
 	os.WriteFile(filepath.Join(dir, "fav-entry"), data, 0o644)
@@ -165,8 +169,8 @@ func TestEnforceCacheLimit_ProtectsFavorites_Extra(t *testing.T) {
 
 	s.enforceCacheLimit()
 
-	if _, err := os.Stat(filepath.Join(dir, "fav-entry")); os.IsNotExist(err) {
-		t.Error("favorited entry was evicted despite protection")
+	if _, err := os.Stat(filepath.Join(dir, "fav-entry")); !os.IsNotExist(err) {
+		t.Error("favorite-only cache over cap must shrink via tier-2 eviction")
 	}
 }
 

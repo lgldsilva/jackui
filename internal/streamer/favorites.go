@@ -20,7 +20,8 @@ func b2iFav(b bool) int {
 }
 
 // FavoritesStore persists "favorite" markings for streamed torrents.
-// Favorites are protected from cache eviction (both LRU and manual clear-all).
+// Favorites are EVICTED LAST by the cache LRU (only when nothing else can
+// bring the cache under MaxCacheSize) and preserved by manual clear-all.
 //
 // Schema: one row per torrent name (as stored on disk), nullable info_hash for cross-reference.
 type FavoritesStore struct {
@@ -97,7 +98,8 @@ func (f *FavoritesStore) Remove(name string, userID int, includeAll bool) error 
 }
 
 // IsFavorite reports whether the given on-disk name is favorited (by any user).
-// Used by Streamer cache eviction logic — protects favorites of all users from auto-delete.
+// Used by Streamer cache eviction logic: favorites of all users are deferred to
+// the LAST eviction tier (never the first).
 func (f *FavoritesStore) IsFavorite(name string) bool {
 	if f == nil {
 		return false
