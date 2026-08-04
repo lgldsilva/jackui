@@ -363,6 +363,8 @@ sonar-scan:
 	@sonar-scanner \
 		-Dsonar.host.url=$(SONAR_HOST_URL) \
 		-Dsonar.token=$(SONAR_TOKEN) \
+		-Dsonar.projectKey=jackui \
+		-Dsonar.projectName=JackUI \
 		2>&1 | tail -15
 	@rm -f coverage.out
 	$(call ok,Quality gate OK — mesmo gate do CI)
