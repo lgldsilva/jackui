@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -13,6 +14,20 @@ const (
 	ctxClaimsKey = "auth.claims"
 )
 
+// logReject records a 401 with the caller identity so "who is calling wrong"
+// is greppable in the structured log instead of having to be reverse-engineered
+// from the gin access log (the bug that motivated this: an unauthenticated
+// frontend probe 401'd on every SearchPage mount, invisible there).
+// The token itself is NEVER logged — only method/path/ip/reason.
+func logReject(c *gin.Context, reason string) {
+	slog.Warn("auth: rejected request",
+		"reason", reason,
+		"method", c.Request.Method,
+		"path", c.Request.URL.Path,
+		"ip", c.ClientIP(),
+	)
+}
+
 // Required is the Gin middleware that rejects requests without a valid Bearer token.
 // On success, the parsed Claims are attached to the context and available via FromCtx.
 // Media tokens (scope="media") only valem em rotas de mídia chamadas via
@@ -21,15 +36,18 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := extractToken(c)
 		if raw == "" {
+			logReject(c, "missing access token")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing access token"})
 			return
 		}
 		claims, err := tm.ParseAccess(raw)
 		if err != nil {
+			logReject(c, "invalid or expired token")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
 		if claims.Scope == ScopeMedia && !mediaTokenAllowed(c) {
+			logReject(c, "media token outside media route")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "media token not accepted here"})
 			return
 		}
