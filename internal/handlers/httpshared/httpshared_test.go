@@ -155,3 +155,27 @@ func TestRespondErrorMessage(t *testing.T) {
 		t.Fatalf("status/body = %d/%s, want 400/{\"error\":\"invalid request\"}", w.Code, w.Body.String())
 	}
 }
+
+func TestRespondErrorFields(t *testing.T) {
+	c, w := testCtx("")
+	RespondErrorFields(c, 409, errors.New("busy"), gin.H{"retryAfter": 30})
+	if w.Code != 409 {
+		t.Fatalf("status = %d, want 409", w.Code)
+	}
+	want := `{"error":"busy","retryAfter":30}`
+	if w.Body.String() != want {
+		t.Fatalf("body = %s, want %s", w.Body.String(), want)
+	}
+}
+
+func TestRespondErrorMessageFields(t *testing.T) {
+	c, w := testCtx("")
+	RespondErrorMessageFields(c, 400, "invalid", gin.H{"field": "email"})
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+	want := `{"error":"invalid","field":"email"}`
+	if w.Body.String() != want {
+		t.Fatalf("body = %s, want %s", w.Body.String(), want)
+	}
+}
