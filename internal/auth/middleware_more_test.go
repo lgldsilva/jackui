@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -498,5 +500,56 @@ func TestSignAccess_SubjectIsUserID(t *testing.T) {
 	claims, _ := tm.ParseAccess(tok)
 	if !strings.Contains(claims.Subject, "42") {
 		t.Fatalf("subject = %q, want containing 42", claims.Subject)
+	}
+}
+
+func TestSanitizeForLog_RemovesControlChars(t *testing.T) {
+	in := "hello\r\nworld\x00\tone\ntwo"
+	got := sanitizeForLog(in)
+	want := "hello␊world␉one␊two"
+	if got != want {
+		t.Fatalf("sanitizeForLog = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeForLog_Truncates(t *testing.T) {
+	in := strings.Repeat("a", 1024)
+	got := sanitizeForLog(in)
+	if len(got) != 512 {
+		t.Fatalf("len = %d, want 512", len(got))
+	}
+}
+
+func TestLogReject_SanitizesUserInput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var buf bytes.Buffer
+	handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
+	slog.SetDefault(slog.New(handler))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req, err := http.NewRequest("GET", "http://example.com/api/secret", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	// Simulate a crafted raw path containing a newline; the URL parser rejects
+	// this in the raw request line, but a malicious client could send it, so we
+	// set the path directly to exercise the sanitizer.
+	req.URL.Path = "/api/secret\nINJECTED"
+	req.Header.Set("X-Forwarded-For", "1.2.3.4\r\n5.6.7.8")
+	c.Request = req
+
+	logReject(c, "bad\ntoken")
+
+	out := buf.String()
+	if strings.Contains(out, "\nINJECTED") || strings.Contains(out, "\r") {
+		t.Fatalf("log output contains unsanitized control chars: %q", out)
+	}
+	if !strings.Contains(out, "path=/api/secret␊INJECTED") {
+		t.Fatalf("expected sanitized path in log: %q", out)
+	}
+	if !strings.Contains(out, "reason=bad␊token") {
+		t.Fatalf("expected sanitized reason in log: %q", out)
 	}
 }
