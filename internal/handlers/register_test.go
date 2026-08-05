@@ -65,5 +65,3 @@ func TestInvite_NoBaseURL(t *testing.T) {
 		t.Fatalf("status = %d, want 500", w.Code)
 	}
 }
-
-
