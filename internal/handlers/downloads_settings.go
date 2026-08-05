@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 // downloadsQueueBody is the wire shape for GET/PUT /api/downloads/settings.
@@ -92,7 +93,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string, setVerifyCon
 	return func(c *gin.Context) {
 		var b downloadsQueueBody
 		if err := c.ShouldBindJSON(&b); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid request body")
 			return
 		}
 		// Omitted field (0) → disk-safe default; keeps older clients working.
@@ -100,7 +101,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string, setVerifyCon
 			b.MaxConcurrentVerify = 1
 		}
 		if msg := validateDownloadsQueue(&b); msg != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, msg)
 			return
 		}
 		cfg.DownloadsQueue.MaxActive = b.MaxActive
@@ -123,7 +124,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string, setVerifyCon
 		}
 
 		if err := cfg.Save(configPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error())
 			return
 		}
 		// All queue settings are read live by the worker → no restart needed.

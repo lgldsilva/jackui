@@ -61,22 +61,22 @@ func LocalCacheStart(b *lb.Browser, cache *localcache.Cache) gin.HandlerFunc {
 			return
 		}
 		if cache == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cache local desabilitado"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "cache local desabilitado")
 			return
 		}
 		scoped := ScopePath(b, c, mount, path)
 		abs, err := b.ResolvePath(mount, scoped)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		st, serr := os.Stat(abs)
 		if serr != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 			return
 		}
 		if st.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": httpshared.ErrPathIsDir})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, httpshared.ErrPathIsDir)
 			return
 		}
 		cache.Enqueue(mount, scoped, abs, st.Size())
@@ -100,7 +100,7 @@ func LocalCacheFolder(b *lb.Browser, cache *localcache.Cache, s *streamer.Stream
 func localCacheFolderHandler(b *lb.Browser, cache *localcache.Cache, s *streamer.Streamer, c *gin.Context) {
 	mount := c.Query("mount")
 	if mount == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 		return
 	}
 	path := c.Query("path") // empty = mount root
@@ -108,7 +108,7 @@ func localCacheFolderHandler(b *lb.Browser, cache *localcache.Cache, s *streamer
 		return
 	}
 	if cache == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cache local desabilitado"})
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "cache local desabilitado")
 		return
 	}
 	scoped := ScopePath(b, c, mount, path)
@@ -119,7 +119,7 @@ func localCacheFolderHandler(b *lb.Browser, cache *localcache.Cache, s *streamer
 	}
 	entries, err := b.Walk(mount, scoped, true) // mediaOnly
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
 	// Do not pre-cache files under a closed-curtain hidden folder. Keep the full
@@ -195,7 +195,7 @@ func mountPathParams(c *gin.Context) (string, string, bool) {
 	mount := c.Query("mount")
 	path := c.Query("path")
 	if mount == "" || path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 		return "", "", false
 	}
 	return mount, path, true

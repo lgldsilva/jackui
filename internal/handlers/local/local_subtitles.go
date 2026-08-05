@@ -63,7 +63,7 @@ func LocalProbe(b *lb.Browser) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errMissingMountOrPath)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -98,12 +98,12 @@ func LocalProbe(b *lb.Browser) gin.HandlerFunc {
 func resolveLocalProbeFile(c *gin.Context, b *lb.Browser, mount, path string) (string, os.FileInfo, bool) {
 	abs, err := b.ResolvePath(mount, ScopePath(b, c, mount, path))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return "", nil, false
 	}
 	st, err := os.Stat(abs)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 		return "", nil, false
 	}
 	return abs, st, true
@@ -117,7 +117,7 @@ func runLocalFFProbe(c *gin.Context, abs string) (streamer.ProbeResult, bool) {
 	// does — no duplicate decoder to drift.
 	result, err := streamer.ProbeLocal(ctx, abs)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadGateway, err)
 		return streamer.ProbeResult{}, false
 	}
 	return result, true
@@ -178,7 +178,7 @@ func LocalSidecars(b *lb.Browser) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errMissingMountOrPath)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -186,7 +186,7 @@ func LocalSidecars(b *lb.Browser) gin.HandlerFunc {
 		}
 		abs, err := b.ResolvePath(mount, ScopePath(b, c, mount, path))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		dir := filepath.Dir(abs)
@@ -194,7 +194,7 @@ func LocalSidecars(b *lb.Browser) gin.HandlerFunc {
 
 		subs, err := collectDirSubs(dir, baseNoExt)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 		if subs == nil {
@@ -214,32 +214,32 @@ func LocalSidecarRead(b *lb.Browser) gin.HandlerFunc {
 		path := c.Query("path")
 		name := c.Query("name")
 		if mount == "" || path == "" || name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount, path or name"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "missing mount, path or name")
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
 			return
 		}
 		if strings.ContainsAny(name, "/\\") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid name")
 			return
 		}
 		abs, err := b.ResolvePath(mount, ScopePath(b, c, mount, path))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		subPath := filepath.Join(filepath.Dir(abs), name)
 		ext := strings.ToLower(filepath.Ext(name))
 		format, ok := localSubtitleExtensions[ext]
 		if !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported subtitle format"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "unsupported subtitle format")
 			return
 		}
 		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 		raw, err := os.ReadFile(subPath)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		var body []byte
@@ -265,7 +265,7 @@ func LocalSubtitlesAuto(b *lb.Browser, subClient *subtitles.Client) gin.HandlerF
 		mount := ctx.Query("mount")
 		path := ctx.Query("path")
 		if mount == "" || path == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, errMissingMountOrPath)
 			return
 		}
 		if !CheckMountAccess(b, ctx, mount) {
@@ -288,19 +288,19 @@ func LocalSubtitlesAuto(b *lb.Browser, subClient *subtitles.Client) gin.HandlerF
 func resolveLocalFileWithStat(ctx *gin.Context, b *lb.Browser, mount, path string) (string, *os.File, os.FileInfo, bool) {
 	abs, err := b.ResolvePath(mount, ScopePath(b, ctx, mount, path))
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(ctx, http.StatusBadRequest, err)
 		return "", nil, nil, false
 	}
 	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(abs)
 	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		httpshared.RespondError(ctx, http.StatusNotFound, err)
 		return "", nil, nil, false
 	}
 	st, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(ctx, http.StatusInternalServerError, err)
 		return "", nil, nil, false
 	}
 	return abs, f, st, true
@@ -336,8 +336,7 @@ func buildSearchOpts(query, langs string, hashRes streamer.HashResult, hashErr e
 func serveAutoSubtitles(ctx *gin.Context, subClient *subtitles.Client, baseName string, opts subtitles.SearchOpts, hashRes streamer.HashResult, hashErr error) {
 	results, err := subClient.SearchAuto(opts)
 	if err != nil {
-		ctx.JSON(http.StatusBadGateway, gin.H{
-			"error":   err.Error(),
+		httpshared.RespondErrorFields(ctx, http.StatusBadGateway, err, gin.H{
 			"osHash":  hashRes.Hash,
 			"hashErr": errStrIfAny(hashErr),
 			"file":    baseName,
@@ -460,7 +459,7 @@ type subtrackReq struct {
 func parseSubtrackReq(b *lb.Browser, c *gin.Context) (subtrackReq, bool) {
 	mount, path, trackStr := c.Query("mount"), c.Query("path"), c.Query("track")
 	if mount == "" || path == "" || trackStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount, path or track"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "missing mount, path or track")
 		return subtrackReq{}, false
 	}
 	if !CheckMountAccess(b, c, mount) {
@@ -468,13 +467,13 @@ func parseSubtrackReq(b *lb.Browser, c *gin.Context) (subtrackReq, bool) {
 	}
 	track, err := strconv.Atoi(trackStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid track index"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid track index")
 		return subtrackReq{}, false
 	}
 	scoped := ScopePath(b, c, mount, path)
 	abs, err := b.ResolvePath(mount, scoped)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return subtrackReq{}, false
 	}
 	st, _ := os.Stat(abs)
@@ -503,7 +502,7 @@ func extractAndServe(c *gin.Context, src string, track int, timeout time.Duratio
 	defer cancel()
 	data, err := extractEmbeddedVTT(ctx, src, track)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadGateway, err)
 		return
 	}
 	persistVTT(vttPath, data)
@@ -541,8 +540,7 @@ func LocalSubtitleExtract(b *lb.Browser, cache *localcache.Cache) gin.HandlerFun
 		}
 		// 3b) Slow uncached mount → background-extract + 503 so the client polls.
 		startBgSubExtract(cache, req.mount, req.scoped, req.abs, req.st, req.track, vttPath)
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error":         "extracting embedded subtitle — retry shortly",
+		httpshared.RespondErrorMessageFields(c, http.StatusServiceUnavailable, "extracting embedded subtitle — retry shortly", gin.H{
 			"code":          "extracting",
 			"retryAfterSec": 10,
 		})

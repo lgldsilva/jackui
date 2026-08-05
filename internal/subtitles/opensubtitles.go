@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,23 +56,21 @@ func New(apiKey, username, password, cacheDir string) *Client {
 	}
 }
 
+// fileIDPattern restricts cache keys to OpenSubtitles numeric file IDs.
+// Defensive validation prevents user-provided values from reaching the path
+// expression, satisfying path-traversal analyzers (CodeQL go/path-injection).
+var fileIDPattern = regexp.MustCompile(`^[0-9]+$`)
+
 // CachePath returns the file path used to persist a downloaded subtitle.
-// Empty string if caching is disabled.
+// Empty string if caching is disabled or the fileID is not a numeric ID.
 func (c *Client) cachePath(fileID string) string {
 	if c.cacheDir == "" || fileID == "" {
 		return ""
 	}
-	// fileID is digits from OpenSubtitles, but sanitize defensively
-	safe := strings.Map(func(r rune) rune {
-		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '-' || r == '_' {
-			return r
-		}
-		return -1
-	}, fileID)
-	if safe == "" {
+	if !fileIDPattern.MatchString(fileID) {
 		return ""
 	}
-	return filepath.Join(c.cacheDir, safe+".vtt")
+	return filepath.Join(c.cacheDir, fileID+".vtt")
 }
 
 func (c *Client) Enabled() bool {
@@ -221,6 +220,25 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 		return nil, err
 	}
 
+	link, err := c.downloadLink(fileID, token)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.fetchSubtitle(link)
+	if err != nil {
+		return nil, err
+	}
+	vtt := srtToVTT(raw)
+
+	// Persist to disk cache so we don't burn quota again
+	if path := c.cachePath(fileID); path != "" {
+		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+		_ = os.WriteFile(path, vtt, 0o644)
+	}
+	return vtt, nil
+}
+
+func (c *Client) downloadLink(fileID, token string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"file_id": fileID})
 	req, _ := http.NewRequest("POST", apiBase+"/download", bytes.NewReader(body))
 	c.applyHeaders(req)
@@ -231,12 +249,12 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("opensubtitles download request: %w", err)
+		return "", fmt.Errorf("opensubtitles download request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("opensubtitles download returned %d: %s", resp.StatusCode, string(b))
+		return "", fmt.Errorf("opensubtitles download returned %d: %s", resp.StatusCode, string(b))
 	}
 
 	var meta struct {
@@ -245,13 +263,16 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 		ResetTime string `json:"reset_time"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return nil, fmt.Errorf("decode download meta: %w", err)
+		return "", fmt.Errorf("decode download meta: %w", err)
 	}
 	if meta.Link == "" {
-		return nil, errors.New("opensubtitles: empty download link")
+		return "", errors.New("opensubtitles: empty download link")
 	}
+	return meta.Link, nil
+}
 
-	dlReq, _ := http.NewRequest("GET", meta.Link, nil)
+func (c *Client) fetchSubtitle(link string) ([]byte, error) {
+	dlReq, _ := http.NewRequest("GET", link, nil)
 	dlResp, err := httpretry.Do(dlReq.Context(), c.http, dlReq, httpretry.Policy{})
 	if err != nil {
 		return nil, fmt.Errorf("fetch subtitle file: %w", err)
@@ -261,14 +282,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read subtitle: %w", err)
 	}
-	vtt := srtToVTT(raw)
-
-	// Persist to disk cache so we don't burn quota again
-	if path := c.cachePath(fileID); path != "" {
-		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
-		_ = os.WriteFile(path, vtt, 0o644)
-	}
-	return vtt, nil
+	return raw, nil
 }
 
 func (c *Client) applyHeaders(req *http.Request) {

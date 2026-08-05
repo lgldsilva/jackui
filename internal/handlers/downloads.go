@@ -8,6 +8,7 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -18,7 +19,7 @@ func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, browser 
 		userID, _, _ := auth.UserIDFromCtx(c)
 		list, err := store.List(userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		list = dropHiddenDownloads(list, buildHiddenDownloadFilter(c, streamer, browser, authStore, userID, false))
@@ -52,7 +53,7 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer, 
 			SortDir:  sortDir,
 		})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		list = dropHiddenDownloads(list, buildHiddenDownloadFilter(c, streamer, browser, authStore, userID, false))
@@ -85,7 +86,7 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 			SortDir:      sortDir,
 		})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -107,7 +108,7 @@ func DownloadsUsers(dlStore *downloads.Store, authStore *auth.Store) gin.Handler
 	return func(c *gin.Context) {
 		userIDs, err := dlStore.DistinctUsers()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		type userEntry struct {
@@ -140,17 +141,17 @@ func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.Hand
 			DestSubdir string `json:"destSubdir,omitempty"` // optional subfolder under DestBase
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if req.InfoHash == "" || req.Magnet == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "infoHash and magnet are required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "infoHash and magnet are required")
 			return
 		}
 		// Valid negatives are the documented sentinels only (-1 auto-pick,
 		// -2 whole torrent); anything below is a malformed request.
 		if req.FileIndex < downloads.FileIndexWholeTorrent {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid fileIndex"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid fileIndex")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -158,7 +159,7 @@ func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.Hand
 		// (rejects an arbitrary path); empty base → default download dir.
 		base, subdir, err := dests.Resolve(userID, req.DestBase, req.DestSubdir)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		d, err := store.Create(downloads.Download{
@@ -175,7 +176,7 @@ func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.Hand
 			DestSubdir: subdir,
 		})
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, d)
@@ -209,22 +210,22 @@ func DownloadsBatchCreate(store *downloads.Store, dests *DestinationService) gin
 			} `json:"files"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if req.InfoHash == "" || req.Magnet == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "infoHash and magnet are required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "infoHash and magnet are required")
 			return
 		}
 		if len(req.Files) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "files must not be empty"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "files must not be empty")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		// Validate the chosen destination ONCE — it's shared by every file.
 		base, subdir, err := dests.Resolve(userID, req.DestBase, req.DestSubdir)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		rows := make([]downloads.Download, 0, len(req.Files))
@@ -245,7 +246,7 @@ func DownloadsBatchCreate(store *downloads.Store, dests *DestinationService) gin
 		}
 		res, err := store.BatchCreate(rows)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"created": res.Rows, "requeued": res.Requeued})
@@ -272,13 +273,13 @@ func DownloadsDelete(store *downloads.Store, worker DownloadRemover) gin.Handler
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		row, err := store.DeleteScoped(userID, id, isAdmin)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		notifyRemoved(worker, row)
@@ -303,17 +304,17 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		// Ownership check first
 		if _, err := store.Get(userID, id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
 		if err := store.SetStatus(userID, id, downloads.StatusPaused); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -327,16 +328,16 @@ func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if _, err := store.Get(userID, id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
 		if err := store.Requeue(userID, id); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -349,23 +350,23 @@ func DownloadsSetPriority(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		var req struct {
 			Priority string `json:"priority"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if _, err := store.Get(userID, id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
 		if err := store.SetPriority(userID, id, req.Priority); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -379,17 +380,17 @@ func DownloadsSources(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if _, err := store.Get(userID, id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": ErrNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
 		sources, err := store.ListSources(id)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if sources == nil {
@@ -405,7 +406,7 @@ func DownloadsTrackers(store *downloads.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		trackers, err := store.DistinctTrackers(userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, trackers)
@@ -418,7 +419,7 @@ func DownloadsCategories(store *downloads.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		cats, err := store.DistinctCategories(userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, cats)
@@ -432,7 +433,7 @@ func DownloadsPauseAll(store *downloads.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		n, err := store.SetStatusForUser(userID, downloads.StatusPaused)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"affected": n})
@@ -446,7 +447,7 @@ func DownloadsResumeAll(store *downloads.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		n, err := store.RequeueForUser(userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"affected": n})

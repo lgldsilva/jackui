@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 const backupCodeCount = 10
@@ -16,16 +17,16 @@ func MFAEnrollStart(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		secret, err := auth.GenerateTOTPSecret()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if err := store.SetTOTPSecret(claims.UserID, secret); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		uri := auth.TOTPURI(secret, "JackUI", claims.Username)
@@ -39,30 +40,30 @@ func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		var req struct {
 			Code string `json:"code"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Code == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "código obrigatório"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "código obrigatório")
 			return
 		}
 		secret, _, _ := store.GetTOTPSecret(claims.UserID)
 		if !auth.ValidateTOTP(secret, req.Code) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "código inválido"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "código inválido")
 			return
 		}
 		if err := store.EnableTOTP(claims.UserID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		// Issue recovery codes immediately so the user can't lock themselves out by
 		// losing the authenticator. Shown exactly once.
 		codes, err := store.GenerateBackupCodes(claims.UserID, backupCodeCount)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "MFA ativado", "backupCodes": codes})
@@ -75,7 +76,7 @@ func MFABackupCodesStatus(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"remaining": store.CountBackupCodes(claims.UserID)})
@@ -89,7 +90,7 @@ func MFABackupCodesRegenerate(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		var req struct {
@@ -97,12 +98,12 @@ func MFABackupCodesRegenerate(store *auth.Store) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "senha incorreta"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha incorreta")
 			return
 		}
 		codes, err := store.GenerateBackupCodes(claims.UserID, backupCodeCount)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"backupCodes": codes})
@@ -115,7 +116,7 @@ func MFADisable(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		var req struct {
@@ -124,11 +125,11 @@ func MFADisable(store *auth.Store) gin.HandlerFunc {
 		_ = c.ShouldBindJSON(&req)
 		// Re-verify the password by username (we have it in claims).
 		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "senha incorreta"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha incorreta")
 			return
 		}
 		if err := store.DisableTOTP(claims.UserID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "MFA desativado"})

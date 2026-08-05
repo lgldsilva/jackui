@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/ai"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 const errAIDisabled = "AI chain disabled"
@@ -98,7 +99,7 @@ func (t *BenchmarkRunTracker) Status() (running bool, startedAt time.Time) {
 func CancelAIBenchmark(tracker *BenchmarkRunTracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if tracker == nil || !tracker.Stop() {
-			c.JSON(http.StatusNotFound, gin.H{"error": "nenhum benchmark em execução"})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "nenhum benchmark em execução")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"cancelled": true})
@@ -292,7 +293,7 @@ func scoringBudget(slots []ai.Slot) time.Duration {
 func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore, tracker *BenchmarkRunTracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errAIDisabled})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, errAIDisabled)
 			return
 		}
 		provider := c.Query("provider")
@@ -310,7 +311,7 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore, tracker *Benchm
 		defer cancel()
 		if tracker != nil {
 			if !tracker.start(cancel) {
-				c.JSON(http.StatusConflict, gin.H{"error": "já existe um benchmark em execução"})
+				httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um benchmark em execução")
 				return
 			}
 			defer tracker.finish()
@@ -320,7 +321,7 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore, tracker *Benchm
 
 		merged, err := persistBenchmarkRun(store, scores, provider, model)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 
@@ -339,18 +340,18 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore, tracker *Benchm
 func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore, tracker *BenchmarkRunTracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errAIDisabled})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, errAIDisabled)
 			return
 		}
 		if store == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "benchmark store unavailable"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "benchmark store unavailable")
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 		defer cancel()
 		if tracker != nil {
 			if !tracker.start(cancel) {
-				c.JSON(http.StatusConflict, gin.H{"error": "já existe um benchmark em execução"})
+				httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um benchmark em execução")
 				return
 			}
 			defer tracker.finish()
@@ -360,11 +361,11 @@ func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore, track
 		// Record history only for the slots actually re-measured (fresh); carried-over
 		// rows keep their timeline untouched.
 		if err := store.RecordRun(fresh); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if err := store.SaveResults(merged); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		merged = store.Results() // re-read with the joined history
@@ -382,16 +383,16 @@ type aiCasesReq struct {
 func PutAICases(store *ai.BenchmarkStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if store == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "benchmark store unavailable"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "benchmark store unavailable")
 			return
 		}
 		var req aiCasesReq
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if err := store.SetCases(req.Cases); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"cases": store.Cases()})
@@ -404,22 +405,22 @@ func PutAICases(store *ai.BenchmarkStore) gin.HandlerFunc {
 func PutAICostConfig(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if client == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": errAIDisabled})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, errAIDisabled)
 			return
 		}
 		var cc ai.CostConfig
 		if err := c.ShouldBindJSON(&cc); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if cc.MaxCostPer1M < 0 || cc.KWhPrice < 0 || cc.LocalWatts < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "valores não podem ser negativos"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "valores não podem ser negativos")
 			return
 		}
 		client.SetCostConfig(cc)
 		if store != nil {
 			if err := store.SaveCostConfig(client.CostConfig()); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -22,18 +23,18 @@ func FavoritesBatchRemove(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		favs := s.Favorites()
 		if favs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 			return
 		}
 		var req struct {
 			Names []string `json:"names"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || len(req.Names) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "names is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "names is required")
 			return
 		}
 		if len(req.Names) > favoritesBatchMax {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many names"})
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many names")
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
@@ -79,7 +80,7 @@ func FavoritesBatchSetFolder(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		favs := s.Favorites()
 		if favs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 			return
 		}
 		var req struct {
@@ -88,11 +89,11 @@ func FavoritesBatchSetFolder(s *streamer.Streamer) gin.HandlerFunc {
 			ToRoot   bool     `json:"toRoot"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || len(req.Names) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "names is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "names is required")
 			return
 		}
 		if len(req.Names) > favoritesBatchMax {
-			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": "too many names"})
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many names")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)

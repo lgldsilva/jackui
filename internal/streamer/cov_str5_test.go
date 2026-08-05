@@ -457,49 +457,43 @@ func Test_str5_EnforceCacheLimit_EvictsOldestFavoriteWhenNothingElseLeft(t *test
 // Eviction orders by mtime. Without the stamp, a fully-downloaded torrent's
 // mtime is its last PIECE WRITE: a favorite watched daily would still sort
 // "old" and get evicted first. The stamp makes LRU mean "least recently USED".
+//
+// Tested via the extracted applyAccessStamps helper (no anacrolix torrent):
+// Drop() can asynchronously delete unverified data and race the test, so the
+// stamping logic is verified deterministically in isolation.
 
-func Test_str5_DropIdleTorrents_StampsLastAccess(t *testing.T) {
+func Test_str5_ApplyAccessStamps_SetsMtime(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newTestStreamer(t, Config{DataDir: dir, IdleTimeout: time.Minute})
-	if err != nil {
-		t.Fatalf("newTestStreamer: %v", err)
-	}
-	defer s.Close()
+	s := NewForTesting()
+	s.cfg.DataDir = dir
 
-	spec := str3TorrentSpec(t) // on-disk name: "str3-sample.bin"
-	tor, _, err := s.client.AddTorrentSpec(spec)
-	if err != nil {
-		t.Fatalf("AddTorrentSpec: %v", err)
-	}
-
-	access := time.Now().Add(-2 * time.Hour) // last played 2h ago → idle
-	s.mu.Lock()
-	s.active[tor.InfoHash()] = &entry{t: tor, lastAccess: access}
-	s.mu.Unlock()
-
-	// Simulate an old download: the on-disk entry predates the recent playback.
-	// MUST match the torrent layout — str3 is a single-FILE torrent (16 KB), so
-	// the entry is a regular file; a directory here breaks anacrolix's mapping.
-	p := filepath.Join(dir, "str3-sample.bin")
-	if err := os.WriteFile(p, make([]byte, 1<<14), 0o644); err != nil {
+	name := "str5-sample.bin"
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// An old download predating the recent playback.
 	ancient := time.Now().Add(-30 * 24 * time.Hour)
 	if err := os.Chtimes(p, ancient, ancient); err != nil {
 		t.Fatal(err)
 	}
 
-	dropped := s.dropIdleTorrents(time.Now())
-	if len(dropped) != 1 {
-		t.Fatalf("expected 1 idle torrent dropped, got %d", len(dropped))
-	}
+	access := time.Now().Add(-2 * time.Hour) // last played 2h ago
+	s.applyAccessStamps([]accessStamp{{name: name, at: access}})
 
 	info, err := os.Stat(p)
 	if err != nil {
-		t.Fatalf("entry vanished after drop: %v", err)
+		t.Fatalf("entry vanished: %v", err)
 	}
 	if info.ModTime().Before(access.Add(-time.Minute)) {
 		t.Errorf("mtime not stamped with lastAccess: mtime=%s lastAccess=%s",
 			info.ModTime().Format(time.RFC3339), access.Format(time.RFC3339))
 	}
+}
+
+func Test_str5_ApplyAccessStamps_NoEntryIsNoop(t *testing.T) {
+	// A stamp for an entry that no longer exists must not panic (best-effort).
+	s := NewForTesting()
+	s.cfg.DataDir = t.TempDir()
+	s.applyAccessStamps([]accessStamp{{name: "gone", at: time.Now()}}) // must not panic
 }

@@ -225,11 +225,21 @@ func TestCachePath_EmptyFileID(t *testing.T) {
 	}
 }
 
-func TestCachePath_Sanitizes(t *testing.T) {
+func TestCachePath_ValidNumericID(t *testing.T) {
 	c := New("key", "", "", "/tmp/subcache")
-	path := c.cachePath("123../foo")
-	if !strings.Contains(path, "123foo") || strings.Contains(path, "../") {
-		t.Fatalf("unsanitized path: %q", path)
+	path := c.cachePath("12345")
+	if path != filepath.Join("/tmp/subcache", "12345.vtt") {
+		t.Fatalf("unexpected path: %q", path)
+	}
+}
+
+func TestCachePath_RejectsNonNumericID(t *testing.T) {
+	c := New("key", "", "", "/tmp/subcache")
+	if p := c.cachePath("123../foo"); p != "" {
+		t.Fatalf("expected empty path for non-numeric fileID, got %q", p)
+	}
+	if p := c.cachePath("abc"); p != "" {
+		t.Fatalf("expected empty path for non-numeric fileID, got %q", p)
 	}
 }
 

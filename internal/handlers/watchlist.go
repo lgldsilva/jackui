@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/watchlist"
 )
 
@@ -62,7 +63,7 @@ func WatchlistList(s *watchlist.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		list, err := s.List(userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, list)
@@ -76,12 +77,12 @@ func WatchlistCreate(s *watchlist.Store, k WatchlistKicker) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		var in watchlistInput
 		if err := c.BindJSON(&in); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		w, err := s.Create(userID, in.params())
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if k != nil {
@@ -97,16 +98,16 @@ func WatchlistUpdate(s *watchlist.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		var in watchlistInput
 		if err := c.BindJSON(&in); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if err := s.Update(userID, id, in.params()); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -119,11 +120,11 @@ func WatchlistDelete(s *watchlist.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		if err := s.Delete(userID, id); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "deleted"})
@@ -146,21 +147,21 @@ func WatchlistScheduleParse(client *ai.Client) gin.HandlerFunc {
 		if client == nil {
 			// code distinguishes "AI not configured" (frontend hides the field)
 			// from a transient chain failure below (frontend keeps it).
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível", "code": "ai_disabled"})
+			httpshared.RespondErrorMessageFields(c, http.StatusServiceUnavailable, "ai indisponível", gin.H{"code": "ai_disabled"})
 			return
 		}
 		var in struct {
 			Text string `json:"text"`
 		}
 		if err := c.BindJSON(&in); err != nil || strings.TrimSpace(in.Text) == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "texto vazio"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "texto vazio")
 			return
 		}
 		text := strings.TrimSpace(in.Text)
 		if len(text) > maxScheduleTextLen {
 			// Bounded prompt: an authenticated user must not relay megabytes to
 			// the AI provider (token cost / latency).
-			c.JSON(http.StatusBadRequest, gin.H{"error": "texto longo demais"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "texto longo demais")
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), scheduleParseTimeout)
@@ -168,10 +169,10 @@ func WatchlistScheduleParse(client *ai.Client) gin.HandlerFunc {
 		res, err := client.ParseSchedule(ctx, text)
 		if err != nil {
 			if errors.Is(err, ai.ErrInvalidSchedule) {
-				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "não consegui interpretar o texto como agendamento"})
+				httpshared.RespondErrorMessage(c, http.StatusUnprocessableEntity, "não consegui interpretar o texto como agendamento")
 				return
 			}
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ai indisponível", "code": "ai_transient"})
+			httpshared.RespondErrorMessageFields(c, http.StatusServiceUnavailable, "ai indisponível", gin.H{"code": "ai_transient"})
 			return
 		}
 		sched := watchlist.Schedule{
@@ -191,7 +192,7 @@ func WatchlistHits(s *watchlist.Store) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		limit := 50
@@ -202,7 +203,7 @@ func WatchlistHits(s *watchlist.Store) gin.HandlerFunc {
 		}
 		hits, err := s.Hits(userID, id, limit)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		c.JSON(http.StatusOK, hits)

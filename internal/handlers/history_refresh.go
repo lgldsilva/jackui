@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/jackett"
 )
@@ -123,14 +124,14 @@ func historyRefreshHandler(c *gin.Context, store *history.Store, jck *jackett.Cl
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 		return
 	}
 
 	userID, isAdmin, _ := auth.UserIDFromCtx(c)
 	row, err := store.GetResult(id, userID, isAdmin)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "history row not found"})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, "history row not found")
 		return
 	}
 
@@ -139,18 +140,18 @@ func historyRefreshHandler(c *gin.Context, store *history.Store, jck *jackett.Cl
 	}
 
 	if jck == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Jackett client not configured"})
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "Jackett client not configured")
 		return
 	}
 
 	queryStr, qerr := refreshQueryStr(row)
 	if qerr != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": qerr.Error()})
+		httpshared.RespondError(c, http.StatusUnprocessableEntity, qerr)
 		return
 	}
 	fresh, err := jck.Search(queryStr, "", nil)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "jackett search failed: " + err.Error()})
+		httpshared.RespondErrorMessage(c, http.StatusBadGateway, "jackett search failed: "+err.Error())
 		return
 	}
 

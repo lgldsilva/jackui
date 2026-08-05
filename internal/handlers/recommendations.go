@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/library"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -107,7 +108,7 @@ func recCacheInvalidate(userID int) {
 func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if tc == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(ctx)
@@ -121,7 +122,7 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 
 		entries, err := lib.List(userID, false, recLibWindow)
 		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusInternalServerError, err)
 			return
 		}
 		// Reveal-aware: drop hidden-folder titles only while the curtain is closed.
@@ -133,13 +134,13 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 
 		dismissed, derr := dismissedSet(lib, userID)
 		if derr != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": derr.Error()})
+			httpshared.RespondError(ctx, http.StatusInternalServerError, derr)
 			return
 		}
 
 		out, disabled := assembleRecs(ctx.Request.Context(), tc, candidates, dismissed)
 		if disabled {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		recCachePut(userID, reveal, out, now)
@@ -190,7 +191,7 @@ func assembleRecs(ctx context.Context, tc *tmdb.Client, entries []library.Entry,
 func DismissRecommendation(lib *library.Store) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		if lib == nil {
-			ctx.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrTMDBDisabled})
+			httpshared.RespondErrorMessage(ctx, http.StatusServiceUnavailable, ErrTMDBDisabled)
 			return
 		}
 		var req struct {
@@ -198,16 +199,16 @@ func DismissRecommendation(lib *library.Store) gin.HandlerFunc {
 			Kind   string `json:"kind"`
 		}
 		if err := ctx.ShouldBindJSON(&req); err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadRequest, err)
 			return
 		}
 		if req.TmdbID <= 0 || (req.Kind != "movie" && req.Kind != "tv") {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(ctx)
 		if err := lib.DismissRecommendation(userID, req.Kind, req.TmdbID); err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusInternalServerError, err)
 			return
 		}
 		recCacheInvalidate(userID) // so the dismissed title drops on the next GET

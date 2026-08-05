@@ -226,33 +226,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		api.GET("/convert/torrent-to-magnet", handlers.ConvertTorrentToMagnet())
 		api.GET("/convert/magnet-to-torrent", handlers.ConvertMagnetToTorrent(deps.streamSrv))
 
-		adminAPI := api.Group("")
-		if deps.tokenMgr != nil {
-			adminAPI.Use(auth.AdminOnly())
-		}
-		adminAPI.GET("/config", handlers.GetConfig(deps.cfg, deps.configPath))
-		adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath, deps.jackettClient, deps.streamSrv))
-		adminAPI.GET("/stream/settings", handlers.StreamGetSettings(deps.cfg, deps.streamSrv))
-		adminAPI.PUT("/stream/settings", handlers.StreamUpdateSettings(deps.cfg, deps.configPath, deps.streamSrv))
-		adminAPI.PUT("/downloads/settings", handlers.DownloadsUpdateSettings(deps.cfg, deps.configPath, func(n int) {
-			if deps.streamSrv != nil {
-				deps.streamSrv.SetVerifyConcurrency(n)
-			}
-		}))
-		adminAPI.GET("/mounts", handlers.MountsGet(deps.cfg))
-		adminAPI.PUT("/mounts", handlers.MountsUpdate(deps.cfg, deps.configPath, deps.localBrowser))
-		adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
-		adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench, deps.aiBenchRun))
-		adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench, deps.aiBenchRun))
-		adminAPI.POST("/ai/benchmark/cancel", handlers.CancelAIBenchmark(deps.aiBenchRun))
-		adminAPI.POST("/ai/benchmark/rerun-incomplete", handlers.RunAIBenchmarkIncomplete(deps.aiClient, deps.aiBench, deps.aiBenchRun))
-		adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(deps.aiBench))
-		adminAPI.PUT("/ai/settings", handlers.PutAICostConfig(deps.aiClient, deps.aiBench))
-
-		if deps.downloadsStore != nil && deps.authStore != nil {
-			adminAPI.GET("/downloads/all", handlers.DownloadsListAll(deps.downloadsStore, deps.authStore, deps.streamSrv, deps.localBrowser))
-			adminAPI.GET("/downloads/users", handlers.DownloadsUsers(deps.downloadsStore, deps.authStore))
-		}
+		adminAPI := registerAdminRoutes(api, deps)
 
 		api.GET("/status", handlers.Status(deps.jackettClient, deps.historyStore))
 
@@ -275,6 +249,37 @@ func emailStatus(mlr *mailer.Mailer) string {
 		return "enabled"
 	}
 	return "disabled — reset/verify/invite links are logged, not emailed"
+}
+
+func registerAdminRoutes(api *gin.RouterGroup, deps *appDeps) *gin.RouterGroup {
+	adminAPI := api.Group("")
+	if deps.tokenMgr != nil {
+		adminAPI.Use(auth.AdminOnly())
+	}
+	adminAPI.GET("/config", handlers.GetConfig(deps.cfg, deps.configPath))
+	adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath, deps.jackettClient, deps.streamSrv))
+	adminAPI.GET("/stream/settings", handlers.StreamGetSettings(deps.cfg, deps.streamSrv))
+	adminAPI.PUT("/stream/settings", handlers.StreamUpdateSettings(deps.cfg, deps.configPath, deps.streamSrv))
+	adminAPI.PUT("/downloads/settings", handlers.DownloadsUpdateSettings(deps.cfg, deps.configPath, func(n int) {
+		if deps.streamSrv != nil {
+			deps.streamSrv.SetVerifyConcurrency(n)
+		}
+	}))
+	adminAPI.GET("/mounts", handlers.MountsGet(deps.cfg))
+	adminAPI.PUT("/mounts", handlers.MountsUpdate(deps.cfg, deps.configPath, deps.localBrowser))
+	adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
+	adminAPI.GET("/ai/benchmark", handlers.GetAIBenchmark(deps.aiClient, deps.aiBench, deps.aiBenchRun))
+	adminAPI.POST("/ai/benchmark", handlers.RunAIBenchmark(deps.aiClient, deps.aiBench, deps.aiBenchRun))
+	adminAPI.POST("/ai/benchmark/cancel", handlers.CancelAIBenchmark(deps.aiBenchRun))
+	adminAPI.POST("/ai/benchmark/rerun-incomplete", handlers.RunAIBenchmarkIncomplete(deps.aiClient, deps.aiBench, deps.aiBenchRun))
+	adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(deps.aiBench))
+	adminAPI.PUT("/ai/settings", handlers.PutAICostConfig(deps.aiClient, deps.aiBench))
+
+	if deps.downloadsStore != nil && deps.authStore != nil {
+		adminAPI.GET("/downloads/all", handlers.DownloadsListAll(deps.downloadsStore, deps.authStore, deps.streamSrv, deps.localBrowser))
+		adminAPI.GET("/downloads/users", handlers.DownloadsUsers(deps.downloadsStore, deps.authStore))
+	}
+	return adminAPI
 }
 
 func registerHistoryRoutes(api *gin.RouterGroup, deps *appDeps) {
@@ -348,7 +353,7 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.DELETE("/transfers/:id", handlers.TransfersCancel(deps.transferTracker))
 
 	registerLocalRoutes(api, deps)
-	registerDownloadsRoutes(api, deps)
+	registerDownloadRoutes(api, deps)
 	registerHLSRoutes(api, adminAPI, deps)
 	registerPreviewRoutes(api, deps)
 }
@@ -435,7 +440,7 @@ func downloadRemoverDep(deps *appDeps) handlers.DownloadRemover {
 	return deps.downloadsWkr
 }
 
-func registerDownloadsRoutes(api *gin.RouterGroup, deps *appDeps) {
+func registerDownloadRoutes(api *gin.RouterGroup, deps *appDeps) {
 	if deps.downloadsStore == nil {
 		return
 	}

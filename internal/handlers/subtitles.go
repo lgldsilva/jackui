@@ -19,7 +19,7 @@ func SubtitlesSearch(c *subtitles.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		query := ctx.Query("q")
 		if query == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, ErrQueryRequired)
 			return
 		}
 		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
@@ -28,7 +28,7 @@ func SubtitlesSearch(c *subtitles.Client) gin.HandlerFunc {
 
 		results, err := c.Search(query, langs, season, episode)
 		if err != nil {
-			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadGateway, err)
 			return
 		}
 		if results == nil {
@@ -48,12 +48,12 @@ func SubtitlesAuto(s *streamer.Streamer, c *subtitles.Client) gin.HandlerFunc {
 		hashStr := ctx.Param("hash")
 		fileIdx, err := strconv.Atoi(ctx.Param("file"))
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, errInvalidFileIndex)
 			return
 		}
 		var h metainfo.Hash
 		if err := h.FromHexString(hashStr); err != nil {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadRequest, err)
 			return
 		}
 		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
@@ -61,11 +61,11 @@ func SubtitlesAuto(s *streamer.Streamer, c *subtitles.Client) gin.HandlerFunc {
 		// Fetch torrent info to get title & file metadata
 		info, err := s.Get(h)
 		if err != nil {
-			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusNotFound, err)
 			return
 		}
 		if fileIdx < 0 || fileIdx >= len(info.Files) {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": ErrFileIdxOutOfRange})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, ErrFileIdxOutOfRange)
 			return
 		}
 		file := info.Files[fileIdx]
@@ -92,8 +92,7 @@ func SubtitlesAuto(s *streamer.Streamer, c *subtitles.Client) gin.HandlerFunc {
 
 		results, err := c.SearchAuto(opts)
 		if err != nil {
-			ctx.JSON(http.StatusBadGateway, gin.H{
-				"error":  err.Error(),
+			httpshared.RespondErrorFields(ctx, http.StatusBadGateway, err, gin.H{
 				"osHash": osHash.Hash,
 				"file":   file.Path,
 			})
@@ -126,12 +125,12 @@ func SubtitlesDownload(c *subtitles.Client) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		fileID := ctx.Param("fileId")
 		if fileID == "" {
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": "fileId required"})
+			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, "fileId required")
 			return
 		}
 		vtt, err := c.Download(fileID)
 		if err != nil {
-			ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(ctx, http.StatusBadGateway, err)
 			return
 		}
 		ctx.Header(httpshared.ContentType, httpshared.MIMEVTT)

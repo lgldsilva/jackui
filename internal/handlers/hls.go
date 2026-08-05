@@ -154,12 +154,12 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 func newHLSCtx(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store) (*hlsCtx, bool) {
 	h, err := parseHash(c.Param("hash"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return nil, false
 	}
 	fileIdx, err := strconv.Atoi(c.Param("file"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
 		return nil, false
 	}
 	return &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}, true
@@ -254,7 +254,7 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 	}
 	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), opts)
 	if err != nil {
-		hc.c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(hc.c, http.StatusInternalServerError, err)
 		return nil, err
 	}
 	return sess, nil
@@ -278,7 +278,7 @@ func serveHLSPlaylist(c *gin.Context, sess *transcode.HLSSession) {
 func readEventPlaylist(c *gin.Context, sess *transcode.HLSSession) []byte {
 	data, err := os.ReadFile(filepath.Join(sess.Dir, "index.m3u8"))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "playlist not readable"})
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "playlist not readable")
 		return nil
 	}
 	if q := mediaSegQueryWithPlayback(c.Query("token"), httpshared.NativeHLSParam(c), httpshared.PlaybackSession(c)); q != "" {
@@ -299,12 +299,12 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 	return func(c *gin.Context) {
 		h, err := parseHash(c.Param("hash"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		fileIdx, err := strconv.Atoi(c.Param("file"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
 			return
 		}
 		segName := c.Param("seg")
@@ -333,7 +333,7 @@ func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSS
 	// Sem streamer (caminho degradado/teste) não há como respawnar → 404 e o
 	// cliente refetcha a playlist.
 	if s == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not active — request the playlist again"})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, "session not active — request the playlist again")
 		return nil
 	}
 	// Sessão ausente → respawn. resolveTranscodeSource resolve do store ou do
@@ -342,7 +342,7 @@ func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSS
 	// re-encode na RESOLUÇÃO certa (senão codificaria 1080 default no dir -vN).
 	hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
 	if !resolveVariant(hc) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "variant out of range"})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, "variant out of range")
 		return nil
 	}
 	source, size, complete := resolveTranscodeSource(hc)
@@ -387,13 +387,13 @@ func resolveTranscodeSource(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 	if _, err := hc.s.Get(hc.h); err != nil {
 		bareMagnet := MagnetPrefix + hc.h.HexString()
 		if _, addErr := hc.s.Add(hc.c.Request.Context(), bareMagnet); addErr != nil {
-			hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(hc.c, http.StatusNotFound, err)
 			return nil, 0, false
 		}
 	}
 	reader, file, err := hc.s.FileReader(hc.h, hc.fileIdx)
 	if err != nil {
-		hc.c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		httpshared.RespondError(hc.c, http.StatusNotFound, err)
 		return nil, 0, false
 	}
 	return reader, file.Length(), false
@@ -428,7 +428,7 @@ func openCompletedFile(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 // it classifies the reason (no_seeds, slow_download) and responds with 503.
 func waitForMasterPlaylist(hc *hlsCtx, sess *transcode.HLSSession) bool {
 	if err := sess.WaitForMaster(2 * time.Minute); err != nil {
-		resp := gin.H{"error": err.Error(), "code": "transcode_failed"}
+		resp := gin.H{"code": "transcode_failed"}
 		if info, gerr := hc.s.Get(hc.h); gerr == nil {
 			resp["downRate"] = info.DownRate
 			resp["peers"] = info.Peers
@@ -443,7 +443,7 @@ func waitForMasterPlaylist(hc *hlsCtx, sess *transcode.HLSSession) bool {
 				}
 			}
 		}
-		hc.c.JSON(http.StatusServiceUnavailable, resp)
+		httpshared.RespondErrorFields(hc.c, http.StatusServiceUnavailable, err, resp)
 		return false
 	}
 	return true

@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -19,7 +20,7 @@ func LocalDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -31,10 +32,10 @@ func LocalDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.
 		abs, err := resolveDeletablePath(b, mount, ScopePath(b, c, mount, path))
 		if err != nil {
 			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": errFileOrDirNotFound})
+				httpshared.RespondErrorMessage(c, http.StatusNotFound, errFileOrDirNotFound)
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		// Find the torrent(s) linked to this path BEFORE deleting it (the lookup
@@ -43,7 +44,7 @@ func LocalDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.
 		// piece cache or as a favorite.
 		linked, _ := dls.FindByPathPrefix(abs)
 		if err := os.RemoveAll(abs); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to delete: %s", err.Error())})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, fmt.Sprintf("failed to delete: %s", err.Error()))
 			return
 		}
 		removed := purgeLinkedTorrents(dls, s, linked)
@@ -59,7 +60,7 @@ func LocalCleanEmptyDirs(b *lb.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		if mount == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -71,10 +72,10 @@ func LocalCleanEmptyDirs(b *lb.Browser) gin.HandlerFunc {
 		cleaned, err := b.RemoveEmptyDirs(mount, ScopePath(b, c, mount, c.Query("path")))
 		if err != nil {
 			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "directory not found"})
+				httpshared.RespondErrorMessage(c, http.StatusNotFound, "directory not found")
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"cleaned": cleaned})
@@ -114,11 +115,11 @@ func LocalSetFolderLock(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 func bindFolderLockReq(c *gin.Context) (folderLockReq, bool) {
 	var req folderLockReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return req, false
 	}
 	if req.Mount == "" || req.Path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 		return req, false
 	}
 	return req, true
@@ -126,10 +127,10 @@ func bindFolderLockReq(c *gin.Context) (folderLockReq, bool) {
 
 func respondFolderLockErr(c *gin.Context, err error) {
 	if os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "directory not found"})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, "directory not found")
 		return
 	}
-	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	httpshared.RespondError(c, http.StatusBadRequest, err)
 }
 
 func canModifyMount(c *gin.Context, mount string) bool {
@@ -138,7 +139,7 @@ func canModifyMount(c *gin.Context, mount string) bool {
 	if isAdmin || strings.ToLower(mount) == mountMeusDownloads {
 		return true
 	}
-	c.JSON(http.StatusForbidden, gin.H{"error": errOnlyMeusDownloads})
+	httpshared.RespondErrorMessage(c, http.StatusForbidden, errOnlyMeusDownloads)
 	return false
 }
 

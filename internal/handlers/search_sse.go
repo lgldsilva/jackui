@@ -87,11 +87,11 @@ func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
 	if hit.Err != nil {
 		s.indexersFailed++
 		writeSSE(s.c, "progress", gin.H{
-			"phase":   "indexer",
-			"indexer": hit.IndexerName,
-			"error":   hit.Err.Error(),
-			"durMs":   hit.Duration.Milliseconds(),
-			"done":    s.indexersDone,
+			"phase":               "indexer",
+			"indexer":             hit.IndexerName,
+			httpshared.ErrorField: hit.Err.Error(),
+			"durMs":               hit.Duration.Milliseconds(),
+			"done":                s.indexersDone,
 		})
 		return
 	}
@@ -258,7 +258,7 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 	return func(c *gin.Context) {
 		query, category, indexers := parseSearchParams(c)
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrQueryRequired)
 			return
 		}
 

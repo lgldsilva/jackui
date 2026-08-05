@@ -62,7 +62,7 @@ func serveFromCompletedStore(c *gin.Context, store *downloads.Store, s *streamer
 func serveFromStreamer(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, fileIdx int) {
 	reader, file, err := s.FileReader(h, fileIdx)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusNotFound, err)
 		return
 	}
 	defer func() { _ = reader.Close() }()
@@ -90,11 +90,11 @@ func StreamPlaylistM3U(s *streamer.Streamer) gin.HandlerFunc {
 
 		info, err := resolveTorrentInfo(s, c.Request.Context(), h)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
 		if fileIdx < 0 || fileIdx >= len(info.Files) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrFileIdxOutOfRange})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrFileIdxOutOfRange)
 			return
 		}
 

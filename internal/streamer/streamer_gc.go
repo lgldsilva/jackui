@@ -92,12 +92,28 @@ func (s *Streamer) gcLoop() {
 // dropIdleTorrents drops torrents idle longer than IdleTimeout (skipping active
 // downloads and seed-tracker torrents) and returns the dropped hashes so the
 // caller can purge their dedup keys outside s.mu.
+// accessStamp records a dropped torrent's on-disk name and the last-access
+// time to persist into its mtime (so LRU eviction reflects usage, not the last
+// piece write).
+type accessStamp struct {
+	name string
+	at   time.Time
+}
+
+// applyAccessStamps persists each stamp's last-access time into the on-disk
+// entry's mtime (outside s.mu — Chtimes is a metadata syscall). Best-effort:
+// the entry may already be gone, which is fine. Extracted from dropIdleTorrents
+// so the stamping behavior is unit-testable without an anacrolix torrent
+// (whose Drop() can asynchronously delete unverified data and race the test).
+func (s *Streamer) applyAccessStamps(stamps []accessStamp) {
+	for _, st := range stamps {
+		p := filepath.Join(s.cfg.DataDir, st.name)
+		_ = os.Chtimes(p, st.at, st.at) // best-effort: entry dir may be gone
+	}
+}
+
 func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 	var dropped []metainfo.Hash
-	type accessStamp struct {
-		name string
-		at   time.Time
-	}
 	var stamps []accessStamp
 	s.mu.Lock()
 	for h, e := range s.active {
@@ -120,16 +136,7 @@ func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 		dropped = append(dropped, h)
 	}
 	s.mu.Unlock()
-
-	// Persist last-access into the on-disk mtime (outside the lock). Eviction
-	// orders by mtime, and without this stamp a fully-downloaded torrent's mtime
-	// is its last PIECE WRITE: a favorite watched daily would still sort "old"
-	// and get evicted first. With the stamp, LRU means "least recently USED"
-	// (played or written), which is what the cache cap should honor.
-	for _, st := range stamps {
-		p := filepath.Join(s.cfg.DataDir, st.name)
-		_ = os.Chtimes(p, st.at, st.at) // best-effort: entry dir may be gone
-	}
+	s.applyAccessStamps(stamps)
 	return dropped
 }
 

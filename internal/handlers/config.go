@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/jackett"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -76,7 +77,7 @@ func UpdateConfig(cfg *config.Config, configPath string, jackettClient *jackett.
 	return func(c *gin.Context) {
 		var req configUpdateRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid request body")
 			return
 		}
 
@@ -84,7 +85,7 @@ func UpdateConfig(cfg *config.Config, configPath string, jackettClient *jackett.
 		cfg.DownloadClients = mergeDownloadClients(cfg.DownloadClients, req.Clients)
 
 		if err := cfg.Save(configPath); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save config: " + err.Error()})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error())
 			return
 		}
 
@@ -161,7 +162,7 @@ func TestJackett(cfg *config.Config) gin.HandlerFunc {
 		}
 		client := jackett.New(url, apiKey)
 		if err := client.TestConnection(); err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "success": false})
+			httpshared.RespondErrorFields(c, http.StatusBadGateway, err, gin.H{"success": false})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "connection successful", "success": true})

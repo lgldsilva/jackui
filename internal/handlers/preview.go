@@ -68,23 +68,23 @@ func (d PreviewDeps) resolveSource(c *gin.Context) (*previewSrc, bool) {
 	if c.Query("mount") != "" {
 		return d.resolveLocalSource(c)
 	}
-	c.JSON(http.StatusBadRequest, gin.H{"error": "hash+idx or mount+path is required"})
+	httpshared.RespondErrorMessage(c, http.StatusBadRequest, "hash+idx or mount+path is required")
 	return nil, false
 }
 
 func (d PreviewDeps) resolveTorrentSource(c *gin.Context) (*previewSrc, bool) {
 	if d.Streamer == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "streaming disabled"})
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "streaming disabled")
 		return nil, false
 	}
 	h, err := parseHash(c.Query("hash"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return nil, false
 	}
 	idx, err := strconv.Atoi(c.Query("idx"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
 		return nil, false
 	}
 	// Completed download on disk → real file, free random access.
@@ -98,7 +98,7 @@ func (d PreviewDeps) resolveTorrentSource(c *gin.Context) (*previewSrc, bool) {
 	}
 	reader, file, err := d.Streamer.FileReader(h, idx)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusNotFound, err)
 		return nil, false
 	}
 	return &previewSrc{
@@ -120,11 +120,11 @@ func (d PreviewDeps) resolveTorrentSource(c *gin.Context) (*previewSrc, bool) {
 func (d PreviewDeps) resolveLocalSource(c *gin.Context) (*previewSrc, bool) {
 	mount, path := c.Query("mount"), c.Query("path")
 	if path == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": lh.ErrMissingMountOrPathParam})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, lh.ErrMissingMountOrPathParam)
 		return nil, false
 	}
 	if d.Local == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "local browsing disabled"})
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "local browsing disabled")
 		return nil, false
 	}
 	if !lh.CheckMountAccess(d.Local, c, mount) {
@@ -132,7 +132,7 @@ func (d PreviewDeps) resolveLocalSource(c *gin.Context) (*previewSrc, bool) {
 	}
 	abs, err := d.Local.ResolvePath(mount, lh.ScopePath(d.Local, c, mount, path))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return nil, false
 	}
 	if !lh.StatLocalFile(c, abs) {
@@ -145,13 +145,13 @@ func openLocalPreviewFile(c *gin.Context, abs string) (*previewSrc, bool) {
 	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(abs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return nil, false
 	}
 	st, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return nil, false
 	}
 	return &previewSrc{
@@ -186,11 +186,11 @@ func (d PreviewDeps) withPreviewSource(fn func(c *gin.Context, src preview.Sourc
 func previewError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, preview.ErrEntryNotFound):
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusNotFound, err)
 	case errors.Is(err, preview.ErrEntryTooLarge):
-		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusRequestEntityTooLarge, err)
 	default:
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusUnprocessableEntity, err)
 	}
 }
 
@@ -200,7 +200,7 @@ func PreviewArchiveList(d PreviewDeps) gin.HandlerFunc {
 	return d.withPreviewSource(func(c *gin.Context, src preview.Source, name string) {
 		format := preview.DetectFormat(name)
 		if format == preview.FormatUnknown {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "unsupported archive format"})
+			httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "unsupported archive format")
 			return
 		}
 		entries, truncated, err := preview.List(src, format)
@@ -223,12 +223,12 @@ func PreviewArchiveEntry(d PreviewDeps) gin.HandlerFunc {
 		entryName := c.Query("name")
 		format := preview.DetectFormat(name)
 		if format == preview.FormatUnknown {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "unsupported archive format"})
+			httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "unsupported archive format")
 			return
 		}
 		ct, ok := preview.EntryContentType(entryName)
 		if !ok {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "entry type has no inline preview"})
+			httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "entry type has no inline preview")
 			return
 		}
 		data, err := preview.ReadEntry(src, format, entryName, preview.MaxEntryBytes)
@@ -246,7 +246,7 @@ func PreviewComicManifest(d PreviewDeps) gin.HandlerFunc {
 	return d.withPreviewSource(func(c *gin.Context, src preview.Source, name string) {
 		format := preview.DetectFormat(name)
 		if format == preview.FormatUnknown {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "unsupported comic format"})
+			httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "unsupported comic format")
 			return
 		}
 		pages, err := preview.ComicPages(src, format)
@@ -263,12 +263,12 @@ func PreviewComicPage(d PreviewDeps) gin.HandlerFunc {
 	return d.withPreviewSource(func(c *gin.Context, src preview.Source, name string) {
 		pageName := c.Query("name")
 		if !preview.IsComicPage(pageName) {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "not a comic page image"})
+			httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "not a comic page image")
 			return
 		}
 		format := preview.DetectFormat(name)
 		if format == preview.FormatUnknown {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "unsupported comic format"})
+			httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "unsupported comic format")
 			return
 		}
 		data, err := preview.ReadEntry(src, format, pageName, preview.MaxComicPageBytes)
@@ -306,7 +306,7 @@ func PreviewEpubChapter(d PreviewDeps) gin.HandlerFunc {
 			return
 		}
 		if !epubHasChapter(book, chapterName) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "chapter not in spine"})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "chapter not in spine")
 			return
 		}
 		raw, err := preview.ReadEntry(src, preview.FormatZip, chapterName, preview.MaxChapterBytes)
@@ -336,7 +336,7 @@ func PreviewEpubResource(d PreviewDeps) gin.HandlerFunc {
 		resName := c.Query("name")
 		ct, ok := epubResContentType(resName)
 		if !ok {
-			c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "resource type not allowed"})
+			httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "resource type not allowed")
 			return
 		}
 		data, err := preview.ReadEntry(src, preview.FormatZip, resName, preview.MaxResourceBytes)

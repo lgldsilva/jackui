@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localstream"
 )
@@ -22,7 +23,7 @@ func LocalTransferStatus(b *lb.Browser, reg *localstream.Registry) gin.HandlerFu
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		// Scope-check first so a user can't probe another user's transfer.

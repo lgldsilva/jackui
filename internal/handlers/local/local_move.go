@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transfer"
@@ -27,13 +28,8 @@ func LocalMoveEntry(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer, t
 }
 
 func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *streamer.Streamer, tr *transfer.Tracker) {
-	var req moveEntryReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if req.SrcMount == "" || req.SrcPath == "" || req.DstMount == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "srcMount, srcPath and dstMount are required"})
+	req, ok := validateMoveRequest(c)
+	if !ok {
 		return
 	}
 	// Curtain closed: refuse to move a hidden source (or into a hidden dest path).
@@ -51,20 +47,13 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 		return
 	}
 
-	srcAbs, srcStat, err := resolveSource(b, c, &req)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	dstAbs, err := resolveDest(b, c, &req, srcAbs)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	srcAbs, srcStat, dstAbs, ok := resolveMoveEndpoints(b, c, &req)
+	if !ok {
 		return
 	}
 
 	if isSelfMove(srcStat, srcAbs, dstAbs) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "não é possível mover uma pasta para dentro de si mesma"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "não é possível mover uma pasta para dentro de si mesma")
 		return
 	}
 
@@ -73,13 +62,13 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 	// destination — data loss while the UI reports success. Make the caller
 	// rename or pick another folder.
 	if _, err := os.Stat(dstAbs); err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "já existe um item com esse nome no destino"})
+		httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um item com esse nome no destino")
 		return
 	}
 
 	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "criar diretório destino: " + err.Error()})
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "criar diretório destino: "+err.Error())
 		return
 	}
 
@@ -103,10 +92,37 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 	c.JSON(http.StatusAccepted, gin.H{"moved": moved, "jobId": job.ID(), "async": true})
 }
 
+func validateMoveRequest(c *gin.Context) (moveEntryReq, bool) {
+	var req moveEntryReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpshared.RespondError(c, http.StatusBadRequest, err)
+		return req, false
+	}
+	if req.SrcMount == "" || req.SrcPath == "" || req.DstMount == "" {
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "srcMount, srcPath and dstMount are required")
+		return req, false
+	}
+	return req, true
+}
+
+func resolveMoveEndpoints(b *lb.Browser, c *gin.Context, req *moveEntryReq) (string, os.FileInfo, string, bool) {
+	srcAbs, srcStat, err := resolveSource(b, c, req)
+	if err != nil {
+		httpshared.RespondError(c, http.StatusBadRequest, err)
+		return "", nil, "", false
+	}
+	dstAbs, err := resolveDest(b, c, req, srcAbs)
+	if err != nil {
+		httpshared.RespondError(c, http.StatusBadRequest, err)
+		return "", nil, "", false
+	}
+	return srcAbs, srcStat, dstAbs, true
+}
+
 func isAdminMove(c *gin.Context) bool {
 	claims, _ := auth.ClaimsFromCtx(c)
 	if claims == nil || claims.Role != auth.RoleAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"error": "apenas admins podem mover entre mounts"})
+		httpshared.RespondErrorMessage(c, http.StatusForbidden, "apenas admins podem mover entre mounts")
 		return false
 	}
 	return true
@@ -211,7 +227,7 @@ func LocalRename(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.
 			return
 		}
 		if err := movePath(srcAbs, dstAbs, stat); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "renomear: " + err.Error()})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "renomear: "+err.Error())
 			return
 		}
 		relinked := relinkMovedTorrents(dls, s, srcAbs, dstAbs)
@@ -224,15 +240,15 @@ func LocalRename(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.
 func bindRenameReq(c *gin.Context) (renameEntryReq, bool) {
 	var req renameEntryReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return req, false
 	}
 	if req.Mount == "" || req.Path == "" || req.NewName == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "mount, path and newName are required"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "mount, path and newName are required")
 		return req, false
 	}
 	if !isValidRenameName(req.NewName) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "nome inválido: não pode conter barras nem '..'"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "nome inválido: não pode conter barras nem '..'")
 		return req, false
 	}
 	return req, true
@@ -244,15 +260,15 @@ func resolveRenameSource(b *lb.Browser, c *gin.Context, req renameEntryReq) (str
 	srcAbs, err := resolveDeletablePath(b, req.Mount, ScopePath(b, c, req.Mount, req.Path))
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": errFileOrDirNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, errFileOrDirNotFound)
 		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 		}
 		return "", nil, false
 	}
 	stat, err := os.Stat(srcAbs)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": errFileOrDirNotFound})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, errFileOrDirNotFound)
 		return "", nil, false
 	}
 	return srcAbs, stat, true
@@ -263,11 +279,11 @@ func resolveRenameSource(b *lb.Browser, c *gin.Context, req renameEntryReq) (str
 func resolveRenameDest(c *gin.Context, srcAbs, newName string) (string, bool) {
 	dstAbs := filepath.Join(filepath.Dir(srcAbs), newName)
 	if dstAbs == srcAbs {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "o novo nome é igual ao atual"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "o novo nome é igual ao atual")
 		return "", false
 	}
 	if _, err := os.Stat(dstAbs); err == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "já existe um item com esse nome"})
+		httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um item com esse nome")
 		return "", false
 	}
 	return dstAbs, true

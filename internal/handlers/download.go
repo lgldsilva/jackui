@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/downloader"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 type downloadRequest struct {
@@ -25,11 +26,11 @@ type clientResponse struct {
 func parseDownloadRequest(c *gin.Context) (*downloadRequest, bool) {
 	var req downloadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid request body")
 		return nil, false
 	}
 	if req.MagnetURI == "" && req.TorrentURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "magnetUri or torrentUrl is required"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "magnetUri or torrentUrl is required")
 		return nil, false
 	}
 	return &req, true
@@ -72,18 +73,18 @@ func Download(cfg *config.Config) gin.HandlerFunc {
 
 		selectedClient := resolveDownloadClient(cfg, req.ClientID)
 		if selectedClient == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "no download client found"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "no download client found")
 			return
 		}
 
 		client, err := downloader.New(*selectedClient)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 
 		if err := addToDownloadClient(client, req); err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
 

@@ -268,21 +268,21 @@ function renderCardStats(
 }
 
 type RenderCardActionsProps = {
-  canPlay: boolean
-  playLinkHref: string | null
-  hasSource: boolean
-  canDownload: boolean
-  onPlay: ((result: SearchResult) => void) | undefined
-  onExploreContents: ((result: SearchResult) => void) | undefined
-  onAddToPlaylist: ((result: SearchResult) => void) | undefined
-  onDownload: (result: SearchResult) => void
-  result: SearchResult
-  handleOpenMagnet: () => void
-  handleCopyMagnet: () => void
-  handleTorrentDownload: () => void
-  resolvingMagnet: boolean
-  resolvingTorrent: boolean
-  copied: boolean
+  readonly canPlay: boolean
+  readonly playLinkHref: string | null
+  readonly hasSource: boolean
+  readonly canDownload: boolean
+  readonly onPlay: ((result: SearchResult) => void) | undefined
+  readonly onExploreContents: ((result: SearchResult) => void) | undefined
+  readonly onAddToPlaylist: ((result: SearchResult) => void) | undefined
+  readonly onDownload: (result: SearchResult) => void
+  readonly result: SearchResult
+  readonly handleOpenMagnet: () => void
+  readonly handleCopyMagnet: () => void
+  readonly handleTorrentDownload: () => void
+  readonly resolvingMagnet: boolean
+  readonly resolvingTorrent: boolean
+  readonly copied: boolean
 }
 
 function buildCardMoreItems(props: RenderCardActionsProps): MoreActionItem[] {

@@ -70,7 +70,7 @@ func StreamHLSVariant(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 			return
 		}
 		if !resolveVariant(hc) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "variant out of range"})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "variant out of range")
 			return
 		}
 		serveHLSMediaPlaylist(hc)

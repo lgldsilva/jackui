@@ -81,11 +81,11 @@ func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		if d.SharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusConflict, httpshared.ErrSharedDirNotConfig)
 			return
 		}
 		var req promoteReq
@@ -93,7 +93,7 @@ func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 
 		base, err := httpshared.ResolveTargetBase(req.TargetBase, d.SharedDir, d.Dests)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 
@@ -101,7 +101,7 @@ func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 		o := &promoteOpts{store: d.Store, s: d.Streamer, aiClient: d.AIClient, tmdbClient: d.TMDBClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: d.Tracker, pending: d.Pending, concMode: transferMode(d.Cfg)}
 		plan, err := promotePreparePlan(o)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if plan != nil {
@@ -125,7 +125,7 @@ func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 func DownloadsPromoteBatch(d PromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if d.SharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusConflict, httpshared.ErrSharedDirNotConfig)
 			return
 		}
 		req, base, ok := validateBatchReq(c, d.SharedDir, d.Dests)
@@ -141,16 +141,16 @@ func DownloadsPromoteBatch(d PromoteDeps) gin.HandlerFunc {
 func validateBatchReq(c *gin.Context, sharedDir string, dests []httpshared.PromoteDest) (*promoteReq, string, bool) {
 	var req promoteReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return nil, "", false
 	}
 	if len(req.IDs) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ids vazio"})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "ids vazio")
 		return nil, "", false
 	}
 	base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return nil, "", false
 	}
 	return &req, base, true
@@ -169,7 +169,7 @@ func promoteBatchItems(o *promoteOpts, req *promoteReq, tr *transfer.Tracker) ([
 		o.id = id
 		plan, err := promotePreparePlan(o)
 		if err != nil {
-			failed = append(failed, gin.H{"id": id, "error": err.Error()})
+			failed = append(failed, gin.H{"id": id, httpshared.ErrorField: err.Error()})
 			continue
 		}
 		if plan == nil { // já no destino — sucesso imediato, sem cópia
@@ -190,21 +190,21 @@ func promoteBatchItems(o *promoteOpts, req *promoteReq, tr *transfer.Tracker) ([
 func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbClient *tmdb.Client, sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusConflict, httpshared.ErrSharedDirNotConfig)
 			return
 		}
 		var req promoteReq
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if len(req.IDs) == 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "ids vazio"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "ids vazio")
 			return
 		}
 		base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -224,10 +224,10 @@ func buildDownloadPreviews(d *previewDeps, ids []int) []gin.H {
 func previewOneDownload(d *previewDeps, id int) gin.H {
 	dl, err := d.store.Get(d.userID, id)
 	if err != nil || dl == nil {
-		return gin.H{"id": id, "error": errDownloadNotFound}
+		return gin.H{"id": id, httpshared.ErrorField: errDownloadNotFound}
 	}
 	if dl.FilePath == "" {
-		return gin.H{"id": id, "error": "file_path vazio"}
+		return gin.H{"id": id, httpshared.ErrorField: "file_path vazio"}
 	}
 	rawName := filepath.Base(dl.FilePath)
 	if rawName == "" || rawName == "." || rawName == "/" {
@@ -235,7 +235,7 @@ func previewOneDownload(d *previewDeps, id int) gin.H {
 	}
 	preview, err := renamer.GeneratePreview(d.ctx, d.aiClient, d.tmdbClient, rawName)
 	if err != nil {
-		return gin.H{"id": id, "error": err.Error()}
+		return gin.H{"id": id, httpshared.ErrorField: err.Error()}
 	}
 	nonConflicting := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
 	return gin.H{
@@ -257,17 +257,17 @@ func previewOneDownload(d *previewDeps, id int) gin.H {
 func DownloadsPromoteBrowse(sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
-			c.JSON(http.StatusConflict, gin.H{"error": httpshared.ErrSharedDirNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusConflict, httpshared.ErrSharedDirNotConfig)
 			return
 		}
 		root, err := httpshared.ResolveTargetBase(c.Query("base"), sharedDir, dests)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		sub, err := httpshared.SanitizeSubdir(c.Query("path"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		dir := joinIfSub(root, sub)
@@ -569,13 +569,13 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		d, err := store.Get(userID, id)
 		if err != nil || d == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": errDownloadNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, errDownloadNotFound)
 			return
 		}
 		if d.InfoHash != "" {

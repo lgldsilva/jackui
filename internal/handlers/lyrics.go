@@ -17,18 +17,18 @@ import (
 func LyricsGet(lc *lyrics.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if lc == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "lyrics disabled"})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "lyrics disabled")
 			return
 		}
 		title := strings.TrimSpace(c.Query("title"))
 		if title == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "title is required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "title is required")
 			return
 		}
 		dur, _ := strconv.Atoi(c.Query("duration"))
 		lyr, err := lc.Get(c.Request.Context(), c.Query("artist"), title, c.Query("album"), dur)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)

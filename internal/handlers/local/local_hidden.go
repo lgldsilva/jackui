@@ -149,7 +149,8 @@ func AbortIfLocalPathHidden(c *gin.Context, s *streamer.Streamer, mount, path st
 	if !IsLocalPathHidden(c, s, mount, path) {
 		return false
 	}
-	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+	c.Abort()
+	httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 	return true
 }
 
@@ -181,7 +182,7 @@ func LocalSetHidden(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 			Hidden bool   `json:"hidden"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Mount == "" || req.Path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		if !CheckMountAccess(b, c, req.Mount) {
@@ -189,12 +190,12 @@ func LocalSetHidden(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 		}
 		favs := s.Favorites()
 		if favs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if err := favs.SetLocalPathHidden(userID, req.Mount, req.Path, req.Hidden); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"mount": req.Mount, "path": req.Path, "hidden": req.Hidden})
@@ -213,7 +214,7 @@ func LocalListHidden(s *streamer.Streamer) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		paths, err := favs.HiddenLocalPaths(userID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if paths == nil {

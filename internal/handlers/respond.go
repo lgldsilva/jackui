@@ -6,13 +6,15 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
+
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 // respondError writes the project's standard JSON error body: {"error": "..."}.
-// Use it instead of inlining c.JSON(status, gin.H{"error": ...}) so the shape
+// Use it instead of inlining httpshared.RespondErrorMessage(c, status, ...) so the shape
 // stays uniform (there were two competing formats before this).
 func respondError(c *gin.Context, status int, err error) {
-	c.JSON(status, gin.H{"error": err.Error()})
+	httpshared.RespondError(c, status, err)
 }
 
 // bindHash reads the ":hash" path param, parses it into a metainfo.Hash and, on
@@ -33,7 +35,7 @@ func bindHash(c *gin.Context) (metainfo.Hash, bool) {
 func bindFileIndex(c *gin.Context, name string) (int, bool) {
 	v, err := strconv.Atoi(c.Param(name))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
 		return 0, false
 	}
 	return v, true

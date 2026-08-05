@@ -23,7 +23,7 @@ func TranscodeCapabilities(c *gin.Context) {
 	force := c.Query("refresh") == "1" || c.Query("refresh") == "true"
 	caps, err := transcode.Probe(c.Request.Context(), force)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	c.JSON(http.StatusOK, caps)
@@ -41,12 +41,12 @@ func TranscodeStream(s *streamer.Streamer, store *downloads.Store) gin.HandlerFu
 func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloads.Store) {
 	var h metainfo.Hash
 	if err := h.FromHexString(c.Param("hash")); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
 	fileIdx, err := strconv.Atoi(c.Param("file"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": errInvalidFileIndex})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
 		return
 	}
 
@@ -65,13 +65,14 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 
 	reader, _, err := s.FileReader(h, fileIdx)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusNotFound, err)
 		return
 	}
 	defer reader.Close()
 
 	if err := transcode.Run(c.Request.Context(), reader, c.Writer, opts); err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.Abort()
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 	}
 }
 
@@ -97,7 +98,8 @@ func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex strin
 	}
 	defer f.Close()
 	if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.Abort()
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 	}
 	return true
 }
@@ -160,12 +162,12 @@ func TranscodeActive(hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
 func TranscodeKill(hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if hlsMgr == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "HLS manager não ativo"})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "HLS manager não ativo")
 			return
 		}
 		key := c.Param("key")
 		if key == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing session key"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "missing session key")
 			return
 		}
 		hlsMgr.Close(key)

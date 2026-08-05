@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/parser"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -50,7 +51,7 @@ func GetHistory(store *history.Store) gin.HandlerFunc {
 		includeAll := isAdmin && queryBool(c, "all")
 		entries, err := store.RecentEntries(100, userID, includeAll)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if entries == nil {
@@ -65,7 +66,7 @@ func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls 
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrQueryRequired)
 			return
 		}
 
@@ -73,7 +74,7 @@ func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls 
 		includeAll := isAdmin && queryBool(c, "all")
 		results, err := store.Search(query, userID, includeAll)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		e := buildEnricher(favs, dls, userID, includeAll)
@@ -86,7 +87,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 	return func(c *gin.Context) {
 		query := c.Query("q")
 		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrQueryRequired})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrQueryRequired)
 			return
 		}
 		limit := 200
@@ -94,7 +95,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 		includeAll := isAdmin && queryBool(c, "all")
 		results, err := store.SearchAll(query, limit, userID, includeAll)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		e := buildEnricher(favs, dls, userID, includeAll)
@@ -110,14 +111,14 @@ func DeleteHistory(store *history.Store) gin.HandlerFunc {
 		includeAll := isAdmin && queryBool(c, "all")
 		if q := c.Query("q"); q != "" {
 			if err := store.DeleteQuery(q, userID, includeAll); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "query cleared"})
 			return
 		}
 		if err := store.DeleteAll(userID, includeAll); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "history cleared"})

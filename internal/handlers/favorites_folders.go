@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -18,7 +19,7 @@ func FoldersList(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -26,7 +27,7 @@ func FoldersList(s *streamer.Streamer) gin.HandlerFunc {
 		// legacy ?includeHidden=1 reveal hidden folders.
 		folders, err := fs.ListFolders(userID, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, folders)
@@ -43,18 +44,18 @@ func FolderCreate(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 			return
 		}
 		var body folderBody
 		if err := c.ShouldBindJSON(&body); err != nil || body.Name == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "name required")
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		f, err := fs.CreateFolder(userID, body.Name, body.ParentID, body.Hidden)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusCreated, f)
@@ -77,22 +78,22 @@ func FolderPatch(s *streamer.Streamer) gin.HandlerFunc {
 func folderPatchHandler(c *gin.Context, s *streamer.Streamer) {
 	fs := s.Favorites()
 	if fs == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 		return
 	}
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 		return
 	}
 	var body folderPatchBody
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
 	userID, _, _ := auth.UserIDFromCtx(c)
 	if err := applyFolderPatch(fs, userID, id, &body); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -125,17 +126,17 @@ func FolderDelete(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 			return
 		}
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if err := fs.DeleteFolder(userID, id); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.Status(http.StatusNoContent)
@@ -146,7 +147,7 @@ func FavoriteMoveToFolder(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		fs := s.Favorites()
 		if fs == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": streamer.ErrFavoritesUnavail})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, streamer.ErrFavoritesUnavail)
 			return
 		}
 		name := c.Param("name")
@@ -155,7 +156,7 @@ func FavoriteMoveToFolder(s *streamer.Streamer) gin.HandlerFunc {
 			ToRoot   bool `json:"toRoot"` // explicit null move (vs unset)
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
@@ -164,7 +165,7 @@ func FavoriteMoveToFolder(s *streamer.Streamer) gin.HandlerFunc {
 			folder = body.FolderID
 		}
 		if err := fs.MoveFavoriteToFolder(userID, name, folder); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.Status(http.StatusNoContent)

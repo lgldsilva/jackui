@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/mailer"
 )
 
@@ -19,12 +20,12 @@ const errUserNotFound = "usuário não encontrado"
 func userFromIDParam(c *gin.Context, store *auth.Store) *auth.User {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrInvalidID})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 		return nil
 	}
 	user, err := store.GetUserByID(id)
 	if err != nil || user == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": errUserNotFound})
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, errUserNotFound)
 		return nil
 	}
 	return user
@@ -47,11 +48,11 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 		_ = c.ShouldBindJSON(&req)
 		if req.Password != "" {
 			if len(req.Password) < 6 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "a nova senha precisa ter ao menos 6 caracteres"})
+				httpshared.RespondErrorMessage(c, http.StatusBadRequest, "a nova senha precisa ter ao menos 6 caracteres")
 				return
 			}
 			if err := store.SetPassword(user.ID, req.Password); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
 			_ = store.RevokeAllSessions(user.ID)
@@ -60,12 +61,12 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 		}
 		base := baseURL(c, cfgBaseURL)
 		if base == "" {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "base URL pública não configurada"})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "base URL pública não configurada")
 			return
 		}
 		tok, err := store.CreateToken(auth.TokenResetPassword, user.ID, user.Email, resetTTL)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		link := base + "/reset-password?token=" + tok
@@ -87,7 +88,7 @@ func AdminListUserSessions(store *auth.Store) gin.HandlerFunc {
 		}
 		sessions, err := store.ListSessions(user.ID, "")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"sessions": sessions})
@@ -102,7 +103,7 @@ func AdminRevokeUserSession(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		if err := store.RevokeSession(user.ID, c.Param("sid")); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "sessão encerrada"})
@@ -118,7 +119,7 @@ func AdminRevokeUserSessions(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		if err := store.RevokeAllSessions(user.ID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "sessões encerradas"})
@@ -136,7 +137,7 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		var req struct {
@@ -146,24 +147,24 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 		_ = c.ShouldBindJSON(&req)
 		email := strings.TrimSpace(strings.ToLower(req.Email))
 		if !emailFormat.MatchString(email) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "e-mail inválido"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "e-mail inválido")
 			return
 		}
 		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "senha incorreta"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha incorreta")
 			return
 		}
 		used, err := store.EmailInUse(email, claims.UserID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if used {
-			c.JSON(http.StatusConflict, gin.H{"error": "e-mail já cadastrado"})
+			httpshared.RespondErrorMessage(c, http.StatusConflict, "e-mail já cadastrado")
 			return
 		}
 		if err := store.UpdateEmail(claims.UserID, email); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		sendVerifyEmail(store, mlr, c, cfgBaseURL, claims.UserID, email)

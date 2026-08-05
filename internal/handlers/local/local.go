@@ -40,7 +40,7 @@ func userFromCtx(c *gin.Context) string {
 func CheckMountAccess(b *lb.Browser, c *gin.Context, mountName string) bool {
 	username := userFromCtx(c)
 	if !b.UserCanAccess(username, mountName) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "acesso negado a este mount"})
+		httpshared.RespondErrorMessage(c, http.StatusForbidden, "acesso negado a este mount")
 		return false
 	}
 	return true
@@ -89,7 +89,7 @@ func LocalList(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing mount parameter"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "missing mount parameter")
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -112,11 +112,11 @@ func LocalList(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 
 func listHandleError(b *lb.Browser, c *gin.Context, err error) {
 	if isTraversalErr(err) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
 	if !os.IsNotExist(err) {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	// UserSubpath dir doesn't exist yet → return empty list (not 404)
@@ -124,7 +124,7 @@ func listHandleError(b *lb.Browser, c *gin.Context, err error) {
 		c.JSON(http.StatusOK, []lb.Entry{})
 		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
+	httpshared.RespondErrorMessage(c, http.StatusNotFound, "path not found")
 }
 
 // LocalFile handles GET /api/local/file?mount=NAME&path=REL/FILE
@@ -136,7 +136,7 @@ func LocalFile(b *lb.Browser, reg *localstream.Registry, cache *localcache.Cache
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -146,7 +146,7 @@ func LocalFile(b *lb.Browser, reg *localstream.Registry, cache *localcache.Cache
 		scoped := ScopePath(b, c, mount, path)
 		abs, err := b.ResolvePath(mount, scoped)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		// Prefer the locally-cached copy when ready: fast disk, no rclone EIO.
@@ -178,13 +178,13 @@ func serveLocalFileMetered(c *gin.Context, reg *localstream.Registry, mount, sco
 	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(abs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	st, err := f.Stat()
 	if err != nil {
 		_ = f.Close()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	key := transferKeyDirect(mount, scoped)
@@ -202,14 +202,14 @@ func StatLocalFile(c *gin.Context, abs string) bool {
 	stat, err := os.Stat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 			return false
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return false
 	}
 	if stat.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": httpshared.ErrPathIsDir})
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, httpshared.ErrPathIsDir)
 		return false
 	}
 	return true
@@ -261,7 +261,7 @@ func LocalTranscode(b *lb.Browser) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": ErrMissingMountOrPathParam})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrMissingMountOrPathParam)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -269,18 +269,18 @@ func LocalTranscode(b *lb.Browser) gin.HandlerFunc {
 		}
 		abs, err := b.ResolvePath(mount, ScopePath(b, c, mount, path))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		stat, err := os.Stat(abs)
 		if err != nil || stat.IsDir() {
-			c.JSON(http.StatusNotFound, gin.H{"error": httpshared.ErrFileNotFound})
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 			return
 		}
 		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 		f, err := os.Open(abs)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		defer func() { _ = f.Close() }()
@@ -293,7 +293,8 @@ func LocalTranscode(b *lb.Browser) gin.HandlerFunc {
 			Container:    "mp4",
 		}
 		if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.Abort()
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 		}
 	}
 }
@@ -312,7 +313,7 @@ func LocalWalk(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 		mount := c.Query("mount")
 		path := c.Query("path")
 		if mount == "" || path == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errMissingMountOrPath})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errMissingMountOrPath)
 			return
 		}
 		if !CheckMountAccess(b, c, mount) {
@@ -323,10 +324,10 @@ func LocalWalk(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 		entries, err := b.Walk(mount, ScopePath(b, c, mount, path), mediaOnly)
 		if err != nil {
 			if os.IsNotExist(err) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "path not found"})
+				httpshared.RespondErrorMessage(c, http.StatusNotFound, "path not found")
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if entries == nil {

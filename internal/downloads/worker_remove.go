@@ -23,6 +23,26 @@ import (
 // used to drop the torrent even when nothing was tracked yet (delete of a
 // queued/initializing row). A safe no-op when the worker never tracked the ID.
 func (w *Worker) Remove(id int, infoHash string) {
+	hash, haveHash, removed, siblingKeepsTorrent := w.removeState(id, infoHash)
+	// Removing ONE file of a multi-file torrent: just stop fetching that file
+	// (PiecePriorityNone) and keep the torrent leeching the rest. A sibling still
+	// in init has no live *torrent.File for us yet, but initGroup will reconcile
+	// priorities; cancel ours if we have it.
+	if siblingKeepsTorrent {
+		if removed != nil && removed.file != nil {
+			removed.file.SetPriority(torrent.PiecePriorityNone)
+		}
+		return
+	}
+
+	if haveHash {
+		// Last member gone → drop the torrent. Drop runs OUTSIDE w.mu (streamer
+		// lock + I/O) and is a safe no-op if a player still holds a viewer lease.
+		w.dropTorrent(hash)
+	}
+}
+
+func (w *Worker) removeState(id int, infoHash string) (metainfo.Hash, bool, *trackedDL, bool) {
 	var hash metainfo.Hash
 	haveHash := false
 
@@ -57,23 +77,7 @@ func (w *Worker) Remove(id int, infoHash string) {
 	siblingKeepsTorrent := haveHash &&
 		(w.hashTrackedLocked(hash) || w.pendingSiblingLocked(hash, id))
 	w.mu.Unlock()
-
-	// Removing ONE file of a multi-file torrent: just stop fetching that file
-	// (PiecePriorityNone) and keep the torrent leeching the rest. A sibling still
-	// in init has no live *torrent.File for us yet, but initGroup will reconcile
-	// priorities; cancel ours if we have it.
-	if siblingKeepsTorrent {
-		if removed != nil && removed.file != nil {
-			removed.file.SetPriority(torrent.PiecePriorityNone)
-		}
-		return
-	}
-
-	if haveHash {
-		// Last member gone → drop the torrent. Drop runs OUTSIDE w.mu (streamer
-		// lock + I/O) and is a safe no-op if a player still holds a viewer lease.
-		w.dropTorrent(hash)
-	}
+	return hash, haveHash, removed, siblingKeepsTorrent
 }
 
 // hashTrackedLocked reports whether ANY tracked download still maps to hash —

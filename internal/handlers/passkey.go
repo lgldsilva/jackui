@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 // Passkey (WebAuthn) handlers. A ceremony is two requests: a "begin" that mints
@@ -19,17 +20,17 @@ func PasskeyRegisterBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfigF})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfigF)
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
 		opts, session, err := wa.BeginRegister(claims.UserID, claims.Username, creds)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"options": opts, "session": session})
@@ -41,21 +42,21 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
 		cred, err := wa.FinishRegister(claims.UserID, claims.Username, creds, c.Query("session"), c.Request)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
 		if err := store.AddCredential(claims.UserID, cred); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "passkey adicionada"})
@@ -66,14 +67,14 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
 			return
 		}
 		var req struct {
 			Username string `json:"username"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Username == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "username obrigatório"})
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username obrigatório")
 			return
 		}
 		user, err := store.GetUserByUsername(req.Username)
@@ -81,17 +82,17 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 		// build the assertion challenge — so an unknown user / no-passkey can't be
 		// fully hidden here. Return a generic error without leaking which case it is.
 		if err != nil || user == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "passkey indisponível para este usuário"})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey indisponível para este usuário")
 			return
 		}
 		creds, _ := store.Credentials(user.ID)
 		if len(creds) == 0 {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "passkey indisponível para este usuário"})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey indisponível para este usuário")
 			return
 		}
 		opts, session, err := wa.BeginLogin(user.ID, user.Username, creds)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"options": opts, "session": session, "userId": user.ID})
@@ -102,28 +103,28 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": ErrPasskeysNotConfig})
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
 			return
 		}
 		// The assertion JSON is the body go-webauthn parses (we must NOT consume it
 		// with ShouldBindJSON), so the username + flags ride in the query string.
 		user, err := store.GetUserByUsername(c.Query("username"))
 		if err != nil || user == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "falha na autenticação por passkey"})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "falha na autenticação por passkey")
 			return
 		}
 		switch user.Status {
 		case auth.StatusPending:
-			c.JSON(http.StatusForbidden, gin.H{"error": "conta aguardando aprovação", "status": "pending"})
+			httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta aguardando aprovação", gin.H{"status": "pending"})
 			return
 		case auth.StatusDisabled:
-			c.JSON(http.StatusForbidden, gin.H{"error": "conta desabilitada", "status": "disabled"})
+			httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta desabilitada", gin.H{"status": "disabled"})
 			return
 		}
 		creds, _ := store.Credentials(user.ID)
 		cred, err := wa.FinishLogin(user.ID, user.Username, creds, c.Query("session"), c.Request)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "falha na autenticação por passkey"})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "falha na autenticação por passkey")
 			return
 		}
 		// Persist the advanced sign counter (clone-detection state).
@@ -131,7 +132,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": errTokenSigningFailed})
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
 		}
 		ttl := refreshTTLNormal
@@ -140,7 +141,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 		}
 		refresh, err := store.CreateRefreshToken(user.ID, ttl, ttl == refreshTTLRemember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user})
@@ -153,7 +154,7 @@ func PasskeyList(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -170,11 +171,11 @@ func PasskeyDelete(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
 		if !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": errNotAuthenticated})
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
 		if err := store.DeleteCredential(claims.UserID, c.Param("id")); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "passkey removida"})
