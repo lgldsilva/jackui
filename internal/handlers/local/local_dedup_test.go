@@ -114,8 +114,6 @@ func TestLocalDuplicatesDelete_MissingFields(t *testing.T) {
 	}
 }
 
-
-
 func TestFingerprintFile_Small(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "small.txt")
