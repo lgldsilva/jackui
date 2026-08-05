@@ -21,11 +21,28 @@ const (
 // The token itself is NEVER logged — only method/path/ip/reason.
 func logReject(c *gin.Context, reason string) {
 	slog.Warn("auth: rejected request",
-		"reason", reason,
-		"method", c.Request.Method,
-		"path", c.Request.URL.Path,
-		"ip", c.ClientIP(),
+		"reason", sanitizeForLog(reason),
+		"method", sanitizeForLog(c.Request.Method),
+		"path", sanitizeForLog(c.Request.URL.Path),
+		"ip", sanitizeForLog(c.ClientIP()),
 	)
+}
+
+// sanitizeForLog removes control characters that could be used for log
+// injection (newlines, carriage returns, tabs and NUL) and trims the value
+// to a reasonable length so user-provided input cannot pollute structured
+// log entries. CodeQL go/log-injection is addressed here for method, path,
+// ip and reason logged by logReject.
+func sanitizeForLog(v string) string {
+	const maxLen = 512
+	if len(v) > maxLen {
+		v = v[:maxLen]
+	}
+	v = strings.ReplaceAll(v, "\x00", "")
+	v = strings.ReplaceAll(v, "\r", "")
+	v = strings.ReplaceAll(v, "\n", "␊")
+	v = strings.ReplaceAll(v, "\t", "␉")
+	return v
 }
 
 // Required is the Gin middleware that rejects requests without a valid Bearer token.
