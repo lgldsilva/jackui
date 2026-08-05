@@ -247,6 +247,18 @@ func TestWorkerRemove_ReconcileDoesNotResurrect(t *testing.T) {
 	}
 }
 
+// hashTrackedLocked must return false for a zero hash (no torrent to match).
+func TestWorker_HashTrackedLocked_ZeroHash(t *testing.T) {
+	w, _, _ := newRemoveWorker(t)
+	var zero metainfo.Hash
+	w.mu.Lock()
+	got := w.hashTrackedLocked(zero)
+	w.mu.Unlock()
+	if got {
+		t.Fatal("zero hash must not match any tracked torrent")
+	}
+}
+
 // Stop must not deadlock when a tombstone is present (sanity for the lock
 // ordering in Remove vs Stop).
 func TestWorkerRemove_StopAfterRemove(t *testing.T) {

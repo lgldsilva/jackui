@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -55,23 +56,21 @@ func New(apiKey, username, password, cacheDir string) *Client {
 	}
 }
 
+// fileIDPattern restricts cache keys to OpenSubtitles numeric file IDs.
+// Defensive validation prevents user-provided values from reaching the path
+// expression, satisfying path-traversal analyzers (CodeQL go/path-injection).
+var fileIDPattern = regexp.MustCompile(`^[0-9]+$`)
+
 // CachePath returns the file path used to persist a downloaded subtitle.
-// Empty string if caching is disabled.
+// Empty string if caching is disabled or the fileID is not a numeric ID.
 func (c *Client) cachePath(fileID string) string {
 	if c.cacheDir == "" || fileID == "" {
 		return ""
 	}
-	// fileID is digits from OpenSubtitles, but sanitize defensively
-	safe := strings.Map(func(r rune) rune {
-		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '-' || r == '_' {
-			return r
-		}
-		return -1
-	}, fileID)
-	if safe == "" {
+	if !fileIDPattern.MatchString(fileID) {
 		return ""
 	}
-	return filepath.Join(c.cacheDir, safe+".vtt")
+	return filepath.Join(c.cacheDir, fileID+".vtt")
 }
 
 func (c *Client) Enabled() bool {
