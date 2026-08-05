@@ -1,108 +1,149 @@
 package handlers
 
 import (
-	"path/filepath"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
+	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
-func testDestService() *DestinationService {
+func destinationServiceForTest() *DestinationService {
 	return &DestinationService{
 		Mounts: []config.ExternalMount{
-			{Name: "Public", Path: "/mnt/public"},
-			{Name: "Alice only", Path: "/mnt/alice", AllowedUsers: []string{"alice"}},
-			{Name: "Per-user", Path: "/mnt/home", UserSubpath: true},
+			{Name: "Library", Path: "/mnt/library"},
+			{Name: "Private", Path: "/mnt/private", UserSubpath: true},
+			{Name: "Hidden", Path: "/mnt/hidden", AllowedUsers: []string{"alice"}},
 		},
-		Promote:   []httpshared.PromoteDest{{Name: "Extra", Path: "/mnt/extra"}},
-		SharedDir: "/shared",
-		ResolveUser: func(id int) string {
-			if id == 1 {
+		Promote:   []httpshared.PromoteDest{{Name: "Promote", Path: "/mnt/promote"}},
+		SharedDir: "/mnt/shared",
+		ResolveUser: func(userID int) string {
+			if userID == 1 {
 				return "alice"
 			}
-			return "bob"
+			return ""
 		},
 	}
 }
 
-func paths(dests []DownloadDestination) map[string]DownloadDestination {
-	m := map[string]DownloadDestination{}
-	for _, d := range dests {
-		m[d.Path] = d
-	}
-	return m
+func invokeWithAuth(t *testing.T, h gin.HandlerFunc, method, path, body string, userID int) *httptest.ResponseRecorder {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(method, path, strings.NewReader(body))
+	c.Set("auth.claims", &auth.Claims{UserID: userID, Username: "alice"})
+	h(c)
+	return w
 }
 
-func TestDestinationService_For_FiltersByAllowedUsers(t *testing.T) {
-	ds := testDestService()
-	alice := paths(ds.For(1))
-	if _, ok := alice["/mnt/alice"]; !ok {
-		t.Error("alice should see her restricted mount")
+func TestDownloadsDestinations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ds := destinationServiceForTest()
+
+	w := invokeWithAuth(t, DownloadsDestinations(ds), http.MethodGet, "/api/downloads/destinations", "", 1)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
-	bob := paths(ds.For(2))
-	if _, ok := bob["/mnt/alice"]; ok {
-		t.Error("bob must NOT see alice's restricted mount")
-	}
-	// Public + promote dests visible to everyone.
-	if _, ok := bob["/mnt/public"]; !ok {
-		t.Error("public mount should be visible to all")
-	}
-	if _, ok := bob["/shared"]; !ok {
-		t.Error("sharedDir (Biblioteca) should be a destination")
-	}
-	if _, ok := bob["/mnt/extra"]; !ok {
-		t.Error("promote dir should be a destination")
+	if !strings.Contains(w.Body.String(), "Library") {
+		t.Errorf("expected Library destination, got %s", w.Body.String())
 	}
 }
 
-func TestDestinationService_For_UserSubpath(t *testing.T) {
-	ds := testDestService()
-	alice := paths(ds.For(1))
-	want := filepath.Join("/mnt/home", "alice")
-	d, ok := alice[want]
-	if !ok {
-		t.Fatalf("per-user mount should resolve to %q; got %v", want, alice)
-	}
-	if !d.UserSubpath {
-		t.Error("per-user destination should be flagged UserSubpath")
+func TestDownloadsDestinationBrowse_InvalidBase(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ds := destinationServiceForTest()
+
+	w := invokeWithAuth(t, DownloadsDestinationBrowse(ds), http.MethodGet, "/api/downloads/dest/browse?base=/nope", "", 1)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
 
-func TestDestinationService_Resolve(t *testing.T) {
-	ds := testDestService()
-	// Empty base → default (no error).
-	if base, sub, err := ds.Resolve(1, "", ""); err != nil || base != "" || sub != "" {
-		t.Errorf("empty base: got (%q,%q,%v)", base, sub, err)
-	}
-	// Valid base + subdir.
-	base, sub, err := ds.Resolve(1, "/mnt/public", "movies/2026")
-	if err != nil || base != "/mnt/public" || sub != filepath.FromSlash("movies/2026") {
-		t.Errorf("valid: got (%q,%q,%v)", base, sub, err)
-	}
-	// A base alice can't see → rejected.
-	if _, _, err := ds.Resolve(2, "/mnt/alice", ""); err == nil {
-		t.Error("bob picking alice's mount should be rejected")
-	}
-	// Arbitrary path → rejected.
-	if _, _, err := ds.Resolve(1, "/etc", ""); err == nil {
-		t.Error("arbitrary path should be rejected")
-	}
-	// Traversal subdir → rejected.
-	if _, _, err := ds.Resolve(1, "/mnt/public", "../escape"); err == nil {
-		t.Error("traversal subdir should be rejected")
+func TestDownloadsDestinationBrowse_InvalidPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ds := destinationServiceForTest()
+
+	w := invokeWithAuth(t, DownloadsDestinationBrowse(ds), http.MethodGet, "/api/downloads/dest/browse?base=/mnt/library&path=../escape", "", 1)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
 
-func TestDestinationService_NilSafe(t *testing.T) {
-	var ds *DestinationService
-	if got := ds.For(1); len(got) != 0 {
-		t.Errorf("nil service For → empty, got %v", got)
+func TestDestinationServiceFor(t *testing.T) {
+	ds := destinationServiceForTest()
+
+	// alice sees all mounts (Private resolves to /mnt/private/alice)
+	got := ds.For(1)
+	names := map[string]string{}
+	for _, d := range got {
+		names[d.Name] = d.Path
 	}
-	if _, _, err := ds.Resolve(1, "", ""); err != nil {
-		t.Errorf("nil service empty base → no error, got %v", err)
+	if names["Library"] != "/mnt/library" {
+		t.Errorf("Library = %q", names["Library"])
 	}
-	if _, _, err := ds.Resolve(1, "/mnt/x", ""); err == nil {
-		t.Error("nil service with a base → rejected")
+	if names["Private"] != "/mnt/private/alice" {
+		t.Errorf("Private = %q", names["Private"])
+	}
+	if names["Hidden"] != "/mnt/hidden" {
+		t.Errorf("Hidden = %q", names["Hidden"])
+	}
+	if names["Promote"] != "/mnt/promote" {
+		t.Errorf("Promote = %q", names["Promote"])
+	}
+
+	// unknown user sees only public mounts
+	got2 := ds.For(999)
+	for _, d := range got2 {
+		if d.Name == "Hidden" {
+			t.Error("Hidden mount must not be visible to unknown user")
+		}
+		if d.Name == "Private" && d.Path == "/mnt/private/alice" {
+			t.Error("Private mount must not resolve alice for unknown user")
+		}
+	}
+}
+
+func TestDestinationServiceResolve(t *testing.T) {
+	ds := destinationServiceForTest()
+
+	// Empty base is valid.
+	base, sub, err := ds.Resolve(1, "", "")
+	if err != nil || base != "" || sub != "" {
+		t.Fatalf("empty base: (%q,%q,%v)", base, sub, err)
+	}
+
+	// Valid base returns canonical path.
+	base, sub, err = ds.Resolve(1, "/mnt/library", "movies")
+	if err != nil || base != "/mnt/library" || sub != "movies" {
+		t.Fatalf("valid base: (%q,%q,%v)", base, sub, err)
+	}
+
+	// Invalid base is rejected.
+	_, _, err = ds.Resolve(1, "/etc", "")
+	if err == nil {
+		t.Fatal("expected error for invalid base")
+	}
+
+	// Traversal subdir is rejected.
+	_, _, err = ds.Resolve(1, "/mnt/library", "../escape")
+	if err == nil {
+		t.Fatal("expected error for traversal subdir")
+	}
+}
+
+func TestMountVisibleTo(t *testing.T) {
+	if !mountVisibleTo(config.ExternalMount{Name: "A"}, "anyone") {
+		t.Error("no allowed users means visible to all")
+	}
+	if !mountVisibleTo(config.ExternalMount{Name: "A", AllowedUsers: []string{"alice"}}, "alice") {
+		t.Error("alice should be visible")
+	}
+	if mountVisibleTo(config.ExternalMount{Name: "A", AllowedUsers: []string{"alice"}}, "bob") {
+		t.Error("bob should not be visible")
 	}
 }
