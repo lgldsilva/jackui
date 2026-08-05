@@ -39,8 +39,6 @@ func TestDownloadsBatchStopSeed_TooMany(t *testing.T) {
 	}
 }
 
-
-
 func TestGetDownloadFileStat(t *testing.T) {
 	if got := getDownloadFileStat(""); got.Exists || got.Apparent != 0 || got.OnDisk != 0 {
 		t.Errorf("empty path = %+v", got)
