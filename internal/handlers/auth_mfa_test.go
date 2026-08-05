@@ -57,5 +57,3 @@ func TestMFADisable_Unauthorized(t *testing.T) {
 		t.Fatalf("status = %d, want 401", w.Code)
 	}
 }
-
-
