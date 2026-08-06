@@ -205,21 +205,36 @@ func promoteOnePath(b *lb.Browser, deps *promoteDstDeps, mount, scopedRel, targe
 // scopedRel is the SCOPED source path — used to look up the override and to give
 // the AI its location hint (currentDirOf).
 func computePromoteDst(d *promoteDstDeps, baseName, scopedRel, targetDir string) (string, string) {
+	flatDst, flatDir := filepath.Join(targetDir, baseName), targetDir
 	lc := localContextFor(d.base, d.mount, currentDirOf(scopedRel))
 	if rel, ok := overrideTargetRel(d, scopedRel, lc); ok {
 		targetRel := renamer.ResolveTargetConflict(d.base, rel)
 		dst := filepath.Join(d.base, targetRel)
-		return dst, filepath.Dir(dst)
+		return clampPromoteDst(dst, d.base, flatDst, flatDir)
 	}
 	if d.aiClient != nil {
 		preview, err := renamer.GeneratePreviewWithContext(d.ctx, d.aiClient, d.tmdbClient, baseName, lc)
 		if err == nil && preview != nil {
 			targetRel := renamer.ResolveTargetConflict(d.base, preview.TargetPath)
 			dst := filepath.Join(d.base, targetRel)
+			return clampPromoteDst(dst, d.base, flatDst, flatDir)
+		}
+	}
+	return flatDst, flatDir
+}
+
+// clampPromoteDst is a final isUnderDir guard for the AI/override target paths.
+// Those paths are sanitized upstream (sanitizeOverrideTarget / sanitizeFilename
+// + ResolvePath-constrained baseName), but if a future caller ever produces a
+// rel that escapes base, fall back to a flat target rather than writing
+// outside the shared dir. Defense-in-depth for CodeQL go/path-injection.
+func clampPromoteDst(dst, base, flatDst, flatDir string) (string, string) {
+	if rel, err := filepath.Rel(base, dst); err == nil {
+		if rel = filepath.Clean(rel); !strings.HasPrefix(rel, "..") {
 			return dst, filepath.Dir(dst)
 		}
 	}
-	return filepath.Join(targetDir, baseName), targetDir
+	return flatDst, flatDir
 }
 
 // overrideTargetRel returns the sanitized override target (relative to base) for

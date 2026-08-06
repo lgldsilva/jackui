@@ -49,7 +49,21 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 
 func isJackettURL(u *url.URL, client *jackett.Client) bool {
 	jackettBase, err := url.Parse(client.URL)
-	return err == nil && strings.EqualFold(u.Host, jackettBase.Host)
+	if err != nil {
+		return false
+	}
+	// Reject userinfo so an attacker can't smuggle a foreign host via
+	// "http://jackett:9117@evil/..." (u.Host would be evil, but even a
+	// matching host with credentials is never a legit Jackett request).
+	if u.User != nil {
+		return false
+	}
+	// Restrict to http(s) so a file:// or javascript: URL sharing the
+	// configured host can't be proxied.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	return strings.EqualFold(u.Host, jackettBase.Host)
 }
 
 func injectAPIKey(u *url.URL, client *jackett.Client) {

@@ -124,3 +124,20 @@ func TestExtractLocalPromoteReq_InvalidJSON(t *testing.T) {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }
+
+func TestClampPromoteDst(t *testing.T) {
+	base := "/base"
+	flatDst, flatDir := "/base/flat.mp4", "/base"
+	// Under base → kept.
+	if dst, dir := clampPromoteDst("/base/Movies/Foo/Foo.mp4", base, flatDst, flatDir); dst != "/base/Movies/Foo/Foo.mp4" || dir != "/base/Movies/Foo" {
+		t.Fatalf("under-base not kept: dst=%q dir=%q", dst, dir)
+	}
+	// Escapes base → flattened.
+	if dst, dir := clampPromoteDst("/etc/passwd", base, flatDst, flatDir); dst != flatDst || dir != flatDir {
+		t.Fatalf("escape not flattened: dst=%q dir=%q", dst, dir)
+	}
+	// Parent traversal via ".." → flattened.
+	if dst, _ := clampPromoteDst("/base/../etc/x", base, flatDst, flatDir); dst != flatDst {
+		t.Fatalf("parent-traversal not flattened: dst=%q", dst)
+	}
+}
