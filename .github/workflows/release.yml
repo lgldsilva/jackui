@@ -154,8 +154,10 @@ jobs:
 
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2
         with:
-          tag_name: v${{ needs.semver.outputs.version }}
-          name: v${{ needs.semver.outputs.version }}
+          # semver.sh already returns a "v"-prefixed tag (vX.Y.Z); do NOT add
+          # another "v" here — the old `v${{ ... }}` produced orphan "vv" tags.
+          tag_name: ${{ needs.semver.outputs.version }}
+          name: ${{ needs.semver.outputs.version }}
           body: ${{ steps.changelog.outputs.changelog }}
           fail_on_unmatched_files: true
           files: bom.json
