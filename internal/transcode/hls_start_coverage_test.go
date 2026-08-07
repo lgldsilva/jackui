@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -112,4 +113,32 @@ func TestGetOrStartExistingAndWaitingCancellation(t *testing.T) {
 	if !waitSource.closed {
 		t.Fatal("source must be closed when waiting context is canceled")
 	}
+}
+
+func TestBuildSession_RejectsTraversalKey(t *testing.T) {
+	SetCachedForTesting(&Capabilities{Preferred: "libx264"})
+	defer ResetCachedForTesting()
+	m, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	// A session key that would escape baseDir must be rejected before any
+	// dir is created (defense-in-depth for CodeQL go/path-injection).
+	for _, bad := range []string{"../../etc", ".." + string(filepath.Separator) + "x", "/abs/path"} {
+		if _, err := m.buildSession(context.Background(), bad, HLSStartOpts{Source: bytes.NewReader(nil)}); err == nil {
+			t.Fatalf("buildSession accepted traversal key %q", bad)
+		}
+	}
+}
+
+func TestBuildSession_AcceptsValidKey(t *testing.T) {
+	SetCachedForTesting(&Capabilities{Preferred: "libx264"})
+	defer ResetCachedForTesting()
+	m, err := NewHLSManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	// A normal infohash-style key must still pass the guard (it will fail
+	// later on source/ffmpeg, but not on the key validation).
+	_, _ = m.buildSession(context.Background(), "0123456789abcdef0123456789abcdef01234567", HLSStartOpts{Source: bytes.NewReader(nil)})
 }

@@ -53,7 +53,9 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 			if len(preview) > 80 {
 				preview = preview[:80] + "..."
 			}
-			fmt.Printf("[stream/add] failed for %q: %v\n", preview, err)
+			// %q escapes control chars (newlines) so a malformed magnet or a
+			// parser error echoing user input can't forge log entries.
+			fmt.Printf("[stream/add] failed for %q: %q\n", preview, err.Error())
 			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -138,6 +139,13 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	}
 
 	dir := filepath.Join(m.baseDir, effKey)
+	// Defense-in-depth for CodeQL go/path-injection: effKey is derived from a
+	// caller-supplied content key (infohash hex or a ResolvePath-validated
+	// local path), but reject any traversal here so a future caller can't
+	// escape baseDir via ".."/"/" in the key.
+	if rel, err := filepath.Rel(m.baseDir, dir); err != nil || strings.HasPrefix(filepath.Clean(rel), "..") {
+		return nil, fmt.Errorf("invalid HLS session key")
+	}
 	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir hls dir: %w", err)
