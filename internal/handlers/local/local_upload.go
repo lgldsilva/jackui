@@ -78,11 +78,16 @@ func streamUploadToDisk(c *gin.Context, fileHeader *multipart.FileHeader, absDir
 	if !ok {
 		return "", false
 	}
-	defer dstFile.Close()
 
 	if _, err = io.Copy(dstFile, srcFile); err != nil {
+		_ = dstFile.Close()
 		_ = os.Remove(finalPath)
 		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "erro ao gravar arquivo: "+err.Error())
+		return "", false
+	}
+	if err := dstFile.Close(); err != nil {
+		_ = os.Remove(finalPath)
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "erro ao finalizar arquivo: "+err.Error())
 		return "", false
 	}
 	return filepath.Base(finalPath), true
