@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react'
 import { load, save } from './storage'
-import api from '../api/client'
+import api, { sessionLifecycle } from '../api/client'
 
 const KEY = 'incognito'
 const EVT = 'jackui:incognito'
@@ -28,9 +28,10 @@ export function resetIncognitoFlag(): void {
 }
 
 // clearIncognitoData calls the backend to delete all incognito entries for the user.
-// Fire-and-forget — UI should not block on this.
+// Fire-and-forget — UI should not block on this. Marcada como session-lifecycle:
+// um 401 aqui (sessão já morta) não deve disparar refresh→logout (recursão).
 export async function clearIncognitoData(): Promise<void> {
-  await api.delete('/user/incognito')
+  await api.delete('/user/incognito', sessionLifecycle())
 }
 
 // useIncognito mirrors the flag to localStorage + notifies same-tab listeners
@@ -53,9 +54,9 @@ export function useIncognito(): [boolean, (next: boolean) => void] {
   useEffect(() => {
     if (!on) return
     // Immediate ping on activation
-    api.post('/user/incognito/heartbeat').catch(() => {})
+    api.post('/user/incognito/heartbeat', undefined, sessionLifecycle()).catch(() => {})
     const id = globalThis.setInterval(() => {
-      api.post('/user/incognito/heartbeat').catch(() => {})
+      api.post('/user/incognito/heartbeat', undefined, sessionLifecycle()).catch(() => {})
     }, HEARTBEAT_INTERVAL)
     return () => globalThis.clearInterval(id)
   }, [on])

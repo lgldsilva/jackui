@@ -29,3 +29,24 @@ export function isAuthRejection(status: number | undefined): boolean {
 export function refreshBackoffMs(attempt: number): number {
   return Math.min(500 * 2 ** attempt, 4000)
 }
+
+// shouldAttemptRefresh is the 401-response gate for the AuthContext interceptor:
+// a request may enter the refresh path ONLY when (a) it hasn't already been
+// retried, (b) it isn't the refresh call itself, and (c) it isn't a best-effort
+// session-lifecycle call (logout / incognito cleanup / heartbeat) marked with
+// skipAuthRefresh.
+//
+// Clause (c) breaks a mutual recursion: logout() cleans up server-side state
+// via its own DELETE /user/incognito, which on an already-dead session 401s →
+// the interceptor refreshes → 401 → calls logout() again → … looping forever
+// (observed as a refresh/incognito request storm ~every 100ms after a deploy
+// invalidates the stored tokens — the app never reaches the login screen).
+// Marked cleanup calls must fail straight through to their caller's try/catch.
+export function shouldAttemptRefresh(opts: {
+  status: number | undefined
+  retried: boolean
+  isRefreshCall: boolean
+  skipAuthRefresh: boolean
+}): boolean {
+  return opts.status === 401 && !opts.retried && !opts.isRefreshCall && !opts.skipAuthRefresh
+}

@@ -1,9 +1,21 @@
-import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
+import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
 import { isIncognito } from '../lib/incognito'
 import { isRevealHidden } from '../lib/reveal'
 import { isRetryableGet, retryDelayMs, RETRY_MAX } from './retry'
 
 export const MAGNET_PREFIX = 'magnet:?xt=urn:btih:'
+
+// sessionLifecycle marca chamadas best-effort do ciclo de sessão (logout,
+// limpeza/heartbeat de incognito) com skipAuthRefresh. O interceptor de
+// 401→refresh do AuthContext ignora 401 dessas chamadas: sem o marcador,
+// logout() reentra no interceptor via seu próprio DELETE /user/incognito
+// (que 401a numa sessão já morta) → refresh → 401 → logout() → … recursão
+// mútua infinita (storm de requisições nos logs do proxy; a UI nunca chega na
+// tela de login). Essas chamadas devem falhar direto pro try/catch do chamador
+// (são fire-and-forget por design).
+export function sessionLifecycle(config: AxiosRequestConfig = {}): AxiosRequestConfig {
+  return { ...config, skipAuthRefresh: true } as AxiosRequestConfig
+}
 
 // Exported so diagnostic shippers (lib/diag.ts) can post without re-wiring
 // auth interceptors. Don't reach into this directly from feature code — keep

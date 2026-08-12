@@ -1,10 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react'
-import api, { passkeyAuthenticate, clearMediaToken } from '../api/client'
+import type { InternalAxiosRequestConfig } from 'axios'
+import api, { passkeyAuthenticate, clearMediaToken, sessionLifecycle } from '../api/client'
 import { load, save, remove } from '../lib/storage'
 import { isIncognito, resetIncognitoFlag, clearIncognitoData } from '../lib/incognito'
 import { setRevealHidden } from '../lib/reveal'
 import { clearPlaylistSnapshot } from '../components/player/playlistSnapshot'
-import { REFRESH_MAX_ATTEMPTS, httpStatusOf, isAuthRejection, refreshBackoffMs } from './refreshPolicy'
+import { REFRESH_MAX_ATTEMPTS, httpStatusOf, isAuthRejection, refreshBackoffMs, shouldAttemptRefresh } from './refreshPolicy'
 
 export type Role = 'admin' | 'user' | 'guest'
 
@@ -63,12 +64,26 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     const respInt = api.interceptors.response.use(
       (res) => res,
       async (error) => {
-        const original = error.config
+        const original = error.config as
+          | (InternalAxiosRequestConfig & { _retry?: boolean; skipAuthRefresh?: boolean })
+          | undefined
         // Don't try to refresh when the refresh call ITSELF 401s — that would
         // recurse into another refresh (request storm). Let it fall through to
         // logout instead.
         const isRefreshCall = typeof original?.url === 'string' && original.url.includes('/auth/refresh')
-        if (error.response?.status === 401 && !original._retry && !isRefreshCall) {
+        // Best-effort session-lifecycle calls (logout / incognito cleanup &
+        // heartbeat, marked skipAuthRefresh via sessionLifecycle()) must NOT
+        // re-enter the refresh path: logout() calls DELETE /user/incognito,
+        // which on a dead session 401s → refresh → 401 → logout() → …
+        // infinite mutual recursion (the app never reaches login). Marked
+        // calls fail straight through to their caller's try/catch.
+        if (shouldAttemptRefresh({
+          status: error.response?.status,
+          retried: !!original?._retry,
+          isRefreshCall,
+          skipAuthRefresh: !!original?.skipAuthRefresh,
+        })) {
+          if (!original) throw error
           original._retry = true
           try {
             await refreshTokens()
@@ -150,7 +165,10 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       try { await clearIncognitoData() } catch { /* ignore */ }
     }
     const refresh = load<string>(REFRESH_KEY, '')
-    try { if (refresh) await api.post('/auth/logout', { refresh }) } catch { /* ignore */ }
+    // Marca a chamada como lifecycle: o interceptor de 401 não deve reagir a um
+    // 401 do /auth/logout (o token já está morto numa sessão expirada) — senão
+    // o logout reentra no refresh e o loop volta. Best-effort por design.
+    try { if (refresh) await api.post('/auth/logout', { refresh }, sessionLifecycle()) } catch { /* ignore */ }
     clearTokens()
     setUser(null)
   }, [])

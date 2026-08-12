@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { httpStatusOf, isAuthRejection, refreshBackoffMs, REFRESH_MAX_ATTEMPTS } from './refreshPolicy'
+import { httpStatusOf, isAuthRejection, refreshBackoffMs, REFRESH_MAX_ATTEMPTS, shouldAttemptRefresh } from './refreshPolicy'
 
 describe('httpStatusOf', () => {
   it('extracts the status from an axios-style error', () => {
@@ -39,5 +39,34 @@ describe('refreshBackoffMs', () => {
     let total = 0
     for (let i = 0; i < REFRESH_MAX_ATTEMPTS - 1; i++) total += refreshBackoffMs(i)
     expect(total).toBeGreaterThanOrEqual(3000)
+  })
+})
+
+describe('shouldAttemptRefresh', () => {
+  const fresh = { retried: false, isRefreshCall: false, skipAuthRefresh: false }
+
+  it('lets a plain 401 enter the refresh path', () => {
+    expect(shouldAttemptRefresh({ status: 401, ...fresh })).toBe(true)
+  })
+  it('blocks non-401 responses (transient / 5xx left to retry or caller)', () => {
+    expect(shouldAttemptRefresh({ status: undefined, ...fresh })).toBe(false)
+    expect(shouldAttemptRefresh({ status: 500, ...fresh })).toBe(false)
+    expect(shouldAttemptRefresh({ status: 502, ...fresh })).toBe(false)
+    expect(shouldAttemptRefresh({ status: 403, ...fresh })).toBe(false)
+    expect(shouldAttemptRefresh({ status: 200, ...fresh })).toBe(false)
+  })
+  it('blocks the second retry of the same request (request storm guard)', () => {
+    expect(shouldAttemptRefresh({ ...fresh, status: 401, retried: true })).toBe(false)
+  })
+  it('blocks the refresh call itself from refreshing again (recursion guard)', () => {
+    expect(shouldAttemptRefresh({ ...fresh, status: 401, isRefreshCall: true })).toBe(false)
+  })
+  it('blocks session-lifecycle calls (skipAuthRefresh) — the logout↔refresh recursion fix', () => {
+    // logout() → DELETE /user/incognito → 401 on a dead session must NOT
+    // trigger refresh → logout() → … infinite mutual recursion.
+    expect(shouldAttemptRefresh({ ...fresh, status: 401, skipAuthRefresh: true })).toBe(false)
+  })
+  it('only needs the 401 + skipAuthRefresh flag regardless of retry state', () => {
+    expect(shouldAttemptRefresh({ status: 401, retried: true, isRefreshCall: true, skipAuthRefresh: true })).toBe(false)
   })
 })
