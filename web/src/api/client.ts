@@ -6,7 +6,7 @@ import { api } from './http'
 export { api }
 // Re-export puro (símbolos não usados internamente aqui) — `export…from` evita o
 // smell S7763 do Sonar (importar só pra re-exportar).
-export { withToken, fetchMediaToken, clearMediaToken, MAGNET_PREFIX } from './http'
+export { withToken, fetchMediaToken, clearMediaToken, MAGNET_PREFIX, sessionLifecycle } from './http'
 
 // Domínios extraídos (re-exportados pra manter os call-sites em '../api/client').
 export * from './auth'
