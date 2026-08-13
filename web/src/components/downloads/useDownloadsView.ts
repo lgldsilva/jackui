@@ -35,10 +35,8 @@ export function useDownloadsView(params: {
   const torrentStatus = (t: TorrentInfo) =>
     t.status || ((t.progress || 0) >= 1 ? 'complete' : 'downloading')
 
-  const activeTorrents = displayTorrents.filter(t => {
-    const s = torrentStatus(t)
-    return s === 'downloading' || s === 'paused'
-  })
+  const streamingActiveTorrents = displayTorrents.filter(t => torrentStatus(t) === 'downloading')
+  const streamingPausedTorrents = displayTorrents.filter(t => torrentStatus(t) === 'paused')
   const seedingTorrents = displayTorrents.filter(t => {
     const s = torrentStatus(t)
     return s === 'seeding' || s === 'complete'
@@ -79,7 +77,7 @@ export function useDownloadsView(params: {
   const totalPeers = torrents.reduce((sum, t) => sum + (t.peers || 0), 0)
   // Counts are by TORRENT, not by file row (a 778-file pack is 1 torrent) — see
   // countTorrents. Keeps the badges/indicators aligned with the grouped cards.
-  const activeCount = activeTorrents.length + countTorrents(downloadsByStatus.downloading)
+  const activeCount = streamingActiveTorrents.length + countTorrents(downloadsByStatus.downloading)
   const seedingCount = seedingTorrents.length
   // Background downloads actually running vs waiting (downloadsByStatus.downloading
   // groups both for tab counts, so split them here for the "X/N active" indicator).
@@ -95,17 +93,20 @@ export function useDownloadsView(params: {
   // Tab badge counts
   const tabCounts: Record<Tab, number> = {
     all:         displayTorrents.length + countTorrents(items),
-    downloading: activeTorrents.length + countTorrents(downloadsByStatus.downloading),
-    paused:      countTorrents(downloadsByStatus.paused),
+    downloading: streamingActiveTorrents.length + countTorrents(downloadsByStatus.downloading),
+    paused:      streamingPausedTorrents.length + countTorrents(downloadsByStatus.paused),
     completed:   seedingTorrents.length + countTorrents(completedDownloads),
     failed:      countTorrents(downloadsByStatus.failed),
     network:     0,
   }
 
-  // Items for the currently-selected status tab
+  // Items for the currently-selected status tab.
+  // 'downloading' shows only active lifecycle rows (downloading + queued);
+  // paused/failed have their own tabs so a pause actually moves the card out of
+  // the "Baixando" view.
   const tabDownloads: TabDownloads = {
     all:         sortedItems,
-    downloading: [...downloadsByStatus.downloading, ...downloadsByStatus.paused, ...downloadsByStatus.failed],
+    downloading: downloadsByStatus.downloading,
     paused:      downloadsByStatus.paused,
     completed:   completedDownloads,
     failed:      downloadsByStatus.failed,
@@ -113,8 +114,8 @@ export function useDownloadsView(params: {
   }
   const tabTorrents: TabTorrents = {
     all:         displayTorrents,
-    downloading: activeTorrents,
-    paused:      [],
+    downloading: streamingActiveTorrents,
+    paused:      streamingPausedTorrents,
     completed:   seedingTorrents,
     failed:      [],
     network:     [],

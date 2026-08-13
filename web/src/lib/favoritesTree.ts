@@ -1,7 +1,7 @@
 // Árvore de pastas + import de favoritos — extraído do FavoritesPage.tsx (móvel
 // puro: types + funções puras/de I/O, sem JSX nem estado de componente).
 import type { TFunction } from 'i18next'
-import { FavoriteFolder, streamImport } from '../api/client'
+import { FavoriteFolder, streamImport, ImportResult } from '../api/client'
 import { errMessage } from './errMessage'
 
 export type FolderNode = {
@@ -36,9 +36,10 @@ export function flattenTree(nodes: FolderNode[], depth = 0): { folder: FavoriteF
   ])
 }
 
-export async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW: number): Promise<{ ok: number; fails: string[] }> {
+export async function importTorrentB64(files: File[], viewMode: number | null, ALL_VIEW: number): Promise<{ ok: number; fails: string[]; imported: ImportResult[] }> {
   let ok = 0
   const fails: string[] = []
+  const imported: ImportResult[] = []
   for (const file of files) {
     try {
       const buf = await file.arrayBuffer()
@@ -50,13 +51,14 @@ export async function importTorrentB64(files: File[], viewMode: number | null, A
       for (let i = 0; i < bytes.length; i += CHUNK) {
         bin += String.fromCodePoint(...bytes.subarray(i, i + CHUNK))
       }
-      await streamImport({ torrentB64: btoa(bin), folderId: viewMode === ALL_VIEW ? null : viewMode })
+      const res = await streamImport({ torrentB64: btoa(bin), folderId: viewMode === ALL_VIEW ? null : viewMode })
       ok++
+      imported.push(res)
     } catch (e: unknown) {
       fails.push(`${file.name}: ${errMessage(e)}`)
     }
   }
-  return { ok, fails }
+  return { ok, fails, imported }
 }
 
 export function buildImportMsg(ok: number, failCount: number, firstFail: string | undefined, suffix: string, t: TFunction): { kind: 'ok' | 'err'; text: string } {

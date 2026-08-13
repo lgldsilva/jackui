@@ -12,6 +12,8 @@ type ImportSheetProps = {
   readonly folders: FavoriteFolder[]
   readonly magnetInput: string
   readonly setMagnetInput: (v: string) => void
+  readonly alsoDownload: boolean
+  readonly setAlsoDownload: (v: boolean) => void
   readonly onImportMagnets: () => void
   readonly onImportFiles: (files: File[]) => void
   readonly importMsg: { kind: 'ok' | 'err'; text: string } | null
@@ -51,13 +53,25 @@ export default function ImportSheet(p: ImportSheetProps) {
             rows={3}
             className="w-full bg-surface border border-default rounded-lg px-3 py-2 text-sm text-text-primary font-mono resize-y focus:border-pink-500 focus:outline-none"
           />
+          <label htmlFor="also-download-checkbox" className="flex items-center gap-2 mt-2 text-sm text-text-primary cursor-pointer">
+            <input
+              id="also-download-checkbox"
+              type="checkbox"
+              checked={p.alsoDownload}
+              onChange={e => p.setAlsoDownload(e.target.checked)}
+              aria-describedby="also-download-hint"
+              className="accent-pink-500 w-4 h-4"
+            />
+            <span>{t('favorites.alsoEnqueueDownload')}</span>
+          </label>
+          <p id="also-download-hint" className="text-[11px] text-text-muted pl-6">{t('favorites.alsoEnqueueDownloadHint')}</p>
           <button
             onClick={p.onImportMagnets}
             disabled={p.importing || !magnetInput.trim()}
             className="mt-2 w-full flex items-center justify-center gap-2 text-sm bg-pink-500/20 hover:bg-pink-500/30 text-pink-700 dark:text-pink-200 border border-pink-500/30 px-3 py-2 rounded-lg transition-colors disabled:opacity-40"
           >
             {p.importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            {t('favorites.importMagnet')}{magnetInput.split('\n').filter(l => l.trim()).length > 1 ? 's' : ''}
+            {p.alsoDownload ? t('favorites.importAndDownload') : t('favorites.importMagnet')}
           </button>
         </div>
 
@@ -91,7 +105,7 @@ export default function ImportSheet(p: ImportSheetProps) {
         </label>
 
         {p.importMsg && (
-          <p className={`text-sm ${p.importMsg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
+          <p role="status" aria-live="polite" className={`text-sm ${p.importMsg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>
             {p.importMsg.text}
           </p>
         )}

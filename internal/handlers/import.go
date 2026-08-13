@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/base64"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -66,6 +67,7 @@ func streamImportHandler(c *gin.Context, s *streamer.Streamer) {
 		_ = favs.MoveFavoriteToFolder(userID, name, req.FolderID)
 	}
 
+	log.Printf("streamer: import favorite user=%d name=%q infoHash=%s folderId=%v", userID, name, hash, req.FolderID)
 	c.JSON(http.StatusOK, gin.H{"infoHash": hash, "name": name, "magnet": magnet})
 }
 
