@@ -126,6 +126,65 @@ func TestApplyPieceWindow_OnRealTorrent(t *testing.T) {
 	applyPieceWindow(tor, prev, next)
 }
 
+func TestTrackingReader_ApplyWindowGuards(t *testing.T) {
+	t.Parallel()
+	r := &trackingReader{}
+	r.applyWindow(10) // no file → no-op
+	r.window = 0
+	r.file = nil
+	r.applyWindow(-1)
+}
+
+func TestApplyPieceWindow_ClampsOutOfRangePrev(t *testing.T) {
+	const pieceLen = 1 << 14
+	data := make([]byte, 8*pieceLen)
+	s, hash := activeMultiPiece(t, data, pieceLen)
+	s.mu.Lock()
+	tor := s.active[hash].t
+	s.mu.Unlock()
+	// prev window outside the torrent so the demote loop hits the i<0 / i>=n branches
+	applyPieceWindow(tor, pieceWindow{nowBegin: -3, nowEnd: 2}, pieceWindow{nowBegin: 1, nowEnd: 3, highBegin: 6, highEnd: 8})
+	applyPieceWindow(tor, pieceWindow{nowBegin: 0, nowEnd: 2}, pieceWindow{nowBegin: 1, nowEnd: 3, highBegin: 6, highEnd: 20})
+}
+
+func TestSetPieceRange_Clamps(t *testing.T) {
+	const pieceLen = 1 << 14
+	data := make([]byte, 4*pieceLen)
+	s, hash := activeMultiPiece(t, data, pieceLen)
+	s.mu.Lock()
+	tor := s.active[hash].t
+	s.mu.Unlock()
+	setPieceRange(tor, -2, 99, 0)
+}
+
+func TestPieceBeginEndAndClamp(t *testing.T) {
+	t.Parallel()
+	if pieceBegin(-10, 1024) != 0 {
+		t.Fatal("negative offset should start at piece 0")
+	}
+	if pieceEndExclusive(-1, 1024) != 0 || pieceEndExclusive(0, 1024) != 0 {
+		t.Fatal("non-positive end should be 0")
+	}
+	if clampPiece(1, 3, 9) != 3 || clampPiece(12, 3, 9) != 9 || clampPiece(5, 3, 9) != 5 {
+		t.Fatal("clampPiece")
+	}
+}
+
+func TestComputePieceWindow_DefaultWindowAndTail(t *testing.T) {
+	t.Parallel()
+	w := computePieceWindow(pieceWindowInput{
+		fileBegin: 0, fileEnd: 200,
+		fileOffset: 0, fileLength: 200 << 20, pieceLen: testPiece,
+		playhead: 0, window: 0, tail: 0,
+	})
+	if w.nowEnd != 32 {
+		t.Fatalf("default window should be 32 MiB → 32 pieces, nowEnd=%d", w.nowEnd)
+	}
+	if w.highBegin != 192 {
+		t.Fatalf("default tail 8 MiB → highBegin=%d want 192", w.highBegin)
+	}
+}
+
 func TestInPieceRange(t *testing.T) {
 	t.Parallel()
 	if !inPieceRange(5, 5, 8) || inPieceRange(8, 5, 8) || inPieceRange(4, 5, 8) {
