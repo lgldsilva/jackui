@@ -1,6 +1,14 @@
 package streamer
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"io"
+	"testing"
+
+	"github.com/anacrolix/torrent"
+	"github.com/anacrolix/torrent/metainfo"
+)
 
 const testPiece = int64(1 << 20) // 1 MiB
 
@@ -133,6 +141,120 @@ func TestTrackingReader_ApplyWindowGuards(t *testing.T) {
 	r.window = 0
 	r.file = nil
 	r.applyWindow(-1)
+}
+
+func TestFileReader_WrapsTrackingReader(t *testing.T) {
+	const pieceLen = 1 << 14
+	data := make([]byte, 8*pieceLen)
+	s, hash := activeMultiPiece(t, data, pieceLen)
+	r, f, err := s.FileReader(hash, 0)
+	if err != nil {
+		t.Fatalf("FileReader: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	if f == nil {
+		t.Fatal("expected file")
+	}
+	tr, ok := r.(*trackingReader)
+	if !ok {
+		t.Fatalf("got %T, want *trackingReader", r)
+	}
+	if tr.file != f || tr.window <= 0 {
+		t.Fatalf("window/file not wired: window=%d file=%v", tr.window, tr.file)
+	}
+	if tr.last.empty() {
+		t.Fatal("initial applyWindow should set a non-empty last window")
+	}
+	if _, _, err := s.FileReader(hash, 99); err == nil {
+		t.Fatal("expected out-of-range file index")
+	}
+}
+
+// stubTorrentReader is a non-blocking torrent.Reader for unit tests.
+// A real anacrolix Reader waits for pieces and would hang CI.
+type stubTorrentReader struct {
+	buf     []byte
+	off     int64
+	seekErr error
+}
+
+func (s *stubTorrentReader) Read(p []byte) (int, error) {
+	if s.off >= int64(len(s.buf)) {
+		return 0, io.EOF
+	}
+	n := copy(p, s.buf[s.off:])
+	s.off += int64(n)
+	return n, nil
+}
+func (s *stubTorrentReader) Seek(off int64, whence int) (int64, error) {
+	if s.seekErr != nil {
+		return 0, s.seekErr
+	}
+	var next int64
+	switch whence {
+	case io.SeekStart:
+		next = off
+	case io.SeekCurrent:
+		next = s.off + off
+	case io.SeekEnd:
+		next = int64(len(s.buf)) + off
+	default:
+		return 0, errors.New("bad whence")
+	}
+	if next < 0 {
+		return 0, errors.New("negative seek")
+	}
+	s.off = next
+	return next, nil
+}
+func (s *stubTorrentReader) Close() error                           { return nil }
+func (s *stubTorrentReader) SetContext(context.Context)             {}
+func (s *stubTorrentReader) SetReadahead(int64)                     {}
+func (s *stubTorrentReader) SetReadaheadFunc(torrent.ReadaheadFunc) {}
+func (s *stubTorrentReader) SetResponsive()                         {}
+func (s *stubTorrentReader) ReadContext(context.Context, []byte) (int, error) {
+	return 0, nil
+}
+
+func TestTrackingReader_ReadAndSeek(t *testing.T) {
+	const pieceLen = 1 << 14
+	data := make([]byte, 8*pieceLen)
+	s, hash := activeMultiPiece(t, data, pieceLen)
+	stub := &stubTorrentReader{buf: []byte("hello world")}
+	tr := &trackingReader{Reader: stub, streamer: s, hash: hash}
+
+	n, err := tr.Read(make([]byte, 5))
+	if n != 5 || err != nil {
+		t.Fatalf("Read n=%d err=%v", n, err)
+	}
+	if tr.pos != 5 {
+		t.Fatalf("pos=%d want 5", tr.pos)
+	}
+
+	pos, err := tr.Seek(2, io.SeekStart)
+	if err != nil || pos != 2 {
+		t.Fatalf("Seek pos=%d err=%v", pos, err)
+	}
+	if tr.pos != 2 {
+		t.Fatalf("pos after seek=%d", tr.pos)
+	}
+
+	stub.seekErr = errors.New("nope")
+	if _, err := tr.Seek(0, io.SeekStart); err == nil {
+		t.Fatal("Seek error should propagate")
+	}
+
+	before := tr.pos
+	z, zerr := tr.Read(nil)
+	if z != 0 || zerr != nil {
+		t.Fatalf("empty Read n=%d err=%v", z, zerr)
+	}
+	if tr.pos != before {
+		t.Fatalf("empty Read moved pos %d → %d", before, tr.pos)
+	}
+
+	tr.hash = metainfo.Hash{} // miss in active map
+	tr.bumpAccess()
 }
 
 func TestApplyPieceWindow_ClampsOutOfRangePrev(t *testing.T) {

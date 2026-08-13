@@ -14,7 +14,7 @@ export type ShortcutAction =
   | { readonly kind: 'pip' }
   | { readonly kind: 'speed'; readonly delta: number }
 
-const DIGIT = /^[0-9]$/
+const DIGIT = /^\d$/
 
 export function interpretPlayerKey(key: string): ShortcutAction | null {
   switch (key) {

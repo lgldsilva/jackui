@@ -24,7 +24,7 @@ export function findIntroSkip(chapters: readonly MediaChapter[] | undefined): In
     if (!title || !INTRO_NAME.test(title)) continue
     const start = ch.startSec
     const end = ch.endSec ?? 0
-    if (!(end > start) || start >= halfway) continue
+    if (end <= start || start >= halfway) continue
     // Ignore tiny markers (<3s) and hour-long "intro" mis-tags.
     if (end - start < 3 || end - start > 300) continue
     return { startSec: start, endSec: end }
