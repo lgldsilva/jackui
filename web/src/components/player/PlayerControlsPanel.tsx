@@ -10,6 +10,7 @@ import { EmbeddedTracksPanel } from './EmbeddedTracksPanel'
 import { ChaptersPanel, ChapterNavButtons } from './ChaptersPanel'
 import { Sheet } from '../Sheet'
 import { SubtitlePicker } from './SubtitlePicker'
+import { SeekPreviewBar } from './SeekPreviewBar'
 
 type PlayerControlsPanelProps = {
   readonly info: TorrentInfo
@@ -269,35 +270,18 @@ export function PlayerControlsPanel({
               </span>
             )}
           </div>
-          {/* Load/buffer indicator — PRESENTATION ONLY (not clickable).
-              The native <video controls> bar owns seeking; this strip just
-              visualises state so it doesn't compete with it: gray = torrent
-              downloaded, blue islands = buffered/ready (disjoint after a #61
-              seek-restart, gaps = not loaded yet), green = play progress. */}
-          <div className="relative bg-surface-tertiary rounded-full h-1.5">
-            <div
-              className="absolute inset-y-0 left-0 bg-gray-500 rounded-full"
-              style={{ width: `${(currentFile?.progress || 0) * 100}%` }}
-            />
-            {duration > 0 && (
-              <>
-                {bufferedRanges.map(([start, end]) => (
-                  <div
-                    key={start}
-                    className="absolute inset-y-0 bg-blue-500/50 rounded-full"
-                    style={{
-                      left: `${(start / duration) * 100}%`,
-                      width: `${(Math.max(0, end - start) / duration) * 100}%`,
-                    }}
-                  />
-                ))}
-                <div
-                  className="absolute inset-y-0 left-0 bg-green-500 rounded-full"
-                  style={{ width: `${(currentTime / duration) * 100}%` }}
-                />
-              </>
-            )}
-          </div>
+          {/* Clickable seek strip + hover preview. Native <video controls>
+              still own the in-element bar; this is the JackUI chrome on top. */}
+          <SeekPreviewBar
+            duration={duration}
+            currentTime={currentTime}
+            bufferedRanges={bufferedRanges}
+            torrentProgress={currentFile?.progress || 0}
+            infoHash={info.infoHash}
+            fileIndex={currentFile?.index ?? -1}
+            formatTime={formatTime}
+            onSeek={onSeek}
+          />
         </div>
 
         {/* Embedded tracks (audio + subtitles inside the file) */}

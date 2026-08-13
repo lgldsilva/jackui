@@ -91,12 +91,14 @@ export function trySaveResume(
   libraryEntryID: number | null,
   lastSave: { current: number },
   duration: number,
+  fileIndex?: number,
 ) {
   if (incognito || libraryEntryID === null || now <= 1) return
   const elapsed = now - lastSave.current
   if (elapsed > 15 || elapsed < -1) {
     lastSave.current = now
-    libraryUpdateResume(libraryEntryID, now, duration).catch(() => {})
+    const idx = fileIndex !== undefined && fileIndex >= 0 ? fileIndex : undefined
+    libraryUpdateResume(libraryEntryID, now, duration, idx).catch(() => {})
   }
 }
 

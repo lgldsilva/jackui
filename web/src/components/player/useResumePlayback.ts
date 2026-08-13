@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { TorrentInfo, LibraryEntry, libraryGet, libraryUpdateResume, isIOS } from '../../api/client'
+import { TorrentInfo, libraryGetByHash, libraryUpdateResume, isIOS } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>
@@ -27,13 +27,11 @@ export function useResumePlayback(deps: {
     libraryEntryID, resumePosition, setLibraryEntryID, setResumePosition, setShowResumePrompt,
   } = deps
 
-  const loadLibraryEntry = (list: LibraryEntry[], infoHash: string) => {
-    const entry = list.find(e => e.infoHash === infoHash)
-    if (entry) {
-      setLibraryEntryID(entry.id)
-      if (entry.resumeSeconds > 30 && entry.durationSeconds > 0 && entry.resumeSeconds < entry.durationSeconds - 30) {
-        setResumePosition(entry.resumeSeconds)
-      }
+  const applyLibraryEntry = (entry: { id: number; resumeSeconds: number; durationSeconds: number } | null) => {
+    if (!entry) return
+    setLibraryEntryID(entry.id)
+    if (entry.resumeSeconds > 30 && entry.durationSeconds > 0 && entry.resumeSeconds < entry.durationSeconds - 30) {
+      setResumePosition(entry.resumeSeconds)
     }
   }
 
@@ -67,11 +65,8 @@ export function useResumePlayback(deps: {
   // After torrent metadata loads, fetch the library entry to know if we have a saved resume position
   useEffect(() => {
     if (!info?.infoHash || incognito) return
-    libraryGet(0).catch(() => {})
     const hash = info.infoHash
-    import('../../api/client').then(({ libraryList }) => {
-      libraryList({ limit: 100 }).then(list => loadLibraryEntry(list, hash)).catch(() => {})
-    })
+    libraryGetByHash(hash).then(applyLibraryEntry).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash])
 

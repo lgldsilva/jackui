@@ -19,7 +19,7 @@ export function BrowseEmptyState() {
       <History className="w-16 h-16 mb-4 opacity-30" />
       <p className="text-xl font-medium">{t('history.noSavedTitle')}</p>
       <p className="text-sm mt-2">{t('history.noSavedHint')}</p>
-      <Link to="/" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">{t('history.goToSearch')}</Link>
+      <Link to="/search" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">{t('history.goToSearch')}</Link>
     </div>
   )
 }
@@ -55,7 +55,7 @@ export function BrowseEntryList({
       </div>
       <div className="flex gap-1">
         {([['recent',t('history.entrySortRecent')],['oldest',t('history.entrySortOldest')],['most',t('history.entrySortMost')],['alpha',t('history.entrySortAlpha')]] as [EntrySortKey,string][]).map(([key, label]) => (
-          <button key={key} onClick={() => setEntrySort(key)} className={`flex-1 text-xs px-2 py-1.5 rounded-lg transition-colors ${entrySort === key ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-surface-secondary text-text-secondary border border-default hover:text-text-primary'}`}>{label}</button>
+          <button type="button" key={key} onClick={() => setEntrySort(key)} className={`flex-1 text-xs px-2 py-1.5 rounded-lg transition-colors ${entrySort === key ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-surface-secondary text-text-secondary border border-default hover:text-text-primary'}`}>{label}</button>
         ))}
       </div>
       <div className="bg-surface-secondary rounded-xl border border-default overflow-hidden flex-1 overflow-y-auto max-h-[calc(100vh-280px)]">
@@ -63,7 +63,7 @@ export function BrowseEntryList({
           <p className="text-text-muted text-sm text-center py-8">{t('history.noSearchesFound')}</p>
         ) : filteredEntries.map((entry) => (
           <SwipeRow key={entry.query} onDelete={() => onDeleteEntryByQuery(entry.query)} deleteLabel={t('history.delete')}>
-          <button {...newTabProps(searchHref(entry.query), () => onSelect(entry.query))} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-default/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-surface-tertiary/50'}`}>
+          <button type="button" {...newTabProps(searchHref(entry.query), () => onSelect(entry.query))} className={`w-full flex items-start justify-between gap-2 px-4 py-3 min-h-[44px] text-sm transition-colors border-b border-default/50 last:border-b-0 text-left ${selected === entry.query ? 'bg-green-500/10 border-l-2 border-l-green-500' : 'hover:bg-surface-tertiary/50'}`}>
             <div className="flex-1 min-w-0">
               <p className={`truncate font-medium ${selected === entry.query ? 'text-green-400' : 'text-text-primary'}`} title={entry.query}>{entry.query}</p>
               <div className="flex items-center gap-2 mt-0.5 flex-wrap">
@@ -75,9 +75,9 @@ export function BrowseEntryList({
               {refreshingQueries.has(entry.query) && (
                 <Loader2 className="w-3.5 h-3.5 text-green-400 animate-spin" aria-label={t('history.refreshingSearch')} />
               )}
-              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title={t('history.newSearch')} aria-label={t('history.newSearch')} className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
+              <button type="button" onClick={e => { e.stopPropagation(); navigate(searchHref(entry.query)) }} title={t('history.newSearch')} aria-label={t('history.newSearch')} className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
               {/* Delete por hover — desktop. No mobile usa o swipe-to-delete do SwipeRow. */}
-              <button onClick={e => onDeleteEntry(entry.query, e)} title={t('history.removeFromCache')} aria-label={t('history.removeFromCache')} className="hidden sm:flex items-center justify-center text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button type="button" onClick={e => onDeleteEntry(entry.query, e)} title={t('history.removeFromCache')} aria-label={t('history.removeFromCache')} className="hidden sm:flex items-center justify-center text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           </button>
           </SwipeRow>

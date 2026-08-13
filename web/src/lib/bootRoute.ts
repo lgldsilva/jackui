@@ -1,5 +1,5 @@
 // Cold-boot route restore, run BEFORE React mounts. On a PWA relaunch (iOS kills
-// the webview and reopens at start_url "/"), BrowserRouter would mount SearchPage
+// the webview and reopens at start_url "/"), BrowserRouter would mount HomePage
 // and the in-app RouteRestorer navigates to the saved route a frame later — a
 // visible "flash of root". Jumping straight to the saved route here (history
 // replaceState) makes BrowserRouter mount on the right screen, no flash. The

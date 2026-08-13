@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
@@ -33,6 +34,53 @@ func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 		list = dropHiddenLocalLibrary(c, s, list, userID)
 		c.JSON(http.StatusOK, list)
 	}
+}
+
+// LibraryGetByHash handles GET /api/library/hash/:hash — O(1) lookup used by
+// the player to restore resume position. Avoids the O(n) libraryList({limit:100})
+// scan that silently missed titles past the first hundred.
+//
+// Same visibility as LibraryList: incognito rows stay out of the normal
+// session, and hidden favourite / local-curtain hashes 404 (not 403) so a
+// leaked infoHash cannot probe the curtain.
+func LibraryGetByHash(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		hash := strings.TrimSpace(c.Param("hash"))
+		if hash == "" {
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		entry, err := lib.GetByHashPublic(userID, hash)
+		if err != nil {
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			return
+		}
+		if visibleLibraryEntry(c, s, userID, entry) == nil {
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
+			return
+		}
+		c.JSON(http.StatusOK, entry)
+	}
+}
+
+// visibleLibraryEntry applies the same hidden-curtain filters as LibraryList
+// (without ?all=1) to a single row. nil in or filtered out → nil.
+//
+// includeAll is always false: this helper is the player's own-user resume
+// lookup. Passing isAdmin here used to union every user's hidden-folder
+// hashes, so an admin 404'd their own resume when anyone else hid the torrent.
+func visibleLibraryEntry(c *gin.Context, s *streamer.Streamer, userID int, entry *library.Entry) *library.Entry {
+	if entry == nil {
+		return nil
+	}
+	list := []library.Entry{*entry}
+	list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, false))
+	list = dropHiddenLocalLibrary(c, s, list, userID)
+	if len(list) == 0 {
+		return nil
+	}
+	return &list[0]
 }
 
 // LibraryGet handles GET /api/library/:id

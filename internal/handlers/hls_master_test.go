@@ -122,6 +122,43 @@ func TestBuildMasterPlaylistAudioRenditions(t *testing.T) {
 	}
 }
 
+// Áudio ≥2 faixas emite EXT-X-MEDIA mesmo com renditions=false (M2b áudio
+// sempre ligado). Legendas continuam atrás do flag.
+func TestBuildMasterPlaylistAudioWithoutSubtitleFlag(t *testing.T) {
+	audio := []streamer.Track{
+		{Index: 1, Language: "por", Title: "Português"},
+		{Index: 2, Language: "eng", Title: "English"},
+	}
+	subs := []streamer.Track{{Index: 3, Language: "por", Title: "Subs"}}
+	master := string(buildMasterPlaylist(masterOpts{
+		ladder: transcode.VariantLadder(1080), srcW: 1920, srcH: 1080,
+		audio: audio, subs: subs, renditions: false,
+	}))
+	if n := countMedia(master, "AUDIO"); n != 2 {
+		t.Fatalf("áudio deveria sair sem o flag: %d\n%s", n, master)
+	}
+	if n := countMedia(master, "SUBTITLES"); n != 0 {
+		t.Fatalf("legenda HLS não deveria sair sem o flag: %d\n%s", n, master)
+	}
+	if !strings.Contains(master, `AUDIO="aud"`) {
+		t.Fatalf("STREAM-INF deveria referenciar AUDIO=aud:\n%s", master)
+	}
+}
+
+func TestMasterWarrantedAudioWithoutVideoLadder(t *testing.T) {
+	ladder := transcode.VariantLadder(720) // single rung
+	audio := []streamer.Track{{Index: 1}, {Index: 2}}
+	if !masterWarranted(false, ladder, audio, nil) {
+		t.Fatal("2 faixas de áudio devem justificar um master mesmo em 720p")
+	}
+	if masterWarranted(false, ladder, []streamer.Track{{Index: 1}}, []streamer.Track{{Index: 3}}) {
+		t.Fatal("legenda sozinha sem flag não justifica master")
+	}
+	if !masterWarranted(true, ladder, nil, []streamer.Track{{Index: 3}}) {
+		t.Fatal("com o flag, 1 legenda justifica master")
+	}
+}
+
 // 1 faixa de áudio (ou nenhuma) → SEM renditions e SEM AUDIO=aud (M2a: áudio
 // muxado no variant, nada a alternar).
 func TestBuildMasterPlaylistSingleAudioNoRenditions(t *testing.T) {
@@ -196,8 +233,7 @@ func TestBuildMasterPlaylistM2aAudioQuery(t *testing.T) {
 	}
 }
 
-// Gate: masterWarranted — sem renditions só ≥2 rungs; com renditions também
-// ≥2 áudios ou ≥1 sub.
+// Gate: masterWarranted — ≥2 rungs ou ≥2 áudios sempre; legendas só com o flag.
 func TestMasterWarranted(t *testing.T) {
 	two := transcode.VariantLadder(1080) // 2 rungs
 	one := transcode.VariantLadder(720)  // 1 rung
@@ -211,7 +247,8 @@ func TestMasterWarranted(t *testing.T) {
 		want       bool
 	}{
 		{"2 rungs sempre", false, two, nil, nil, true},
-		{"1 rung sem renditions", false, one, a2, s1, false},
+		{"1 rung + 2 áudios sem flag", false, one, a2, nil, true},
+		{"1 rung + 1 áudio + 1 sub sem flag", false, one, []streamer.Track{{}}, s1, false},
 		{"1 rung + 2 áudios (renditions)", true, one, a2, nil, true},
 		{"1 rung + 1 sub (renditions)", true, one, nil, s1, true},
 		{"1 rung + 1 áudio (renditions)", true, one, []streamer.Track{{}}, nil, false},

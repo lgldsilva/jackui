@@ -243,6 +243,9 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 		// complete & seekable — same VOD case as a local file. An in-progress
 		// stream stays under the global vodMode (#61 Safari seek guard).
 		ForceVOD: complete,
+		// Player already probed to pick HLS vs direct-play — reuse that
+		// duration so we don't block first-frame on a second 30s probe.
+		KnownDurationSec: pickKnownDuration(probeSource(hc)),
 	}
 	if t := hlsAudioTrackParam(hc.c); t >= 0 {
 		// Rendition audio-only (a/:track): sessão só-áudio da faixa t, sem vídeo.

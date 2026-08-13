@@ -125,10 +125,14 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	o := masterOpts{
 		ladder: ladder, srcW: pr.VideoWidth, srcH: pr.VideoHeight,
 		token: hc.c.Query("token"), nativeHLS: httpshared.NativeHLSParam(hc.c), playback: httpshared.PlaybackSession(hc.c),
+		// Audio renditions do not need Safari WebVTT validation — emit them
+		// whenever the source has ≥2 tracks so switching is seamless. Subtitle
+		// EXT-X-MEDIA stays behind the admin flag (X-TIMESTAMP-MAP).
+		audio:      pr.Audio,
 		renditions: hc.mediaRenditions,
 	}
 	if hc.mediaRenditions {
-		o.audio, o.subs = pr.Audio, subs
+		o.subs = subs
 	} else {
 		o.audioQuery = hc.c.Query("audio")
 	}
@@ -136,13 +140,13 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	return true
 }
 
-// masterWarranted: com renditions, um master vale por ≥2 rungs de vídeo OU ≥2
-// faixas de áudio OU ≥1 legenda de texto; sem renditions (M2a), só por ≥2 rungs.
+// masterWarranted: um master vale por ≥2 rungs de vídeo ou ≥2 faixas de áudio.
+// Legendas de texto só justificam um master quando o toggle M2b está ligado.
 func masterWarranted(renditions bool, ladder []transcode.Variant, audio, subs []streamer.Track) bool {
-	if len(ladder) >= 2 {
+	if len(ladder) >= 2 || len(audio) >= 2 {
 		return true
 	}
-	return renditions && (len(audio) >= 2 || len(subs) > 0)
+	return renditions && len(subs) > 0
 }
 
 // textSubs filtra as legendas de TEXTO (SRT/ASS/…) — as bitmap (PGS/VOBSUB,
@@ -224,16 +228,18 @@ func buildMasterPlaylist(o masterOpts) []byte {
 	q := mediaSegQueryWithPlayback(o.token, o.nativeHLS, o.playback)
 	// M2a (sem renditions): a faixa escolhida vai na query do variant (troca por
 	// reload). Com renditions o áudio vem por a/:track e o variant fica no default.
+	hasAudio := len(o.audio) >= 2
+	hasSubs := o.renditions && len(o.subs) > 0
 	variantQ := q
-	if !o.renditions && o.audioQuery != "" {
+	// Legacy ?audio= only when we are NOT advertising AUDIO renditions
+	// (otherwise the query would fight hls.audioTrack).
+	if !hasAudio && o.audioQuery != "" {
 		sep := "?"
 		if variantQ != "" {
 			sep = "&"
 		}
 		variantQ += sep + "audio=" + o.audioQuery
 	}
-	hasAudio := o.renditions && len(o.audio) >= 2
-	hasSubs := o.renditions && len(o.subs) > 0
 	var b strings.Builder
 	b.WriteString("#EXTM3U\n")
 	b.WriteString("#EXT-X-VERSION:6\n")

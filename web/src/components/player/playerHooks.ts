@@ -1,4 +1,8 @@
 import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect, useMemo, useState } from 'react'
+import { interpretPlayerKey, nextSpeed } from '../../lib/playerShortcuts'
+import { SPEED_OPTIONS } from './playerFormat'
+import { findIntroSkip, shouldShowSkipIntro } from '../../lib/skipIntro'
+import type { MediaChapter } from '../../api/stream-types'
 import {
   StreamProbe,
   TorrentInfo,
@@ -30,12 +34,19 @@ type KeyboardShortcutsOpts = {
   readonly videoRef: RefObject<HTMLMediaElement | null>
   readonly minimized: boolean
   readonly requestFullscreen: () => void
+  readonly onNext?: () => void
+  readonly onPrev?: () => void
+  readonly chapters?: readonly MediaChapter[]
+  readonly setPlaybackSpeed?: (v: number) => void
+  readonly playbackSpeed?: number
 }
 
-// useKeyboardShortcuts wires space/arrows/M/F to the <video>. Skipped while
-// minimized, while typing in an input/select, and when the <video> itself has
-// focus (so the browser's native handler acts and we don't double-seek).
-export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }: KeyboardShortcutsOpts) {
+// useKeyboardShortcuts wires space/arrows/M/F plus YouTube-style J/K/L, N/P,
+// digits, I (skip intro) and W (PiP). Skipped while minimized, while typing,
+// and when the media element itself has focus (native handler already acts).
+export function useKeyboardShortcuts({
+  videoRef, minimized, requestFullscreen, onNext, onPrev, chapters, setPlaybackSpeed, playbackSpeed = 1,
+}: KeyboardShortcutsOpts) {
   useEffect(() => {
     if (minimized) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -43,21 +54,71 @@ export function useKeyboardShortcuts({ videoRef, minimized, requestFullscreen }:
       if (!v) return
       const tgt = e.target as HTMLElement | null
       if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt === v)) return
+      const action = interpretPlayerKey(e.key)
+      if (!action) return
       const dur = Number.isFinite(v.duration) ? v.duration : Infinity
-      switch (e.key) {
-        case ' ': e.preventDefault(); if (v.paused) v.play().catch(() => {}); else v.pause(); break
-        case 'ArrowRight': e.preventDefault(); v.currentTime = Math.min(dur, v.currentTime + 10); break
-        case 'ArrowLeft': e.preventDefault(); v.currentTime = Math.max(0, v.currentTime - 10); break
-        case 'ArrowUp': e.preventDefault(); v.volume = Math.min(1, v.volume + 0.1); break
-        case 'ArrowDown': e.preventDefault(); v.volume = Math.max(0, v.volume - 0.1); break
-        case 'm': case 'M': v.muted = !v.muted; break
-        case 'f': case 'F': requestFullscreen(); break
-      }
+      e.preventDefault()
+      applyShortcutAction(v, action, { dur, requestFullscreen, onNext, onPrev, chapters, setPlaybackSpeed, playbackSpeed })
     }
     globalThis.addEventListener('keydown', handleKeyDown)
     return () => globalThis.removeEventListener('keydown', handleKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minimized])
+  }, [minimized, onNext, onPrev, chapters, playbackSpeed])
+}
+
+function applyShortcutAction(
+  v: HTMLMediaElement,
+  action: NonNullable<ReturnType<typeof interpretPlayerKey>>,
+  ctx: {
+    dur: number
+    requestFullscreen: () => void
+    onNext?: () => void
+    onPrev?: () => void
+    chapters?: readonly MediaChapter[]
+    setPlaybackSpeed?: (n: number) => void
+    playbackSpeed: number
+  },
+): void {
+  switch (action.kind) {
+    case 'toggle':
+      if (v.paused) v.play().catch(() => {})
+      else v.pause()
+      return
+    case 'seek':
+      v.currentTime = Math.min(ctx.dur, Math.max(0, v.currentTime + action.delta))
+      return
+    case 'seekToFraction':
+      if (Number.isFinite(ctx.dur) && ctx.dur !== Infinity) v.currentTime = ctx.dur * action.fraction
+      return
+    case 'volume':
+      v.volume = Math.min(1, Math.max(0, v.volume + action.delta))
+      return
+    case 'mute':
+      v.muted = !v.muted
+      return
+    case 'fullscreen':
+      ctx.requestFullscreen()
+      return
+    case 'next':
+      ctx.onNext?.()
+      return
+    case 'prev':
+      ctx.onPrev?.()
+      return
+    case 'skipIntro': {
+      const intro = findIntroSkip(ctx.chapters)
+      if (intro && shouldShowSkipIntro(intro, v.currentTime)) v.currentTime = intro.endSec
+      return
+    }
+    case 'pip': {
+      const el = v as HTMLVideoElement & { requestPictureInPicture?: () => Promise<void>; webkitSetPresentationMode?: (m: string) => void }
+      if (typeof el.requestPictureInPicture === 'function') el.requestPictureInPicture().catch(() => {})
+      else el.webkitSetPresentationMode?.('picture-in-picture')
+      return
+    }
+    case 'speed':
+      ctx.setPlaybackSpeed?.(nextSpeed(ctx.playbackSpeed, action.delta, SPEED_OPTIONS))
+  }
 }
 
 // WebKit-only AirPlay surface (Safari/iOS) — not present in lib.dom types.

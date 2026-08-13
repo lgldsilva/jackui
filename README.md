@@ -118,7 +118,7 @@ All variables below accept empty/unset as "use default". The canonical default i
 | **Local cache** | `JACKUI_LOCAL_READAHEAD_MB` | `16` | Read-ahead buffer for local/rclone mounts (MiB) |
 | | `JACKUI_LOCAL_CACHE_GB` | `50` | Dedicated pre-fetch cache (GiB, LRU) |
 | | `JACKUI_HLS_VOD_MODE` | `all` | VOD seekbar: `off`, `hlsjs`, or `all` |
-| | `JACKUI_HLS_MEDIA_RENDITIONS` | `0` | HLS master `EXT-X-MEDIA` audio/subtitle renditions (Phase 2 M2b). Dark launch — enable (`1`) only after the frontend migrates to `hls.audioTrack` and is validated in Chrome/Safari |
+| | `JACKUI_HLS_MEDIA_RENDITIONS` | `0` | HLS master `EXT-X-MEDIA` **subtitle** renditions (Phase 2 M2b). Audio renditions (`TYPE=AUDIO`) are always on when the source has ≥2 tracks. Enable (`1`) only after Safari `X-TIMESTAMP-MAP` validation for WebVTT. |
 | **Peer/Torrent** | `JACKUI_MAX_CONNS` | — | Peer connections per torrent |
 | | `JACKUI_PEERS_HIGH` | — | Swarm high-water mark |
 | | `JACKUI_PEER_PORT` | — | Fixed listen port (overrides forwarded port) |
@@ -220,7 +220,7 @@ What JackUI does **not** do: it is not hardened for public-internet exposure wit
 ## Roadmap
 
 - [x] **i18n / multi-language UI** — done: react-i18next ships Portuguese + English (`web/src/locales/`).
-- [ ] HLS master playlist (Phase 2): N audio/subtitle tracks + multi-resolution in one VOD stream.
+- [x] HLS master playlist (Phase 2): multi-resolution `#EXT-X-STREAM-INF` + `TYPE=AUDIO` when the source has ≥2 tracks. `TYPE=SUBTITLES` stays behind `JACKUI_HLS_MEDIA_RENDITIONS` until Safari WebVTT is validated.
 - [x] Streamer reconciles pieces with already-downloaded files (play without re-downloading).
 - [x] **Promote** on the local-files page (`LocalPromoteModal` — per-row + batch).
 - [x] Durable state migrated to **PostgreSQL** (favorites, metadata cache, downloads, etc. no longer live in the piece-cache dir).

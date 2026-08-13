@@ -11,6 +11,9 @@ import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './m
 import { wireHlsAudioSubs } from './hlsAudioTracks'
 import { useSeamlessAudio } from './useSeamlessAudio'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton, StartAudioOverlay } from './PlayerOverlays'
+import { PlayerExperienceOverlays } from './PlayerExperienceOverlays'
+import { HlsQualityMenu } from './HlsQualityMenu'
+import type { MediaChapter } from '../../api/stream-types'
 
 type VideoPlayerElementProps = {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>
@@ -63,6 +66,11 @@ type VideoPlayerElementProps = {
   readonly videoDiagnostic: () => Record<string, unknown>
   readonly onResumeContinue: (pos: number) => void
   readonly onResumeRestart: () => void
+  readonly duration?: number
+  readonly chapters?: readonly MediaChapter[]
+  readonly hasNext?: boolean
+  readonly nextLabel?: string
+  readonly onNext?: () => void
 }
 
 // Album cover shown behind the audio player (audio mode only). Extracted with
@@ -168,6 +176,7 @@ function attachHlsJs(
   streamURL: string,
   onHlsAudioCount: ((n: number) => void) | undefined,
   hlsRef: React.MutableRefObject<Hls | null>,
+  onHls: (hls: Hls | null) => void,
 ): () => void {
   // Buffer dianteiro modesto: transcode on-demand + seek-restart — pedir
   // fragmentos longe do transcoder força restart caro.
@@ -175,6 +184,9 @@ function attachHlsJs(
     enableWorker: true,
     lowLatencyMode: false,
     startPosition: 0,
+    // Lowest rung first: torrent pieces are still arriving; 1080p/5 Mbps
+    // cold-start is the stall users feel. hls.js sorts levels by bitrate.
+    startLevel: 0,
     testBandwidth: false,
     maxBufferLength: 20,
     maxMaxBufferLength: 40,
@@ -186,10 +198,12 @@ function attachHlsJs(
   hls.on(Hls.Events.MANIFEST_PARSED, () => { tryAutoplayMutedFallback(video) })
   wireHlsAudioSubs(hls, onHlsAudioCount)
   hlsRef.current = hls
+  onHls(hls)
   hls.loadSource(streamURL)
   hls.attachMedia(video)
   return () => {
     hlsRef.current = null
+    onHls(null)
     onHlsAudioCount?.(0)
     hls.destroy()
   }
@@ -237,16 +251,22 @@ export function VideoPlayerElement({
   videoDiagnostic,
   onResumeContinue,
   onResumeRestart,
+  duration = 0,
+  chapters,
+  hasNext = false,
+  nextLabel,
+  onNext,
 }: VideoPlayerElementProps) {
   const { t } = useTranslation()
   // HLS (.m3u8) toca nativo só no WebKit. Chrome/Firefox/Edge usam hls.js.
   // Com motor gapless o <video> fica sem src → nunca anexa hls.js.
   const useHlsJs = !engineActive && shouldAttachHlsJs(streamURL)
   const hlsRef = useRef<Hls | null>(null)
+  const [hlsInstance, setHlsInstance] = useState<Hls | null>(null)
   useEffect(() => {
     const v = videoRef.current
     if (!v || !useHlsJs || !streamURL) return
-    return attachHlsJs(v, streamURL, onHlsAudioCount, hlsRef)
+    return attachHlsJs(v, streamURL, onHlsAudioCount, hlsRef, setHlsInstance)
   }, [videoRef, streamURL, useHlsJs, onHlsAudioCount])
 
   useSeamlessAudio({ videoRef, hlsRef, engineActive, useHlsJs, streamURL, seamlessAudioIndex, probeAudioTracks, onHlsAudioCount })
@@ -312,6 +332,19 @@ export function VideoPlayerElement({
       {showStartAudioOverlay && <StartAudioOverlay onPlay={startAudioPlayback} />}
       <TranscodingBadge attempted={transcodeFallbackAttempted} videoError={videoError} />
       <AirPlayButton airplay={airplay} videoError={videoError} />
+      <HlsQualityMenu hls={hlsInstance} />
+      <PlayerExperienceOverlays
+        videoRef={videoRef}
+        chapters={chapters}
+        currentTime={currentTime}
+        duration={duration}
+        hasNext={hasNext}
+        nextLabel={nextLabel}
+        audioMode={audioMode}
+        videoError={videoError}
+        showResumePrompt={showResume}
+        onNext={onNext}
+      />
       {!videoError && (
         <video
           key={audioElementKey(audioMode, isTranscoded)}

@@ -44,6 +44,24 @@
     "ia_tab": "AI",
     "stats": "Statistics"
   },
+  "home": {
+    "kicker": "Your server",
+    "title": "What do you want to watch?",
+    "subtitle": "Pick up where you left off, play something already on disk, or search the indexers.",
+    "searchPlaceholder": "Search torrents — title, year, S01E02…",
+    "search": "Search",
+    "continue": "Continue watching",
+    "recentlyAdded": "Just landed",
+    "recommended": "Because you watched",
+    "trending": "Trending this week",
+    "trendingAlbums": "Trending albums",
+    "seeAll": "See all",
+    "onDisk": "On disk",
+    "left": "{{time}} left",
+    "because": "Because you watched {{title}}",
+    "emptyTitle": "Nothing here yet",
+    "emptyHint": "Search for a title or open Trending to start watching. Continue Watching and recommendations will fill this page."
+  },
   "discover": {
     "music_trending": "Trending albums",
     "music_empty": "Couldn't load trending albums right now.",
@@ -1015,6 +1033,7 @@
       "speedHint": "Playback speed (pitch preserved — voice won't sound robotic)",
       "buffer": "Buffer",
       "ahead": "ahead",
+      "seekBar": "Seek",
       "fullscreenTitle": "Fullscreen (F)",
       "fullscreen": "Fullscreen",
       "serverDownloadTitle": "Save the full download on the server (Background Download)",
@@ -1079,7 +1098,14 @@
       "nextEpShort": "Next",
       "convertingGpu": "Converting via GPU",
       "airplayActive": "Streaming via AirPlay",
-      "airplayIdle": "Stream via AirPlay"
+      "airplayIdle": "Stream via AirPlay",
+      "skipIntro": "Skip intro",
+      "upNextIn": "Up next in {{n}}s",
+      "playNow": "Play now",
+      "dismissUpNext": "Not now",
+      "pip": "Picture in picture",
+      "quality": "Quality",
+      "qualityAuto": "Auto"
     },
     "modal": {
       "encoderTitle": "Encoder: {{encoder}}",

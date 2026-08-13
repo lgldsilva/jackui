@@ -44,6 +44,24 @@
     "ia_tab": "IA",
     "stats": "Estatísticas"
   },
+  "home": {
+    "kicker": "O seu servidor",
+    "title": "O que você quer assistir?",
+    "subtitle": "Retome de onde parou, toque o que já está no disco ou busque nos indexadores.",
+    "searchPlaceholder": "Buscar torrents — título, ano, S01E02…",
+    "search": "Buscar",
+    "continue": "Continuar assistindo",
+    "recentlyAdded": "Acabou de chegar",
+    "recommended": "Porque você viu",
+    "trending": "Em alta esta semana",
+    "trendingAlbums": "Álbuns em alta",
+    "seeAll": "Ver tudo",
+    "onDisk": "No disco",
+    "left": "faltam {{time}}",
+    "because": "Porque você viu {{title}}",
+    "emptyTitle": "Nada por aqui ainda",
+    "emptyHint": "Busque um título ou abra Em alta para começar. Continuar e as recomendações vão preencher esta página."
+  },
   "discover": {
     "music_trending": "Álbuns em alta",
     "music_empty": "Não foi possível carregar os álbuns em alta agora.",
@@ -1015,6 +1033,7 @@
       "speedHint": "Velocidade de reprodução (pitch preservado — voz não fica robotizada)",
       "buffer": "Buffer",
       "ahead": "à frente",
+      "seekBar": "Busca",
       "fullscreenTitle": "Tela cheia (F)",
       "fullscreen": "Tela cheia",
       "serverDownloadTitle": "Salvar download completo no servidor (Background Download)",
@@ -1079,7 +1098,14 @@
       "nextEpShort": "Próx.",
       "convertingGpu": "Convertendo via GPU",
       "airplayActive": "Transmitindo via AirPlay",
-      "airplayIdle": "Transmitir via AirPlay"
+      "airplayIdle": "Transmitir via AirPlay",
+      "skipIntro": "Pular abertura",
+      "upNextIn": "A seguir em {{n}}s",
+      "playNow": "Tocar agora",
+      "dismissUpNext": "Agora não",
+      "pip": "Picture-in-picture",
+      "quality": "Qualidade",
+      "qualityAuto": "Auto"
     },
     "modal": {
       "encoderTitle": "Encoder: {{encoder}}",

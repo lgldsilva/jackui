@@ -38,6 +38,19 @@ export const libraryGet = async (id: number): Promise<LibraryEntry> => {
   return data
 }
 
+export const libraryGetByHash = async (infoHash: string): Promise<LibraryEntry | null> => {
+  if (!infoHash) return null
+  try {
+    const { data, status } = await api.get<LibraryEntry>(
+      `/library/hash/${encodeURIComponent(infoHash)}`,
+      { validateStatus: s => s === 200 || s === 404 },
+    )
+    return status === 200 ? data : null
+  } catch {
+    return null
+  }
+}
+
 export const libraryUpdateResume = async (id: number, resumeSeconds: number, durationSeconds = 0, fileIndex?: number): Promise<void> => {
   await api.patch(`/library/${id}`, { resumeSeconds, durationSeconds, fileIndex })
 }

@@ -290,6 +290,7 @@ export default function PlayerModal({
     info, selectedFile, shuffle, repeat, audioMode, minimized, mediaToken, playlist, sidebarOpen,
     onPlaylistAdvance, onPlaylistPrevious, onProgress, videoRef, audioRef, handleRequestFullscreen,
     fileFilter, fileTypeFilter, fileSortBySize, fileSizeDesc, resetForFile, setCurrentTime, setDuration,
+    chapters: probe?.chapters, playbackSpeed, setPlaybackSpeed,
   })
   const {
     mediaQueue, trackOrder,

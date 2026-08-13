@@ -80,7 +80,15 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	// with the head — means they're already arriving when ffmpeg asks.
 	go s.warmTail(f)
 
-	return &trackingReader{Reader: r, streamer: s, hash: hash}, f, nil
+	tr := &trackingReader{
+		Reader:   r,
+		streamer: s,
+		hash:     hash,
+		file:     f,
+		window:   s.streamReadahead(),
+	}
+	tr.applyWindow(0)
+	return tr, f, nil
 }
 
 // Prefetch hints the anacrolix piece scheduler to start downloading the head of
@@ -196,18 +204,76 @@ func (s *Streamer) purgeVerifiedFiles(hash metainfo.Hash) {
 	s.verifiedMu.Unlock()
 }
 
-// trackingReader wraps a torrent.Reader so each read refreshes lastAccess.
+// trackingReader wraps a torrent.Reader so each read refreshes lastAccess
+// and so Seek/Read keep a playhead piece window (Now ahead, Normal behind,
+// High on the container tail). anacrolix Reader.SetResponsive already marks
+// the cursor; the extra window stops the *previous* 32 MiB from competing
+// after a VOD seek.
 type trackingReader struct {
 	torrent.Reader
 	streamer *Streamer
 	hash     metainfo.Hash
+	file     *torrent.File
+	window   int64
+	pos      int64
+	last     pieceWindow
 }
 
-func (r *trackingReader) Read(p []byte) (int, error) {
+func (r *trackingReader) bumpAccess() {
 	r.streamer.mu.Lock()
 	if e, ok := r.streamer.active[r.hash]; ok {
 		e.lastAccess = time.Now()
 	}
 	r.streamer.mu.Unlock()
-	return r.Reader.Read(p)
+}
+
+func (r *trackingReader) Read(p []byte) (int, error) {
+	r.bumpAccess()
+	n, err := r.Reader.Read(p)
+	if n > 0 {
+		r.pos += int64(n)
+		r.applyWindow(r.pos)
+	}
+	return n, err
+}
+
+func (r *trackingReader) Seek(off int64, whence int) (int64, error) {
+	pos, err := r.Reader.Seek(off, whence)
+	if err != nil {
+		return pos, err
+	}
+	r.bumpAccess()
+	r.pos = pos
+	r.applyWindow(pos)
+	return pos, nil
+}
+
+func (r *trackingReader) applyWindow(filePos int64) {
+	if r.file == nil {
+		return
+	}
+	tor := r.file.Torrent()
+	info := tor.Info()
+	if info == nil || info.PieceLength <= 0 {
+		return
+	}
+	win := r.window
+	if win <= 0 {
+		win = streamReadaheadDefault
+	}
+	next := computePieceWindow(pieceWindowInput{
+		fileBegin:  r.file.BeginPieceIndex(),
+		fileEnd:    r.file.EndPieceIndex(),
+		fileOffset: r.file.Offset(),
+		fileLength: r.file.Length(),
+		pieceLen:   info.PieceLength,
+		playhead:   filePos,
+		window:     win,
+		tail:       streamTailBytes,
+	})
+	if next == r.last {
+		return
+	}
+	applyPieceWindow(tor, r.last, next)
+	r.last = next
 }

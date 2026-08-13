@@ -27,15 +27,15 @@ export function openInNewTab(href: string): void {
 // and local files (`local-<base64>` pseudo-hash) — both are valid `play` values.
 export function playHref(hash: string, fileIdx?: number, seekSec?: number): string {
   const p = new URLSearchParams({ play: hash })
-  if (fileIdx && fileIdx > 0) p.set('f', String(fileIdx))
+  if (fileIdx !== undefined && fileIdx >= 0) p.set('f', String(fileIdx))
   if (seekSec && seekSec > 0) p.set('t', String(Math.floor(seekSec)))
   return `/?${p.toString()}`
 }
 
 // searchHref builds the "seed the search" deep-link used by trending/history
-// cards (`/?q=QUERY`).
+// cards (`/search?q=QUERY`).
 export function searchHref(query: string): string {
-  return `/?q=${encodeURIComponent(query)}`
+  return `/search?q=${encodeURIComponent(query)}`
 }
 
 // anchorNavProps is for a REAL <a href> card. A plain left-click runs the in-app

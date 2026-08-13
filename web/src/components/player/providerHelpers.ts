@@ -55,6 +55,14 @@ export function parsePositiveFloat(s: string | null): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined
 }
 
+// parseFileIndex accepts 0 — the first file in a season pack. parsePositiveInt
+// treats 0 as unset, which dropped `?f=0` from playHref / new-tab / reload.
+export function parseFileIndex(s: string | null): number | undefined {
+  if (!s) return undefined
+  const n = Number.parseInt(s, 10)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
+}
+
 // playResolvedFromLibrary picks the nicest metadata for `hash` from a library
 // list (title/magnet + persisted kind) and plays it, falling back to a synthetic
 // magnet when the hash isn't in the list.
@@ -159,7 +167,7 @@ export function applyPlayHash(
   timeUrlParam: string | null,
   deps: PlayUrlDeps,
 ): void {
-  const fIdx = parsePositiveInt(fileUrlParam)
+  const fIdx = parseFileIndex(fileUrlParam)
   const initialSeek = parsePositiveFloat(timeUrlParam)
 
   const snap = deps.loadSnapshot()

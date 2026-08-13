@@ -3,6 +3,7 @@ import { TorrentInfo } from '../../api/client'
 import { clientLog } from '../../lib/diag'
 import { nextTrack, prevTrack } from '../../lib/trackTransport'
 import { useKeyboardShortcuts, useMediaSession, useMediaQueue } from './playerHooks'
+import type { MediaChapter } from '../../api/stream-types'
 import { filterAndSortFiles, type FileType } from './playerFormat'
 import { useTrackOrder } from './useTrackOrder'
 import { useAudioDirectUrl } from './useAudioDirectUrl'
@@ -39,11 +40,15 @@ export function usePlayerTransport(deps: {
   resetForFile: (idx: number) => void
   setCurrentTime: Setter<number>
   setDuration: Setter<number>
+  chapters?: readonly MediaChapter[]
+  playbackSpeed?: number
+  setPlaybackSpeed?: (v: number) => void
 }) {
   const {
     info, selectedFile, shuffle, repeat, audioMode, minimized, mediaToken, playlist, sidebarOpen,
     onPlaylistAdvance, onPlaylistPrevious, onProgress, videoRef, audioRef, handleRequestFullscreen,
     fileFilter, fileTypeFilter, fileSortBySize, fileSizeDesc, resetForFile, setCurrentTime, setDuration,
+    chapters, playbackSpeed, setPlaybackSpeed,
   } = deps
 
   // Display order of the file list — the SAME order the sidebar renders
@@ -150,7 +155,16 @@ export function usePlayerTransport(deps: {
   }, [onProgress])
 
   // Atalhos de teclado controlam o elemento ativo (<audio> ou <video>).
-  useKeyboardShortcuts({ videoRef: activeMediaRef, minimized, requestFullscreen: handleRequestFullscreen })
+  useKeyboardShortcuts({
+    videoRef: activeMediaRef,
+    minimized,
+    requestFullscreen: handleRequestFullscreen,
+    onNext: handleNext,
+    onPrev: handlePrev,
+    chapters,
+    setPlaybackSpeed,
+    playbackSpeed,
+  })
 
   // Media Session API — expõe metadata + controles de lock-screen/AirPods.
   // Capa pra tela de bloqueio (Now Playing) — URL ABSOLUTA porque o iOS busca a
