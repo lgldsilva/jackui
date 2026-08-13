@@ -50,13 +50,13 @@ func LibraryGetByHash(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc 
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
-		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		userID, _, _ := auth.UserIDFromCtx(c)
 		entry, err := lib.GetByHashPublic(userID, hash)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		if visibleLibraryEntry(c, s, userID, isAdmin, entry) == nil {
+		if visibleLibraryEntry(c, s, userID, entry) == nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
@@ -65,13 +65,17 @@ func LibraryGetByHash(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc 
 }
 
 // visibleLibraryEntry applies the same hidden-curtain filters as LibraryList
-// to a single row. nil in or filtered out → nil.
-func visibleLibraryEntry(c *gin.Context, s *streamer.Streamer, userID int, isAdmin bool, entry *library.Entry) *library.Entry {
+// (without ?all=1) to a single row. nil in or filtered out → nil.
+//
+// includeAll is always false: this helper is the player's own-user resume
+// lookup. Passing isAdmin here used to union every user's hidden-folder
+// hashes, so an admin 404'd their own resume when anyone else hid the torrent.
+func visibleLibraryEntry(c *gin.Context, s *streamer.Streamer, userID int, entry *library.Entry) *library.Entry {
 	if entry == nil {
 		return nil
 	}
 	list := []library.Entry{*entry}
-	list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, isAdmin))
+	list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, false))
 	list = dropHiddenLocalLibrary(c, s, list, userID)
 	if len(list) == 0 {
 		return nil

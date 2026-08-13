@@ -363,7 +363,7 @@ func TestHgELibraryGetByHash_EmptyHash(t *testing.T) {
 }
 
 func TestVisibleLibraryEntry_Nil(t *testing.T) {
-	if visibleLibraryEntry(nil, nil, 1, false, nil) != nil {
+	if visibleLibraryEntry(nil, nil, 1, nil) != nil {
 		t.Fatal("nil entry should stay nil")
 	}
 }
@@ -375,8 +375,69 @@ func TestVisibleLibraryEntry_DropsHiddenHash(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/library/hash/h1", nil)
 	entry := &library.Entry{InfoHash: "h1", Name: "Hidden"}
 	// nil streamer → hiddenHashSet is a no-op, entry stays visible.
-	if visibleLibraryEntry(c, nil, 1, false, entry) == nil {
+	if visibleLibraryEntry(c, nil, 1, entry) == nil {
 		t.Fatal("nil streamer should not hide the row")
+	}
+}
+
+func TestHgELibraryGetByHash_AdminKeepsOwnWhenOthersHid(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lib := hgELibrary(t)
+	id := hgESeedLibrary(t, lib, 1)
+	s, fav := newCurtainStreamer(t)
+	hidden, err := fav.CreateFolder(2, "Secret", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fav.Add("secret", hgEHash, MagnetPrefix+hgEHash, "manual", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := fav.MoveFavoriteToFolder(2, "secret", &hidden.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.GET("/api/library/hash/:hash", func(c *gin.Context) {
+		setAuth(c, 1, true)
+	}, LibraryGetByHash(lib, s))
+
+	w := hgEDo(router, "GET", "/api/library/hash/"+hgEHash, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("admin resume blocked by another user's hidden folder: status=%d body=%s", w.Code, w.Body.String())
+	}
+	var entry library.Entry
+	if err := json.Unmarshal(w.Body.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.ID != id {
+		t.Errorf("id = %d, want %d", entry.ID, id)
+	}
+}
+
+func TestHgELibraryGetByHash_OwnHiddenFolder404(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lib := hgELibrary(t)
+	hgESeedLibrary(t, lib, 1)
+	s, fav := newCurtainStreamer(t)
+	hidden, err := fav.CreateFolder(1, "Secret", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fav.Add("secret", hgEHash, MagnetPrefix+hgEHash, "manual", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := fav.MoveFavoriteToFolder(1, "secret", &hidden.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.GET("/api/library/hash/:hash", func(c *gin.Context) {
+		setAuth(c, 1, false)
+	}, LibraryGetByHash(lib, s))
+
+	w := hgEDo(router, "GET", "/api/library/hash/"+hgEHash, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("own hidden folder should 404: status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 
