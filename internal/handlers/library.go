@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
@@ -32,6 +33,30 @@ func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 		list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, includeAll))
 		list = dropHiddenLocalLibrary(c, s, list, userID)
 		c.JSON(http.StatusOK, list)
+	}
+}
+
+// LibraryGetByHash handles GET /api/library/hash/:hash — O(1) lookup used by
+// the player to restore resume position. Avoids the O(n) libraryList({limit:100})
+// scan that silently missed titles past the first hundred.
+func LibraryGetByHash(lib *library.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		hash := strings.TrimSpace(c.Param("hash"))
+		if hash == "" {
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
+			return
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		entry, err := lib.GetByHash(userID, hash)
+		if err != nil {
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			return
+		}
+		if entry == nil {
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
+			return
+		}
+		c.JSON(http.StatusOK, entry)
 	}
 }
 

@@ -292,6 +292,44 @@ func TestHgELibraryDelete_Found(t *testing.T) {
 	}
 }
 
+func TestHgELibraryGetByHash_Found(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lib := hgELibrary(t)
+	id := hgESeedLibrary(t, lib, 1)
+
+	router := gin.New()
+	router.GET("/api/library/hash/:hash", func(c *gin.Context) {
+		setAuth(c, 1, false)
+	}, LibraryGetByHash(lib))
+
+	w := hgEDo(router, "GET", "/api/library/hash/"+hgEHash, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
+	}
+	var entry library.Entry
+	if err := json.Unmarshal(w.Body.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.ID != id {
+		t.Errorf("id = %d, want %d", entry.ID, id)
+	}
+}
+
+func TestHgELibraryGetByHash_NotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lib := hgELibrary(t)
+
+	router := gin.New()
+	router.GET("/api/library/hash/:hash", func(c *gin.Context) {
+		setAuth(c, 1, false)
+	}, LibraryGetByHash(lib))
+
+	w := hgEDo(router, "GET", "/api/library/hash/ffffffffffffffffffffffffffffffffffffffff", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
 func TestHgELibraryGet_AdminSeesOther(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	lib := hgELibrary(t)

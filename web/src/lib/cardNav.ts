@@ -33,9 +33,9 @@ export function playHref(hash: string, fileIdx?: number, seekSec?: number): stri
 }
 
 // searchHref builds the "seed the search" deep-link used by trending/history
-// cards (`/?q=QUERY`).
+// cards (`/search?q=QUERY`).
 export function searchHref(query: string): string {
-  return `/?q=${encodeURIComponent(query)}`
+  return `/search?q=${encodeURIComponent(query)}`
 }
 
 // anchorNavProps is for a REAL <a href> card. A plain left-click runs the in-app

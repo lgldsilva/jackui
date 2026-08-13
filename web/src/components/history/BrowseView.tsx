@@ -19,7 +19,7 @@ export function BrowseEmptyState() {
       <History className="w-16 h-16 mb-4 opacity-30" />
       <p className="text-xl font-medium">{t('history.noSavedTitle')}</p>
       <p className="text-sm mt-2">{t('history.noSavedHint')}</p>
-      <Link to="/" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">{t('history.goToSearch')}</Link>
+      <Link to="/search" className="mt-4 text-green-500 hover:text-green-400 text-sm transition-colors">{t('history.goToSearch')}</Link>
     </div>
   )
 }
@@ -75,7 +75,7 @@ export function BrowseEntryList({
               {refreshingQueries.has(entry.query) && (
                 <Loader2 className="w-3.5 h-3.5 text-green-400 animate-spin" aria-label={t('history.refreshingSearch')} />
               )}
-              <button onClick={e => { e.stopPropagation(); navigate(`/?q=${encodeURIComponent(entry.query)}`) }} title={t('history.newSearch')} aria-label={t('history.newSearch')} className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
+              <button onClick={e => { e.stopPropagation(); navigate(searchHref(entry.query)) }} title={t('history.newSearch')} aria-label={t('history.newSearch')} className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
               {/* Delete por hover — desktop. No mobile usa o swipe-to-delete do SwipeRow. */}
               <button onClick={e => onDeleteEntry(entry.query, e)} title={t('history.removeFromCache')} aria-label={t('history.removeFromCache')} className="hidden sm:flex items-center justify-center text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>

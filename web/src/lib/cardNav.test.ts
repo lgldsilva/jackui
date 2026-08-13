@@ -18,7 +18,7 @@ describe('playHref', () => {
 
 describe('searchHref', () => {
   it('encodes the query', () => {
-    expect(searchHref('wind rose')).toBe('/?q=wind%20rose')
+    expect(searchHref('wind rose')).toBe('/search?q=wind%20rose')
   })
 })
 

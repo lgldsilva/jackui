@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-  Heart, History, Settings, ListMusic, Search, Library as LibraryIcon,
+  Heart, History, Settings, ListMusic, Search, Library as LibraryIcon, Home,
   Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen, Flame,
   Eye, EyeOff, BarChart3, Film, Music2,
 } from 'lucide-react'
@@ -24,7 +24,8 @@ const STORAGE_KEY = 'jackui.sidebar.collapsed'
 // Single source of truth for the nav routes. `hover` keeps the per-section
 // accent colour the old header used.
 const LINKS = [
-  { to: '/', icon: Search, labelKey: 'nav.search', hover: 'hover:!text-text-primary' },
+  { to: '/', icon: Home, labelKey: 'nav.home', hover: 'hover:!text-green-400' },
+  { to: '/search', icon: Search, labelKey: 'nav.search', hover: 'hover:!text-text-primary' },
   { to: '/discover', icon: Flame, labelKey: 'nav.discover', hover: 'hover:!text-orange-400' },
   { to: '/playlists', icon: ListMusic, labelKey: 'nav.playlists', hover: 'hover:!text-blue-400' },
   { to: '/library', icon: LibraryIcon, labelKey: 'nav.continue', hover: 'hover:!text-purple-400' },

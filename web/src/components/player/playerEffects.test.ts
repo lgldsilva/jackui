@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
-import { autoDownloadNextFile } from './playerEffects'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { autoDownloadNextFile, trySaveResume } from './playerEffects'
+
+vi.mock('../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../api/client')>('../../api/client')
+  return { ...actual, libraryUpdateResume: vi.fn(() => Promise.resolve()) }
+})
+
+import { libraryUpdateResume } from '../../api/client'
 import type { TorrentInfo, StreamFile } from '../../api/client'
 
 function mkInfo(files: StreamFile[], hash = 'abc123'): TorrentInfo {
@@ -155,5 +162,32 @@ describe('autoDownloadNextFile', () => {
     autoDownloadNextFile({ info: mkInfo(files), selectedFile: 1, nextIdx: 2, doneRef, incognito: false, onEnqueue })
     expect(onEnqueue).toHaveBeenCalledTimes(2)
     expect(onEnqueue).toHaveBeenLastCalledWith(2)
+  })
+})
+
+describe('trySaveResume', () => {
+  beforeEach(() => {
+    vi.mocked(libraryUpdateResume).mockClear()
+  })
+
+  it('skips incognito, missing entry, and the first second', () => {
+    const last = { current: 0 }
+    trySaveResume(0.5, false, 7, last, 100, 2)
+    trySaveResume(20, true, 7, last, 100, 2)
+    trySaveResume(20, false, null, last, 100, 2)
+    expect(libraryUpdateResume).not.toHaveBeenCalled()
+  })
+
+  it('persists fileIndex so a season pack resumes the same episode', () => {
+    const last = { current: 0 }
+    trySaveResume(40, false, 9, last, 3600, 3)
+    expect(libraryUpdateResume).toHaveBeenCalledWith(9, 40, 3600, 3)
+    expect(last.current).toBe(40)
+  })
+
+  it('does not write again within the 15s window', () => {
+    const last = { current: 40 }
+    trySaveResume(50, false, 9, last, 3600, 3)
+    expect(libraryUpdateResume).not.toHaveBeenCalled()
   })
 })

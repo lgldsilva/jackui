@@ -62,7 +62,7 @@ export function usePlaybackProgress(deps: {
     onProgress?.(now)
     updateBufferedRanges(v, now, setBufferedRanges, setBufferedEnd)
     tryAutoFavorite(watchedRef.current, isFavorite, autoFavThreshold, info, setIsFavorite)
-    trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0)
+    trySaveResume(now, incognito, libraryEntryID, lastResumeSaveRef, v.duration || 0, selectedFile)
     trySyncUrlPlayhead(now, lastUrlSyncRef)
     tryPrefetchNext({ v, now, nextVideoIdx: mediaQueueNextIdx, info, prefetchedNextEpRef, onPrefetchNextPlaylist, prefetchedPlaylistN1Ref, onPrefetchNextNextPlaylist, prefetchedPlaylistN2Ref })
   }

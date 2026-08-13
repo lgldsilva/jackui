@@ -241,6 +241,11 @@ export function ActiveStreamView(props: Readonly<{
             setShowResumePrompt(false)
             setResumePosition(null)
           }}
+          duration={duration}
+          chapters={probe?.chapters}
+          hasNext={hasNext}
+          nextLabel={nextFileLabel(info, mediaFileIndices, mediaCursor)}
+          onNext={handleNext}
         />
       )}
 
@@ -387,4 +392,14 @@ export function ActiveStreamView(props: Readonly<{
       )}
     </div>
   )
+}
+
+function nextFileLabel(info: TorrentInfo, indices: readonly number[], cursor: number): string | undefined {
+  const nextIdx = cursor >= 0 && cursor < indices.length - 1 ? indices[cursor + 1] : -1
+  if (nextIdx < 0) return undefined
+  const file = info.files.find(f => f.index === nextIdx)
+  if (!file) return undefined
+  const ep = parseEpisodeTag(file.path)
+  const name = file.path.split('/').pop() || file.path
+  return ep ? `${ep} · ${name}` : name
 }
