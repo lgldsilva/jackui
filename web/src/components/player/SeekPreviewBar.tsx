@@ -60,6 +60,8 @@ export function SeekPreviewBar({
         className="relative bg-surface-tertiary rounded-full h-2 cursor-pointer"
         onClick={e => { if (duration > 0) onSeek(ratioFromEvent(e) * duration) }}
         onKeyDown={e => {
+          // Only consume slider keys. Space/J/K/L/N/P/digits bubble to
+          // useKeyboardShortcuts — a blanket skip on role=slider ate those.
           if (duration <= 0) return
           let next: number | null = null
           if (e.key === 'ArrowRight') next = currentTime + 10

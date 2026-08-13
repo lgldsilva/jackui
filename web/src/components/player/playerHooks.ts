@@ -53,7 +53,7 @@ export function useKeyboardShortcuts({
       const v = videoRef.current
       if (!v) return
       const tgt = e.target as HTMLElement | null
-      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt === v || tgt.getAttribute('role') === 'slider')) return
+      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt === v)) return
       const action = interpretPlayerKey(e.key)
       if (!action) return
       const dur = Number.isFinite(v.duration) ? v.duration : Infinity
