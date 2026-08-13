@@ -531,7 +531,7 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 	}
 	api.GET("/library", handlers.LibraryList(deps.libraryStore, deps.streamSrv))
 	// Static path must be registered before /library/:id so "hash" is not parsed as an id.
-	api.GET("/library/hash/:hash", handlers.LibraryGetByHash(deps.libraryStore))
+	api.GET("/library/hash/:hash", handlers.LibraryGetByHash(deps.libraryStore, deps.streamSrv))
 	// Personalized recommendations derived from the watched library (additive).
 	// streamSrv lets the generator drop hidden-folder titles from the seed.
 	api.GET("/recommendations", handlers.Recommendations(deps.libraryStore, deps.streamSrv, deps.tmdbClient))

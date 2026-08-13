@@ -44,3 +44,22 @@ export function downloadToPlayTarget(row: DownloadEntry): { infoHash: string; ma
   const fileIndex = row.fileIndex >= 0 ? row.fileIndex : undefined
   return { infoHash: row.infoHash, magnet: row.magnet, name: row.name, fileIndex }
 }
+
+// homePlayFileIndex mirrors LibraryPage: last watched file wins, including
+// index 0. Only fall back to a strictly-positive primary; 0 there is the
+// column default and must not override the server's pickPrimaryFile.
+export function homePlayFileIndex(e: { lastFileIndex: number; primaryFileIndex: number }): number | undefined {
+  if (e.lastFileIndex >= 0) return e.lastFileIndex
+  if (e.primaryFileIndex > 0) return e.primaryFileIndex
+  return undefined
+}
+
+export function homeIsEmpty(opts: {
+  readonly continueCount: number
+  readonly recentCount: number
+  readonly recCount: number
+  readonly trendCount: number
+  readonly albumCount: number
+}): boolean {
+  return opts.continueCount + opts.recentCount + opts.recCount + opts.trendCount + opts.albumCount === 0
+}

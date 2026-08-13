@@ -8,8 +8,9 @@ describe('playHref', () => {
   it('includes file index and seek when meaningful', () => {
     expect(playHref('abc', 3, 120)).toBe('/?play=abc&f=3&t=120')
   })
-  it('omits f=0 and t=0 (treated as unset)', () => {
-    expect(playHref('abc', 0, 0)).toBe('/?play=abc')
+  it('keeps f=0 so episode 0 of a pack is explicit; omits t=0', () => {
+    expect(playHref('abc', 0, 0)).toBe('/?play=abc&f=0')
+    expect(playHref('abc', undefined, 0)).toBe('/?play=abc')
   })
   it('works with a local pseudo-hash', () => {
     expect(playHref('local-Zm9v')).toBe('/?play=local-Zm9v')

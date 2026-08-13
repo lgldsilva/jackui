@@ -39,25 +39,44 @@ func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 // LibraryGetByHash handles GET /api/library/hash/:hash — O(1) lookup used by
 // the player to restore resume position. Avoids the O(n) libraryList({limit:100})
 // scan that silently missed titles past the first hundred.
-func LibraryGetByHash(lib *library.Store) gin.HandlerFunc {
+//
+// Same visibility as LibraryList: incognito rows stay out of the normal
+// session, and hidden favourite / local-curtain hashes 404 (not 403) so a
+// leaked infoHash cannot probe the curtain.
+func LibraryGetByHash(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		hash := strings.TrimSpace(c.Param("hash"))
 		if hash == "" {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
-		userID, _, _ := auth.UserIDFromCtx(c)
-		entry, err := lib.GetByHash(userID, hash)
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		entry, err := lib.GetByHashPublic(userID, hash)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		if entry == nil {
+		if visibleLibraryEntry(c, s, userID, isAdmin, entry) == nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, entry)
 	}
+}
+
+// visibleLibraryEntry applies the same hidden-curtain filters as LibraryList
+// to a single row. nil in or filtered out → nil.
+func visibleLibraryEntry(c *gin.Context, s *streamer.Streamer, userID int, isAdmin bool, entry *library.Entry) *library.Entry {
+	if entry == nil {
+		return nil
+	}
+	list := []library.Entry{*entry}
+	list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, isAdmin))
+	list = dropHiddenLocalLibrary(c, s, list, userID)
+	if len(list) == 0 {
+		return nil
+	}
+	return &list[0]
 }
 
 // LibraryGet handles GET /api/library/:id

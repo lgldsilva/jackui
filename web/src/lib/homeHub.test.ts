@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isUnfinished, pickContinueWatching, pickRecentlyCompleted } from './homeHub'
+import { isUnfinished, pickContinueWatching, pickRecentlyCompleted, homePlayFileIndex, homeIsEmpty } from './homeHub'
 import type { LibraryEntry } from '../api/library'
 import type { DownloadEntry } from '../api/downloads'
 
@@ -47,5 +47,24 @@ describe('pickRecentlyCompleted', () => {
       dl({ id: 4, infoHash: 'CCC', status: 'completed' }),
     ]
     expect(pickRecentlyCompleted(rows).map(r => r.id)).toEqual([1, 4])
+  })
+})
+
+describe('homePlayFileIndex', () => {
+  it('keeps lastFileIndex 0 (first file in a season pack)', () => {
+    expect(homePlayFileIndex({ lastFileIndex: 0, primaryFileIndex: 4 })).toBe(0)
+  })
+  it('falls back to a positive primary, not the 0 default', () => {
+    expect(homePlayFileIndex({ lastFileIndex: -1, primaryFileIndex: 3 })).toBe(3)
+    expect(homePlayFileIndex({ lastFileIndex: -1, primaryFileIndex: 0 })).toBeUndefined()
+  })
+})
+
+describe('homeIsEmpty', () => {
+  const none = { continueCount: 0, recentCount: 0, recCount: 0, trendCount: 0, albumCount: 0 }
+  it('is empty only when every rail is empty', () => {
+    expect(homeIsEmpty(none)).toBe(true)
+    expect(homeIsEmpty({ ...none, albumCount: 4 })).toBe(false)
+    expect(homeIsEmpty({ ...none, continueCount: 1 })).toBe(false)
   })
 })

@@ -27,7 +27,7 @@ export function openInNewTab(href: string): void {
 // and local files (`local-<base64>` pseudo-hash) — both are valid `play` values.
 export function playHref(hash: string, fileIdx?: number, seekSec?: number): string {
   const p = new URLSearchParams({ play: hash })
-  if (fileIdx && fileIdx > 0) p.set('f', String(fileIdx))
+  if (fileIdx !== undefined && fileIdx >= 0) p.set('f', String(fileIdx))
   if (seekSec && seekSec > 0) p.set('t', String(Math.floor(seekSec)))
   return `/?${p.toString()}`
 }

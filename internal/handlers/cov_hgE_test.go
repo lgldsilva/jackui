@@ -300,7 +300,7 @@ func TestHgELibraryGetByHash_Found(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/library/hash/:hash", func(c *gin.Context) {
 		setAuth(c, 1, false)
-	}, LibraryGetByHash(lib))
+	}, LibraryGetByHash(lib, nil))
 
 	w := hgEDo(router, "GET", "/api/library/hash/"+hgEHash, nil)
 	if w.Code != http.StatusOK {
@@ -322,11 +322,61 @@ func TestHgELibraryGetByHash_NotFound(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/library/hash/:hash", func(c *gin.Context) {
 		setAuth(c, 1, false)
-	}, LibraryGetByHash(lib))
+	}, LibraryGetByHash(lib, nil))
 
 	w := hgEDo(router, "GET", "/api/library/hash/ffffffffffffffffffffffffffffffffffffffff", nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestHgELibraryGetByHash_IgnoresIncognito(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lib := hgELibrary(t)
+	if _, err := lib.Upsert(library.UpsertInput{
+		UserID: 1, InfoHash: hgEHash, Magnet: MagnetPrefix + hgEHash,
+		Name: "Secret", PrimaryFile: 0, TotalSize: 1, Kind: "movie", Incognito: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.GET("/api/library/hash/:hash", func(c *gin.Context) {
+		setAuth(c, 1, false)
+	}, LibraryGetByHash(lib, nil))
+
+	w := hgEDo(router, "GET", "/api/library/hash/"+hgEHash, nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("incognito row leaked: status = %d body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHgELibraryGetByHash_EmptyHash(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lib := hgELibrary(t)
+	router := gin.New()
+	router.GET("/api/library/hash/:hash", LibraryGetByHash(lib, nil))
+	w := hgEDo(router, "GET", "/api/library/hash/%20", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body %s", w.Code, w.Body.String())
+	}
+}
+
+func TestVisibleLibraryEntry_Nil(t *testing.T) {
+	if visibleLibraryEntry(nil, nil, 1, false, nil) != nil {
+		t.Fatal("nil entry should stay nil")
+	}
+}
+
+func TestVisibleLibraryEntry_DropsHiddenHash(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/library/hash/h1", nil)
+	entry := &library.Entry{InfoHash: "h1", Name: "Hidden"}
+	// nil streamer → hiddenHashSet is a no-op, entry stays visible.
+	if visibleLibraryEntry(c, nil, 1, false, entry) == nil {
+		t.Fatal("nil streamer should not hide the row")
 	}
 }
 

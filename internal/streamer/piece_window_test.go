@@ -107,6 +107,25 @@ func TestComputePieceWindow_ClampsPlayhead(t *testing.T) {
 	}
 }
 
+func TestApplyPieceWindow_NoPanicOnNilAndEmpty(t *testing.T) {
+	t.Parallel()
+	applyPieceWindow(nil, pieceWindow{}, pieceWindow{})
+	applyPieceWindow(nil, pieceWindow{nowBegin: 0, nowEnd: 4}, pieceWindow{})
+}
+
+func TestApplyPieceWindow_OnRealTorrent(t *testing.T) {
+	const pieceLen = 1 << 14
+	data := make([]byte, 40*pieceLen)
+	s, hash := activeMultiPiece(t, data, pieceLen)
+	s.mu.Lock()
+	tor := s.active[hash].t
+	s.mu.Unlock()
+	prev := pieceWindow{nowBegin: 0, nowEnd: 4, highBegin: 35, highEnd: 40}
+	next := pieceWindow{nowBegin: 10, nowEnd: 14, highBegin: 35, highEnd: 40}
+	applyPieceWindow(tor, pieceWindow{}, prev)
+	applyPieceWindow(tor, prev, next)
+}
+
 func TestInPieceRange(t *testing.T) {
 	t.Parallel()
 	if !inPieceRange(5, 5, 8) || inPieceRange(8, 5, 8) || inPieceRange(4, 5, 8) {

@@ -20,7 +20,7 @@ import {
 } from '../api/client'
 import { newTabProps, playHref, searchHref } from '../lib/cardNav'
 import { formatDuration } from '../lib/format'
-import { pickContinueWatching, pickRecentlyCompleted } from '../lib/homeHub'
+import { homeIsEmpty, homePlayFileIndex, pickContinueWatching, pickRecentlyCompleted } from '../lib/homeHub'
 import { useMediaMode } from '../lib/mediaMode'
 import { musicTrending, type MusicAlbum } from '../api/music'
 
@@ -74,9 +74,9 @@ export default function HomePage() {
     Promise.all([
       libraryList({ limit: 40 }).catch(() => [] as LibraryEntry[]),
       downloadsListFiltered({ status: 'completed' }).catch(() => [] as DownloadEntry[]),
-      tmdbRecommendations(),
-      tmdbTrending(),
-      musicTrending({ limit: 16 }),
+      tmdbRecommendations().catch(() => [] as TmdbRecommendation[]),
+      tmdbTrending().catch(() => [] as TmdbMatch[]),
+      musicTrending({ limit: 16 }).catch(() => [] as MusicAlbum[]),
     ])
       .then(([lib, dones, r, tr, al]) => {
         setLibrary(lib)
@@ -95,9 +95,13 @@ export default function HomePage() {
   const recent = pickRecentlyCompleted(completed)
   const recSlice = recs.slice(0, 16)
   const trendSlice = trending.slice(0, 16)
-  const empty = !loading && !error
-    && continueWatching.length === 0 && recent.length === 0
-    && recSlice.length === 0 && trendSlice.length === 0
+  const empty = !loading && !error && homeIsEmpty({
+    continueCount: continueWatching.length,
+    recentCount: recent.length,
+    recCount: recSlice.length,
+    trendCount: trendSlice.length,
+    albumCount: albums.length,
+  })
 
   const goSearch = (query: string) => {
     const trimmed = query.trim()
@@ -145,14 +149,14 @@ export default function HomePage() {
           <div className="flex flex-col gap-8">
             <HomeRail title={t('home.continue')} href="/library" seeAllLabel={t('home.seeAll')} empty={continueWatching.length === 0}>
               {continueWatching.map(e => {
-                const fileIdx = e.lastFileIndex >= 0 ? e.lastFileIndex : e.primaryFileIndex
+                const fileIdx = homePlayFileIndex(e)
                 const href = playHref(e.infoHash, fileIdx, e.resumeSeconds)
                 const ratio = e.durationSeconds > 0 ? Math.min(1, e.resumeSeconds / e.durationSeconds) : 0
                 return (
                   <button
                     key={e.id}
                     type="button"
-                    {...newTabProps(href, () => playSingle(libraryResult(e), fileIdx > 0 ? fileIdx : undefined))}
+                    {...newTabProps(href, () => playSingle(libraryResult(e), fileIdx))}
                     className={`${homeCardClass()} card text-left p-0 overflow-hidden group`}
                   >
                     <div className="aspect-[2/3] bg-surface-tertiary relative">

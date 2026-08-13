@@ -59,11 +59,6 @@ export function SeekPreviewBar({
         aria-valuenow={Math.round(currentTime)}
         className="relative bg-surface-tertiary rounded-full h-2 cursor-pointer"
         onClick={e => { if (duration > 0) onSeek(ratioFromEvent(e) * duration) }}
-        onKeyDown={e => {
-          if (duration <= 0) return
-          if (e.key === 'ArrowRight') { e.preventDefault(); onSeek(Math.min(duration, currentTime + 10)) }
-          if (e.key === 'ArrowLeft') { e.preventDefault(); onSeek(Math.max(0, currentTime - 10)) }
-        }}
         onMouseMove={e => setHover({ ratio: ratioFromEvent(e), x: e.clientX - e.currentTarget.getBoundingClientRect().left })}
         onMouseLeave={() => setHover(null)}
       >
