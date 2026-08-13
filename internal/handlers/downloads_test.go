@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -507,5 +508,69 @@ func TestMarkPromoted_CompletedInside(t *testing.T) {
 	markPromoted(list, "/mnt/downloads")
 	if list[0].Promoted {
 		t.Error("expected promoted to be false for file inside download dir")
+	}
+}
+
+func TestDownloadsBatchCreate_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+
+	router := gin.New()
+	router.POST("/api/downloads/batch", DownloadsBatchCreate(store, nil))
+
+	body := map[string]interface{}{
+		"infoHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"magnet":   "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"name":     "Test Torrent",
+		"files": []map[string]interface{}{
+			{"fileIndex": 0, "filePath": "a.mkv", "fileSize": 100},
+			{"fileIndex": 1, "filePath": "b.mkv", "fileSize": 200},
+		},
+	}
+	b, _ := json.Marshal(body)
+	req := httptest.NewRequest("POST", "/api/downloads/batch", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Created  []downloads.Download `json:"created"`
+		Requeued int                  `json:"requeued"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Created) != 2 {
+		t.Errorf("created = %d, want 2", len(resp.Created))
+	}
+}
+
+func TestDownloadsResume_Success(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := newDownloadsStore(t)
+	d, err := store.Create(downloads.Download{
+		InfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Magnet:   "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Name:     "Test Torrent",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetStatus(0, d.ID, downloads.StatusPaused); err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.PATCH("/api/downloads/:id/resume", DownloadsResume(store))
+
+	req := httptest.NewRequest("PATCH", "/api/downloads/"+strconv.Itoa(d.ID)+"/resume", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want 204; body: %s", w.Code, w.Body.String())
 	}
 }
