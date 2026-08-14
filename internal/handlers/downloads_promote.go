@@ -433,7 +433,7 @@ func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePl
 		tr.SubmitFor(o.userID, safeBaseName(p.src, p.d.Name), "promote", p.files, p.bytes, func(job *transfer.Job) {
 			if err := runPromotePlan(o, p, job); err != nil {
 				job.Fail(err)
-				log.Printf("promote: #%d %q falhou: %v", p.d.ID, p.d.Name, err)
+				log.Printf("promote: #%d %q falhou: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
 				return
 			}
 			_ = o.pending.Remove(pid)
@@ -463,7 +463,7 @@ func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promoteP
 				if firstErr == nil {
 					firstErr = err
 				}
-				log.Printf("promote: #%d %q falhou: %v", p.d.ID, p.d.Name, err)
+				log.Printf("promote: #%d %q falhou: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
 				continue
 			}
 			_ = o.pending.Remove(pids[i])
@@ -550,7 +550,7 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	if _, err := o.s.EnsureActive(ctx, d.SeedSource()); err != nil {
-		log.Printf("promote: reseed #%d %q from new location failed: %v", d.ID, d.Name, err)
+		log.Printf("promote: reseed #%d %q from new location failed: %v", d.ID, httpshared.SanitizeForLog(d.Name), err)
 	}
 }
 

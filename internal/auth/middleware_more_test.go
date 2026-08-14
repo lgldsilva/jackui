@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 func TestExtractToken_Bearer(t *testing.T) {
@@ -505,7 +506,7 @@ func TestSignAccess_SubjectIsUserID(t *testing.T) {
 
 func TestSanitizeForLog_RemovesControlChars(t *testing.T) {
 	in := "hello\r\nworld\x00\tone\ntwo"
-	got := sanitizeForLog(in)
+	got := httpshared.SanitizeForLog(in)
 	want := "hello␊world␉one␊two"
 	if got != want {
 		t.Fatalf("sanitizeForLog = %q, want %q", got, want)
@@ -514,7 +515,7 @@ func TestSanitizeForLog_RemovesControlChars(t *testing.T) {
 
 func TestSanitizeForLog_Truncates(t *testing.T) {
 	in := strings.Repeat("a", 1024)
-	got := sanitizeForLog(in)
+	got := httpshared.SanitizeForLog(in)
 	if len(got) != 512 {
 		t.Fatalf("len = %d, want 512", len(got))
 	}

@@ -80,7 +80,7 @@ func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
 		// being emitted to the client — drop them to preserve the invariant
 		// "everything saved was emitted", and leave a trace to confirm it.
 		log.Printf("search-sse: %d result(s) from %q arrived after emission ended — dropped (invariant guard)",
-			len(hit.Results), hit.IndexerName)
+			len(hit.Results), httpshared.SanitizeForLog(hit.IndexerName))
 		return
 	}
 	s.indexersDone++
@@ -206,7 +206,7 @@ func persistEmitted(c *gin.Context, store *history.Store, query string, results 
 		return
 	}
 	if err := store.Save(query, results, userID, middleware.IsIncognito(c)); err != nil {
-		log.Printf("search-sse: saving %d result(s) for %q failed: %v", len(results), query, err)
+		log.Printf("search-sse: saving %d result(s) for %q failed: %v", len(results), httpshared.SanitizeForLog(query), err)
 	}
 }
 

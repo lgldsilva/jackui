@@ -36,12 +36,12 @@ func notify(mlr *mailer.Mailer, to, subject, intro, link string) {
 	)
 	if mlr != nil && mlr.Enabled() && to != "" {
 		if err := mlr.Send(to, subject, body); err != nil {
-			log.Printf("auth: email to %s failed (%v) — link: %s", to, err, link)
+			log.Printf("auth: email to %s failed (%v) — link: %s", httpshared.SanitizeForLog(to), err, httpshared.SanitizeForLog(link))
 		}
 		return
 	}
 	// No SMTP: surface the link in the logs so it can be relayed manually.
-	log.Printf("auth: [no-smtp] %s for %s → %s", subject, to, link)
+	log.Printf("auth: [no-smtp] %s for %s → %s", httpshared.SanitizeForLog(subject), httpshared.SanitizeForLog(to), httpshared.SanitizeForLog(link))
 }
 
 type registerReq struct {
