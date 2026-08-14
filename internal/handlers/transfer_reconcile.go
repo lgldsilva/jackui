@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transfer"
@@ -41,7 +42,7 @@ func ReconcilePendingTransfers(pending *transfer.Store, tr *transfer.Tracker, st
 		default:
 			// Unknown kind (older row / not yet supported): drop it so it doesn't
 			// linger forever. The source file stays intact (nothing was deleted).
-			log.Printf("transfer reconcile: dropping unsupported kind %q (#%d)", pt.Kind, pt.ID)
+			log.Printf("transfer reconcile: dropping unsupported kind %q (#%d)", httpshared.SanitizeForLog(pt.Kind), pt.ID)
 			_ = pending.Remove(pt.ID)
 		}
 	}

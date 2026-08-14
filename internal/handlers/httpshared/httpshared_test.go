@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -177,5 +178,55 @@ func TestRespondErrorMessageFields(t *testing.T) {
 	want := `{"error":"invalid","field":"email"}`
 	if w.Body.String() != want {
 		t.Fatalf("body = %s, want %s", w.Body.String(), want)
+	}
+}
+
+func TestSanitizeForLog_RemovesControlChars(t *testing.T) {
+	in := "hello\r\nworld\x00\tone\ntwo"
+	want := "hello␊world␉one␊two"
+	if got := SanitizeForLog(in); got != want {
+		t.Fatalf("SanitizeForLog = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeForLog_Truncates(t *testing.T) {
+	in := strings.Repeat("a", 1024)
+	got := SanitizeForLog(in)
+	if len(got) != 512 {
+		t.Fatalf("len = %d, want 512", len(got))
+	}
+}
+
+func TestSanitizeInt(t *testing.T) {
+	if got := SanitizeInt(-42); got != "-42" {
+		t.Fatalf("SanitizeInt(-42) = %q, want -42", got)
+	}
+}
+
+func TestSanitizeIntSlice(t *testing.T) {
+	got := SanitizeIntSlice([]int{1, 2, 3})
+	want := "[1 2 3]"
+	if got != want {
+		t.Fatalf("SanitizeIntSlice = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeIntSlice_RemovesControlChars(t *testing.T) {
+	// The function is a no-op for numeric slices, but it must not panic and
+	// should still pass through SanitizeForLog so the API is consistent.
+	got := SanitizeIntSlice([]int{1, 2})
+	want := "[1 2]"
+	if got != want {
+		t.Fatalf("SanitizeIntSlice = %q, want %q", got, want)
+	}
+}
+
+func TestSanitizeIntPtr(t *testing.T) {
+	if got := SanitizeIntPtr(nil); got != "<nil>" {
+		t.Fatalf("SanitizeIntPtr(nil) = %q, want <nil>", got)
+	}
+	v := 7
+	if got := SanitizeIntPtr(&v); got != "7" {
+		t.Fatalf("SanitizeIntPtr(&7) = %q, want 7", got)
 	}
 }
