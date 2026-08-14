@@ -145,6 +145,9 @@ func stopSeedOne(store *downloads.Store, s *streamer.Streamer, userID, id int, s
 	if err != nil || d == nil {
 		return false
 	}
+	if d.Status == downloads.StatusCompleted {
+		_ = store.StopSeed(userID, id)
+	}
 	if d.InfoHash == "" {
 		return true
 	}

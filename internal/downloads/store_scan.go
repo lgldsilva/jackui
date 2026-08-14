@@ -20,7 +20,7 @@ func scanRows(rows *sql.Rows) (*Download, error) {
 
 func scanGeneric(r rowScanner) (*Download, error) {
 	d := &Download{}
-	var startedAt, completedAt, queuedSince sql.NullTime
+	var startedAt, completedAt, queuedSince, seedStoppedAt sql.NullTime
 	var linkedInt int // SMALLINT 0/1 → bool (keeps the schema's int-flag convention)
 	err := r.Scan(
 		&d.ID, &d.UserID, &d.InfoHash, &d.FileIndex, &d.FilePath, &d.FileSize,
@@ -28,6 +28,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 		&startedAt, &completedAt, &d.Error, &d.CreatedAt,
 		&d.Priority, &d.Stalls, &queuedSince, &d.ActiveMagnet, &d.Source,
 		&d.DestBase, &d.DestSubdir, &d.CompletionDest, &linkedInt,
+		&seedStoppedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -44,6 +45,10 @@ func scanGeneric(r rowScanner) (*Download, error) {
 	if queuedSince.Valid {
 		t := queuedSince.Time
 		d.QueuedSince = &t
+	}
+	if seedStoppedAt.Valid {
+		t := seedStoppedAt.Time
+		d.SeedStoppedAt = &t
 	}
 	if d.FileSize > 0 {
 		d.Progress = float64(d.BytesDownloaded) / float64(d.FileSize)

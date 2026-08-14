@@ -343,8 +343,8 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
 	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore))
 	// Batch drop BEFORE the singular DELETE so gin does not treat "drop" as a hash.
-	api.POST("/stream/drop/batch", handlers.StreamDropBatch(deps.streamSrv, deps.hlsMgr))
-	api.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv, deps.hlsMgr))
+	api.POST("/stream/drop/batch", handlers.StreamDropBatch(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
+	api.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.POST("/stream/:hash/viewer", handlers.StreamViewerOpen(deps.streamSrv))
 	api.DELETE("/stream/:hash/viewer", handlers.StreamViewerClose(deps.streamSrv, deps.hlsMgr))
 	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore))

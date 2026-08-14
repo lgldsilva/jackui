@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -43,7 +44,9 @@ func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
 // StreamDrop handles DELETE /api/stream/:hash — manually stop a torrent.
 // Também encerra as sessões HLS daquele torrent (#17): fechar o player não pode
 // deixar o ffmpeg do transcode órfão consumindo CPU até o idle-reaper.
-func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
+// When the dropped hash backs a completed download row, we also mark that row
+// seed-stopped so the next boot's autoSeedCompleted does not resurrect it.
+func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, ok := bindHash(c)
 		if !ok {
@@ -53,6 +56,10 @@ func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.H
 		// então também limpa o auto-seed persistido — senão ele voltaria a seedar
 		// no próximo boot e reapareceria como "ativo".
 		dropStreamHash(s, hlsMgr, h)
+		if store != nil {
+			userID, _, _ := auth.UserIDFromCtx(c)
+			_ = store.StopSeedByInfoHash(userID, h.HexString())
+		}
 		c.JSON(http.StatusOK, gin.H{"message": "dropped"})
 	}
 }
@@ -64,7 +71,8 @@ const streamDropBatchMax = 300
 // {dropped,total,failed} — drops MANY torrents (and their HLS sessions) in ONE
 // call so mass-delete on Downloads does not fire N DELETE /stream/:hash (Perf #7).
 // Hashes are deduped; invalid entries land in failed without aborting the batch.
-func StreamDropBatch(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
+// Completed download rows backing the dropped hashes are marked seed-stopped.
+func StreamDropBatch(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Hashes []string `json:"hashes"`
@@ -77,6 +85,7 @@ func StreamDropBatch(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) 
 			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many hashes")
 			return
 		}
+		userID, _, _ := auth.UserIDFromCtx(c)
 		seen := make(map[string]struct{}, len(req.Hashes))
 		dropped := 0
 		failed := make([]string, 0)
@@ -92,6 +101,9 @@ func StreamDropBatch(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) 
 			}
 			seen[key] = struct{}{}
 			dropStreamHash(s, hlsMgr, h)
+			if store != nil {
+				_ = store.StopSeedByInfoHash(userID, key)
+			}
 			dropped++
 		}
 		c.JSON(http.StatusOK, gin.H{"dropped": dropped, "total": len(req.Hashes), "failed": failed})
