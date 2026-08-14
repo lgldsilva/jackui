@@ -19,7 +19,7 @@ func TestStreamDrop_BadHash(t *testing.T) {
 	s := streamer.NewForTesting()
 
 	router := gin.New()
-	router.DELETE("/api/stream/:hash", StreamDrop(s, nil))
+	router.DELETE("/api/stream/:hash", StreamDrop(s, nil, nil))
 
 	req := httptest.NewRequest("DELETE", "/api/stream/nothex", nil)
 	w := httptest.NewRecorder()
@@ -35,7 +35,7 @@ func TestStreamDrop_Valid(t *testing.T) {
 	s := streamer.NewForTesting()
 
 	router := gin.New()
-	router.DELETE("/api/stream/:hash", StreamDrop(s, nil))
+	router.DELETE("/api/stream/:hash", StreamDrop(s, nil, nil))
 
 	req := httptest.NewRequest("DELETE", "/api/stream/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil)
 	w := httptest.NewRecorder()
@@ -64,7 +64,7 @@ func TestStreamDrop_WithHLSManager(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.DELETE("/api/stream/:hash", StreamDrop(s, hlsMgr))
+	router.DELETE("/api/stream/:hash", StreamDrop(s, hlsMgr, nil))
 
 	req := httptest.NewRequest("DELETE", "/api/stream/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", nil)
 	w := httptest.NewRecorder()
@@ -93,7 +93,7 @@ func TestStreamDropBatch_Empty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil))
+	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil, nil))
 
 	w := postDropBatch(t, router, `{"hashes":[]}`)
 	if w.Code != http.StatusBadRequest {
@@ -105,7 +105,7 @@ func TestStreamDropBatch_TooMany(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil))
+	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil, nil))
 
 	hashes := make([]string, streamDropBatchMax+1)
 	for i := range hashes {
@@ -126,7 +126,7 @@ func TestStreamDropBatch_DedupeAndInvalid(t *testing.T) {
 		t.Fatalf("NewHLSManager: %v", err)
 	}
 	router := gin.New()
-	router.POST("/api/stream/drop/batch", StreamDropBatch(s, hlsMgr))
+	router.POST("/api/stream/drop/batch", StreamDropBatch(s, hlsMgr, nil))
 
 	const h1 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const h2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

@@ -340,12 +340,17 @@ func (w *Worker) dropCompletedNonSeedHandles() {
 }
 
 // autoSeedCompleted re-activates, on boot, every COMPLETED download whose tracker
-// is configured for continuous seeding (e.g. amigos-share). EnsureActive picks up
-// the relocated storage (the file lives in bulk, outside the cache), so anacrolix
-// verifies it in place and SEEDS — no re-download. Only `completed` rows qualify:
-// a paused/failed/removed row was stopped by the user and is left alone. Bounded
-// concurrency keeps the metadata/verify storm in check.
+// is configured for continuous seeding (e.g. amigos-share) and that the user has
+// NOT explicitly stopped. EnsureActive picks up the relocated storage (the file
+// lives in bulk, outside the cache), so anacrolix verifies it in place and SEEDS
+// — no re-download. Only `completed` rows qualify: a paused/failed/removed row or
+// a completed row marked seed_stopped was stopped by the user and is left alone.
+// Bounded concurrency keeps the metadata/verify storm in check.
 func (w *Worker) autoSeedCompleted() {
+	w.autoSeedCompletedWithContext(context.Background())
+}
+
+func (w *Worker) autoSeedCompletedWithContext(ctx context.Context) {
 	all, err := w.store.ListAll()
 	if err != nil {
 		return
@@ -354,14 +359,7 @@ func (w *Worker) autoSeedCompleted() {
 	var wg sync.WaitGroup
 	started := 0
 	for _, d := range all {
-		if d.Status != StatusCompleted || d.InfoHash == "" {
-			continue
-		}
-		var h metainfo.Hash
-		if err := h.FromHexString(d.InfoHash); err != nil {
-			continue
-		}
-		if !w.streamer.MatchesSeedTrackerCached(h) {
+		if !shouldAutoSeed(d, w.streamer.MatchesSeedTrackerCached) {
 			continue
 		}
 		started++
@@ -370,7 +368,7 @@ func (w *Worker) autoSeedCompleted() {
 		go func(d Download) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+			ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 			defer cancel()
 			if _, err := w.streamer.EnsureActive(ctx, d.SeedSource()); err != nil {
 				log.Printf("downloads: auto-seed #%d %q failed: %v", d.ID, d.Name, err)
@@ -381,6 +379,20 @@ func (w *Worker) autoSeedCompleted() {
 		log.Printf("downloads: auto-seeding %d completed torrent(s) for seed-trackers", started)
 	}
 	wg.Wait()
+}
+
+// shouldAutoSeed reports whether a completed download row is a candidate for the
+// boot-time auto-seed pass. It filters out rows without info_hash, rows the user
+// explicitly stopped, and rows whose tracker is not a configured seed-tracker.
+func shouldAutoSeed(d Download, matches func(metainfo.Hash) bool) bool {
+	if d.Status != StatusCompleted || d.InfoHash == "" || d.SeedStoppedAt != nil {
+		return false
+	}
+	var h metainfo.Hash
+	if err := h.FromHexString(d.InfoHash); err != nil {
+		return false
+	}
+	return matches(h)
 }
 
 // Stop signals the worker to exit and blocks until the loop returns. Safe to

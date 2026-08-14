@@ -537,9 +537,13 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 		return
 	}
 	if !o.keepSeeding {
-		// Usuário promoveu SEM "continuar seedando" → para de vez e limpa o
-		// auto-seed persistido (senão voltaria a seedar no próximo boot).
+		// Usuário promoveu SEM "continuar seedando" → para de vez, limpa o
+		// auto-seed persistido e marca a row completed como seed-stopped para que
+		// o próximo boot não reative o torrent.
 		o.s.DropSeed(h)
+		if d.Status == downloads.StatusCompleted {
+			_ = o.store.StopSeed(d.UserID, d.ID)
+		}
 		return
 	}
 	o.s.Drop(h)
@@ -582,9 +586,13 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 			var h metainfo.Hash
 			if err := h.FromHexString(d.InfoHash); err == nil {
 				// "Parar de seedar" é explícito → DropSeed limpa também o auto-seed
-				// persistido, senão voltaria a seedar no próximo boot.
+				// persistido e marca a row como seed-stopped para que o próximo boot
+				// não reative o torrent.
 				s.DropSeed(h)
 			}
+		}
+		if d.Status == downloads.StatusCompleted {
+			_ = store.StopSeed(userID, d.ID)
 		}
 		c.Status(http.StatusNoContent)
 	}

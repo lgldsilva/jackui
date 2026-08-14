@@ -138,6 +138,10 @@ type Download struct {
 	// Linked is true when this completed row points at a PRE-EXISTING file it
 	// adopted (cross-torrent dedup #23) instead of bytes it downloaded itself.
 	Linked bool `json:"linked,omitempty"`
+	// SeedStoppedAt is set when the user explicitly stops seeding this completed
+	// row. autoSeedCompleted skips stopped rows on boot so a removed torrent does
+	// not resurrect after restart.
+	SeedStoppedAt *time.Time `json:"seedStoppedAt,omitempty"`
 }
 
 // IsWholeTorrent reports whether this row downloads the entire torrent as one
@@ -326,7 +330,8 @@ const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_siz
 	COALESCE(priority, 'normal'), COALESCE(stalls, 0), queued_since,
 	COALESCE(active_magnet, ''), COALESCE(source, ''),
 	COALESCE(dest_base, ''), COALESCE(dest_subdir, ''),
-	COALESCE(completion_dest, ''), COALESCE(linked, 0) FROM downloads `
+	COALESCE(completion_dest, ''), COALESCE(linked, 0),
+	seed_stopped_at FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
 // as a set. Usado pelo handler de busca pra enriquecer SearchResult com

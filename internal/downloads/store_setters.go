@@ -21,8 +21,9 @@ func (s *Store) SetStatus(userID, id int, status string) error {
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 			WHERE id=? AND user_id=?`, status, id, userID)
 	case StatusCompleted:
+		// Reaching completed again (re-download / re-queue) re-enables auto-seeding.
 		_, err = s.db.Exec(`
-			UPDATE downloads SET status=?, completed_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`,
+			UPDATE downloads SET status=?, completed_at=CURRENT_TIMESTAMP, seed_stopped_at=NULL WHERE id=? AND user_id=?`,
 			status, id, userID)
 	default:
 		_, err = s.db.Exec(`UPDATE downloads SET status=? WHERE id=? AND user_id=?`, status, id, userID)
@@ -138,6 +139,42 @@ type ProgressUpdate struct {
 	UserID int
 	ID     int
 	Bytes  int64
+}
+
+// StopSeed marks a completed download row as explicitly seed-stopped so
+// autoSeedCompleted will NOT reactivate it on the next boot. The files stay on
+// disk; this only stops the automatic swarm rejoin. Idempotent.
+func (s *Store) StopSeed(userID, id int) error {
+	_, err := s.db.Exec(`
+		UPDATE downloads SET seed_stopped_at=CURRENT_TIMESTAMP
+		WHERE id=? AND user_id=? AND status=?`,
+		id, userID, StatusCompleted)
+	return err
+}
+
+// ResumeSeed clears the explicit seed-stop mark, re-enabling auto-seeding for
+// this completed row. Used when the user explicitly resumes seeding.
+func (s *Store) ResumeSeed(userID, id int) error {
+	_, err := s.db.Exec(`
+		UPDATE downloads SET seed_stopped_at=NULL
+		WHERE id=? AND user_id=?`,
+		id, userID)
+	return err
+}
+
+// StopSeedByInfoHash marks every completed row for this user/info_hash as
+// seed-stopped. Used by the streaming "remove torrent" action, which drops the
+// active swarm handle and must also prevent the next boot's auto-seed from
+// bringing the same hash back.
+func (s *Store) StopSeedByInfoHash(userID int, infoHash string) error {
+	if infoHash == "" {
+		return nil
+	}
+	_, err := s.db.Exec(`
+		UPDATE downloads SET seed_stopped_at=CURRENT_TIMESTAMP
+		WHERE user_id=? AND info_hash=? AND status=?`,
+		userID, infoHash, StatusCompleted)
+	return err
 }
 
 // UpdateProgressBatch writes the per-file progress of an entire torrent group in
