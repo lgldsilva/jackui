@@ -30,6 +30,7 @@ import { ToastProvider } from './components/Toast'
 import ErrorBoundary from './components/ErrorBoundary'
 import { TransfersProvider } from './lib/transfers'
 import TransfersDock from './components/TransfersDock'
+import SkipLink from './components/SkipLink'
 
 function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
@@ -37,9 +38,9 @@ function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center text-text-secondary">
+      <main id="main-content" tabIndex={-1} className="min-h-screen bg-surface flex items-center justify-center text-text-secondary">
         <Loader2 className="w-6 h-6 animate-spin" />
-      </div>
+      </main>
     )
   }
   if (!isAuthenticated) {
@@ -101,9 +102,9 @@ function RouteRestorer() {
 
 function RouteFallback() {
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <main id="main-content" tabIndex={-1} className="flex items-center justify-center min-h-screen">
       <Loader2 className="w-8 h-8 animate-spin text-[var(--muted)]" />
-    </div>
+    </main>
   )
 }
 
@@ -147,7 +148,10 @@ function App() {
                   the whole app (white screen). Show a recoverable message; reset
                   does a hard reload to home so a wedged route always recovers. */}
               <ErrorBoundary title="Algo deu errado" onReset={() => { globalThis.location.href = '/' }}>
-                <AppRoutes />
+                <SkipLink />
+                <div id="route-root">
+                  <AppRoutes />
+                </div>
               </ErrorBoundary>
               {/* Global file-movement progress dock (bottom-left). */}
               <TransfersDock />

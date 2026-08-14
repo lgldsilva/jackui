@@ -2,7 +2,8 @@
   "common": {
     "errorTitle": "Something went wrong",
     "retry": "Try again",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "skipToContent": "Skip to content"
   },
   "files": {
     "to_download": "Files to download",
@@ -42,7 +43,11 @@
     "stream_tab": "Streaming",
     "account_tab": "Account",
     "ia_tab": "AI",
-    "stats": "Statistics"
+    "stats": "Statistics",
+    "primary_navigation": "Primary navigation",
+    "more": "More",
+    "library_group": "Your library",
+    "server_group": "Server"
   },
   "home": {
     "kicker": "Your server",
@@ -60,7 +65,20 @@
     "left": "{{time}} left",
     "because": "Because you watched {{title}}",
     "emptyTitle": "Nothing here yet",
-    "emptyHint": "Search for a title or open Trending to start watching. Continue Watching and recommendations will fill this page."
+    "emptyHint": "Search for a title or open Trending to start watching. Continue Watching and recommendations will fill this page.",
+    "startSearch": "Search for a title",
+    "openTrending": "Explore Trending",
+    "loadFailed": "Couldn't load Home",
+    "partialTitle": "Some areas are unavailable",
+    "partialHint": "The rest of the page is still usable. Try again or check server health.",
+    "healthTitle": "Server health needs attention",
+    "healthHint": "JackUI started in degraded mode. Some actions may fail until the service recovers.",
+    "healthUnavailable": "Server health couldn't be checked right now. Some actions may fail.",
+    "openSettings": "Open settings",
+    "healthDb": "Database",
+    "healthStreamer": "Streaming",
+    "healthDegraded": "degraded",
+    "healthUnknown": "unavailable"
   },
   "discover": {
     "music_trending": "Trending albums",

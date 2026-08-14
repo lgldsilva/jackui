@@ -8,7 +8,7 @@ import { registerAccount, verifyEmail, forgotPassword, resetPassword } from '../
 // reset) — same centered card as the login screen.
 function Shell({ title, children }: { readonly title: string; readonly children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center px-4 safe-top safe-bottom">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-surface flex items-center justify-center px-4 safe-top safe-bottom">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-6">
           <span className="text-3xl font-bold text-green-500">Jack</span>
@@ -19,7 +19,7 @@ function Shell({ title, children }: { readonly title: string; readonly children:
           {children}
         </div>
       </div>
-    </div>
+    </main>
   )
 }
 

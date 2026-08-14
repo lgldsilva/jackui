@@ -437,7 +437,7 @@ export default function FavoritesPage() {
       <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
       <NavHeader />
 
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4">
         {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
         <FolderSidebar
           revealHidden={revealHidden}

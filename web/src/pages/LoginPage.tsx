@@ -63,7 +63,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center px-4 safe-top safe-bottom">
+    <main id="main-content" tabIndex={-1} className="min-h-screen bg-surface flex items-center justify-center px-4 safe-top safe-bottom">
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-6">
           <div className="flex items-center gap-2">
@@ -168,6 +168,6 @@ export default function LoginPage() {
           {t('login.tagline')}
         </p>
       </div>
-    </div>
+    </main>
   )
 }

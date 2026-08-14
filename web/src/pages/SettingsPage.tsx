@@ -214,7 +214,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <main className="max-w-5xl xl:max-w-6xl 2xl:max-w-[min(95vw,1600px)] mx-auto px-4 py-6 flex flex-col gap-6">
+      <main id="main-content" tabIndex={-1} className="max-w-5xl xl:max-w-6xl 2xl:max-w-[min(95vw,1600px)] mx-auto px-4 py-6 flex flex-col gap-6">
         {saveResult && (
           <div className={`flex items-center gap-2 rounded-xl p-3 text-sm ${
             saveResult === 'success'

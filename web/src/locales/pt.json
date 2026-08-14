@@ -2,7 +2,8 @@
   "common": {
     "errorTitle": "Algo deu errado",
     "retry": "Tentar novamente",
-    "dismiss": "Fechar"
+    "dismiss": "Fechar",
+    "skipToContent": "Pular para o conteúdo"
   },
   "files": {
     "to_download": "Arquivos pra baixar",
@@ -42,7 +43,11 @@
     "stream_tab": "Stream",
     "account_tab": "Conta",
     "ia_tab": "IA",
-    "stats": "Estatísticas"
+    "stats": "Estatísticas",
+    "primary_navigation": "Navegação principal",
+    "more": "Mais",
+    "library_group": "Sua biblioteca",
+    "server_group": "Servidor"
   },
   "home": {
     "kicker": "O seu servidor",
@@ -60,7 +65,20 @@
     "left": "faltam {{time}}",
     "because": "Porque você viu {{title}}",
     "emptyTitle": "Nada por aqui ainda",
-    "emptyHint": "Busque um título ou abra Em alta para começar. Continuar e as recomendações vão preencher esta página."
+    "emptyHint": "Busque um título ou abra Em alta para começar. Continuar e as recomendações vão preencher esta página.",
+    "startSearch": "Buscar um título",
+    "openTrending": "Explorar Em alta",
+    "loadFailed": "Não foi possível carregar a Home",
+    "partialTitle": "Algumas áreas estão indisponíveis",
+    "partialHint": "O restante da página continua utilizável. Tente novamente ou confira a saúde do servidor.",
+    "healthTitle": "Atenção à saúde do servidor",
+    "healthHint": "O JackUI iniciou em modo degradado. Algumas ações podem falhar até o serviço se recuperar.",
+    "healthUnavailable": "Não foi possível verificar a saúde do servidor agora. Algumas ações podem falhar.",
+    "openSettings": "Abrir configurações",
+    "healthDb": "Banco de dados",
+    "healthStreamer": "Streaming",
+    "healthDegraded": "degradado",
+    "healthUnknown": "indisponível"
   },
   "discover": {
     "music_trending": "Álbuns em alta",

@@ -5,8 +5,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "node scripts/run-vitest.mjs",
+    "test:watch": "node scripts/run-vitest.mjs --watch",
     "lint": "eslint src",
     "check:i18n": "node scripts/check-i18n.mjs"
   },

@@ -367,7 +367,7 @@ export default function SearchPage() {
         onAddTab={addTab}
       />
 
-      <main ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full min-w-0 overflow-x-clip px-4 py-6 flex flex-col gap-4">
+      <main id="main-content" tabIndex={-1} ref={mainRef} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full min-w-0 overflow-x-clip px-4 py-6 flex flex-col gap-4">
         {/* Jackett setup prompt */}
         {showJackettSetup && (
           <JackettSetupPrompt
