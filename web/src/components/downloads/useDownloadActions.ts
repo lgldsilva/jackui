@@ -11,6 +11,7 @@ import {
   streamDrop, streamDropBatch,
 } from '../../api/client'
 import { markDeleted, clearDeleted, type PendingDeletes } from '../../lib/downloadsReconcile'
+import { countTorrents } from '../../lib/downloadGroups'
 
 type StatusGroups = {
   downloading: DownloadEntry[]
@@ -128,10 +129,10 @@ export function useDownloadActions(deps: {
     const targets = items.filter(d => selected.has(d.id))
     const ids = targets.map(d => d.id)
     if (ids.length === 0) return
-    if (!await confirm({ title: t('downloads.page.removeDownloadsTitle'), message: t('downloads.page.removeDownloadsMessage', { count: ids.length }), confirmLabel: t('downloads.page.remove'), destructive: true })) return
+    const torrentCount = countTorrents(targets)
+    if (!await confirm({ title: t('downloads.page.removeDownloadsTitle'), message: t('downloads.page.removeDownloadsMessage', { count: torrentCount, fileCount: ids.length }), confirmLabel: t('downloads.page.remove'), destructive: true })) return
     setBulkBusy(true)
-    await runBatchDelete(ids, targets)
-    setBulkBusy(false)
+    try { await runBatchDelete(ids, targets) } finally { setBulkBusy(false) }
   }
 
   // runBatchDelete is the shared optimistic-delete flow for batch + per-torrent
@@ -149,7 +150,8 @@ export function useDownloadActions(deps: {
       const failed = res.failed ?? []
       if (failed.length > 0) {
         clearDeleted(pendingDeletesRef.current, failed) // let the survivors come back into view
-        notify(t('downloads.page.removeFailed', { count: failed.length, ids: failed.join(', #') }), 'error')
+        const failedTargets = targets.filter(d => failed.includes(d.id))
+        notify(t('downloads.page.removeFailed', { count: countTorrents(failedTargets), ids: failed.join(', #') }), 'error')
       }
       await reloadDownloadsRef.current(); await loadTorrents()
       setSelected(new Set())
@@ -199,8 +201,7 @@ export function useDownloadActions(deps: {
     if (ids.length === 0) return
     if (!await confirm({ title: t('downloads.page.removeTorrentTitle'), message: t('downloads.page.removeTorrentFilesMessage', { count: ids.length }), confirmLabel: t('downloads.page.remove'), destructive: true })) return
     setBulkBusy(true)
-    await runBatchDelete(ids, ds)
-    setBulkBusy(false)
+    try { await runBatchDelete(ids, ds) } finally { setBulkBusy(false) }
   }
   const onStopSeedMany = async (ds: DownloadEntry[]) => {
     if (ds.length === 0) return
@@ -277,18 +278,13 @@ export function useDownloadActions(deps: {
   const doRemoveCompleted = async () => {
     const ok = await confirm({
       title: t('downloads.page.removeCompletedTitle'),
-      message: t('downloads.page.removeCompletedMessage', { count: completedDownloads.length }),
+      message: t('downloads.page.removeCompletedMessage', { count: countTorrents(completedDownloads), fileCount: completedDownloads.length }),
       confirmLabel: t('downloads.page.remove'),
       destructive: true,
     })
     if (!ok) return
     setBulkBusy(true)
-    try {
-      // Encerra sessões de seed/stream antes de remover as rows — 1 batch (Perf #7).
-      await dropStreamsForEntries(completedDownloads)
-      await downloadBatchDelete(completedDownloads.map(d => d.id)); await reloadDownloadsRef.current(); await loadTorrents()
-    }
-    finally { setBulkBusy(false) }
+    try { await runBatchDelete(completedDownloads.map(d => d.id), completedDownloads) } finally { setBulkBusy(false) }
   }
   // Limpeza em massa por status — "limpar falhados" e "limpar fila". Caso de
   // uso: o antigo "Baixar tudo" (1 row POR arquivo) podia entupir a fila com
@@ -298,19 +294,17 @@ export function useDownloadActions(deps: {
     const ok = await confirm({ title, message, confirmLabel: t('downloads.clear_confirm'), destructive: true })
     if (!ok) return
     setBulkBusy(true)
-    try {
-      await downloadBatchDelete(targets.map(d => d.id)); await reloadDownloadsRef.current(); await loadTorrents()
-    } finally { setBulkBusy(false) }
+    try { await runBatchDelete(targets.map(d => d.id), targets) } finally { setBulkBusy(false) }
   }
   const doClearFailed = () => doClearByStatus(
     downloadsByStatus.failed,
     t('downloads.clear_failed_title'),
-    t('downloads.clear_failed_message', { count: downloadsByStatus.failed.length }),
+    t('downloads.clear_failed_message', { count: countTorrents(downloadsByStatus.failed), fileCount: downloadsByStatus.failed.length }),
   )
   const doClearQueued = () => doClearByStatus(
     queuedDownloads,
     t('downloads.clear_queued_title'),
-    t('downloads.clear_queued_message', { count: queuedDownloads.length }),
+    t('downloads.clear_queued_message', { count: countTorrents(queuedDownloads), fileCount: queuedDownloads.length }),
   )
 
   const onToggleSelected = (id: number) => setSelected(prev => {

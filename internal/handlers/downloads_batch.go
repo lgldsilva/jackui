@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -31,6 +32,7 @@ func DownloadsBatchPause(store *downloads.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
+		log.Printf("downloads: batchPause user=%d ids=%v affected=%d", userID, req.IDs, n)
 		c.JSON(http.StatusOK, gin.H{"affected": n})
 	}
 }
@@ -85,6 +87,7 @@ func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.Ha
 			deleted++
 			notifyRemoved(worker, row)
 		}
+		log.Printf("downloads: batchDelete user=%d total=%d deleted=%d failed=%v admin=%v", userID, len(req.IDs), deleted, failed, isAdmin)
 		c.JSON(http.StatusOK, gin.H{"deleted": deleted, "total": len(req.IDs), "failed": failed})
 	}
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -179,6 +180,7 @@ func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.Hand
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
+		log.Printf("downloads: create user=%d id=%d infoHash=%s fileIndex=%d name=%q", userID, d.ID, d.InfoHash, d.FileIndex, d.Name)
 		c.JSON(http.StatusOK, d)
 	}
 }
@@ -249,6 +251,7 @@ func DownloadsBatchCreate(store *downloads.Store, dests *DestinationService) gin
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
+		log.Printf("downloads: batchCreate user=%d infoHash=%s files=%d created=%d requeued=%d", userID, req.InfoHash, len(req.Files), len(res.Rows), res.Requeued)
 		c.JSON(http.StatusOK, gin.H{"created": res.Rows, "requeued": res.Requeued})
 	}
 }
@@ -281,6 +284,9 @@ func DownloadsDelete(store *downloads.Store, worker DownloadRemover) gin.Handler
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
+		}
+		if row != nil {
+			log.Printf("downloads: delete user=%d id=%d infoHash=%s name=%q admin=%v", userID, row.ID, row.InfoHash, row.Name, isAdmin)
 		}
 		notifyRemoved(worker, row)
 		c.Status(http.StatusNoContent)
@@ -317,6 +323,7 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
+		log.Printf("downloads: pause user=%d id=%d", userID, id)
 		c.Status(http.StatusNoContent)
 	}
 }
@@ -340,6 +347,7 @@ func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
+		log.Printf("downloads: resume user=%d id=%d", userID, id)
 		c.Status(http.StatusNoContent)
 	}
 }

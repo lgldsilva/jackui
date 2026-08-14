@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { Trash2, Play, Clock, FileVideo, Folder, FolderOpen, Download } from 'lucide-react'
-import { StreamFavorite, FavoriteFolder } from '../../api/client'
+import type { TFunction } from 'i18next'
+import { Trash2, Play, Clock, FileVideo, Folder, FolderOpen, Download, CheckCircle2, Loader2, PauseCircle, AlertCircle } from 'lucide-react'
+import { StreamFavorite, FavoriteFolder, DownloadEntry } from '../../api/client'
 import Thumbnail from '../Thumbnail'
 import SeedBadge from '../SeedBadge'
 import { newTabProps, playHref } from '../../lib/cardNav'
@@ -12,6 +13,7 @@ type FavoriteCardProps = {
   readonly anySelected: boolean
   readonly folders: FavoriteFolder[]
   readonly seedRefresh: number
+  readonly download?: DownloadEntry
   readonly onToggleSelected: () => void
   readonly onDragStart: (e: React.DragEvent) => void
   readonly onPlay: () => void
@@ -19,6 +21,33 @@ type FavoriteCardProps = {
   readonly onDownload: () => void
   readonly onOpenContents: () => void
   readonly onMoveToFolder: (folderId: number | null) => void
+}
+
+function DownloadStatusBadge({ download, t }: { readonly download?: DownloadEntry; readonly t: TFunction }) {
+  if (!download) {
+    return (
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-secondary text-text-secondary border border-default flex items-center gap-1">
+        <Download className="w-2.5 h-2.5" />
+        {t('favorites.statusNotQueued')}
+      </span>
+    )
+  }
+  const configs: Record<DownloadEntry['status'] | 'unknown', { icon: React.ReactNode; className: string; key: string }> = {
+    queued:      { icon: <Clock className="w-2.5 h-2.5" />, className: 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-500/30', key: 'favorites.statusQueued' },
+    downloading: { icon: <Loader2 className="w-2.5 h-2.5 animate-spin" />, className: 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30', key: 'favorites.statusDownloading' },
+    moving:      { icon: <Loader2 className="w-2.5 h-2.5 animate-spin" />, className: 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30', key: 'favorites.statusDownloading' },
+    completed:   { icon: <CheckCircle2 className="w-2.5 h-2.5" />, className: 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/30', key: 'favorites.statusCompleted' },
+    paused:      { icon: <PauseCircle className="w-2.5 h-2.5" />, className: 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30', key: 'favorites.statusPaused' },
+    failed:      { icon: <AlertCircle className="w-2.5 h-2.5" />, className: 'bg-red-500/20 text-red-700 dark:text-red-300 border-red-500/30', key: 'favorites.statusFailed' },
+    unknown:     { icon: <Clock className="w-2.5 h-2.5" />, className: 'bg-surface-secondary text-text-secondary border-default', key: 'favorites.statusQueued' },
+  }
+  const cfg = configs[download.status] ?? configs.unknown
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border flex items-center gap-1 ${cfg.className}`}>
+      {cfg.icon}
+      {t(cfg.key)}
+    </span>
+  )
 }
 
 export default function FavoriteCard(p: FavoriteCardProps) {
@@ -46,6 +75,7 @@ export default function FavoriteCard(p: FavoriteCardProps) {
         onChange={() => p.onToggleSelected()}
         onClick={e => e.stopPropagation()}
         title={t('favorites.select')}
+        aria-label={t('favorites.select')}
         className={`absolute top-2 left-2 z-10 w-4 h-4 accent-green-500 cursor-pointer ${
           p.anySelected ? 'opacity-100' : 'max-sm:opacity-100 opacity-0 group-hover:opacity-100'
         }`}
@@ -85,6 +115,7 @@ export default function FavoriteCard(p: FavoriteCardProps) {
             {folders.find(f => f.id === fav.folderId)?.name || '?'}
           </span>
         )}
+        <DownloadStatusBadge download={p.download} t={t} />
       </div>
 
       <div className="flex gap-1.5 mt-auto pt-2 border-t border-default">

@@ -1,11 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { clientLog } from '../lib/diag'
+import { usePersistedState } from '../lib/storage'
 import { Heart, Loader2, Folder, ChevronDown, Download, X, Search, CheckSquare, Square, RefreshCw } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, favoriteRemoveBatch, StreamFavorite,
   FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden,
   favoriteSetFolder, favoriteSetFolderBatch,
-  streamImport, SearchResult,
+  streamImport, SearchResult, ImportResult,
+  downloadsList, downloadCreate, createParamsWhenFilesUnknown, DownloadEntry,
 } from '../api/client'
 import NavHeader from '../components/NavHeader'
 import DownloadModal from '../components/DownloadModal'
@@ -44,6 +47,8 @@ export default function FavoritesPage() {
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
   const { notify } = useToast()
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
   // Favorito sendo enviado ao modal de download (destino + seleção de arquivos).
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
@@ -140,9 +145,10 @@ export default function FavoritesPage() {
   }, [filteredFavs.length])
 
   // Load on mount and whenever the hidden curtain is toggled (re-fetch with/without
-  // the hidden folders + their favourites).
+  // the hidden folders + their favourites). Also refresh the download map so the
+  // favorite badges stay in sync with the queue.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load() }, [revealHidden])
+  useEffect(() => { load(); void loadDownloadsForFavs() }, [revealHidden])
 
   const handleToggleHidden = async (id: number, hidden: boolean) => {
     await folderSetHidden(id, hidden)
@@ -171,6 +177,78 @@ export default function FavoritesPage() {
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [dragOverDrop, setDragOverDrop] = useState(false)
+  // Quando true, importar também enfileira o download (FileIndexAuto) — evita
+  // favoritos "órfãos" que o usuário achou que tinha marcado pra baixar.
+  // Default true: a importação costuma querer baixar; a última escolha persiste.
+  const [alsoDownload, setAlsoDownload] = usePersistedState('favorites.alsoDownload', true)
+
+  // lifecycleRank: maior = mais "pronto" — usado pra decidir qual row mostrar no badge.
+  const lifecycleRank = (status: DownloadEntry['status']) => {
+    switch (status) {
+      case 'completed': return 5
+      case 'downloading': return 4
+      case 'moving': return 4
+      case 'queued': return 3
+      case 'paused': return 2
+      case 'failed': return 1
+      default: return 0
+    }
+  }
+
+  // Downloads atuais para mostrar status em cada favorito (hash match).
+  const [downloadMap, setDownloadMap] = useState<Map<string, DownloadEntry>>(new Map())
+  const favLoadSeqRef = useRef(0)
+  const loadDownloadsForFavs = async () => {
+    const seq = ++favLoadSeqRef.current
+    try {
+      const list = await downloadsList()
+      if (!mountedRef.current || seq !== favLoadSeqRef.current) return
+      const map = new Map<string, DownloadEntry>()
+      for (const d of list) {
+        if (!d.infoHash) continue
+        // Se houver múltiplas rows pro mesmo hash, preferimos a de maior
+        // progresso de lifecycle (completed > downloading > paused > queued > failed).
+        const existing = map.get(d.infoHash)
+        if (!existing || lifecycleRank(d.status) > lifecycleRank(existing.status)) {
+          map.set(d.infoHash, d)
+        }
+      }
+      setDownloadMap(map)
+      clientLog('info', 'favorites', 'downloadMap refreshed', { seq, count: list.length, hashes: map.size })
+    } catch (e: unknown) {
+      clientLog('warn', 'favorites', 'downloadMap refresh failed', { seq, error: errMessage(e) })
+    }
+  }
+
+  // Enfileira download para cada favorito importado quando alsoDownload está ativo.
+  // Usa FileIndexAuto (-1) para que o worker escolha o melhor arquivo — nunca
+  // hardcoded 0, que em packs adult/scene costuma ser um .nfo de dezenas de bytes.
+  const enqueueImported = async (imported: ImportResult[]): Promise<{ enqueued: number; enqueueFails: string[] }> => {
+    if (!alsoDownload || imported.length === 0) return { enqueued: 0, enqueueFails: [] }
+    const enqueueFails: string[] = []
+    let enqueued = 0
+    for (const res of imported) {
+      if (!res.infoHash || !res.magnet) {
+        enqueueFails.push(`${res.name || 'unknown'}: missing infoHash/magnet`)
+        continue
+      }
+      try {
+        await downloadCreate(createParamsWhenFilesUnknown({
+          infoHash: res.infoHash,
+          magnet: res.magnet,
+          name: res.name,
+        }))
+        enqueued++
+      } catch (e: unknown) {
+        const msg = `${res.name || res.infoHash}: ${errMessage(e)}`
+        enqueueFails.push(msg)
+        clientLog('error', 'favorites', 'enqueueImported failed', { infoHash: res.infoHash, name: res.name, error: errMessage(e) })
+      }
+    }
+    if (enqueued > 0) void loadDownloadsForFavs()
+    clientLog('info', 'favorites', 'enqueueImported done', { alsoDownload, imported: imported.length, enqueued, failed: enqueueFails.length })
+    return { enqueued, enqueueFails }
+  }
 
   const importMagnets = async () => {
     const lines = magnetInput.split('\n').map(l => l.trim()).filter(Boolean)
@@ -179,17 +257,22 @@ export default function FavoritesPage() {
     setImportMsg(null)
     let ok = 0
     const fails: string[] = []
+    const imported: ImportResult[] = []
     for (const magnet of lines) {
       try {
-        await streamImport({ magnet, folderId: viewMode === ALL_VIEW ? null : viewMode })
+        const res = await streamImport({ magnet, folderId: viewMode === ALL_VIEW ? null : viewMode })
         ok++
+        imported.push(res)
       } catch (e: unknown) {
         fails.push(errMessage(e))
       }
     }
+    const { enqueued, enqueueFails } = await enqueueImported(imported)
     setImporting(false)
     setMagnetInput('')
-    setImportMsg(buildImportMsg(ok, fails.length, fails[0], '', t))
+    const suffix = enqueued > 0 ? ` · ${t('favorites.enqueuedOk', { count: enqueued })}` : ''
+    const failText = [...fails, ...enqueueFails].filter(Boolean).join('; ') || undefined
+    setImportMsg(buildImportMsg(ok, fails.length, failText, suffix, t))
     await load()
   }
 
@@ -202,10 +285,13 @@ export default function FavoritesPage() {
     }
     setImporting(true)
     setImportMsg(null)
-    const { ok, fails } = await importTorrentB64(torrents, viewMode, ALL_VIEW)
+    const { ok, fails, imported } = await importTorrentB64(torrents, viewMode, ALL_VIEW)
+    const { enqueued, enqueueFails } = await enqueueImported(imported)
     setImporting(false)
-    const suffix = skipped > 0 ? t('favorites.importSkippedSuffix', { count: skipped }) : ''
-    setImportMsg(buildImportMsg(ok, fails.length, fails[0], suffix, t))
+    let suffix = skipped > 0 ? t('favorites.importSkippedSuffix', { count: skipped }) : ''
+    if (enqueued > 0) suffix += ` · ${t('favorites.enqueuedOk', { count: enqueued })}`
+    const failText = [...fails, ...enqueueFails].filter(Boolean).join('; ') || undefined
+    setImportMsg(buildImportMsg(ok, fails.length, failText, suffix, t))
     await load()
   }
 
@@ -486,6 +572,7 @@ export default function FavoritesPage() {
                   anySelected={selected.size > 0}
                   folders={folders}
                   seedRefresh={seedRefresh}
+                  download={downloadMap.get(fav.infoHash)}
                   onToggleSelected={() => toggleSelected(fav.name)}
                   onDragStart={e => handleFavDragStart(e, fav.name)}
                   onPlay={() => playFavorite(fav)}
@@ -515,13 +602,15 @@ export default function FavoritesPage() {
           desktop/Safari e vira bottom-sheet no mobile. */}
       <ImportSheet
         open={showImport}
-        onClose={() => { if (!importing) setShowImport(false) }}
+        onClose={() => { if (!importing) { setShowImport(false); setAlsoDownload(false) } }}
         importing={importing}
         viewMode={viewMode}
         ALL_VIEW={ALL_VIEW}
         folders={folders}
         magnetInput={magnetInput}
         setMagnetInput={setMagnetInput}
+        alsoDownload={alsoDownload}
+        setAlsoDownload={setAlsoDownload}
         onImportMagnets={importMagnets}
         onImportFiles={importTorrentFiles}
         importMsg={importMsg}
@@ -549,7 +638,14 @@ export default function FavoritesPage() {
       />
 
       {/* Download modal — destino + seleção de arquivos (árvore), igual à busca. */}
-      <DownloadModal result={downloadTarget} onClose={() => setDownloadTarget(null)} />
+      <DownloadModal
+        result={downloadTarget}
+        onClose={() => {
+          setDownloadTarget(null)
+          void loadDownloadsForFavs()
+          clientLog('info', 'favorites', 'download modal closed, refreshed downloadMap', { infoHash: downloadTarget?.infoHash })
+        }}
+      />
 
       {/* Dropdown de pastas no mobile — navega entre pastas sem a sidebar. */}
       <MobileFolderSheet
