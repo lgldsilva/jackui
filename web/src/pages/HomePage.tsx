@@ -116,6 +116,14 @@ export default function HomePage() {
   const recent = pickRecentlyCompleted(completed)
   const recSlice = recs.slice(0, 16)
   const trendSlice = trending.slice(0, 16)
+  const hasRailContent = continueWatching.length > 0 || recent.length > 0 || recSlice.length > 0 || trendSlice.length > 0 || albums.length > 0
+  // Keep the last usable rails visible when a retry fails after content was
+  // already rendered. Only the initial/all-empty failure should replace the
+  // page with the blocking error state.
+  const healthDegraded = Boolean(health && health.status !== 'ok')
+  const healthAttention = healthDegraded || healthError
+  const contentError = error && !hasRailContent ? error : null
+  const showIssueBanner = (sectionErrors.length > 0 || healthAttention) && (!error || hasRailContent)
   const empty = !loading && !error && sectionErrors.length === 0 && homeIsEmpty({
     continueCount: continueWatching.length,
     recentCount: recent.length,
@@ -123,8 +131,6 @@ export default function HomePage() {
     trendCount: trendSlice.length,
     albumCount: albums.length,
   })
-  const healthDegraded = Boolean(health && health.status !== 'ok')
-  const healthAttention = healthDegraded || healthError
   const sectionLabels: Record<HomeSection, string> = {
     continue: t('home.continue'),
     recent: t('home.recentlyAdded'),
@@ -168,7 +174,7 @@ export default function HomePage() {
           </form>
         </header>
 
-        {!error && (sectionErrors.length > 0 || healthAttention) && (
+        {showIssueBanner && (
           <section
             role="status"
             aria-live="polite"
@@ -178,13 +184,13 @@ export default function HomePage() {
               <AlertTriangle className="w-5 h-5 mt-0.5 text-amber-400 flex-shrink-0" aria-hidden />
               <div className="min-w-0">
                 <h2 className="font-medium text-text-primary">
-                  {healthDegraded || healthError ? t('home.healthTitle') : t('home.partialTitle')}
+                  {error ? t('home.loadFailed') : healthDegraded || healthError ? t('home.healthTitle') : t('home.partialTitle')}
                 </h2>
                 <p className="text-sm text-text-secondary mt-1">
                   {healthMessage}
                 </p>
                 {sectionErrors.length > 0 && (
-                  <p className="text-xs text-amber-200/80 mt-2">
+                  <p className="text-xs text-amber-800 dark:text-amber-200 mt-2">
                     {sectionErrors.map(section => sectionLabels[section]).join(' · ')}
                   </p>
                 )}
@@ -204,8 +210,8 @@ export default function HomePage() {
         )}
 
         <AsyncState
-          loading={loading}
-          error={error}
+          loading={loading && !hasRailContent}
+          error={contentError}
           empty={empty}
           onRetry={reload}
           emptyConfig={{
@@ -329,7 +335,7 @@ function HealthChip({ label, value }: { readonly label: string; readonly value: 
   const { t } = useTranslation()
   const healthy = value === 'ok'
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${healthy ? 'border-green-400/30 text-green-300' : 'border-amber-400/30 text-amber-200'}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${healthy ? 'border-green-400/30 text-green-800 dark:text-green-300' : 'border-amber-400/30 text-amber-800 dark:text-amber-200'}`}>
       {healthy ? <CheckCircle2 className="w-3.5 h-3.5" aria-hidden /> : <AlertTriangle className="w-3.5 h-3.5" aria-hidden />}
       <span>{label}: {healthy ? 'OK' : t('home.healthUnknown')}</span>
     </span>
