@@ -141,6 +141,9 @@ export default function HomePage() {
   let healthMessage = t('home.partialHint')
   if (healthDegraded) healthMessage = t('home.healthHint')
   if (healthError) healthMessage = t('home.healthUnavailable')
+  let issueTitle = t('home.partialTitle')
+  if (error) issueTitle = t('home.loadFailed')
+  else if (healthDegraded || healthError) issueTitle = t('home.healthTitle')
 
   const goSearch = (query: string) => {
     const trimmed = query.trim()
@@ -184,7 +187,7 @@ export default function HomePage() {
               <AlertTriangle className="w-5 h-5 mt-0.5 text-amber-400 flex-shrink-0" aria-hidden />
               <div className="min-w-0">
                 <h2 className="font-medium text-text-primary">
-                  {error ? t('home.loadFailed') : healthDegraded || healthError ? t('home.healthTitle') : t('home.partialTitle')}
+                  {issueTitle}
                 </h2>
                 <p className="text-sm text-text-secondary mt-1">
                   {healthMessage}
