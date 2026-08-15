@@ -131,6 +131,10 @@
     @apply bg-card rounded-xl border border-default p-4 shadow-card hover:border-strong transition-colors duration-200;
   }
 
+  .skip-link {
+    @apply fixed left-3 top-3 z-[100] -translate-y-24 rounded-lg bg-green-500 px-4 py-2 font-medium text-white shadow-elevated transition-transform focus:translate-y-0;
+  }
+
   /* Header nav link — Apple HIG-compliant 44x44pt minimum touch target.
      On mobile (sm:hidden text) the icon alone could be only ~16px = unhittable.
      Note: we avoid @apply with opacity modifiers on CSS-variable colors (Tailwind
@@ -142,6 +146,22 @@
   }
   .header-link:hover {
     background-color: var(--hover-overlay);
+  }
+}
+
+/* A visible, consistent keyboard focus treatment is part of the product
+   contract. Components can still add a stronger local ring when needed. */
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

@@ -255,7 +255,7 @@ export default function LocalPage() {
   return (
     <div className="h-screen bg-surface flex flex-col overflow-hidden">
       <NavHeader />
-      <main className="flex-1 min-h-0 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4 md:gap-6">
+      <main id="main-content" tabIndex={-1} className="flex-1 min-h-0 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4 md:gap-6">
         <LocalSidebar
           mounts={mounts}
           activeMount={activeMount}

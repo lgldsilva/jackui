@@ -149,6 +149,23 @@ export const getStatus = async (): Promise<SystemStatus> => {
   return res.json()
 }
 
+export type RuntimeHealth = {
+  readonly status: string
+  readonly db: string
+  readonly streamer: string
+  readonly time: string
+  readonly httpStatus: number
+}
+
+// Readiness is intentionally a separate, fast public endpoint. It lets the
+// Home surface explain a degraded boot without turning a dependency outage
+// into an empty-success state or requiring admin access.
+export const getHealth = async (): Promise<RuntimeHealth> => {
+  const res = await fetch('/healthz', { headers: { Accept: 'application/json' } })
+  const data = await res.json() as Omit<RuntimeHealth, 'httpStatus'>
+  return { ...data, httpStatus: res.status }
+}
+
 export const getClients = async (): Promise<DownloadClient[]> => {
   const { data } = await api.get<DownloadClient[]>('/clients')
   return data

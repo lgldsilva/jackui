@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 
 // Mock the HTTP core so client.ts (and the domain modules it barrels) get a
 // fake axios instance. `get` drives the local-file flow; `post` the download
@@ -12,7 +12,11 @@ vi.mock('./http', () => ({
   MAGNET_PREFIX: 'magnet:?xt=urn:btih:',
 }))
 
-import { streamInfo, streamAdd, buildLocalHash, queueAllTorrentFiles, WHOLE_TORRENT_FILE_INDEX, type TorrentInfo } from './client'
+import { getHealth, streamInfo, streamAdd, buildLocalHash, queueAllTorrentFiles, WHOLE_TORRENT_FILE_INDEX, type TorrentInfo } from './client'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('streamAdd for local pseudo-magnet', () => {
   beforeEach(() => {
@@ -33,6 +37,21 @@ describe('streamAdd for local pseudo-magnet', () => {
     expect(info.infoHash).toBe(hash)
     expect(postMock).not.toHaveBeenCalled()
     expect(getMock.mock.calls.some(([u]) => String(u).startsWith('/local/play'))).toBe(true)
+  })
+})
+
+describe('getHealth', () => {
+  it('preserves a degraded readiness response for the Home banner', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 503,
+      json: async () => ({ status: 'degraded', db: 'ok', streamer: 'down', time: 'now' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getHealth()).resolves.toEqual({
+      status: 'degraded', db: 'ok', streamer: 'down', time: 'now', httpStatus: 503,
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/healthz', { headers: { Accept: 'application/json' } })
   })
 })
 

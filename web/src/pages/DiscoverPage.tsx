@@ -294,7 +294,7 @@ export default function DiscoverPage() {
   return (
     <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader />
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         {/* Personalized recommendations — rendered only when the watched library
             yielded any (additive; absent for new users or with TMDB off). Grouped
             into one collapsible topic per "Porque você viu X" source so the user

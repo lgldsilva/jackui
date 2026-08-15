@@ -78,7 +78,7 @@ export function MusicDiscoverView() {
   return (
     <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader />
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
           <Music2 className="w-5 h-5 text-purple-400" /> {t('discover.music_trending')}
         </h1>

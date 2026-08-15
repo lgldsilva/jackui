@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   Heart, History, Settings, ListMusic, Search, Library as LibraryIcon, Home,
   Bell, HardDrive, Download, Menu, X, PanelLeftClose, PanelLeftOpen, Flame,
-  Eye, EyeOff, BarChart3, Film, Music2,
+  Eye, EyeOff, BarChart3, Film, Music2, MoreHorizontal, ChevronDown,
 } from 'lucide-react'
 import UserBadge from './UserBadge'
 import NotificationsBell from './NotificationsBell'
@@ -23,20 +23,120 @@ const STORAGE_KEY = 'jackui.sidebar.collapsed'
 
 // Single source of truth for the nav routes. `hover` keeps the per-section
 // accent colour the old header used.
-const LINKS = [
+export const PRIMARY_LINKS = [
   { to: '/', icon: Home, labelKey: 'nav.home', hover: 'hover:!text-green-400' },
   { to: '/search', icon: Search, labelKey: 'nav.search', hover: 'hover:!text-text-primary' },
   { to: '/discover', icon: Flame, labelKey: 'nav.discover', hover: 'hover:!text-orange-400' },
-  { to: '/playlists', icon: ListMusic, labelKey: 'nav.playlists', hover: 'hover:!text-blue-400' },
   { to: '/library', icon: LibraryIcon, labelKey: 'nav.continue', hover: 'hover:!text-purple-400' },
-  { to: '/local', icon: HardDrive, labelKey: 'nav.local', hover: 'hover:!text-cyan-400' },
   { to: '/downloads', icon: Download, labelKey: 'nav.downloads', hover: 'hover:!text-green-400' },
-  { to: '/watchlist', icon: Bell, labelKey: 'nav.watchlist', hover: 'hover:!text-amber-400' },
-  { to: '/favorites', icon: Heart, labelKey: 'nav.favorites', hover: 'hover:!text-pink-400' },
-  { to: '/stats', icon: BarChart3, labelKey: 'nav.stats', hover: 'hover:!text-emerald-400' },
-  { to: '/history', icon: History, labelKey: 'nav.history', hover: 'hover:!text-text-primary' },
+  { to: '/local', icon: HardDrive, labelKey: 'nav.local', hover: 'hover:!text-cyan-400' },
   { to: '/settings', icon: Settings, labelKey: 'nav.settings', hover: 'hover:!text-text-primary' },
 ]
+
+export const SECONDARY_GROUPS = [
+  {
+    labelKey: 'nav.library_group',
+    links: [
+      { to: '/playlists', icon: ListMusic, labelKey: 'nav.playlists', hover: 'hover:!text-blue-400' },
+      { to: '/watchlist', icon: Bell, labelKey: 'nav.watchlist', hover: 'hover:!text-amber-400' },
+      { to: '/favorites', icon: Heart, labelKey: 'nav.favorites', hover: 'hover:!text-pink-400' },
+      { to: '/history', icon: History, labelKey: 'nav.history', hover: 'hover:!text-text-primary' },
+    ],
+  },
+  {
+    labelKey: 'nav.server_group',
+    links: [
+      { to: '/stats', icon: BarChart3, labelKey: 'nav.stats', hover: 'hover:!text-emerald-400' },
+    ],
+  },
+]
+
+export function isRouteActive(to: string, pathname: string): boolean {
+  return to === '/' ? pathname === '/' : pathname.startsWith(to)
+}
+
+export function hasSecondaryRoute(pathname: string): boolean {
+  return SECONDARY_GROUPS.some(group => group.links.some(link => isRouteActive(link.to, pathname)))
+}
+
+function NavLinks({
+  collapsed,
+  pathname,
+  moreOpen,
+  onToggleMore,
+  onNavigate,
+}: {
+  readonly collapsed: boolean
+  readonly pathname: string
+  readonly moreOpen: boolean
+  readonly onToggleMore: () => void
+  readonly onNavigate: () => void
+}) {
+  const { t } = useTranslation()
+  const isActive = (to: string) => isRouteActive(to, pathname)
+  return (
+    <nav aria-label={t('nav.primary_navigation')} className="flex-1 overflow-y-auto py-2 px-2 flex flex-col gap-0.5">
+      {PRIMARY_LINKS.map(({ to, icon: Icon, labelKey, hover }) => (
+        <Link
+          key={to}
+          to={to}
+          title={t(labelKey)}
+          onClick={onNavigate}
+          aria-current={isActive(to) ? 'page' : undefined}
+          className={`flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm transition-colors
+            ${isActive(to)
+              ? 'bg-surface-tertiary text-text-primary'
+              : `text-text-secondary hover:bg-surface-tertiary/40 ${hover}`}
+            ${collapsed ? 'md:justify-center md:px-2' : ''}`}
+        >
+          <Icon className="w-5 h-5 flex-shrink-0" />
+          <span className={collapsed ? 'md:hidden' : ''}>{t(labelKey)}</span>
+        </Link>
+      ))}
+      <button
+        type="button"
+        onClick={onToggleMore}
+        className={`flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm transition-colors text-text-secondary hover:bg-surface-tertiary/40 hover:text-text-primary ${
+          hasSecondaryRoute(pathname) ? 'bg-surface-tertiary/60 text-text-primary' : ''
+        } ${collapsed ? 'md:justify-center md:px-2' : ''}`}
+        aria-expanded={moreOpen}
+        aria-controls="secondary-navigation"
+        aria-label={t('nav.more')}
+        title={t('nav.more')}
+      >
+        <MoreHorizontal className="w-5 h-5 flex-shrink-0" />
+        <span className={collapsed ? 'md:hidden' : ''}>{t('nav.more')}</span>
+        <ChevronDown className={`w-4 h-4 ml-auto transition-transform ${moreOpen ? 'rotate-180' : ''} ${collapsed ? 'md:hidden' : ''}`} aria-hidden />
+      </button>
+      <div id="secondary-navigation" className={moreOpen ? 'flex flex-col gap-2 mt-1' : 'hidden'}>
+        {SECONDARY_GROUPS.map(group => (
+          <div key={group.labelKey} className="flex flex-col gap-0.5">
+            <p className={`px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted ${collapsed ? 'md:hidden' : ''}`}>
+              {t(group.labelKey)}
+            </p>
+            {group.links.map(({ to, icon: Icon, labelKey, hover }) => (
+              <Link
+                key={to}
+                to={to}
+                title={t(labelKey)}
+                onClick={onNavigate}
+                aria-current={isActive(to) ? 'page' : undefined}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm transition-colors
+                  ${isActive(to)
+                    ? 'bg-surface-tertiary text-text-primary'
+                    : `text-text-secondary hover:bg-surface-tertiary/40 ${hover}`}
+                  ${collapsed ? 'md:justify-center md:px-2' : ''}`}
+              >
+                <Icon className="w-5 h-5 flex-shrink-0" />
+                <span className={collapsed ? 'md:hidden' : ''}>{t(labelKey)}</span>
+              </Link>
+            ))}
+          </div>
+        ))}
+      </div>
+    </nav>
+  )
+}
 
 /**
  * Shared navigation. Renders as a collapsible LEFT sidebar on desktop and a
@@ -60,6 +160,7 @@ export default function NavHeader({ rightExtra }: Props) {
   const [mediaMode, setMediaMode] = useMediaMode()
   const [revealed, setRevealed] = useRevealHidden()
   const location = useLocation()
+  const [moreOpen, setMoreOpen] = useState(() => hasSecondaryRoute(location.pathname))
 
   // Easter egg: 7 taps on the JackUI logo (within 1.5s) flip the global "hidden
   // curtain" for this session — revealing hidden favourites/Continue Watching/
@@ -108,13 +209,16 @@ export default function NavHeader({ rightExtra }: Props) {
     setDrawerOpen(false)
   }, [location.pathname])
 
+  useEffect(() => {
+    if (hasSecondaryRoute(location.pathname)) {
+      setMoreOpen(true)
+    }
+  }, [location.pathname])
+
   // Edge-swipe from the left opens the mobile drawer (iOS/Android idiom). No-op
   // on desktop where the rail is always visible; disabled while already open so
   // it doesn't fight the backdrop tap-to-close.
   useSwipe('document', { onRight: () => setDrawerOpen(true) }, { edge: 'left', enabled: !drawerOpen })
-
-  const isActive = (to: string) =>
-    to === '/' ? location.pathname === '/' : location.pathname.startsWith(to)
 
   // The sidebar panel — shared by the desktop rail and the mobile drawer. On
   // mobile it's always expanded (labels visible); `collapsed` only applies to
@@ -181,41 +285,33 @@ export default function NavHeader({ rightExtra }: Props) {
         {/* Desktop: collapse/expand. Centered (mx-auto) when collapsed so it
             doesn't overlap the (hidden) logo. Hidden on mobile (drawer closes via X). */}
         <button
+          type="button"
           onClick={() => setCollapsed((c) => !c)}
           className={`hidden md:flex items-center justify-center w-9 h-9 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/40 transition-colors ${collapsed ? 'md:mx-auto' : ''}`}
           title={collapsed ? t('nav.expand_menu') : t('nav.collapse_menu')}
+          aria-label={collapsed ? t('nav.expand_menu') : t('nav.collapse_menu')}
         >
           {collapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
         </button>
         {/* Mobile: close drawer */}
         <button
+          type="button"
           onClick={() => setDrawerOpen(false)}
           className="md:hidden flex items-center justify-center w-11 h-11 rounded-lg text-text-secondary hover:text-text-primary"
           title={t('nav.close_menu')}
+          aria-label={t('nav.close_menu')}
         >
           <X className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Links */}
-      <nav className="flex-1 overflow-y-auto py-2 px-2 flex flex-col gap-0.5">
-        {LINKS.map(({ to, icon: Icon, labelKey, hover }) => (
-          <Link
-            key={to}
-            to={to}
-            title={t(labelKey)}
-            onClick={() => setDrawerOpen(false)}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] text-sm transition-colors
-              ${isActive(to)
-                ? 'bg-surface-tertiary text-text-primary'
-                : `text-text-secondary hover:bg-surface-tertiary/40 ${hover}`}
-              ${collapsed ? 'md:justify-center md:px-2' : ''}`}
-          >
-            <Icon className="w-5 h-5 flex-shrink-0" />
-            <span className={collapsed ? 'md:hidden' : ''}>{t(labelKey)}</span>
-          </Link>
-        ))}
-      </nav>
+      <NavLinks
+        collapsed={collapsed}
+        pathname={location.pathname}
+        moreOpen={moreOpen}
+        onToggleMore={() => setMoreOpen(open => !open)}
+        onNavigate={() => setDrawerOpen(false)}
+      />
 
       {/* Footer: rate widget, page extra, user. On the DESKTOP collapsed rail
           (~64px) there's no room for the rate widget / page extra — hide them
@@ -257,9 +353,11 @@ export default function NavHeader({ rightExtra }: Props) {
       <header className="md:hidden bg-surface-secondary border-b border-default sticky top-0 z-30 safe-top">
         <div className="flex items-center justify-between gap-2 px-3 h-12">
           <button
+            type="button"
             onClick={() => setDrawerOpen(true)}
             className="flex items-center justify-center w-10 h-10 -ml-1 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-tertiary/40"
             title={t('nav.open_menu')}
+            aria-label={t('nav.open_menu')}
           >
             <Menu className="w-6 h-6" />
           </button>

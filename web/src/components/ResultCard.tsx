@@ -420,7 +420,7 @@ function cardKeyDownHandler(handleCardClick: () => void): (e: React.KeyboardEven
 }
 
 const CLICKABLE_CARD_CLASS =
-  'card flex flex-col gap-3 text-left cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-all focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
+  'card flex flex-col gap-3 text-left cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-[color,background-color,border-color,box-shadow,transform] focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
 const STATIC_CARD_CLASS = 'card flex flex-col gap-3 text-left cursor-default'
 
 function buildCardShell(

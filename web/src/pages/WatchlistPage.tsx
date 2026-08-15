@@ -133,7 +133,7 @@ export default function WatchlistPage() {
     <div className="min-h-screen bg-surface flex flex-col">
       <PullToRefreshIndicator pull={ptr.pull} progress={ptr.progress} refreshing={ptr.refreshing} />
       <NavHeader />
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-semibold text-text-primary flex items-center gap-2">
             <Bell className="w-5 h-5 text-amber-400" /> {t('watchlist.title')}

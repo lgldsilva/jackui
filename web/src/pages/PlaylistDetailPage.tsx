@@ -241,7 +241,7 @@ export default function PlaylistDetailPage() {
     <div className="min-h-screen bg-surface flex flex-col">
       <NavHeader />
 
-      <main className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
+      <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         {/* Voltar no topo do conteúdo. Antes ia no rightExtra do NavHeader, que
             no desktop (sidebar) cai lá no rodapé do menu — posição ruim/perdida.
             Aqui fica no fluxo natural da página, acima do cabeçalho da playlist. */}

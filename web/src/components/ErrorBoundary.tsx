@@ -36,7 +36,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <main id="main-content" tabIndex={-1} className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-surface-secondary rounded-2xl border border-red-500/30 w-full max-w-md p-5 shadow-2xl">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-red-400 flex items-center gap-2">
@@ -55,7 +55,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               {i18n.t('errorBoundary.close')}
             </button>
           </div>
-        </div>
+        </main>
       )
     }
     return this.props.children
