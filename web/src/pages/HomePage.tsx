@@ -132,6 +132,9 @@ export default function HomePage() {
     trending: t('home.trending'),
     music: t('home.trendingAlbums'),
   }
+  let healthMessage = t('home.partialHint')
+  if (healthDegraded) healthMessage = t('home.healthHint')
+  if (healthError) healthMessage = t('home.healthUnavailable')
 
   const goSearch = (query: string) => {
     const trimmed = query.trim()
@@ -178,7 +181,7 @@ export default function HomePage() {
                   {healthDegraded || healthError ? t('home.healthTitle') : t('home.partialTitle')}
                 </h2>
                 <p className="text-sm text-text-secondary mt-1">
-                  {healthError ? t('home.healthUnavailable') : healthDegraded ? t('home.healthHint') : t('home.partialHint')}
+                  {healthMessage}
                 </p>
                 {sectionErrors.length > 0 && (
                   <p className="text-xs text-amber-200/80 mt-2">

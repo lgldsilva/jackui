@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const navigate = vi.fn()
@@ -35,7 +35,7 @@ describe('HomePage resilience', () => {
   it('shows a recoverable error instead of a misleading empty state when all rails fail', async () => {
     render(<HomePage />)
 
-    await waitFor(() => expect(screen.getByText("Couldn't load Home")).toBeInTheDocument())
+    await screen.findByText("Couldn't load Home")
     expect(screen.queryByText('Nothing here yet')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
   })
