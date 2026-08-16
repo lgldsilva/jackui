@@ -97,8 +97,8 @@ ocultos encontrados durante a operação do projeto.
 - Guards de path/URL/log vivem em funções nomeadas e testadas
   (`Browser.ResolvePath`, `sanitizeSidecarName`, `sessionDir`,
   `sanitizeJackettURL`, `SanitizeForLog`, ...). Elas estão declaradas ao
-  CodeQL em `.github/codeql/models/barriers.yml` (models-as-data) via
-  `.github/codeql/codeql-config.yml`.
+  CodeQL em `.github/codeql/extensions/barriers.yml` — data extensions
+  carregadas por auto-descoberta, sem pack nem config extra.
 - Contrato: TODA função listada no `barriers.yml` precisa de teste de unidade
   provando a garantia. Nova barreira no model sem teste = PR recusado. Se uma
   função mudar de semântica, o teste quebra antes do model virar mentira.

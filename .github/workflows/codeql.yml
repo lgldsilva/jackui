@@ -32,9 +32,9 @@ jobs:
       - uses: github/codeql-action/init@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3
         with:
           languages: ${{ matrix.language }}
-          # queries + model pack local (barreiras reais, testadas) ficam no
-          # config: .github/codeql/codeql-config.yml
-          config-file: ./.github/codeql/codeql-config.yml
+          queries: security-extended,security-and-quality
+          # Barreiras de data-flow ficam em .github/codeql/extensions/ —
+          # local de auto-descoberta de data extensions, sem pack/config.
 
       - uses: github/codeql-action/autobuild@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3
 
