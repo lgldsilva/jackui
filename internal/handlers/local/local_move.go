@@ -277,7 +277,13 @@ func resolveRenameSource(b *lb.Browser, c *gin.Context, req renameEntryReq) (str
 // resolveRenameDest builds the destination path (same parent dir, new bare
 // name) and refuses a no-op or a clobber. ok=false on failure (response sent).
 func resolveRenameDest(c *gin.Context, srcAbs, newName string) (string, bool) {
-	dstAbs := filepath.Join(filepath.Dir(srcAbs), newName)
+	// Barreira de path-injection: só o nome validado chega ao Join.
+	clean, ok := sanitizeRenameName(newName)
+	if !ok {
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "nome inválido: não pode conter barras nem '..'")
+		return "", false
+	}
+	dstAbs := filepath.Join(filepath.Dir(srcAbs), clean)
 	if dstAbs == srcAbs {
 		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "o novo nome é igual ao atual")
 		return "", false
@@ -302,6 +308,15 @@ func isValidRenameName(name string) bool {
 		return false
 	}
 	return filepath.Base(name) == name
+}
+
+// sanitizeRenameName é a forma transform do isValidRenameName: devolve o nome
+// validado que pode chegar ao filepath.Join (barreira de path-injection).
+func sanitizeRenameName(name string) (string, bool) {
+	if !isValidRenameName(name) {
+		return "", false
+	}
+	return name, true
 }
 
 // movePath handles moving files and directories, even across different filesystems/mounts.
