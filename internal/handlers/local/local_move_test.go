@@ -157,6 +157,19 @@ func TestIsValidRenameName(t *testing.T) {
 	}
 }
 
+// sanitizeRenameName é a barreira de path-injection do Join do rename: só o
+// retorno limpo chega ao filepath.Join.
+func TestSanitizeRenameName(t *testing.T) {
+	for _, bad := range []string{"", ".", "..", "a/b", `a\b`, "../bad"} {
+		if clean, ok := sanitizeRenameName(bad); ok || clean != "" {
+			t.Errorf("sanitizeRenameName(%q) = (%q, %v), want (\"\", false)", bad, clean, ok)
+		}
+	}
+	if clean, ok := sanitizeRenameName("file.txt"); !ok || clean != "file.txt" {
+		t.Errorf("sanitizeRenameName(file.txt) = (%q, %v), want passthrough", clean, ok)
+	}
+}
+
 func TestResolveRenameDest_SameName(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "a.txt")

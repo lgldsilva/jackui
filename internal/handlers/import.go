@@ -67,7 +67,10 @@ func streamImportHandler(c *gin.Context, s *streamer.Streamer) {
 		_ = favs.MoveFavoriteToFolder(userID, name, req.FolderID)
 	}
 
-	log.Printf("streamer: import favorite user=%d name=%q infoHash=%s folderId=%v", userID, httpshared.SanitizeForLog(name), httpshared.SanitizeForLog(hash), httpshared.SanitizeIntPtr(req.FolderID))
+	// infoHash com %q: o query Go de log-injection só aceita como sanitizer o
+	// operando %q ou ReplaceAll no próprio argumento — %s deixava o fluxo
+	// apontado mesmo com SanitizeForLog na frente.
+	log.Printf("streamer: import favorite user=%d name=%q infoHash=%q folderId=%v", userID, httpshared.SanitizeForLog(name), httpshared.SanitizeForLog(hash), httpshared.SanitizeIntPtr(req.FolderID))
 	c.JSON(http.StatusOK, gin.H{"infoHash": hash, "name": name, "magnet": magnet})
 }
 
