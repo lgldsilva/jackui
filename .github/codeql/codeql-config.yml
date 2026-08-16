@@ -14,4 +14,4 @@ queries:
 
 packs:
   go:
-    - ./models
+    - ./.github/codeql/models
