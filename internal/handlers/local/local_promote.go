@@ -177,7 +177,11 @@ func promoteOnePath(b *lb.Browser, deps *promoteDstDeps, mount, scopedRel, targe
 		return gin.H{"path": scopedRel, httpshared.ErrorField: "arquivo de origem não existe"}
 	}
 	baseName := filepath.Base(src)
-	dst, dir := computePromoteDst(deps, baseName, scopedRel, targetDir)
+	dst, _ := computePromoteDst(deps, baseName, scopedRel, targetDir)
+	// dir ≡ Dir(dst) em todo branch de computePromoteDst; derivar do dst já
+	// clampado (barreira de path-injection) mantém o MkdirAll fora do fluxo
+	// taintado — o model cobre o primeiro retorno, não o segundo.
+	dir := filepath.Dir(dst)
 	if src == dst {
 		return nil
 	}
