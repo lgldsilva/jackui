@@ -470,7 +470,7 @@ func registerDownloadRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.PATCH("/downloads/batch/pause", handlers.DownloadsBatchPause(deps.downloadsStore))
 	api.PATCH("/downloads/batch/resume", handlers.DownloadsBatchResume(deps.downloadsStore))
 	api.POST("/downloads/batch/delete", handlers.DownloadsBatchDelete(deps.downloadsStore, downloadRemoverDep(deps)))
-	api.POST("/downloads/batch/stop-seed", handlers.DownloadsBatchStopSeed(deps.downloadsStore, deps.streamSrv))
+	api.POST("/downloads/batch/stop-seed", handlers.DownloadsBatchStopSeed(deps.downloadsStore, deps.streamSrv, downloadRemoverDep(deps)))
 	promoteDeps := handlers.PromoteDeps{
 		Store:      deps.downloadsStore,
 		Streamer:   deps.streamSrv,
@@ -487,7 +487,7 @@ func registerDownloadRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/downloads/promote/preview", handlers.DownloadsPromotePreview(deps.downloadsStore, deps.aiClient, deps.tmdbClient, deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/downloads/promote/browse", handlers.DownloadsPromoteBrowse(deps.cfg.Stream.SharedDir, deps.promoteDests))
 	api.GET("/promote/destinations", handlers.DownloadsPromoteDests(deps.cfg.Stream.SharedDir, deps.promoteDests))
-	api.POST("/downloads/:id/stop-seed", handlers.DownloadsStopSeed(deps.downloadsStore, deps.streamSrv))
+	api.POST("/downloads/:id/stop-seed", handlers.DownloadsStopSeed(deps.downloadsStore, deps.streamSrv, downloadRemoverDep(deps)))
 }
 
 func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {

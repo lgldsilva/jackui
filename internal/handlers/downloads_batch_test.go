@@ -15,7 +15,7 @@ import (
 func TestDownloadsBatchStopSeed_MissingIDs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
-	w := invokeCoverageHandler(t, DownloadsBatchStopSeed(&downloads.Store{}, s), http.MethodPost, "/api/downloads/batch/stop-seed", `{"ids":[]}`)
+	w := invokeCoverageHandler(t, DownloadsBatchStopSeed(&downloads.Store{}, s, nil), http.MethodPost, "/api/downloads/batch/stop-seed", `{"ids":[]}`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
@@ -33,7 +33,7 @@ func TestDownloadsBatchStopSeed_TooMany(t *testing.T) {
 		body += strconv.Itoa(id)
 	}
 	body += `]}`
-	w := invokeCoverageHandler(t, DownloadsBatchStopSeed(&downloads.Store{}, s), http.MethodPost, "/api/downloads/batch/stop-seed", body)
+	w := invokeCoverageHandler(t, DownloadsBatchStopSeed(&downloads.Store{}, s, nil), http.MethodPost, "/api/downloads/batch/stop-seed", body)
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413", w.Code)
 	}

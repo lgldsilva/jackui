@@ -190,8 +190,19 @@ export function useDownloadActions(deps: {
   const onStopSeed = async (id: number, name: string) => {
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedMessage', { name }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBusyID(id)
-    try { await downloadStopSeed(id); await reloadDownloadsRef.current(); await loadTorrents() }
-    finally { setBusyID(null) }
+    // OPTIMISTIC (mesmo mecanismo do delete): o stop-seed agora REMOVE a row no
+    // backend, então esconde na hora e blinda contra polls stale de 2s; em erro
+    // restaura para o usuário ver a realidade.
+    markDeleted(pendingDeletesRef.current, [id])
+    setItems(prev => prev.filter(x => x.id !== id))
+    try {
+      await downloadStopSeed(id)
+      await reloadDownloadsRef.current(); await loadTorrents()
+    } catch (err) {
+      clearDeleted(pendingDeletesRef.current, [id])
+      await reloadDownloadsRef.current().catch(() => {})
+      notifyError(err)
+    } finally { setBusyID(null) }
   }
 
   // ── Ações no nível do torrent (grupo de arquivos do mesmo infoHash) ──
@@ -207,13 +218,23 @@ export function useDownloadActions(deps: {
     if (ds.length === 0) return
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedManyMessage', { count: ds.length }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBulkBusy(true)
+    const ids = ds.map(d => d.id)
+    // OPTIMISTIC: o batch remove as rows no backend; esconde já e desfaz só o
+    // que o servidor reportar como failed.
+    markDeleted(pendingDeletesRef.current, ids)
+    setItems(prev => prev.filter(x => !ids.includes(x.id)))
     try {
       // Auto-chunked below the server cap; a rejection means the whole set
       // failed, otherwise `failed` lists the rows we couldn't stop. Surface it
       // instead of the old swallow-and-pretend-success.
-      const res = await downloadBatchStopSeed(ds.map(d => d.id)).catch(() => null)
-      const failedCount = res === null ? ds.length : (res.failed?.length ?? 0)
-      if (failedCount > 0) notify(t('downloads.page.stopSeedFailed', { count: failedCount }), 'error')
+      const res = await downloadBatchStopSeed(ids).catch(() => null)
+      const failed = res?.failed ?? []
+      const failedCount = res === null ? ds.length : failed.length
+      if (failedCount > 0) {
+        const failedIDs = res === null ? ids : failed
+        clearDeleted(pendingDeletesRef.current, failedIDs)
+        notify(t('downloads.page.stopSeedFailed', { count: failedCount }), 'error')
+      }
       await reloadDownloadsRef.current()
       await loadTorrents()
     } finally { setBulkBusy(false) }

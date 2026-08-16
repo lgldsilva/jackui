@@ -168,4 +168,39 @@ describe('useDownloadActions', () => {
     expect(state.setBusyID).toHaveBeenCalledWith(1)
     expect(state.setBusyID).toHaveBeenLastCalledWith(null)
   })
+
+  // "Parar" precisa remover o item da lista na hora (otimista) e blindá-lo
+  // contra polls stale de 2s — mesmo mecanismo do delete. O bug original: o
+  // stop-seed não tocava em setItems/pendingDeletes e o card continuava na
+  // lista até o backend parar de retorná-lo.
+  it('onStopSeed remove otimistamente da lista', async () => {
+    const { result, state } = setup()
+    await act(async () => { await result.current.onStopSeed(1, 'x') })
+
+    expect(mocks.downloadStopSeed).toHaveBeenCalledWith(1)
+    expect(state.setItems).toHaveBeenCalled()
+    expect(state.pendingDeletesRef.current.ids.has(1)).toBe(true)
+    expect(state.reloadDownloadsRef.current).toHaveBeenCalled()
+    expect(state.loadTorrents).toHaveBeenCalled()
+  })
+
+  it('onStopSeed restaura a linha e notifica em caso de erro', async () => {
+    mocks.downloadStopSeed.mockRejectedValue(new Error('boom'))
+    const { result, state } = setup()
+    await act(async () => { await result.current.onStopSeed(1, 'x') })
+
+    expect(state.pendingDeletesRef.current.ids.has(1)).toBe(false)
+    expect(state.reloadDownloadsRef.current).toHaveBeenCalled()
+    expect(notifyErrorMock).toHaveBeenCalled()
+  })
+
+  it('onStopSeedMany remove otimistamente os alvos', async () => {
+    const { result, state } = setup()
+    const targets = [dl({ id: 3, infoHash: 'c', status: 'completed' })]
+    await act(async () => { await result.current.onStopSeedMany(targets) })
+
+    expect(mocks.downloadBatchStopSeed).toHaveBeenCalledWith([3])
+    expect(state.setItems).toHaveBeenCalled()
+    expect(state.pendingDeletesRef.current.ids.has(3)).toBe(true)
+  })
 })

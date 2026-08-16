@@ -141,14 +141,16 @@ type ProgressUpdate struct {
 	Bytes  int64
 }
 
-// StopSeed marks a completed download row as explicitly seed-stopped so
+// StopSeed marks a download row as explicitly seed-stopped so
 // autoSeedCompleted will NOT reactivate it on the next boot. The files stay on
-// disk; this only stops the automatic swarm rejoin. Idempotent.
+// disk; this only stops the automatic swarm rejoin. Idempotent. Works for ANY
+// status — the old status='completed' guard made a paused row silently skip
+// the mark (pause→stop didn't stick).
 func (s *Store) StopSeed(userID, id int) error {
 	_, err := s.db.Exec(`
 		UPDATE downloads SET seed_stopped_at=CURRENT_TIMESTAMP
-		WHERE id=? AND user_id=? AND status=?`,
-		id, userID, StatusCompleted)
+		WHERE id=? AND user_id=?`,
+		id, userID)
 	return err
 }
 
@@ -162,18 +164,19 @@ func (s *Store) ResumeSeed(userID, id int) error {
 	return err
 }
 
-// StopSeedByInfoHash marks every completed row for this user/info_hash as
-// seed-stopped. Used by the streaming "remove torrent" action, which drops the
-// active swarm handle and must also prevent the next boot's auto-seed from
-// bringing the same hash back.
+// StopSeedByInfoHash marks every row for this user/info_hash as seed-stopped.
+// Used by the streaming "remove torrent" action, which drops the active swarm
+// handle and must also prevent the next boot's auto-seed from bringing the
+// same hash back. Any status: the completed-only guard let a paused row
+// resurrect on the next boot.
 func (s *Store) StopSeedByInfoHash(userID int, infoHash string) error {
 	if infoHash == "" {
 		return nil
 	}
 	_, err := s.db.Exec(`
 		UPDATE downloads SET seed_stopped_at=CURRENT_TIMESTAMP
-		WHERE user_id=? AND info_hash=? AND status=?`,
-		userID, infoHash, StatusCompleted)
+		WHERE user_id=? AND info_hash=?`,
+		userID, infoHash)
 	return err
 }
 

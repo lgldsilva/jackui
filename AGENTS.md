@@ -74,6 +74,22 @@ ocultos encontrados durante a operação do projeto.
   poluição de logs estruturados, além de ajudar a passar em auditorias
   CodeQL/Sonar.
 
+### Semântica de "Parar" (stop-seed) e auto-seed
+
+- "Parar" (`POST /api/downloads/:id/stop-seed` e o batch) **remove a row** da
+  lista de downloads (arquivos ficam no disco), para qualquer status — não
+  existe mais o estado "No disco por stop". `DeleteScoped` + `DropSeed` +
+  `worker.Remove` no mesmo handler.
+- `worker.Remove` usa o seam `dropSeed` (=`Streamer.DropSeed`), que apaga o
+  auto-seed persistido (tabela `seeds`); drops de lifecycle (move/tick) seguem
+  no seam `drop`, que o preserva. Trocar um pelo outro ressuscita torrents no
+  próximo boot via `resumeSeeding`.
+- A importação de favoritos tem "também baixar" **desligado por padrão**
+  (`favorites.alsoDownload`); baixar é escolha explícita a cada import.
+- `seed_stopped_at` continua marcando rows paradas via `StreamDrop` (lixeira dos
+  cards de streaming) e promote-sem-reseed; `autoSeedCompleted` respeita a flag
+  para não reativá-las no boot.
+
 ## Frontend
 
 - `web/postcss.config.js` foi renomeado para `.mjs` para evitar o warning

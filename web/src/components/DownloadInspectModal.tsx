@@ -223,8 +223,10 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     setError('')
     try {
       await downloadStopSeed(d.id)
-      onMutated?.(d)
-      await refresh()
+      // Stop-seed agora REMOVE a row da lista (backend deleta) — fecha o modal
+      // como o delete; o refresh() antigo buscaria uma row que não existe mais.
+      onDeleted?.(d.id)
+      onClose()
     } catch (e: unknown) {
       setError(errMessage(e) || t('downloads.inspect.errorStopSeed'))
     } finally {

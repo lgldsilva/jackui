@@ -99,7 +99,8 @@ const downloadsStopSeedBatchMax = 500
 // {affected,total,failed,hashes} — stops seeding for MANY queue rows in ONE call
 // so a multi-file seeding group does not fire N POST /downloads/:id/stop-seed
 // (Perf #10). Unique info_hashes are DropSeed'd once; missing IDs land in failed.
-func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
+// Same semantics as the singular endpoint: the rows leave the downloads list.
+func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			IDs []int `json:"ids"`
@@ -112,8 +113,8 @@ func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Ha
 			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many ids")
 			return
 		}
-		userID, _, _ := auth.UserIDFromCtx(c)
-		affected, failed, hashes := stopSeedBatch(store, s, userID, req.IDs)
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
+		affected, failed, hashes := stopSeedBatch(store, s, worker, userID, isAdmin, req.IDs)
 		c.JSON(http.StatusOK, gin.H{
 			"affected": affected,
 			"total":    len(req.IDs),
@@ -123,13 +124,14 @@ func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Ha
 	}
 }
 
-// stopSeedBatch resolves each id, DropSeed's unique info_hashes once, and
-// collects missing IDs. Extracted so DownloadsBatchStopSeed stays under S3776.
-func stopSeedBatch(store *downloads.Store, s *streamer.Streamer, userID int, ids []int) (affected int, failed []int, hashCount int) {
+// stopSeedBatch resolves each id, DropSeeds unique info_hashes once, deletes the
+// rows and collects missing IDs. Extracted so DownloadsBatchStopSeed stays under
+// S3776.
+func stopSeedBatch(store *downloads.Store, s *streamer.Streamer, worker DownloadRemover, userID int, isAdmin bool, ids []int) (affected int, failed []int, hashCount int) {
 	seen := make(map[string]struct{})
 	failed = make([]int, 0)
 	for _, id := range ids {
-		if !stopSeedOne(store, s, userID, id, seen) {
+		if !stopSeedOne(store, s, worker, userID, isAdmin, id, seen) {
 			failed = append(failed, id)
 			continue
 		}
@@ -138,29 +140,30 @@ func stopSeedBatch(store *downloads.Store, s *streamer.Streamer, userID int, ids
 	return affected, failed, len(seen)
 }
 
-// stopSeedOne loads a download row and DropSeeds its info_hash if not yet seen.
+// stopSeedOne loads a download row, DropSeeds its info_hash if not yet seen and
+// deletes the row (any status) so the item leaves the downloads list.
 // Returns false when the row is missing (caller records failed).
-func stopSeedOne(store *downloads.Store, s *streamer.Streamer, userID, id int, seen map[string]struct{}) bool {
+func stopSeedOne(store *downloads.Store, s *streamer.Streamer, worker DownloadRemover, userID int, isAdmin bool, id int, seen map[string]struct{}) bool {
 	d, err := store.Get(userID, id)
 	if err != nil || d == nil {
 		return false
 	}
-	if d.Status == downloads.StatusCompleted {
-		_ = store.StopSeed(userID, id)
+	if d.InfoHash != "" {
+		if _, ok := seen[d.InfoHash]; !ok {
+			seen[d.InfoHash] = struct{}{}
+			var h metainfo.Hash
+			if err := h.FromHexString(d.InfoHash); err == nil {
+				// Explicit stop-seed also clears persisted auto-seed (same as
+				// the singular POST /downloads/:id/stop-seed).
+				s.DropSeed(h)
+			}
+		}
 	}
-	if d.InfoHash == "" {
-		return true
+	row, err := store.DeleteScoped(userID, id, isAdmin)
+	if err != nil {
+		return false
 	}
-	if _, ok := seen[d.InfoHash]; ok {
-		return true
-	}
-	seen[d.InfoHash] = struct{}{}
-	var h metainfo.Hash
-	if err := h.FromHexString(d.InfoHash); err == nil {
-		// Explicit stop-seed also clears persisted auto-seed (same as
-		// the singular POST /downloads/:id/stop-seed).
-		s.DropSeed(h)
-	}
+	notifyRemoved(worker, row)
 	return true
 }
 

@@ -38,7 +38,10 @@ func (w *Worker) Remove(id int, infoHash string) {
 	if haveHash {
 		// Last member gone → drop the torrent. Drop runs OUTSIDE w.mu (streamer
 		// lock + I/O) and is a safe no-op if a player still holds a viewer lease.
-		w.dropTorrent(hash)
+		// dropTorrentSeed (not the plain drop) because Remove is an explicit user
+		// removal: the persisted auto-seed must go too, or resumeSeeding brings
+		// the torrent back as a live "Semeando" card on the next boot.
+		w.dropTorrentSeed(hash)
 	}
 }
 
@@ -99,4 +102,15 @@ func (w *Worker) dropTorrent(h metainfo.Hash) {
 	if w.drop != nil {
 		w.drop(h)
 	}
+}
+
+// dropTorrentSeed drops a torrent AND its persisted auto-seed via the injected
+// seam (nil-safe; falls back to the plain drop when only that is wired, e.g.
+// in unit tests that override `drop` directly).
+func (w *Worker) dropTorrentSeed(h metainfo.Hash) {
+	if w.dropSeed != nil {
+		w.dropSeed(h)
+		return
+	}
+	w.dropTorrent(h)
 }

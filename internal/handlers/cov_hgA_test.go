@@ -754,7 +754,7 @@ func Test_hgA_DownloadsStopSeed_InvalidID(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/:id/stop-seed", DownloadsStopSeed(store, s))
+	router.POST("/api/downloads/:id/stop-seed", DownloadsStopSeed(store, s, nil))
 	w := hgADo(router, "POST", "/api/downloads/notanumber/stop-seed", nil)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d want 400", w.Code)
@@ -766,7 +766,7 @@ func Test_hgA_DownloadsStopSeed_NotFound(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	router := gin.New()
-	router.POST("/api/downloads/:id/stop-seed", DownloadsStopSeed(store, s))
+	router.POST("/api/downloads/:id/stop-seed", DownloadsStopSeed(store, s, nil))
 	w := hgADo(router, "POST", "/api/downloads/999/stop-seed", nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status=%d want 404", w.Code)
@@ -782,7 +782,7 @@ func Test_hgA_DownloadsStopSeed_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := gin.New()
-	router.POST("/api/downloads/:id/stop-seed", DownloadsStopSeed(store, s))
+	router.POST("/api/downloads/:id/stop-seed", DownloadsStopSeed(store, s, nil))
 	w := hgADo(router, "POST", "/api/downloads/"+itoa(d.ID)+"/stop-seed", nil)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status=%d want 204", w.Code)

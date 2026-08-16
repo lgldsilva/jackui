@@ -177,10 +177,11 @@ export default function FavoritesPage() {
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [dragOverDrop, setDragOverDrop] = useState(false)
-  // Quando true, importar também enfileira o download (FileIndexAuto) — evita
-  // favoritos "órfãos" que o usuário achou que tinha marcado pra baixar.
-  // Default true: a importação costuma querer baixar; a última escolha persiste.
-  const [alsoDownload, setAlsoDownload] = usePersistedState('favorites.alsoDownload', true)
+  // Quando true, importar também enfileira o download (FileIndexAuto). Default
+  // FALSE: baixar precisa ser escolha explícita — o default ligado poluía a
+  // lista de downloads com favoritos que o usuário nunca marcou pra baixar.
+  // A última escolha persiste.
+  const [alsoDownload, setAlsoDownload] = usePersistedState('favorites.alsoDownload', false)
 
   // lifecycleRank: maior = mais "pronto" — usado pra decidir qual row mostrar no badge.
   const lifecycleRank = (status: DownloadEntry['status']) => {

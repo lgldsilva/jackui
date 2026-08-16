@@ -74,7 +74,7 @@ func TestDownloadHandlersValidationErrors(t *testing.T) {
 		"batch pause malformed":  DownloadsBatchPause(store),
 		"batch resume malformed": DownloadsBatchResume(store),
 		"batch delete malformed": DownloadsBatchDelete(store, nil),
-		"batch stop malformed":   DownloadsBatchStopSeed(store, nil),
+		"batch stop malformed":   DownloadsBatchStopSeed(store, nil, nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := invokeCoverageHandler(t, handler, http.MethodPost, "/api/downloads", "{")

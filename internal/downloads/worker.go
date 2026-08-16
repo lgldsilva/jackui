@@ -117,6 +117,13 @@ type Worker struct {
 	// unit-testable without a live torrent client.
 	drop func(metainfo.Hash)
 
+	// dropSeed drops a torrent AND its persisted auto-seed (streamer.DropSeed).
+	// Used ONLY by the explicit user-removal path (Remove): without it the seeds
+	// row survives and resumeSeeding resurrects the torrent on the next boot as
+	// a live "Semeando" card. Lifecycle drops (move/tick) keep the plain `drop`
+	// seam above — those must preserve auto-seed.
+	dropSeed func(metainfo.Hash)
+
 	stop   chan struct{}
 	doneWG sync.WaitGroup
 
@@ -233,6 +240,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 	}
 	if cfg.Streamer != nil {
 		w.drop = cfg.Streamer.Drop
+		w.dropSeed = cfg.Streamer.DropSeed
 	}
 	// Pre-register eviction protection + self-heal completed orphans (extracted
 	// to keep NewWorker's cognitive complexity low).

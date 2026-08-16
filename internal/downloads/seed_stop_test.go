@@ -44,7 +44,11 @@ func TestStopSeedMarksRowAndResumeSeedClears(t *testing.T) {
 	}
 }
 
-func TestStopSeedByInfoHashOnlyCompletedRows(t *testing.T) {
+// Qualquer status é marcado: o guard antigo de status='completed' deixava o
+// fluxo pausar→parar sem efeito (a row pausada voltava a seedar no próximo
+// boot). Siblings do mesmo info_hash são marcados juntos — é um "remover
+// torrent" do streaming, não uma ação por arquivo.
+func TestStopSeedByInfoHashMarksAllStatuses(t *testing.T) {
 	s := newTestStore(t)
 	completed, err := s.Create(Download{
 		UserID: 1, InfoHash: "shared", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:shared",
@@ -77,8 +81,8 @@ func TestStopSeedByInfoHashOnlyCompletedRows(t *testing.T) {
 		t.Fatal("completed row should be seed-stopped")
 	}
 	gotPaused, _ := s.Get(1, paused.ID)
-	if gotPaused.SeedStoppedAt != nil {
-		t.Fatal("paused row should NOT be seed-stopped")
+	if gotPaused.SeedStoppedAt == nil {
+		t.Fatal("paused row should also be seed-stopped — pause→stop must stick")
 	}
 }
 

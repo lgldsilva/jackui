@@ -567,16 +567,19 @@ func DownloadsPromoteDests(sharedDir string, dests []httpshared.PromoteDest) gin
 	}
 }
 
-// DownloadsStopSeed handles POST /api/downloads/:id/stop-seed — derruba o
-// torrent do anacrolix sem mover o arquivo.
-func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
+// DownloadsStopSeed handles POST /api/downloads/:id/stop-seed — "Parar" na UI.
+// Para de semear E remove a row da lista de downloads (os arquivos ficam no
+// disco): o usuário espera que o torrent suma da área de downloads, não que
+// apenas migre de "Semeando" para "No disco". DropSeed limpa o auto-seed
+// persistido para que o próximo boot não ressuscite o torrent.
+func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
-		userID, _, _ := auth.UserIDFromCtx(c)
+		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		d, err := store.Get(userID, id)
 		if err != nil || d == nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, errDownloadNotFound)
@@ -586,14 +589,22 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer) gin.Handler
 			var h metainfo.Hash
 			if err := h.FromHexString(d.InfoHash); err == nil {
 				// "Parar de seedar" é explícito → DropSeed limpa também o auto-seed
-				// persistido e marca a row como seed-stopped para que o próximo boot
-				// não reative o torrent.
+				// persistido para que o próximo boot não reative o torrent.
 				s.DropSeed(h)
 			}
 		}
-		if d.Status == downloads.StatusCompleted {
-			_ = store.StopSeed(userID, d.ID)
+		// Qualquer status (completed, paused, …): a row sai da lista. O guard
+		// antigo de status='completed' fazia o fluxo pausar→parar não surtir
+		// efeito nenhum na listagem.
+		row, err := store.DeleteScoped(userID, id, isAdmin)
+		if err != nil {
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			return
 		}
+		if row != nil {
+			log.Printf("downloads: stopSeed user=%d id=%d infoHash=%s name=%q admin=%v", userID, row.ID, httpshared.SanitizeForLog(row.InfoHash), httpshared.SanitizeForLog(row.Name), isAdmin)
+		}
+		notifyRemoved(worker, row)
 		c.Status(http.StatusNoContent)
 	}
 }
