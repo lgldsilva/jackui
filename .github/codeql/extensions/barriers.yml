@@ -1,0 +1,35 @@
+# Barreiras de data-flow do JackUI para o CodeQL (models-as-data).
+#
+# Cada entrada abaixo declara uma função que JÁ É uma barreira real de
+# segurança no código — o CodeQL apenas não reconhece funções próprias como
+# sanitizers. A regra do projeto proíbe supressão de achado (#nosec &c.);
+# este arquivo não suprime nada: ensina o scanner onde uma validação de
+# verdade já acontece, para que o achado fechado signifique "validado", e um
+# achado que sobreviva signifique "falta de guard de verdade".
+#
+# Contrato de manutenção: TODA função listada aqui tem teste de unidade
+# provando a garantia (ver arquivos *_test.go correspondentes). Se a função
+# mudar de semântica, o teste quebra antes do model virar mentira.
+extensions:
+  - addsTo:
+      pack: codeql/go-all
+      extensible: barrierModel
+    data:
+      # ── log-injection: inputs de request só entram em log via estes ──
+      - ["github.com/lgldsilva/jackui/internal/handlers/httpshared", "", True, "SanitizeForLog", "", "", "ReturnValue", "log-injection", "manual"]
+      - ["github.com/lgldsilva/jackui/internal/handlers/httpshared", "", True, "SanitizeInt", "", "", "ReturnValue", "log-injection", "manual"]
+      - ["github.com/lgldsilva/jackui/internal/handlers/httpshared", "", True, "SanitizeIntPtr", "", "", "ReturnValue", "log-injection", "manual"]
+      # ── path-injection: validação de caminho dentro do mount ──
+      - ["github.com/lgldsilva/jackui/internal/handlers/httpshared", "", True, "SanitizeSubdir", "", "", "ReturnValue", "path-injection", "manual"]
+      - ["github.com/lgldsilva/jackui/internal/local", "Browser", True, "ResolvePath", "", "", "ReturnValue", "path-injection", "manual"]
+      - ["github.com/lgldsilva/jackui/internal/local", "Browser", True, "ResolvePathFor", "", "", "ReturnValue", "path-injection", "manual"]
+      - ["github.com/lgldsilva/jackui/internal/handlers/local", "", True, "sanitizeSidecarName", "", "", "ReturnValue", "path-injection", "manual"]
+      - ["github.com/lgldsilva/jackui/internal/transcode", "HLSSessionManager", True, "sessionDir", "", "", "ReturnValue", "path-injection", "manual"]
+      # ── request-forgery: URL de proxy validada contra o Jackett ──
+      - ["github.com/lgldsilva/jackui/internal/handlers", "", True, "sanitizeJackettURL", "", "", "ReturnValue", "request-forgery", "manual"]
+  - addsTo:
+      pack: codeql/go-all
+      extensible: barrierGuardModel
+    data:
+      # Guard do rename: dstAbs só é alcançado quando o nome é um bare name.
+      - ["github.com/lgldsilva/jackui/internal/handlers/local", "", False, "isValidRenameName", "", "", "Argument[0]", "true", "path-injection", "manual"]

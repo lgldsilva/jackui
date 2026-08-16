@@ -33,6 +33,8 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-extended,security-and-quality
+          # Barreiras de data-flow ficam em .github/codeql/extensions/ —
+          # local de auto-descoberta de data extensions, sem pack/config.
 
       - uses: github/codeql-action/autobuild@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3
 

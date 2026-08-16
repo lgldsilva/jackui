@@ -90,6 +90,19 @@ ocultos encontrados durante a operação do projeto.
   cards de streaming) e promote-sem-reseed; `autoSeedCompleted` respeita a flag
   para não reativá-las no boot.
 
+### Barreiras de segurança e models do CodeQL
+
+- É proibido `#nosec` e qualquer supressão/contorno de achado de scanner: o
+  achado se resolve na causa (código) ou com teste que cobre o caminho.
+- Guards de path/URL/log vivem em funções nomeadas e testadas
+  (`Browser.ResolvePath`, `sanitizeSidecarName`, `sessionDir`,
+  `sanitizeJackettURL`, `SanitizeForLog`, ...). Elas estão declaradas ao
+  CodeQL em `.github/codeql/extensions/barriers.yml` — data extensions
+  carregadas por auto-descoberta, sem pack nem config extra.
+- Contrato: TODA função listada no `barriers.yml` precisa de teste de unidade
+  provando a garantia. Nova barreira no model sem teste = PR recusado. Se uma
+  função mudar de semântica, o teste quebra antes do model virar mentira.
+
 ## Frontend
 
 - `web/postcss.config.js` foi renomeado para `.mjs` para evitar o warning
