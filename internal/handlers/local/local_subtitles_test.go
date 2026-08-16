@@ -160,3 +160,34 @@ func TestLocalSubVTTPath_NilCache(t *testing.T) {
 		t.Errorf("nil cache = %q, want empty", got)
 	}
 }
+
+// sanitizeSidecarName é a barreira de path-injection do Join com o diretório
+// do vídeo: nada além de nome de arquivo puro passa.
+func TestSanitizeSidecarName(t *testing.T) {
+	for _, bad := range []string{"", ".", "..", "a/b", `a\b`, "/etc/passwd", `C:\win`} {
+		if _, err := sanitizeSidecarName(bad); err == nil {
+			t.Errorf("sanitizeSidecarName(%q) must fail", bad)
+		}
+	}
+	for _, ok := range []string{"movie.pt-BR.srt", "subs.vtt", ".hidden.vtt"} {
+		got, err := sanitizeSidecarName(ok)
+		if err != nil || got != ok {
+			t.Errorf("sanitizeSidecarName(%q) = (%q, %v), want passthrough", ok, got, err)
+		}
+	}
+}
+
+// ".." exato não carrega separador: antes só era bloqueado a montante pela
+// whitelist de extensão. Agora o próprio nome é rejeitado.
+func TestLocalSidecarRead_TraversalDotDot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	b := lb.NewBrowser([]config.ExternalMount{{Name: "M", Path: t.TempDir()}})
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/local/sidecar?mount=M&path=file&name=..", nil)
+	c.Set("auth.claims", &auth.Claims{UserID: 1, Username: "admin", Role: auth.RoleAdmin})
+	LocalSidecarRead(b)(c)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}

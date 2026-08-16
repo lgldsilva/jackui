@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -22,13 +23,11 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "url requerida")
 			return
 		}
-		u, err := url.Parse(rawURL)
+		// A URL vem do request: parse + validação contra o Jackett configurado
+		// em uma única barreira — o retorno é o único objeto que chega ao Get.
+		u, code, err := sanitizeJackettURL(rawURL, client)
 		if err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "url inválida")
-			return
-		}
-		if !isJackettURL(u, client) {
-			httpshared.RespondErrorMessage(c, http.StatusForbidden, "URL não pertence ao Jackett configurado")
+			httpshared.RespondErrorMessage(c, code, err.Error())
 			return
 		}
 		injectAPIKey(u, client)
@@ -45,6 +44,20 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 		}
 		proxyResponse(c, resp)
 	}
+}
+
+// sanitizeJackettURL parses a user-provided proxy target and validates it
+// against the configured Jackett instance (host match, http(s) only, no
+// userinfo smuggling). Only the returned URL is safe to fetch.
+func sanitizeJackettURL(rawURL string, client *jackett.Client) (*url.URL, int, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, http.StatusBadRequest, errors.New("url inválida")
+	}
+	if !isJackettURL(u, client) {
+		return nil, http.StatusForbidden, errors.New("URL não pertence ao Jackett configurado")
+	}
+	return u, http.StatusOK, nil
 }
 
 func isJackettURL(u *url.URL, client *jackett.Client) bool {

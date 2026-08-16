@@ -220,7 +220,8 @@ func LocalSidecarRead(b *lb.Browser) gin.HandlerFunc {
 		if !CheckMountAccess(b, c, mount) {
 			return
 		}
-		if strings.ContainsAny(name, "/\\") {
+		cleanName, err := sanitizeSidecarName(name)
+		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid name")
 			return
 		}
@@ -229,8 +230,8 @@ func LocalSidecarRead(b *lb.Browser) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		subPath := filepath.Join(filepath.Dir(abs), name)
-		ext := strings.ToLower(filepath.Ext(name))
+		subPath := filepath.Join(filepath.Dir(abs), cleanName)
+		ext := strings.ToLower(filepath.Ext(cleanName))
 		format, ok := localSubtitleExtensions[ext]
 		if !ok {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "unsupported subtitle format")
@@ -258,6 +259,18 @@ func LocalSidecarRead(b *lb.Browser) gin.HandlerFunc {
 		c.Header(httpshared.CacheControl, httpshared.CacheImmutable)
 		_, _ = c.Writer.Write(body)
 	}
+}
+
+// sanitizeSidecarName valida o nome do sidecar vindo do request: precisa ser um
+// nome de arquivo puro — sem separadores, sem tokens de traversal — para que o
+// Join com o diretório do vídeo (já guardado por ResolvePath) jamais escape do
+// mount. Antes o ".." exato só era bloqueado indiretamente pela whitelist de
+// extensão; a invariante agora é local e testável.
+func sanitizeSidecarName(name string) (string, error) {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) || filepath.Base(name) != name {
+		return "", errors.New("invalid sidecar name")
+	}
+	return name, nil
 }
 
 func LocalSubtitlesAuto(b *lb.Browser, subClient *subtitles.Client) gin.HandlerFunc {

@@ -87,3 +87,26 @@ func TestIsJackettURL_AcceptsValidJackett(t *testing.T) {
 		t.Fatal("valid Jackett URL was rejected")
 	}
 }
+
+// sanitizeJackettURL é a barreira de request-forgery do proxy: só o retorno
+// dela chega ao proxyHTTP.Get, e preserva os códigos 400/403 do fluxo antigo.
+func TestSanitizeJackettURL(t *testing.T) {
+	client := jackett.New("http://jackett:9117", "k")
+
+	if u, code, err := sanitizeJackettURL("://bad", client); err == nil || code != http.StatusBadRequest || u != nil {
+		t.Errorf("invalid URL: (%v, %d, %v), want (nil, 400, err)", u, code, err)
+	}
+	for _, raw := range []string{
+		"http://evil.com/t.torrent",
+		"http://jackett:9117@evil.com/t.torrent",
+		"file://jackett:9117/x",
+	} {
+		if u, code, err := sanitizeJackettURL(raw, client); err == nil || code != http.StatusForbidden || u != nil {
+			t.Errorf("sanitizeJackettURL(%q) = (%v, %d, %v), want (nil, 403, err)", raw, u, code, err)
+		}
+	}
+	u, code, err := sanitizeJackettURL("http://jackett:9117/dl?file=t.torrent", client)
+	if err != nil || code != http.StatusOK || u == nil || u.Host != "jackett:9117" {
+		t.Errorf("valid URL: (%v, %d, %v), want (url, 200, nil)", u, code, err)
+	}
+}

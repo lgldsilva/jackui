@@ -142,3 +142,25 @@ func TestBuildSession_AcceptsValidKey(t *testing.T) {
 	// later on source/ffmpeg, but not on the key validation).
 	_, _ = m.buildSession(context.Background(), "0123456789abcdef0123456789abcdef01234567", HLSStartOpts{Source: bytes.NewReader(nil)})
 }
+
+// sessionDir é a barreira de path-injection das leituras de playlist/segmentos:
+// nenhuma chave consegue escapar do baseDir.
+func TestSessionDir(t *testing.T) {
+	base := t.TempDir()
+	m, err := NewHLSManager(base)
+	if err != nil {
+		t.Fatalf("NewHLSManager: %v", err)
+	}
+	got, err := m.sessionDir("abc123")
+	if err != nil {
+		t.Fatalf("sessionDir(abc123): %v", err)
+	}
+	if want := filepath.Join(m.baseDir, "abc123"); got != want {
+		t.Fatalf("sessionDir(abc123) = %q, want %q", got, want)
+	}
+	for _, key := range []string{"../escape", "..\\escape", "/abs", "a/../../b", ".."} {
+		if _, err := m.sessionDir(key); err == nil {
+			t.Errorf("sessionDir(%q) must be rejected", key)
+		}
+	}
+}

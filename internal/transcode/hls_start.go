@@ -129,6 +129,23 @@ func startSourceServer(opts HLSStartOpts) (*http.Server, string, error) {
 	return srv, fmt.Sprintf("http://%s/source", listener.Addr().String()), nil
 }
 
+// sessionDir resolve o diretório de sessão sob baseDir. A chave deriva de
+// conteúdo do caller (infohash hex ou path local validado por ResolvePath),
+// mas um traversal aqui escaparia do baseDir — qualquer chave que tente é
+// rejeitada. É a barreira de path-injection das leituras de playlist/segmentos.
+func (m *HLSSessionManager) sessionDir(effKey string) (string, error) {
+	// Chaves legítimas são hex de infohash ou sufixos relativos — uma chave
+	// absoluta nunca é intencional e Join a absorveria como relativa.
+	if effKey == "" || strings.HasPrefix(effKey, "/") || strings.HasPrefix(effKey, `\`) {
+		return "", fmt.Errorf("invalid HLS session key")
+	}
+	dir := filepath.Join(m.baseDir, effKey)
+	if rel, err := filepath.Rel(m.baseDir, dir); err != nil || strings.HasPrefix(filepath.Clean(rel), "..") {
+		return "", fmt.Errorf("invalid HLS session key")
+	}
+	return dir, nil
+}
+
 // buildSession does the slow part of GetOrStart (loopback server, duration
 // probe, ffmpeg launch) outside the manager lock. The caller holds the
 // `starting` slot for effKey, so exactly one build runs per key.
@@ -138,13 +155,9 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		return nil, errors.New("transcode caps not probed yet")
 	}
 
-	dir := filepath.Join(m.baseDir, effKey)
-	// Defense-in-depth for CodeQL go/path-injection: effKey is derived from a
-	// caller-supplied content key (infohash hex or a ResolvePath-validated
-	// local path), but reject any traversal here so a future caller can't
-	// escape baseDir via ".."/"/" in the key.
-	if rel, err := filepath.Rel(m.baseDir, dir); err != nil || strings.HasPrefix(filepath.Clean(rel), "..") {
-		return nil, fmt.Errorf("invalid HLS session key")
+	dir, dirErr := m.sessionDir(effKey)
+	if dirErr != nil {
+		return nil, dirErr
 	}
 	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
 	if err := os.MkdirAll(dir, 0o755); err != nil {

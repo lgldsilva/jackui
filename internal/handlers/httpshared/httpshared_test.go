@@ -230,3 +230,20 @@ func TestSanitizeIntPtr(t *testing.T) {
 		t.Fatalf("SanitizeIntPtr(&7) = %q, want 7", got)
 	}
 }
+
+// SanitizeForLog é a barreira de log-injection dos handlers: nenhum controle
+// de linha/coluna sobrevive, e o tamanho é limitado.
+func TestSanitizeForLog(t *testing.T) {
+	in := "line1\r\nline2\tcol\x00nul"
+	want := "line1␊line2␉colnul"
+	if got := SanitizeForLog(in); got != want {
+		t.Fatalf("SanitizeForLog(%q) = %q, want %q", in, got, want)
+	}
+	long := strings.Repeat("a", 600)
+	if got := SanitizeForLog(long); len(got) != 512 {
+		t.Fatalf("SanitizeForLog clamps to 512, got %d", len(got))
+	}
+	if got := SanitizeForLog("plain"); got != "plain" {
+		t.Fatalf("plain passthrough broken: %q", got)
+	}
+}
