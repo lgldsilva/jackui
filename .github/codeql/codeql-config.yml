@@ -1,0 +1,17 @@
+# Config do CodeQL do JackUI.
+#
+# Carrega o model pack local (./models) na análise Go — as barreiras
+# declaradas lá (barriers.yml) são validações REAIS do código, cada uma
+# com teste de unidade. Sem isto o CodeQL re-aponta fluxos já guardados.
+#
+# O pack é referenciado por caminho relativo a ESTE arquivo e só se aplica
+# à análise Go; a de JS/TS segue o default.
+name: "JackUI CodeQL config"
+
+queries:
+  - uses: security-extended
+  - uses: security-and-quality
+
+packs:
+  go:
+    - ./models

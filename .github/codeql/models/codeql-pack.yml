@@ -1,0 +1,6 @@
+name: lgldsilva/jackui-codeql-models
+version: 0.0.1
+dataExtensions:
+  - barriers.yml
+dependencies:
+  codeql/go-all: "*"
