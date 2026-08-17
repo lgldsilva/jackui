@@ -12,13 +12,21 @@ import { DownloadGroupCard, CompletedGroupActions, ActiveGroupActions } from './
 
 // SeedingTab — seeding/complete torrents + completed downloads.
 // Sub-divided by lifecycle: Baixando agora / Na fila / Semeando / No disco / Pausados.
-export function SeedingTab({ torrents, downloads, completedFilter, torrentsLoaded, busyHash, busyID,
+export function SeedingTab({ torrents, liveTorrents, downloads, completedFilter, torrentsLoaded, busyHash, busyID,
   onTorrentPause, onTorrentResume, onTorrentPriority, onTorrentDelete, onTorrentPlay,
   onPause, onResume, onDelete, onPromote, onStopSeed, onSetPriority,
   onPromoteMany, onDeleteMany, onStopSeedMany, onRetryMany,
   selected, onToggleSelected, onPlay, onInspect, openLocalFor, loading,
 }: {
+  /** Torrents rendered as standalone TorrentCards in this tab. */
   readonly torrents: TorrentInfo[]
+  /**
+   * Live torrents used ONLY to enrich the download rows (seeding badge, live
+   * speed/peers). Kept separate from `torrents` because the page renders the
+   * TorrentCards in ActiveTab — passing the same list here would duplicate them.
+   * Defaults to `torrents` so standalone callers keep the old behavior.
+   */
+  readonly liveTorrents?: TorrentInfo[]
   readonly downloads: DownloadEntry[]
   readonly completedFilter: CompletedFilterKey
   readonly torrentsLoaded: boolean
@@ -47,6 +55,7 @@ export function SeedingTab({ torrents, downloads, completedFilter, torrentsLoade
   readonly loading?: boolean
 }) {
   const { t } = useTranslation()
+  const live = liveTorrents ?? torrents
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const toggleGroup = (key: string) => setExpandedGroups(prev => {
     const next = new Set(prev)
@@ -67,7 +76,7 @@ export function SeedingTab({ torrents, downloads, completedFilter, torrentsLoade
     <DownloadCard
       key={d.id}
       d={d}
-      live={torrents.find(t => t.infoHash === d.infoHash)}
+      live={live.find(t => t.infoHash === d.infoHash)}
       busy={busyID === d.id}
       selected={selected.has(d.id)}
       multiFile={!!d.infoHash && (dlCountByHash.get(d.infoHash) ?? 0) > 1}
@@ -101,11 +110,15 @@ export function SeedingTab({ torrents, downloads, completedFilter, torrentsLoade
     )
   }
 
-  // Completed/seeding group: promote / stop-seed (only while live) / remove all.
+  // Completed/seeding group: promote / stop-seed / remove all.
+  // Stop-seed is offered for EVERY completed group, live swarm or not: since the
+  // backend deletes the row on stop-seed, this is the "take it off the list but
+  // keep the files on disk" action, and gating it on `g.seeding` left on-disk
+  // torrents stuck in the list with no way out.
   const renderCompletedGroup = (g: CompletedGroup) => groupShell(g, (
     <CompletedGroupActions
       onPromote={() => onPromoteMany(g.files)}
-      onStopSeed={g.seeding ? () => onStopSeedMany(g.files) : undefined}
+      onStopSeed={() => onStopSeedMany(g.files)}
       onDelete={() => onDeleteMany(g.files)}
       busy={g.files.some(f => busyID === f.id)}
     />
@@ -136,11 +149,11 @@ export function SeedingTab({ torrents, downloads, completedFilter, torrentsLoade
   // Each lifecycle section is grouped per torrent (infoHash): a multi-file torrent
   // is ONE card, a single-file / whole-torrent (-2) item a card of one. Counts and
   // headers count GROUPS (torrents), not file rows.
-  const downloadingGroups = groupByHash(downloads.filter(d => d.status === 'downloading'), torrents)
-  const queuedGroups = groupByHash(downloads.filter(d => d.status === 'queued'), torrents)
-  const otherGroups = groupByHash(downloads.filter(d => d.status === 'paused' || d.status === 'failed'), torrents)
+  const downloadingGroups = groupByHash(downloads.filter(d => d.status === 'downloading'), live)
+  const queuedGroups = groupByHash(downloads.filter(d => d.status === 'queued'), live)
+  const otherGroups = groupByHash(downloads.filter(d => d.status === 'paused' || d.status === 'failed'), live)
   const completed = downloads.filter(d => d.status === 'completed')
-  const completedGroups = groupCompleted(completed, torrents)
+  const completedGroups = groupCompleted(completed, live)
   const seedingGroups = completedGroups.filter(g => g.seeding)
   const onDiskGroups = completedGroups.filter(g => !g.seeding)
   // Streaming torrents that aren't backed by a completed download row.
