@@ -579,7 +579,7 @@
       "noActiveTransfer": "Nenhuma transferência ativa",
       "noActiveTransferDesc": "Inicie um streaming ou use o botão \"Baixar no Servidor\" no player para enfileirar downloads.",
       "promoteAll": "Promover todos",
-      "stopSeedAll": "Parar de seedar todos",
+      "stopSeedAll": "Parar e remover todos (arquivos ficam no disco)",
       "removeTorrentFromList": "Remover torrent da lista",
       "retryAllFailed": "Tentar novamente (todos com erro)",
       "resumeTorrent": "Retomar torrent",
