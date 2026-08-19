@@ -10,6 +10,7 @@ import { shouldShowStartOverlay, shouldShowStartAudioOverlay } from './playerOve
 import { recoverHlsFatal, tryAutoplayMutedFallback, kickPastStartGap } from './mediaUrls'
 import { wireHlsAudioSubs } from './hlsAudioTracks'
 import { useSeamlessAudio } from './useSeamlessAudio'
+import { usePersistedVolume } from './usePersistedVolume'
 import { ResumePrompt, PlayerLoadingOverlay, TranscodingBadge, AirPlayButton, StartAudioOverlay } from './PlayerOverlays'
 import { PlayerExperienceOverlays } from './PlayerExperienceOverlays'
 import { HlsQualityMenu } from './HlsQualityMenu'
@@ -270,6 +271,9 @@ export function VideoPlayerElement({
   }, [videoRef, streamURL, useHlsJs, onHlsAudioCount])
 
   useSeamlessAudio({ videoRef, hlsRef, engineActive, useHlsJs, streamURL, seamlessAudioIndex, probeAudioTracks, onHlsAudioCount })
+  // Restore mute/volume onto this element — a new one is mounted on every
+  // file/mode switch (see the `key` below), which used to reset both.
+  usePersistedVolume({ mediaRef: videoRef, forceMuted: engineActive, elementKey: audioElementKey(audioMode, isTranscoded) })
   const airplay = useAirPlay(videoRef, streamURL)
 
   const suppressNudge = disableNativeAutoplay && !isTranscoded

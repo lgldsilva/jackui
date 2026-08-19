@@ -25,6 +25,16 @@ func (s *Store) SetStatus(userID, id int, status string) error {
 		_, err = s.db.Exec(`
 			UPDATE downloads SET status=?, completed_at=CURRENT_TIMESTAMP, seed_stopped_at=NULL WHERE id=? AND user_id=?`,
 			status, id, userID)
+	case StatusPaused:
+		// Pausing only applies to LIVE rows. A terminal row (completed/failed) that
+		// flipped to `paused` got stranded: Requeue refuses to leave `completed`, so
+		// the follow-up resume was a no-op, and the card lost its completed-only
+		// actions (promote / stop-seed / open-local) — the item stayed in the list
+		// with no way to remove it while keeping the files. Same exclusion
+		// SetStatusForUser (pause-all) has always applied.
+		_, err = s.db.Exec(`
+			UPDATE downloads SET status=? WHERE id=? AND user_id=? AND status NOT IN (?, ?)`,
+			status, id, userID, StatusCompleted, StatusFailed)
 	default:
 		_, err = s.db.Exec(`UPDATE downloads SET status=? WHERE id=? AND user_id=?`, status, id, userID)
 	}
@@ -63,6 +73,13 @@ func (s *Store) SetStatusByIDs(userID int, ids []int, status string) (int64, err
 		args = append(args, id)
 	}
 	q += ")"
+	// Same terminal guard as SetStatus: a batch pause over a mixed selection
+	// skips the finished rows instead of stranding them, and the returned count
+	// reflects only the rows actually paused (the UI reports it back).
+	if status == StatusPaused {
+		q += " AND status NOT IN (?, ?)"
+		args = append(args, StatusCompleted, StatusFailed)
+	}
 	res, err := s.db.Exec(q, args...)
 	if err != nil {
 		return 0, err

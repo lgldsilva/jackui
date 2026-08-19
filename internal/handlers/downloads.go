@@ -305,7 +305,8 @@ func notifyRemoved(worker DownloadRemover, row *downloads.Download) {
 
 // DownloadsPause handles PATCH /api/downloads/:id/pause — flips status to paused.
 // The worker's next tick will untrack the row and unregister the streamer
-// protection, but the on-disk bytes already fetched stay there.
+// protection, but the on-disk bytes already fetched stay there. Finished rows
+// (completed/failed) are rejected with 409 — see the guard below.
 func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
@@ -315,8 +316,17 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		// Ownership check first
-		if _, err := store.Get(userID, id); err != nil {
+		row, err := store.Get(userID, id)
+		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
+			return
+		}
+		// A finished download has nothing to pause, and flipping it to `paused`
+		// stranded the row: resume refuses to leave `completed`, and the card lost
+		// its completed-only actions (promote / stop-seed / open-local). Reject
+		// instead of silently mangling the row — the store enforces this too.
+		if row.Status == downloads.StatusCompleted || row.Status == downloads.StatusFailed {
+			httpshared.RespondErrorMessage(c, http.StatusConflict, ErrNotPausable)
 			return
 		}
 		if err := store.SetStatus(userID, id, downloads.StatusPaused); err != nil {

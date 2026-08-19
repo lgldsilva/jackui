@@ -102,9 +102,11 @@ func TestSetStatusCompletedClearsSeedStopped(t *testing.T) {
 		t.Fatalf("StopSeed: %v", err)
 	}
 
-	// Move to paused then back to completed: auto-seed should be re-enabled.
-	if err := s.SetStatus(1, d.ID, StatusPaused); err != nil {
-		t.Fatalf("SetStatus paused: %v", err)
+	// Re-download then back to completed: auto-seed should be re-enabled.
+	// (Not via `paused`: SetStatus refuses to pause a terminal row — see
+	// TestSetStatusPausedIgnoresCompleted.)
+	if err := s.SetStatus(1, d.ID, StatusDownloading); err != nil {
+		t.Fatalf("SetStatus downloading: %v", err)
 	}
 	if err := s.SetStatus(1, d.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus completed again: %v", err)

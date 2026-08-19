@@ -579,7 +579,7 @@
       "noActiveTransfer": "No active transfers",
       "noActiveTransferDesc": "Start a stream or use the \"Download on Server\" button in the player to queue downloads.",
       "promoteAll": "Promote all",
-      "stopSeedAll": "Stop seeding all",
+      "stopSeedAll": "Stop & remove all (files stay on disk)",
       "removeTorrentFromList": "Remove torrent from list",
       "retryAllFailed": "Retry (all failed)",
       "resumeTorrent": "Resume torrent",
