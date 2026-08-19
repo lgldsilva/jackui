@@ -114,16 +114,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: golangci-lint
-        run: |
-          mkdir -p ui/dist && printf '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>p</title></head><body></body></html>\n' > ui/dist/index.html
-          # go run @vX consults a phantom v2.13.0 on sum.golang.org (404). Fetch the
-          # pinned GitHub release tarball and verify its checksum instead of curl|sh.
-          curl -sSfL -o /tmp/golangci.tgz \
-            https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz
-          echo "8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553  /tmp/golangci.tgz" | sha256sum -c
-          tar -C /tmp -xzf /tmp/golangci.tgz
-          /tmp/golangci-lint-2.12.2-linux-amd64/golangci-lint run --new-from-rev=origin/main ./...
+      - name: stub ui dist for embed
+        run: mkdir -p ui/dist && printf '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>p</title></head><body></body></html>\n' > ui/dist/index.html
+
+      # go run @vX currently fails on a phantom v2.13.0 in the Go module index.
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a  # v9.3.0
+        with:
+          version: v2.12.2
+          args: --new-from-rev=origin/main
 
   # SonarCloud (sonarcloud.io) — cloud analysis that works from GitHub-hosted
   # runners (the homelab SonarQube is LAN-only; pattern modelled on ai-launcher).
