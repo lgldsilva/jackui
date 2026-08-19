@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { isIOS, isSafariBrowser } from '../../api/client'
 import { clientLog } from '../../lib/diag'
+import { usePersistedVolume } from './usePersistedVolume'
 
 type SimpleAudioPlayerProps = {
   readonly src: string
@@ -38,6 +39,10 @@ export function SimpleAudioPlayer({
   const isWebKit = isSafariBrowser() || isIOS()
   const blessedRef = useRef(false)
   const attachedSrcRef = useRef('')
+
+  // Mudo/volume são preferência do usuário: mantidos entre faixas e entre
+  // sessões do player (os controles nativos são a via de mute aqui).
+  usePersistedVolume({ mediaRef: audioRef, elementKey: src })
 
   // Auto-avanço: quando o src muda E já tocou uma vez (blessed), toca a faixa nova.
   // Antes do 1º play NÃO auto-toca — o usuário usa o play nativo (gesto). O guard

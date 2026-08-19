@@ -14,6 +14,7 @@ const (
 	ErrNameRequired      = "name is required"
 	ErrQueryRequired     = "query parameter 'q' is required"
 	ErrFileIdxOutOfRange = "file index out of range"
+	ErrNotPausable       = "cannot pause a finished download"
 	ErrTMDBDisabled      = "tmdb disabled"
 	// #nosec G101 -- falso-positivo: constante de mensagem de erro, nao credencial
 	ErrPasskeysNotConfig = "passkeys não configuradas"
