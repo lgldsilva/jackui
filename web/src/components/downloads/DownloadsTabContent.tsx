@@ -104,6 +104,7 @@ export function DownloadsTabContent(props: {
           {/* Background downloads for this tab */}
           <SeedingTab
             torrents={[]}
+            liveTorrents={tabTorrents[activeTab]}
             downloads={tabDownloads[activeTab]}
             completedFilter={effectiveCompletedFilter}
             torrentsLoaded={torrentsLoaded}
