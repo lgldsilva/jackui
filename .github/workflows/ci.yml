@@ -114,10 +114,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: golangci-lint
-        run: |
-          mkdir -p ui/dist && printf '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>p</title></head><body></body></html>\n' > ui/dist/index.html
-          go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run --new-from-rev=origin/main ./...
+      - name: stub ui dist for embed
+        run: mkdir -p ui/dist && printf '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>p</title></head><body></body></html>\n' > ui/dist/index.html
+
+      # go run @vX currently fails on a phantom v2.13.0 in the Go module index.
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a  # v9.3.0
+        with:
+          version: v2.12.2
+          args: --new-from-rev=origin/main
 
   # SonarCloud (sonarcloud.io) — cloud analysis that works from GitHub-hosted
   # runners (the homelab SonarQube is LAN-only; pattern modelled on ai-launcher).
