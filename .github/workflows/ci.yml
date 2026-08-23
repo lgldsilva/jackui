@@ -53,26 +53,6 @@ jobs:
           path: ${{ runner.temp }}/jackui-ci-artifacts
           if-no-files-found: warn
 
-      - name: Detect coverage artifact
-        id: coverage
-        if: always()
-        run: |
-          if test -f "$CI_ARTIFACT_DIR/coverage.out"; then
-            echo 'present=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'present=false' >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          CI_ARTIFACT_DIR: ${{ runner.temp }}/jackui-ci-artifacts
-
-      - name: Upload coverage to Codecov
-        if: always() && steps.coverage.outputs.present == 'true'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
-        with:
-          files: ${{ runner.temp }}/jackui-ci-artifacts/coverage.out
-          flags: backend
-          fail_ci_if_error: true
-
   # SonarCloud is intentionally separate from ARM execution because it consumes
   # the immutable coverage artifact and performs no build or test work.
   sonar:

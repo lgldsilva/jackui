@@ -18,8 +18,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CI=true
 
 # The base images above are immutable. Debian package revision pins are avoided
-# deliberately so the Bookworm security mirror can supply current fixes; the CI
-# image scan is the gate that detects vulnerable package revisions.
+# deliberately so the Bookworm security mirror can supply current fixes on every
+# ephemeral rebuild; this image is never shipped. The shipped production image
+# is the one gated by a vulnerability scan (release.yml, Trivy CRITICAL).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \

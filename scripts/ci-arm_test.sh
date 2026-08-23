@@ -305,8 +305,8 @@ test_dockerfile_copy_is_selective() {
 	done
 }
 
-test_codecov_upload_is_fail_closed() {
-	grep -Eq '^[[:space:]]*fail_ci_if_error: true' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'Codecov upload is not fail-closed'
+test_no_unauthenticated_coverage_upload() {
+	! grep -qi 'codecov' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'unauthenticated Codecov upload reintroduced; coverage ships only via the SonarCloud artifact'
 }
 
 test_deepwork_ignore_override_is_complete() {
@@ -331,7 +331,7 @@ test_cleanup_failures_are_not_masked
 test_conflict_never_cleans_unowned_stack
 test_sonar_tls_is_fail_closed
 test_dockerfile_copy_is_selective
-test_codecov_upload_is_fail_closed
+test_no_unauthenticated_coverage_upload
 test_deepwork_ignore_override_is_complete
 test_host_suite_has_no_ripgrep_dependency
 printf 'ci-arm script tests passed\n'
