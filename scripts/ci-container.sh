@@ -30,13 +30,13 @@ main() {
 	mkdir -p "${ARTIFACT_DIR}" /tmp/jackui-ci-stream /tmp/jackui-ci-downloads /tmp/jackui-ci-library
 	trap stop_server EXIT INT TERM
 
-	test -z "$(gofmt -l .)"
+	[[ -z "$(gofmt -l .)" ]]
 	go vet ./internal/...
 	go test -p 4 -timeout 20m -coverprofile="${ARTIFACT_DIR}/coverage.out" ./internal/...
 
 	pushd web >/dev/null
-	npm ci
-	npx tsc --noEmit
+	npm ci --ignore-scripts
+	./node_modules/.bin/tsc --noEmit
 	npm run lint
 	npm run check:i18n
 	npm test

@@ -290,8 +290,23 @@ test_conflict_never_cleans_unowned_stack() {
 
 test_sonar_tls_is_fail_closed() {
 	local sonar_script="${PROJECT_ROOT}/scripts/sonar/sonar-ephemeral.sh"
-	! grep -Eq 'NODE_TLS_REJECT_UNAUTHORIZED|openssl s_client|local tls=\(-k\)' "${sonar_script}" || fail 'Sonar transport still permits unverified TLS'
+	! grep -Eq 'NODE_TLS_REJECT_UNAUTHORIZED|openssl s_client|local tls=\(-k\)|_create_unverified_context' "${sonar_script}" || fail 'Sonar transport still permits unverified TLS'
+	grep -Fq 'ssl.create_default_context' "${sonar_script}" || fail 'Sonar issues fetch does not verify TLS'
 	grep -Fq 'curl --fail --silent --show-error' "${sonar_script}" || fail 'Sonar API is not fail-closed'
+}
+
+test_dockerfile_copy_is_selective() {
+	local dockerfile="${PROJECT_ROOT}/Dockerfile.ci"
+	! grep -Eq '^COPY \. \.' "${dockerfile}" || fail 'Dockerfile.ci reintroduced a broad COPY'
+	grep -Fqx 'COPY go.mod go.sum .golangci.yml .ci-golangci.patch ./' "${dockerfile}" || fail 'CI image missing pinned manifest COPY'
+	local path
+	for path in cmd internal ui web scripts/ci-container.sh; do
+		grep -Fqx "COPY ${path} ./${path}" "${dockerfile}" || fail "CI image missing selective COPY of ${path}"
+	done
+}
+
+test_codecov_upload_is_fail_closed() {
+	grep -Eq '^[[:space:]]*fail_ci_if_error: true' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'Codecov upload is not fail-closed'
 }
 
 test_deepwork_ignore_override_is_complete() {
@@ -315,6 +330,8 @@ test_cleanup_is_scoped
 test_cleanup_failures_are_not_masked
 test_conflict_never_cleans_unowned_stack
 test_sonar_tls_is_fail_closed
+test_dockerfile_copy_is_selective
+test_codecov_upload_is_fail_closed
 test_deepwork_ignore_override_is_complete
 test_host_suite_has_no_ripgrep_dependency
 printf 'ci-arm script tests passed\n'

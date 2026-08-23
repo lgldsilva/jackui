@@ -1,10 +1,11 @@
 # syntax=docker/dockerfile:1.7
 #
-# Reproducible, glibc-based CI image.  It deliberately copies the checkout into
-# the image: a remote Docker context cannot safely bind-mount the runner's tree.
-FROM node:24.19.0-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS node
+# Reproducible, glibc-based CI image. A remote Docker context cannot safely
+# bind-mount the runner's tree. Digest for node:24.19.0-bookworm-slim.
+FROM node@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS node
 
-FROM golang:1.26.7-bookworm@sha256:6ef6e30f0ea5c384f6d111cf856e024e3086bbdcb1779da3f3b3fbba0aea53d2
+# Digest for golang:1.26.7-bookworm.
+FROM golang@sha256:6ef6e30f0ea5c384f6d111cf856e024e3086bbdcb1779da3f3b3fbba0aea53d2
 
 ARG GOLANGCI_LINT_VERSION=v2.13.1
 ARG NPM_VERSION=12.0.2
@@ -29,11 +30,12 @@ RUN apt-get update \
         make \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the pinned Node distribution instead of trusting a mutable apt channel,
-# then install the security-fixed npm release supported by Node 24.
+# Copy the pinned Node distribution instead of trusting a mutable apt channel.
+# Install exact npm and golangci-lint releases without dependency lifecycle
+# scripts; the Go module version pins the linter's authoritative module graph.
 COPY --from=node /usr/local /usr/local
 RUN set -eux; \
-    npm install --global "npm@${NPM_VERSION}"; \
+    npm install --global --ignore-scripts "npm@${NPM_VERSION}"; \
     npm install --prefix /tmp/npm-security-patches --ignore-scripts --no-save \
         "brace-expansion@${NPM_BRACE_EXPANSION_VERSION}" \
         "ip-address@${NPM_IP_ADDRESS_VERSION}" \
@@ -46,21 +48,30 @@ RUN set -eux; \
     cp -a /tmp/npm-security-patches/node_modules/brace-expansion "${npm_modules}/brace-expansion"; \
     cp -a /tmp/npm-security-patches/node_modules/ip-address "${npm_modules}/ip-address"; \
     cp -a /tmp/npm-security-patches/node_modules/tar "${npm_modules}/tar"; \
-    test "$(node -p "require('${npm_modules}/brace-expansion/package.json').version")" = "${NPM_BRACE_EXPANSION_VERSION}"; \
-    test "$(node -p "require('${npm_modules}/ip-address/package.json').version")" = "${NPM_IP_ADDRESS_VERSION}"; \
-    test "$(node -p "require('${npm_modules}/tar/package.json').version")" = "${NPM_TAR_VERSION}"; \
+    test \
+        "$(node -p "require('${npm_modules}/brace-expansion/package.json').version")" \
+        = "${NPM_BRACE_EXPANSION_VERSION}"; \
+    test \
+        "$(node -p "require('${npm_modules}/ip-address/package.json').version")" \
+        = "${NPM_IP_ADDRESS_VERSION}"; \
+    test \
+        "$(node -p "require('${npm_modules}/tar/package.json').version")" \
+        = "${NPM_TAR_VERSION}"; \
     rm -rf /tmp/npm-security-patches; \
-    npm --version
-
-# Build the pinned lint module with the pinned Go toolchain. The release module
-# graph remains authoritative; do not ad-hoc upgrade its transitive modules.
-RUN set -eux; \
+    npm --version; \
     GOBIN=/tmp/golangci-bin go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"; \
     install -m 0755 /tmp/golangci-bin/golangci-lint /usr/local/bin/golangci-lint; \
     rm -rf /tmp/golangci-bin; \
     go version; node --version; npm --version; golangci-lint --version
 
 WORKDIR /workspace
-COPY . .
+# Copy only inputs required by the CI contract. The host-generated patch is
+# explicit, so secrets or unrelated files cannot enter through a broad COPY.
+COPY go.mod go.sum .golangci.yml .ci-golangci.patch ./
+COPY cmd ./cmd
+COPY internal ./internal
+COPY ui ./ui
+COPY web ./web
+COPY scripts/ci-container.sh ./scripts/ci-container.sh
 
 ENTRYPOINT ["/workspace/scripts/ci-container.sh"]

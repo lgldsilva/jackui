@@ -74,7 +74,7 @@ PDF_CMD="${PDF_CMD:-}"
 # When 1, only pass host/token/projectKey/name; rely on sonar-project.properties
 # for sources/tests/exclusions (CLI -D would override those keys).
 USE_PROJECT_PROPERTIES="${USE_PROJECT_PROPERTIES:-0}"
-if [ -z "$SONAR_HOST_URL" ]; then
+if [[ -z "$SONAR_HOST_URL" ]]; then
   echo "✘ SONAR_HOST_URL not set"
   exit 1
 fi
@@ -87,24 +87,24 @@ fi
 # store; certificate verification is never disabled.
 _default_ca=/usr/local/share/ca-certificates/gitea-ca.crt
 SONAR_CA_CERT="${SONAR_CA_CERT:-${NODE_EXTRA_CA_CERTS:-}}"
-if [ -z "$SONAR_CA_CERT" ] && [ -f "$_default_ca" ]; then
+if [[ -z "$SONAR_CA_CERT" && -f "$_default_ca" ]]; then
   SONAR_CA_CERT="$_default_ca"
 fi
-if [ -n "$SONAR_CA_CERT" ] && [ ! -f "$SONAR_CA_CERT" ]; then
+if [[ -n "$SONAR_CA_CERT" && ! -f "$SONAR_CA_CERT" ]]; then
   echo "✘ SONAR_CA_CERT does not exist"
   exit 1
 fi
-if [ -n "$SONAR_CA_CERT" ]; then
+if [[ -n "$SONAR_CA_CERT" ]]; then
   NODE_EXTRA_CA_CERTS="$SONAR_CA_CERT"
   export SONAR_CA_CERT NODE_EXTRA_CA_CERTS
 else
   unset NODE_EXTRA_CA_CERTS 2>/dev/null || true
 fi
-if [ -z "$SONAR_TOKEN" ]; then
+if [[ -z "$SONAR_TOKEN" ]]; then
   echo "✘ SONAR_TOKEN not set"
   exit 1
 fi
-if [ -z "$PROJECT_KEY" ]; then
+if [[ -z "$PROJECT_KEY" ]]; then
   echo "✘ PROJECT_KEY not set"
   exit 1
 fi
@@ -116,7 +116,7 @@ export SONAR_HOST_URL SONAR_TOKEN PROJECT_KEY PROJECT_NAME EPHEMERAL REPORT_DIR 
 # CA is configured, build a temporary trustStore from that already-trusted PEM.
 _setup_java_truststore_for_sonar() {
   local cert ts pass
-  [ -n "$SONAR_CA_CERT" ] || return 0
+  [[ -n "$SONAR_CA_CERT" ]] || return 0
   cert="$REPORT_DIR/.sonar-server.pem"
   ts="$REPORT_DIR/.sonar-truststore.jks"
   pass=changeit
@@ -148,7 +148,7 @@ api() {
   local method="$1" path="$2"
   shift 2
   local tls=()
-  [ -n "$SONAR_CA_CERT" ] && tls=(--cacert "$SONAR_CA_CERT")
+  [[ -n "$SONAR_CA_CERT" ]] && tls=(--cacert "$SONAR_CA_CERT")
   curl --fail --silent --show-error "${tls[@]}" -X "$method" \
     -H "Authorization: Bearer ${SONAR_TOKEN}" "${SONAR_HOST_URL}${path}" "$@"
 }
@@ -156,7 +156,7 @@ api() {
 # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
 cleanup() {
   local rc=$?
-  if [ "$EPHEMERAL" = "1" ]; then
+  if [[ "$EPHEMERAL" == "1" ]]; then
     echo "→ deleting temporary Sonar project: $PROJECT_KEY"
     api POST "/api/projects/delete" --data-urlencode "project=${PROJECT_KEY}" >/dev/null 2>&1 \
       || echo "  (delete non-zero — may already be gone)"
@@ -166,16 +166,16 @@ cleanup() {
 trap cleanup EXIT
 
 # Coverage file optional; when requested ensure it exists.
-if [ -n "$COVERAGE_FILE" ]; then
-  if [ ! -s "$COVERAGE_FILE" ] && [ -n "$COVERAGE_GENERATE_CMD" ]; then
+if [[ -n "$COVERAGE_FILE" ]]; then
+  if [[ ! -s "$COVERAGE_FILE" && -n "$COVERAGE_GENERATE_CMD" ]]; then
     echo "→ generating $COVERAGE_FILE"
     bash -c "$COVERAGE_GENERATE_CMD"
   fi
-  if [ ! -s "$COVERAGE_FILE" ]; then
+  if [[ ! -s "$COVERAGE_FILE" ]]; then
     echo "✘ COVERAGE_FILE=$COVERAGE_FILE missing or empty"
     exit 1
   fi
-  if [ -z "$COVERAGE_PROPERTY" ]; then
+  if [[ -z "$COVERAGE_PROPERTY" ]]; then
     # Sensible defaults by stack hint
     case "$COVERAGE_FILE" in
       *.out)              COVERAGE_PROPERTY="sonar.go.coverage.reportPaths=${COVERAGE_FILE}" ;;
@@ -196,9 +196,9 @@ ARGS=(
   "-Dsonar.projectName=${PROJECT_NAME}"
   "-Dsonar.qualitygate.wait=true"
 )
-if [ "$USE_PROJECT_PROPERTIES" = "1" ]; then
+if [[ "$USE_PROJECT_PROPERTIES" == "1" ]]; then
   echo "→ USE_PROJECT_PROPERTIES=1 (sources/tests/exclusions from sonar-project.properties)"
-  if [ -n "$COVERAGE_PROPERTY" ]; then
+  if [[ -n "$COVERAGE_PROPERTY" ]]; then
     ARGS+=("-D${COVERAGE_PROPERTY#-D}")
   fi
 else
@@ -206,20 +206,20 @@ else
     "-Dsonar.sources=${SONAR_SOURCES}"
     "-Dsonar.sourceEncoding=UTF-8"
   )
-  if [ -n "$SONAR_TESTS" ]; then
+  if [[ -n "$SONAR_TESTS" ]]; then
     ARGS+=("-Dsonar.tests=${SONAR_TESTS}")
   fi
-  if [ -n "$SONAR_TEST_INCLUSIONS" ]; then
+  if [[ -n "$SONAR_TEST_INCLUSIONS" ]]; then
     ARGS+=("-Dsonar.test.inclusions=${SONAR_TEST_INCLUSIONS}")
   fi
-  if [ -n "$SONAR_COVERAGE_EXCLUSIONS" ]; then
+  if [[ -n "$SONAR_COVERAGE_EXCLUSIONS" ]]; then
     ARGS+=("-Dsonar.coverage.exclusions=${SONAR_COVERAGE_EXCLUSIONS}")
   fi
-  if [ -n "$COVERAGE_PROPERTY" ]; then
+  if [[ -n "$COVERAGE_PROPERTY" ]]; then
     ARGS+=("-D${COVERAGE_PROPERTY#-D}")
   fi
 fi
-if [ -n "$EXTRA_SONAR_ARGS" ]; then
+if [[ -n "$EXTRA_SONAR_ARGS" ]]; then
   # shellcheck disable=SC2206
   EXTRA=( $EXTRA_SONAR_ARGS )
   ARGS+=("${EXTRA[@]}")
@@ -268,7 +268,8 @@ host = os.environ["SONAR_HOST_URL"].rstrip("/")
 token = os.environ["SONAR_TOKEN"]
 key = os.environ["PROJECT_KEY"]
 report_dir = Path(os.environ["REPORT_DIR"])
-ctx = ssl._create_unverified_context()
+# TLS verification is never disabled; honor SONAR_CA_CERT for private CAs.
+ctx = ssl.create_default_context(cafile=os.environ.get("SONAR_CA_CERT") or None)
 
 page, ps = 1, 100
 all_issues, components, rules = [], [], []
@@ -680,14 +681,14 @@ if failures:
         print(f"  - {f}")
 PY
 
-if [ "$GENERATE_PDF" = "1" ] && [ -f "$REPORT_DIR/sonar-report.md" ]; then
-  if [ -n "$PDF_CMD" ]; then
+if [[ "$GENERATE_PDF" == "1" && -f "$REPORT_DIR/sonar-report.md" ]]; then
+  if [[ -n "$PDF_CMD" ]]; then
     echo "→ generating PDF via PDF_CMD"
     set +e
     bash -c "$PDF_CMD" 2>"$REPORT_DIR/sonar-pdf.log"
     PDF_RC=$?
     set -e
-    if [ "$PDF_RC" -eq 0 ] && [ -f "$REPORT_DIR/sonar-report.pdf" ]; then
+    if [[ "$PDF_RC" -eq 0 && -f "$REPORT_DIR/sonar-report.pdf" ]]; then
       echo "→ wrote $REPORT_DIR/sonar-report.pdf"
     else
       echo "  (PDF skipped — see $REPORT_DIR/sonar-pdf.log)"
@@ -699,7 +700,7 @@ fi
 
 echo "→ report files in $REPORT_DIR:"
 ls -la "$REPORT_DIR" || true
-if [ -f "$REPORT_DIR/sonar-report.md" ]; then
+if [[ -f "$REPORT_DIR/sonar-report.md" ]]; then
   echo ""
   echo "======== sonar-report.md (full) ========"
   cat "$REPORT_DIR/sonar-report.md"
@@ -712,22 +713,22 @@ echo "quality_gate_status=$QG_STATUS"
 echo "local_gate_result=$GATE_RESULT"
 
 FAIL=0
-if [ "$QG_STATUS" = "ERROR" ] || [ "$QG_STATUS" = "FAILED" ]; then
+if [[ "$QG_STATUS" == "ERROR" || "$QG_STATUS" == "FAILED" ]]; then
   echo "✘ Sonar quality gate FAILED (status=$QG_STATUS)"
   FAIL=1
 fi
-if [ "${SCAN_RC}" -ne 0 ]; then
+if [[ "${SCAN_RC}" -ne 0 ]]; then
   echo "✘ Scanner exit code ${SCAN_RC} (reports kept under $REPORT_DIR)"
   FAIL=1
 fi
-if [ "$GATE_RESULT" = "FAIL" ]; then
+if [[ "$GATE_RESULT" == "FAIL" ]]; then
   echo "✘ Local quality floors FAILED (bugs/vulns/smells/coverage/ratings — see report)"
-  if [ -s "$REPORT_DIR/.gate_failures" ]; then
+  if [[ -s "$REPORT_DIR/.gate_failures" ]]; then
     sed 's/^/  - /' "$REPORT_DIR/.gate_failures"
   fi
   FAIL=1
 fi
-if [ "$FAIL" -ne 0 ]; then
+if [[ "$FAIL" -ne 0 ]]; then
   echo "✘ Gate blocked — reports persisted under $REPORT_DIR before project delete"
   exit 1
 fi

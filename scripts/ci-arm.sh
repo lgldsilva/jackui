@@ -19,7 +19,8 @@ CI_STACK_OWNED=0
 CLEANUP_DONE=0
 
 trim() {
-	local value=$1
+	local value
+	value=$1
 	value="${value#"${value%%[![:space:]]*}"}"
 	value="${value%"${value##*[![:space:]]}"}"
 	printf '%s' "${value}"
