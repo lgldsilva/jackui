@@ -118,7 +118,7 @@ test_index_snapshot_boundary() {
 	create_index_snapshot "${repo}"
 	snapshot="${CI_SNAPSHOT_DIR}"
 	[[ -f "${snapshot}/new-staged.txt" ]] || fail 'staged file missing from index snapshot'
-	rg -q 'new-staged.txt' "${snapshot}/.ci-golangci.patch" || fail 'index patch missed staged file'
+	grep -Fq 'new-staged.txt' "${snapshot}/.ci-golangci.patch" || fail 'index patch missed staged file'
 	[[ -f "${snapshot}/internal/auth/auth_credentials.go" ]] || fail 'tracked auth_credentials.go missing from snapshot'
 	remove_snapshot "${snapshot}" "${temp_root}"
 	[[ ! -e "${snapshot}" ]] || fail 'exact temporary snapshot was not removed'
@@ -160,13 +160,14 @@ test_artifact_directory_must_be_empty() {
 }
 
 test_jackett_endpoint_is_scoped_to_smoke() {
-	! rg -q '^[[:space:]]*JACKETT_URL:' "${PROJECT_ROOT}/docker-compose.ci.yml" || fail 'Jackett endpoint leaked into CI test environment'
-	rg -q '^\s*JACKETT_URL=http://127\.0\.0\.1:9 "\$\{SERVER_BIN\}"' "${SCRIPT_DIR}/ci-container.sh" || fail 'smoke process does not isolate the Jackett endpoint'
+	! grep -Eq '^[[:space:]]*JACKETT_URL:' "${PROJECT_ROOT}/docker-compose.ci.yml" || fail 'Jackett endpoint leaked into CI test environment'
+	grep -Eq '^[[:space:]]*JACKETT_URL=http://127\.0\.0\.1:9 "\$\{SERVER_BIN\}"' "${SCRIPT_DIR}/ci-container.sh" || fail 'smoke process does not isolate the Jackett endpoint'
 }
 
 test_workflow_prepares_artifact_directory() {
-	rg -q 'scripts/ci-arm_test\.sh' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'workflow does not gate the host-side CI orchestrator tests'
-	rg -q 'mkdir -p -- "\$CI_ARTIFACT_DIR"' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'workflow does not prepare its configured artifact directory'
+	grep -Fq 'scripts/ci-arm_test.sh' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'workflow does not gate the host-side CI orchestrator tests'
+	# shellcheck disable=SC2016 # The workflow must contain this literal variable reference.
+	grep -Fq 'mkdir -p -- "$CI_ARTIFACT_DIR"' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'workflow does not prepare its configured artifact directory'
 }
 
 test_cleanup_is_scoped() {
@@ -195,7 +196,7 @@ test_cleanup_is_scoped() {
 	cleanup_rc=$?
 	set -e
 	[[ "${cleanup_rc}" == 17 ]] || fail "cleanup changed exit code: ${cleanup_rc}"
-	rg -qx 'compose down --volumes --remove-orphans' "${log_file}" || fail 'cleanup used an unsafe compose target'
+	grep -Fqx 'compose down --volumes --remove-orphans' "${log_file}" || fail 'cleanup used an unsafe compose target'
 	[[ ! -e "${snapshot}" ]] || fail 'cleanup did not remove only its snapshot'
 	rm -f "${log_file}"
 	rmdir "${CI_ARTIFACT_DIR}"
@@ -280,8 +281,8 @@ test_conflict_never_cleans_unowned_stack() {
 	cleanup_rc=$?
 	set -e
 	[[ "${cleanup_rc}" == 73 ]] || fail "conflict exit code changed: ${cleanup_rc}"
-	rg -qx 'compose config' "${log_file}" || fail 'conflict fixture did not reach Compose validation'
-	! rg -q 'compose down|^docker ' "${log_file}" || fail 'conflict cleanup touched an unowned Docker resource'
+	grep -Fqx 'compose config' "${log_file}" || fail 'conflict fixture did not reach Compose validation'
+	! grep -Eq 'compose down|^docker ' "${log_file}" || fail 'conflict cleanup touched an unowned Docker resource'
 	[[ ! -e "${snapshot}" ]] || fail 'conflict cleanup did not remove its local snapshot'
 	rm -f "${log_file}"
 	rmdir "${artifact_dir}" "${temp_root}"
@@ -289,13 +290,17 @@ test_conflict_never_cleans_unowned_stack() {
 
 test_sonar_tls_is_fail_closed() {
 	local sonar_script="${PROJECT_ROOT}/scripts/sonar/sonar-ephemeral.sh"
-	! rg -q 'NODE_TLS_REJECT_UNAUTHORIZED|openssl s_client|local tls=\(-k\)' "${sonar_script}" || fail 'Sonar transport still permits unverified TLS'
-	rg -q 'curl --fail --silent --show-error' "${sonar_script}" || fail 'Sonar API is not fail-closed'
+	! grep -Eq 'NODE_TLS_REJECT_UNAUTHORIZED|openssl s_client|local tls=\(-k\)' "${sonar_script}" || fail 'Sonar transport still permits unverified TLS'
+	grep -Fq 'curl --fail --silent --show-error' "${sonar_script}" || fail 'Sonar API is not fail-closed'
 }
 
 test_deepwork_ignore_override_is_complete() {
-	rg -qx '!\.slim/' "${PROJECT_ROOT}/.ignore" || fail '.ignore does not reopen the ignored .slim parent'
-	rg -qx '!\.slim/deepwork/\*\*' "${PROJECT_ROOT}/.ignore" || fail '.ignore does not expose deepwork state to repository tools'
+	grep -Fqx '!.slim/' "${PROJECT_ROOT}/.ignore" || fail '.ignore does not reopen the ignored .slim parent'
+	grep -Fqx '!.slim/deepwork/**' "${PROJECT_ROOT}/.ignore" || fail '.ignore does not expose deepwork state to repository tools'
+}
+
+test_host_suite_has_no_ripgrep_dependency() {
+	! grep -Eq '^[[:space:]]*(![[:space:]]+)?rg[[:space:]]' "${TEST_SCRIPT_DIR}/ci-arm_test.sh" || fail 'host-side CI tests require ripgrep'
 }
 
 test_allowlisted_env_and_redaction
@@ -311,4 +316,5 @@ test_cleanup_failures_are_not_masked
 test_conflict_never_cleans_unowned_stack
 test_sonar_tls_is_fail_closed
 test_deepwork_ignore_override_is_complete
+test_host_suite_has_no_ripgrep_dependency
 printf 'ci-arm script tests passed\n'
