@@ -1,0 +1,4 @@
+# Deepwork progress files stay locally readable by agent tooling.
+!.slim/
+!.slim/deepwork/
+!.slim/deepwork/**

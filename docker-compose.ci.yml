@@ -1,0 +1,41 @@
+# Isolated CI stack.  Do not merge this file with a production compose file.
+# Source is baked into the ci image, so it also works through an SSH Docker
+# context where the daemon cannot see the runner filesystem.
+services:
+  postgres:
+    image: postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+    environment:
+      POSTGRES_DB: jackui_test
+      POSTGRES_USER: jackui
+      POSTGRES_PASSWORD: jackui_ci_test_only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jackui -d jackui_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    # Port 0 asks Docker for an ephemeral loopback mapping; the ci container
+    # talks to postgres on the private Compose network and never needs this.
+    ports:
+      - "127.0.0.1:${JACKUI_CI_POSTGRES_PORT:-0}:5432"
+
+  ci:
+    image: ${JACKUI_CI_EFFECTIVE_IMAGE:?ci image is required}
+    build:
+      context: .
+      dockerfile: Dockerfile.ci
+      args:
+        TARGETARCH: ${JACKUI_CI_DOCKER_ARCH:-arm64}
+    environment:
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:jackui_ci_test_only@postgres:5432/jackui_test?sslmode=disable
+      JACKUI_DATABASE_URL: postgres://jackui:jackui_ci_test_only@postgres:5432/jackui_test?sslmode=disable
+      JACKUI_AUTH_ENABLED: "0"
+      JACKUI_ALLOW_INSECURE_AUTH: "1"
+      JACKUI_STREAM_DIR: /tmp/jackui-ci-stream
+      JACKUI_DOWNLOAD_DIR: /tmp/jackui-ci-downloads
+      JACKUI_SHARED_DIR: /tmp/jackui-ci-library
+      JACKUI_EXTERNAL_MOUNTS: ""
+      CI_ARTIFACT_DIR: /artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy

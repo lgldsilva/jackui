@@ -37,8 +37,7 @@ coverage.out
 
 # Deepwork progress files (session state, not for the repo)
 .slim/
-!.slim/deepwork/
-!.slim/deepwork/**
+.slim/deepwork/
 
 # Antigravity (Gemini CLI) — symlinks to external user config, não vai pro repo
 .antigravitycli/
@@ -78,4 +77,3 @@ electron/version.json
 # Sonar security artifacts & output
 sonar-out/
 *.pem
-

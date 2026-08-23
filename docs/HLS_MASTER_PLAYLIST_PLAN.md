@@ -6,7 +6,7 @@
 > **Arquitetura**: Option B — master sintético + sessões lazy (trancada @oracle)
 > **Áudio**: **B1** — renditions audio-only separadas (RFC 8216 / Apple Authoring); B3 (URI AUDIO = AV remux) **rejeitada**
 > **Entrega** (decidido 2026-07-11): **stack de 2 PRs separados**. **PR-A = M2a** (multi-res: master `STREAM-INF` lazy; áudio default muxado; troca de faixa continua `?audio=` reload) → entrega CA-2.1, shippable sozinho. **PR-B = M2b** (renditions B1: `TYPE=AUDIO` audio-only + `TYPE=SUBTITLES` WebVTT + `hls.audioTrack` seamless + fallback Safari) sobre a `main` já com M2a → entrega CA-2.2. ⚠️ PR-B é o maior blast radius (L8 🔴): validação E2E/Safari obrigatória antes do merge.
-> **Validação**: software local (Apple Silicon) + GPU via Docker (`oracle-desktop`, GTX 1070)
+> **Validação**: software local (Apple Silicon) + GPU via Docker no contexto configurado
 > **Refs**: `docs/REQUIREMENTS.md` §M2 · `docs/design-decisions.md` §Playback · README roadmap · RFC 8216 §3.5/§4.3.4/§8.6 · [Apple HLS Authoring](https://developer.apple.com/documentation/http-live-streaming/hls-authoring-specification-for-apple-devices)
 
 ---
@@ -385,10 +385,10 @@ Branch da `main` atualizada. Deepwork file: `.slim/deepwork/hls-master-p2.md`.
          multistream.mkv
   ```
 - E2E: master ≥2 STREAM-INF + EXT-X-MEDIA; fetch variant + 1 seg; fetch audio playlist
-- GPU: `docker --context oracle-desktop` + `JACKUI_MAX_GPU_TRANSCODES=1` (força sw) + OOM path
+- GPU: `docker --context "$JACKUI_GPU_DOCKER_CONTEXT"` + `JACKUI_MAX_GPU_TRANSCODES=1` (força sw) + OOM path
 - Manual Safari: t=0, seek, áudio, qualidade
 - Gates: `go vet`, `go test`, `npm test`, Sonar zero new_violations, Trivy, govulncheck
-- **Gate**: tudo verde → PR Gitea
+- **Gate**: tudo verde → PR GitHub
 
 #### Pós-M2: R3 + R4 (housekeeping)
 - **R3**: fatiar `web/src/api/local.ts` / `stream.ts` se ainda >600
@@ -402,10 +402,10 @@ Branch da `main` atualizada. Deepwork file: `.slim/deepwork/hls-master-p2.md`.
 - Unit/integration com libx264
 - Fixture MKV + parser de manifest
 
-### Homelab (oracle-desktop — GTX 1070, CUDA)
+### Homelab (host GPU configurado — CUDA)
 ```bash
-docker --context oracle-desktop build -f Dockerfile.nvidia -t jackui:hls-m2-test .
-docker --context oracle-desktop run --gpus all \
+docker --context "$JACKUI_GPU_DOCKER_CONTEXT" build -f Dockerfile.nvidia -t jackui:hls-m2-test .
+docker --context "$JACKUI_GPU_DOCKER_CONTEXT" run --gpus all \
   -e JACKUI_MAX_GPU_TRANSCODES=3 \
   -v ./testdata:/data \
   jackui:hls-m2-test
@@ -413,8 +413,8 @@ docker --context oracle-desktop run --gpus all \
 ```
 
 Contextos:
-- `oracle-desktop` — GTX 1070 — **validação GPU principal**
-- `homeserver` — ARM, sem GPU — software-only
+- Host GPU configurado — **validação GPU principal**
+- Host ARM configurado, sem GPU — software-only
 
 ---
 
