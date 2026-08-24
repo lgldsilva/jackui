@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -141,7 +142,9 @@ func (w *Worker) sendNtfy(ctx context.Context, title, body, tags string) {
 		}
 		resp, err := w.ntfyClient.Do(req)
 		if err == nil {
+			// Drain (capped) before Close so the keep-alive connection can be reused.
 			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
 			resp.Body.Close()
 			if resp.StatusCode < 300 {
 				return

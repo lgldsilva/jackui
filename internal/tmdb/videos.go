@@ -2,7 +2,6 @@ package tmdb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -58,7 +57,7 @@ func (c *Client) Videos(ctx context.Context, kind string, tmdbID int) ([]Video, 
 		return nil, fmt.Errorf("tmdb videos %s/%d returned %d", kind, tmdbID, resp.StatusCode)
 	}
 	var out videosResp
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeJSON(resp.Body, &out); err != nil {
 		return nil, err
 	}
 	return rankVideos(out), nil
