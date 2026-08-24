@@ -280,7 +280,7 @@ build: _check-go web/node_modules
 	$(call ok,Frontend pronto em ui/dist/)
 
 	$(call step,[2/2] Compilando binário Go...)
-	@go build -ldflags "$(GO_LDFLAGS)" -o jackui ./cmd/server
+	@go build -trimpath -ldflags "-s -w $(GO_LDFLAGS)" -o jackui ./cmd/server
 	$(call ok,Binário gerado: ./jackui)
 
 clean:

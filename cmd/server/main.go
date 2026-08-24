@@ -5,10 +5,15 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -123,8 +128,65 @@ func (d *appDeps) runCleanup() {
 	}
 }
 
+// setSoftMemoryLimit aplica um limite suave de heap ao coletor de lixo
+// (runtime/debug.SetMemoryLimit) a partir de JACKUI_GOMEMLIMIT. Em hosts
+// pequenos (Raspberry Pi, containers com teto de RAM) o GC padrão só reage à
+// razão GOGC e pode deixar o heap crescer até o OOM-killer agir; o soft limit
+// faz o GC intensificar antes do teto. Formatos aceitos: "off" (desativa),
+// inteiro em bytes ("536870912") ou com sufixo binário KiB/MiB/GiB ("512MiB").
+// Vazio/inválido = comportamento padrão do Go.
+func setSoftMemoryLimit(v string) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return
+	}
+	if strings.EqualFold(v, "off") {
+		debug.SetMemoryLimit(-1)
+		slog.Info("JACKUI_GOMEMLIMIT=off — soft limit desativado")
+		return
+	}
+	limit, ok := parseMemLimit(v)
+	if !ok {
+		slog.Warn("JACKUI_GOMEMLIMIT inválido — ignorado", "valor", v,
+			"esperado", "bytes inteiros ou sufixo KiB/MiB/GiB")
+		return
+	}
+	prev := debug.SetMemoryLimit(limit)
+	if prev == math.MaxInt64 {
+		slog.Info("soft memory limit aplicado", "limit", limit)
+	} else {
+		slog.Info("soft memory limit atualizado", "limit", limit, "anterior", prev)
+	}
+}
+
+func parseMemLimit(s string) (int64, bool) {
+	lower := strings.ToLower(s)
+	units := []struct {
+		suffix string
+		mult   int64
+	}{
+		{"kib", 1 << 10}, {"mib", 1 << 20}, {"gib", 1 << 30},
+		{"k", 1 << 10}, {"m", 1 << 20}, {"g", 1 << 30},
+	}
+	for _, u := range units {
+		if strings.HasSuffix(lower, u.suffix) {
+			n, err := strconv.ParseInt(strings.TrimSuffix(lower, u.suffix), 10, 64)
+			if err != nil || n <= 0 {
+				return 0, false
+			}
+			return n * u.mult, true
+		}
+	}
+	n, err := strconv.ParseInt(lower, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
 func main() {
 	setupLogger()
+	setSoftMemoryLimit(os.Getenv("JACKUI_GOMEMLIMIT"))
 	// Subcommands must be handled before loadConfig (which treats os.Args[1] as
 	// the config path).
 	if handledMigrateAuth() {
