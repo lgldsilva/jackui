@@ -53,6 +53,28 @@ jobs:
           path: ${{ runner.temp }}/jackui-ci-artifacts
           if-no-files-found: warn
 
+  # Dependency scanning gate (issue #80): the release pipeline only scans the
+  # final image for CRITICAL, so HIGH CVEs in go.mod/package-lock.json entered
+  # via PR unchecked. Runs on ubuntu-latest in parallel with arm-ci for fast
+  # feedback. Baseline scan was clean on HIGH,CRITICAL, so the gate fails on
+  # both severities.
+  depscan:
+    name: Dependency scan (Trivy fs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          skip-dirs: node_modules
+
   # SonarCloud is intentionally separate from ARM execution because it consumes
   # the immutable coverage artifact and performs no build or test work.
   sonar:
