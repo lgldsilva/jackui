@@ -41,7 +41,7 @@ COPY --from=frontend /app/ui/dist ./ui/dist
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIMESTAMP=unknown
 ARG APP_VERSION=dev
-RUN go build -ldflags "\
+RUN go build -trimpath -ldflags "-s -w \
       -X github.com/lgldsilva/jackui/internal/version.Commit=${GIT_COMMIT} \
       -X github.com/lgldsilva/jackui/internal/version.BuildTime=${BUILD_TIMESTAMP} \
       -X github.com/lgldsilva/jackui/internal/version.Version=${APP_VERSION}" \
