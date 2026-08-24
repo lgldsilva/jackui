@@ -55,6 +55,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # ui/embed.go embeds all:dist, so any package importing ui fails to
+      # compile without a frontend build. A one-file stub satisfies go:embed;
+      # unit tests never serve it.
+      - name: Stub embedded frontend dist
+        run: |
+          mkdir -p ui/dist
+          printf '<!doctype html><title>mutation stub</title>\n' > ui/dist/index.html
+
       # Sem threshold: gremlins sai 0 mesmo com mutantes vivos (não é gate).
       - name: gremlins unleash (business logic)
         run: |
