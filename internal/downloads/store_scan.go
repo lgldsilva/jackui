@@ -20,6 +20,16 @@ func scanRows(rows *sql.Rows) (*Download, error) {
 
 func scanGeneric(r rowScanner) (*Download, error) {
 	d := &Download{}
+	if err := scanGenericInto(r, d); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// scanGenericInto escaneia a linha diretamente num *Download existente,
+// sem alocação — usado pelo scanSlice para popular o slice in-place
+// (elimina 1 heap alloc + cópia de ~400 B por linha nos polls).
+func scanGenericInto(r rowScanner, d *Download) error {
 	var startedAt, completedAt, queuedSince, seedStoppedAt sql.NullTime
 	var linkedInt int // SMALLINT 0/1 → bool (keeps the schema's int-flag convention)
 	err := r.Scan(
@@ -31,7 +41,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 		&seedStoppedAt,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	d.Linked = linkedInt != 0
 	if startedAt.Valid {
@@ -56,7 +66,7 @@ func scanGeneric(r rowScanner) (*Download, error) {
 			d.Progress = 1
 		}
 	}
-	return d, nil
+	return nil
 }
 
 func validStatus(s string) bool {
