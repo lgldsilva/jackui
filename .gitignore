@@ -77,3 +77,6 @@ electron/version.json
 # Sonar security artifacts & output
 sonar-out/
 *.pem
+
+# spec-kit extension catalog cache (regenerated on demand)
+.specify/extensions/.cache/
