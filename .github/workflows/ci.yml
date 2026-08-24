@@ -86,6 +86,7 @@ jobs:
             -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
             -Dsonar.go.coverage.reportPaths=artifacts/coverage.out
+            -Dsonar.javascript.lcov.reportPaths=artifacts/lcov.info
             -Dsonar.qualitygate.wait=true
 
       - name: SonarCloud skipped

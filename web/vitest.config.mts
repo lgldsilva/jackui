@@ -17,5 +17,26 @@ export default defineConfig({
       },
     },
     setupFiles: ['src/test-setup.ts'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      exclude: [
+        'node_modules/**',
+        'dist/**',
+        'src/**/*.test.{ts,tsx}',
+        'src/test-setup.ts',
+        '**/*.d.ts',
+        '*.config.{js,mjs,ts,mts}',
+        'scripts/**',
+      ],
+      // baseline ratchet — subir em direção a 90% (baseline medido em
+      // 2026-08: lines/statements 21.7, branches 75.82, functions 38.22)
+      thresholds: {
+        lines: 19,
+        statements: 19,
+        branches: 73,
+        functions: 36,
+      },
+    },
   },
 })

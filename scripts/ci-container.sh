@@ -55,7 +55,8 @@ main() {
 	./node_modules/.bin/tsc --noEmit
 	npm run lint
 	npm run check:i18n
-	npm test
+	npm test -- --coverage
+	cp coverage/lcov.info "${ARTIFACT_DIR}/lcov.info"
 	npm run build
 	popd >/dev/null
 
