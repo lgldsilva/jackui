@@ -1,50 +1,77 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+# JackUI Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Git Workflow (NON-NEGOTIABLE)
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Nunca commitar direto na `main`. Todo trabalho acontece em branch criada a
+partir de uma `main` atualizada (pull antes de commit), integrada via Pull
+Request com Conventional Commits. É proibido usar `AI_STANDARDS_SKIP` ou
+contornar os hooks de git sem autorização humana explícita.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### II. Pirâmide de Testes (NON-NEGOTIABLE)
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+Cobertura de linha e branch **≥ 90%** com pirâmide completa
+(unit → integration → e2e). Lógica de negócio exige também testes de mutação
+e property-based testing. Um bug corrigido ganha primeiro o teste que o
+reproduz.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### III. Quality Gates Antes do Merge (NON-NEGOTIABLE)
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Todo PR passa pela CI ARM (`scripts/ci-arm.sh all`: gofmt, go vet, go test,
+tsc, eslint, golangci-lint, build e smoke E2E do servidor), pelo quality gate
+do SonarQube/SonarCloud e pelo OWASP dependency-check. Zero vulnerabilidades
+de alta severidade sem mitigação documentada.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### IV. Segurança de Conteúdo Não Confiável
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+Torrents e uploads são hostis por padrão. Resolução de caminho passa
+obrigatoriamente por `Browser.ResolvePathFor`/`ResolvePath` (rejeita `..`,
+caminhos absolutos e symlinks que escapem do mount); mounts `:usersubpath`
+isolam `{mount}/{username}/...` e novos endpoints usam `lh.ScopePath` +
+`Browser.ResolvePathFor`, nunca concatenação manual. Inputs externos são
+sanitizados antes de logar (`httpshared.SanitizeForLog`, `SanitizeInt`,
+`SanitizeIntSlice`). Respostas de conteúdo ativo (EPUB, SVG) carregam
+`X-Content-Type-Options: nosniff` e `Content-Security-Policy: sandbox`.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+### V. Restrições Operacionais do Homelab
+
+- CI pesada roda em ARM via Docker context lido de `.env`
+  (`JACKUI_CI_*`); nunca fixar host, máquina ou daemon em código/scripts.
+- No overlay Gluetun, `jackui` e `postgres` dividem o netns do
+  `gluetun-jackui`: o banco é `localhost:5432`, não `postgres:5432`.
+- O scheduler de banda compara janelas `HH:MM` com o relógio local do
+  container; `TZ` deve estar definido (padrão `America/Sao_Paulo`).
+- Shutdown tem deadline rígido de 20s (`cleanupHardDeadline`); o watchdog
+  força `os.Exit(0)` e o boot seguinte reconcilia estado
+  (`RescueStuckMoving`, `resumeSeeding`, verificação de pieces).
+
+## Restrições de Stack
+
+Backend em Go (`cmd/server`, `internal/...`), frontend em React/TypeScript
+(`web/`, build Vite para `ui/dist`, embed via `ui/embed.go`), desktop em
+Electron (`electron/`). Banco Postgres. A configuração PostCSS do frontend
+permanece ESM (`web/postcss.config.mjs`) enquanto `web/package.json` não
+declarar `"type": "module"`. A stack de CI (`Dockerfile.ci`,
+`docker-compose.ci.yml`, `scripts/ci-arm*.sh`) é descartável e idêntica para
+execução manual e runners; divergências entre local, ARM e CI são bugs.
+
+## Fluxo de Desenvolvimento
+
+1. Branch a partir de `main` atualizada; mudanças mínimas e escopadas ao
+   pedido.
+2. Validar E2E localmente (build, testes, smoke) antes de declarar pronto ou
+   pedir teste manual.
+3. Abrir PR; aguardar CI + Sonar verdes; merge com branch remota deletada.
+4. Exceções a smells de design exigem justificativa registrada no código
+   (`NOSONAR: razão`) ou em ADR.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+Esta constituição prevalece sobre práticas conflitantes. Emendas exigem PR
+com documentação da mudança e, quando aplicável, plano de migração. Todo
+PR/review deve verificar conformidade; complexidade adicional precisa de
+justificativa. Orientação operacional em tempo de execução: `AGENTS.md` na
+raiz do repositório.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-08-24 | **Last Amended**: 2026-08-24
