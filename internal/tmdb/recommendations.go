@@ -2,7 +2,6 @@ package tmdb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -38,7 +37,7 @@ func (c *Client) Recommendations(ctx context.Context, kind string, tmdbID int) (
 		return nil, fmt.Errorf("tmdb recommendations %s/%d returned %d", kind, tmdbID, resp.StatusCode)
 	}
 	var out multiSearchResp
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeJSON(resp.Body, &out); err != nil {
 		return nil, err
 	}
 	// The endpoint returns items of the same kind without media_type → force it.

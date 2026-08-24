@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -401,7 +402,11 @@ func (n *NtfyPoster) Notify(ctx context.Context, topic, title, body, magnet stri
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	// Drain (capped) before Close so the keep-alive connection can be reused.
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("ntfy returned %d", resp.StatusCode)
 	}

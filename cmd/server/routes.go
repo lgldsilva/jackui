@@ -208,6 +208,18 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	}
 
 	api := router.Group("/api")
+	// Global request-body cap for the JSON API. Exemptions: upload routes —
+	// /api/local/upload already enforces its own MaxBytesReader bound
+	// (cfg.External.MaxUploadMB) and /api/stream/add-file accepts .torrent
+	// files that can legitimately exceed 2MB. Stream/preview/HLS routes are
+	// GET-only (no request body), so the cap doesn't touch them.
+	api.Use(middleware.BodyLimit(middleware.DefaultJSONBodyCap, func(path string) bool {
+		switch path {
+		case "/api/local/upload", "/api/stream/add-file":
+			return true
+		}
+		return false
+	}))
 	if deps.tokenMgr != nil {
 		api.Use(auth.Required(deps.tokenMgr))
 		api.Use(auth.GuestRestrict())

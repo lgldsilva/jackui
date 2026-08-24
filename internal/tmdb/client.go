@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -28,7 +29,26 @@ const (
 	apiBase   = "https://api.themoviedb.org/3"
 	imageBase = "https://image.tmdb.org/t/p/w300" // thumbnail size — enough for card UI
 	cacheTTL  = 30 * 24 * time.Hour
+
+	// maxResponseBytes caps any single TMDB/OMDb JSON payload. Real responses
+	// are a few hundred KB; 4MB is generous headroom while still bounding what
+	// a misbehaving upstream can make us buffer in memory.
+	maxResponseBytes = 4 << 20
 )
+
+// decodeJSON reads the body with a hard cap and unmarshals it. A body over
+// maxResponseBytes fails with an explicit "exceeds size limit" error instead
+// of surfacing as a confusing truncated-JSON decode error.
+func decodeJSON(body io.Reader, v any) error {
+	data, err := io.ReadAll(io.LimitReader(body, maxResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxResponseBytes {
+		return errors.New("tmdb: response exceeds size limit")
+	}
+	return json.Unmarshal(data, v)
+}
 
 // Match is the simplified view we expose to the frontend.
 type Match struct {
@@ -245,7 +265,7 @@ func (c *Client) fetchImdbID(ctx context.Context, kind string, tmdbID int) strin
 	var out struct {
 		ImdbID string `json:"imdb_id"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&out) != nil {
+	if decodeJSON(resp.Body, &out) != nil {
 		return ""
 	}
 	return out.ImdbID
@@ -272,7 +292,7 @@ func (c *Client) fetchImdbRating(ctx context.Context, imdbID string) float64 {
 		ImdbRating string `json:"imdbRating"` // e.g. "8.8" or "N/A"
 		Response   string `json:"Response"`   // "True" | "False"
 	}
-	if json.NewDecoder(resp.Body).Decode(&out) != nil || out.Response != "True" {
+	if decodeJSON(resp.Body, &out) != nil || out.Response != "True" {
 		return 0
 	}
 	r, err := strconv.ParseFloat(out.ImdbRating, 64)
@@ -347,7 +367,7 @@ func (c *Client) fetchTrendingPage(ctx context.Context, page int) ([]Match, erro
 		return nil, fmt.Errorf("tmdb trending returned %d", resp.StatusCode)
 	}
 	var out multiSearchResp
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeJSON(resp.Body, &out); err != nil {
 		return nil, err
 	}
 	return buildTrendingItems(out), nil
@@ -417,7 +437,7 @@ func (c *Client) doSearchMulti(ctx context.Context, title string, year int) (*mu
 		return nil, fmt.Errorf("tmdb returned %d", resp.StatusCode)
 	}
 	var out multiSearchResp
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeJSON(resp.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -491,7 +511,7 @@ func (c *Client) FetchEpisodeName(ctx context.Context, seriesID int, season, epi
 	var out struct {
 		Name string `json:"name"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&out) != nil {
+	if decodeJSON(resp.Body, &out) != nil {
 		return ""
 	}
 	return strings.TrimSpace(out.Name)

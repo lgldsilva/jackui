@@ -204,9 +204,17 @@ func main() {
 	log.Printf("JackUI starting on http://localhost%s", addr)
 	// ReadHeaderTimeout bounds how long a client may take to send request
 	// headers — without it a slow-loris connection can hold a goroutine open
-	// indefinitely (gosec G112). Body/handler timeouts stay off: media streaming
-	// and long transcode reads legitimately run for minutes.
-	srv := &http.Server{Addr: addr, Handler: router, ReadHeaderTimeout: 30 * time.Second}
+	// indefinitely (gosec G112). MaxHeaderBytes caps header size (default 1MB
+	// made explicit). IdleTimeout recycles keep-alive connections gone silent.
+	// ReadTimeout/WriteTimeout deliberately stay 0: media streaming, SSE and
+	// long transcode responses legitimately run for minutes.
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           router,
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       90 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
 	serveUntilShutdown(deps, srv)
 }
 

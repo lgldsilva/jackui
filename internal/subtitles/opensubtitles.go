@@ -25,7 +25,27 @@ const (
 	apiBase         = "https://api.opensubtitles.com/api/v1"
 	userAgent       = "JackUI v1.0"
 	contentTypeJSON = "application/json"
+
+	// Response size caps — OpenSubtitles is an external service; a misbehaving
+	// upstream must not make us buffer unbounded bodies in memory.
+	maxJSONBytes         = 2 << 20 // JSON payloads (search results, download meta, login)
+	maxSubtitleFileBytes = 8 << 20 // a downloaded subtitle file (SRTs are KB-scale)
+	maxErrorBodyBytes    = 8 << 10 // error bodies echoed into error strings
 )
+
+// decodeCapped reads a JSON body with a hard cap and unmarshals it. A body over
+// maxJSONBytes fails with an explicit error instead of surfacing as a confusing
+// truncated-JSON decode error.
+func decodeCapped(body io.Reader, v any) error {
+	data, err := io.ReadAll(io.LimitReader(body, maxJSONBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > maxJSONBytes {
+		return errors.New("opensubtitles: response exceeds size limit")
+	}
+	return json.Unmarshal(data, v)
+}
 
 // utf8BOM is the byte-order mark sometimes prepended to SRT files (U+FEFF).
 var utf8BOM = "\xef\xbb\xbf"
@@ -157,7 +177,7 @@ func (c *Client) search(q url.Values) ([]Subtitle, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return nil, fmt.Errorf("opensubtitles search returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -179,7 +199,7 @@ func (c *Client) search(q url.Values) ([]Subtitle, error) {
 			} `json:"attributes"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+	if err := decodeCapped(resp.Body, &parsed); err != nil {
 		return nil, fmt.Errorf("decode opensubtitles: %w", err)
 	}
 
@@ -253,7 +273,7 @@ func (c *Client) downloadLink(fileID, token string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return "", fmt.Errorf("opensubtitles download returned %d: %s", resp.StatusCode, string(b))
 	}
 
@@ -262,7 +282,7 @@ func (c *Client) downloadLink(fileID, token string) (string, error) {
 		Remaining int    `json:"remaining"`
 		ResetTime string `json:"reset_time"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+	if err := decodeCapped(resp.Body, &meta); err != nil {
 		return "", fmt.Errorf("decode download meta: %w", err)
 	}
 	if meta.Link == "" {
@@ -278,9 +298,12 @@ func (c *Client) fetchSubtitle(link string) ([]byte, error) {
 		return nil, fmt.Errorf("fetch subtitle file: %w", err)
 	}
 	defer func() { _ = dlResp.Body.Close() }()
-	raw, err := io.ReadAll(dlResp.Body)
+	raw, err := io.ReadAll(io.LimitReader(dlResp.Body, maxSubtitleFileBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read subtitle: %w", err)
+	}
+	if int64(len(raw)) > maxSubtitleFileBytes {
+		return nil, fmt.Errorf("opensubtitles: subtitle file exceeds %d bytes", maxSubtitleFileBytes)
 	}
 	return raw, nil
 }
@@ -312,13 +335,13 @@ func (c *Client) ensureToken() (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return "", fmt.Errorf("opensubtitles login returned %d: %s", resp.StatusCode, string(b))
 	}
 	var out struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeCapped(resp.Body, &out); err != nil {
 		return "", err
 	}
 	c.token = out.Token

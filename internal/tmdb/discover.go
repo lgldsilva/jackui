@@ -2,7 +2,6 @@ package tmdb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -118,7 +117,7 @@ func (c *Client) fetchDiscoverPage(ctx context.Context, kind string, q url.Value
 		return nil, fmt.Errorf("tmdb discover %s returned %d", kind, resp.StatusCode)
 	}
 	var out multiSearchResp
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeJSON(resp.Body, &out); err != nil {
 		return nil, err
 	}
 	return matchesFromResults(out, kind), nil // discover omits media_type → force it
@@ -177,7 +176,7 @@ func (c *Client) fetchGenres(ctx context.Context, kind string) ([]Genre, error) 
 	var out struct {
 		Genres []Genre `json:"genres"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := decodeJSON(resp.Body, &out); err != nil {
 		return nil, err
 	}
 	return out.Genres, nil

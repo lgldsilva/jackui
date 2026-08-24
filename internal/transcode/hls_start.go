@@ -124,6 +124,9 @@ func startSourceServer(opts HLSStartOpts) (*http.Server, string, error) {
 	// ReadHeaderTimeout guards this loopback source server against a stuck
 	// header read (gosec G112). It only serves ffmpeg on localhost, but the
 	// bound is free hardening; the body read stays unbounded for long streams.
+	// IdleTimeout/MaxHeaderBytes are intentionally left at the defaults: an
+	// IdleTimeout could drop ffmpeg's connection mid-pause during long
+	// transcode reads, and the default header cap already applies.
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 30 * time.Second}
 	go func() { _ = srv.Serve(listener) }()
 	return srv, fmt.Sprintf("http://%s/source", listener.Addr().String()), nil

@@ -27,7 +27,28 @@ const (
 	// "Jackett tem N trackers mas o JackUI só mostra ~7" bug. A modest cap keeps
 	// Jackett responsive so even slow private trackers finish inside the timeout.
 	maxConcurrentIndexerSearches = 12
+
+	// Response size caps. Jackett usually runs on the user's LAN, but it is
+	// still an external process — a crashed or misbehaving instance must not
+	// make us buffer an unbounded body in memory.
+	maxSearchResponseBytes   = 16 << 20 // search result payloads (Search / SearchOnIndexer)
+	maxIndexersResponseBytes = 4 << 20  // indexer lists (JSON /api/v2.0/indexers and torznab XML)
+	maxErrorBodyBytes        = 8 << 10  // error bodies echoed into error strings
 )
+
+// readCapped reads a response body with a hard cap: it reads max+1 bytes so an
+// oversized payload fails loudly with an explicit error instead of surfacing
+// later as a confusing truncated-JSON/XML decode error.
+func readCapped(body io.Reader, max int64, what string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("jackett %s response exceeds %d bytes", what, max)
+	}
+	return data, nil
+}
 
 type Client struct {
 	URL    string
@@ -146,12 +167,16 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return nil, fmt.Errorf("jackett API returned %d: %s", resp.StatusCode, string(body))
 	}
 
+	body, err := readCapped(resp.Body, maxSearchResponseBytes, "search")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Jackett response: %w", err)
+	}
 	var jackResp jackettResponse
-	if err := json.NewDecoder(resp.Body).Decode(&jackResp); err != nil {
+	if err := json.Unmarshal(body, &jackResp); err != nil {
 		return nil, fmt.Errorf("failed to decode Jackett response: %w", err)
 	}
 
@@ -217,12 +242,16 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 		return []Indexer{}, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		return nil, fmt.Errorf("jackett API returned %d: %s", resp.StatusCode, string(body))
 	}
 
+	body, err := readCapped(resp.Body, maxIndexersResponseBytes, "indexers")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read indexers response: %w", err)
+	}
 	var rawIndexers []jackettIndexer
-	if err := json.NewDecoder(resp.Body).Decode(&rawIndexers); err != nil {
+	if err := json.Unmarshal(body, &rawIndexers); err != nil {
 		return nil, fmt.Errorf("failed to decode indexers response: %w", err)
 	}
 
@@ -355,7 +384,7 @@ func (c *Client) fetchIndexers() (out []Indexer, retryable bool, err error) {
 		return nil, false, fmt.Errorf("list indexers: %w", err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := readCapped(resp.Body, maxIndexersResponseBytes, "indexers")
 	if err != nil {
 		return nil, false, fmt.Errorf("read indexers body: %w", err)
 	}
@@ -432,8 +461,12 @@ func (c *Client) SearchOnIndexer(ctx context.Context, indexerID, query, category
 		return nil, fmt.Errorf("indexer %s returned %d", indexerID, resp.StatusCode)
 	}
 
+	body, err := readCapped(resp.Body, maxSearchResponseBytes, "search")
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
 	var jackResp jackettResponse
-	if err := json.NewDecoder(resp.Body).Decode(&jackResp); err != nil {
+	if err := json.Unmarshal(body, &jackResp); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
