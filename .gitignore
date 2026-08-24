@@ -1,6 +1,7 @@
 # Frontend
 web/node_modules/
 web/dist/
+web/coverage/
 
 # Built frontend assets (populated by npm run build)
 ui/dist/*
