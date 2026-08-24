@@ -1,0 +1,49 @@
+{
+  "version": "0.12.17",
+  "integration_state_schema": 1,
+  "installed_integrations": [
+    "claude",
+    "grok",
+    "cursor-agent",
+    "opencode",
+    "agy",
+    "codex",
+    "copilot"
+  ],
+  "integration_settings": {
+    "claude": {
+      "script": "sh",
+      "invoke_separator": "-"
+    },
+    "grok": {
+      "script": "sh",
+      "invoke_separator": "-"
+    },
+    "cursor-agent": {
+      "script": "sh",
+      "invoke_separator": "-"
+    },
+    "opencode": {
+      "script": "sh",
+      "invoke_separator": "."
+    },
+    "agy": {
+      "script": "sh",
+      "invoke_separator": "-"
+    },
+    "codex": {
+      "script": "sh",
+      "invoke_separator": "-"
+    },
+    "copilot": {
+      "script": "sh",
+      "raw_options": "--skills",
+      "parsed_options": {
+        "skills": true
+      },
+      "invoke_separator": "-"
+    }
+  },
+  "integration": "claude",
+  "default_integration": "claude"
+}
