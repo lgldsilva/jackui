@@ -20,22 +20,35 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [go, javascript-typescript]
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        if: matrix.language == 'go'
         with:
           go-version-file: go.mod
 
       - uses: github/codeql-action/init@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3
         with:
           languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
           queries: security-extended,security-and-quality
           # Barreiras de data-flow ficam em .github/codeql/extensions/ —
           # local de auto-descoberta de data extensions, sem pack/config.
 
-      - uses: github/codeql-action/autobuild@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3
+      - name: Build Go manually with a minimal embedded UI
+        if: matrix.language == 'go'
+        run: |
+          mkdir -p ui/dist
+          printf '<!doctype html><title>CodeQL build stub</title>\n' > ui/dist/index.html
+          go build ./cmd/server
 
       - uses: github/codeql-action/analyze@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3

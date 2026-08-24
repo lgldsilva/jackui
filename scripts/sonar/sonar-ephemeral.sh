@@ -16,7 +16,8 @@
 #   PROJECT_KEY
 #
 # Common env (defaults in brackets):
-#   SONAR_HOST_URL   [https://sonar.raspberrypi.lan]
+#   SONAR_HOST_URL   [required; no default]
+#   SONAR_CA_CERT    [optional PEM CA for private Sonar HTTPS]
 #   PROJECT_NAME     [$PROJECT_KEY]
 #   EPHEMERAL        [1]
 #   REPORT_DIR       [$PWD/sonar-out]
@@ -52,7 +53,7 @@
 #                                            jackui local overlay (not yet a sonar-ce workflow input)
 set -euo pipefail
 
-SONAR_HOST_URL="${SONAR_HOST_URL:-${SONAR_URL:-https://sonar.raspberrypi.lan}}"
+SONAR_HOST_URL="${SONAR_HOST_URL:-${SONAR_URL:-}}"
 SONAR_TOKEN="${SONAR_TOKEN:-}"
 PROJECT_KEY="${PROJECT_KEY:-}"
 PROJECT_NAME="${PROJECT_NAME:-${PROJECT_KEY}}"
@@ -73,30 +74,37 @@ PDF_CMD="${PDF_CMD:-}"
 # When 1, only pass host/token/projectKey/name; rely on sonar-project.properties
 # for sources/tests/exclusions (CLI -D would override those keys).
 USE_PROJECT_PROPERTIES="${USE_PROJECT_PROPERTIES:-0}"
-# Homelab: prefer baked CA; never export a missing path (Node fails TLS harder).
-# Keep variable always set under `set -u` (empty = no CA file).
+if [[ -z "$SONAR_HOST_URL" ]]; then
+  echo "✘ SONAR_HOST_URL not set"
+  exit 1
+fi
+if ! [[ "$SONAR_HOST_URL" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?(/[^[:space:]]*)?$ ]] && \
+  ! [[ "$SONAR_HOST_URL" =~ ^http://(localhost|127\.0\.0\.1)(:[0-9]{1,5})?(/[^[:space:]]*)?$ ]]; then
+  echo "✘ SONAR_HOST_URL must be a safe https URL (or local http for development)"
+  exit 1
+fi
+# Homelab: prefer a configured or baked CA. Public HTTPS uses the system trust
+# store; certificate verification is never disabled.
 _default_ca=/usr/local/share/ca-certificates/gitea-ca.crt
-NODE_EXTRA_CA_CERTS="${NODE_EXTRA_CA_CERTS:-}"
-if [ -n "$NODE_EXTRA_CA_CERTS" ] && [ ! -f "$NODE_EXTRA_CA_CERTS" ]; then
-  echo "→ NODE_EXTRA_CA_CERTS=$NODE_EXTRA_CA_CERTS missing — clearing"
-  NODE_EXTRA_CA_CERTS=""
+SONAR_CA_CERT="${SONAR_CA_CERT:-${NODE_EXTRA_CA_CERTS:-}}"
+if [[ -z "$SONAR_CA_CERT" && -f "$_default_ca" ]]; then
+  SONAR_CA_CERT="$_default_ca"
 fi
-if [ -z "$NODE_EXTRA_CA_CERTS" ] && [ -f "$_default_ca" ]; then
-  NODE_EXTRA_CA_CERTS="$_default_ca"
+if [[ -n "$SONAR_CA_CERT" && ! -f "$SONAR_CA_CERT" ]]; then
+  echo "✘ SONAR_CA_CERT does not exist"
+  exit 1
 fi
-if [ -n "$NODE_EXTRA_CA_CERTS" ]; then
-  export NODE_EXTRA_CA_CERTS
+if [[ -n "$SONAR_CA_CERT" ]]; then
+  NODE_EXTRA_CA_CERTS="$SONAR_CA_CERT"
+  export SONAR_CA_CERT NODE_EXTRA_CA_CERTS
 else
   unset NODE_EXTRA_CA_CERTS 2>/dev/null || true
-  # Generic runner image without homelab CA (docker.gitea.com/runner-images:ubuntu-latest).
-  export NODE_TLS_REJECT_UNAUTHORIZED="${NODE_TLS_REJECT_UNAUTHORIZED:-0}"
-  echo "→ no Node CA bundle; NODE_TLS_REJECT_UNAUTHORIZED=${NODE_TLS_REJECT_UNAUTHORIZED} (homelab Sonar TLS)"
 fi
-if [ -z "$SONAR_TOKEN" ]; then
+if [[ -z "$SONAR_TOKEN" ]]; then
   echo "✘ SONAR_TOKEN not set"
   exit 1
 fi
-if [ -z "$PROJECT_KEY" ]; then
+if [[ -z "$PROJECT_KEY" ]]; then
   echo "✘ PROJECT_KEY not set"
   exit 1
 fi
@@ -104,29 +112,16 @@ fi
 mkdir -p "$REPORT_DIR"
 export SONAR_HOST_URL SONAR_TOKEN PROJECT_KEY PROJECT_NAME EPHEMERAL REPORT_DIR REPORT_FILE
 
-# Java SonarScanner engine does NOT honor NODE_TLS_REJECT_UNAUTHORIZED.
-# On generic runners, build a temporary trustStore from the server/homelab CA.
+# Java SonarScanner uses the system trust store for public HTTPS. When a private
+# CA is configured, build a temporary trustStore from that already-trusted PEM.
 _setup_java_truststore_for_sonar() {
-  local host port cert ts pass
-  host=$(printf '%s' "$SONAR_HOST_URL" | sed -E 's#https?://##; s#/.*##; s#:.*##')
-  port=$(printf '%s' "$SONAR_HOST_URL" | sed -E 's#https?://##; s#/.*##' | awk -F: '{print ($2==""?443:$2)}')
+  local cert ts pass
+  [[ -n "$SONAR_CA_CERT" ]] || return 0
   cert="$REPORT_DIR/.sonar-server.pem"
   ts="$REPORT_DIR/.sonar-truststore.jks"
   pass=changeit
 
-  if [ -n "${NODE_EXTRA_CA_CERTS:-}" ] && [ -f "${NODE_EXTRA_CA_CERTS}" ]; then
-    cp "${NODE_EXTRA_CA_CERTS}" "$cert" 2>/dev/null || true
-  fi
-  if [ ! -s "$cert" ] && command -v openssl >/dev/null 2>&1; then
-    echo "→ fetching Sonar TLS cert via openssl (${host}:${port})"
-    # -servername for SNI; ignore verify so self-signed works.
-    echo | openssl s_client -connect "${host}:${port}" -servername "$host" 2>/dev/null \
-      | openssl x509 >"$cert" 2>/dev/null || true
-  fi
-  if [ ! -s "$cert" ]; then
-    echo "→ WARN: no PEM for Java trustStore; Scanner SSL may fail on self-signed hosts"
-    return 0
-  fi
+  cp "$SONAR_CA_CERT" "$cert"
   if ! command -v keytool >/dev/null 2>&1; then
     echo "→ installing keytool (openjdk jre) for Java trustStore"
     if command -v sudo >/dev/null 2>&1; then
@@ -136,8 +131,8 @@ _setup_java_truststore_for_sonar() {
     fi
   fi
   if ! command -v keytool >/dev/null 2>&1; then
-    echo "→ WARN: keytool unavailable; cannot build Java trustStore"
-    return 0
+    echo "✘ keytool unavailable; cannot configure the private Sonar CA"
+    return 1
   fi
   rm -f "$ts"
   keytool -importcert -noprompt -alias sonar-homelab -file "$cert" \
@@ -152,20 +147,16 @@ _setup_java_truststore_for_sonar
 api() {
   local method="$1" path="$2"
   shift 2
-  # Verify TLS against the homelab CA when it's available (CI bakes it in and
-  # already sets NODE_EXTRA_CA_CERTS) instead of sending the admin SONAR_TOKEN
-  # over `curl -k`, which trusts any cert and leaks the token to a LAN MITM.
-  # Fall back to -k only where no CA is installed (local dev). NOTE: this diverges
-  # from the vendored ai-standards copy — the durable fix belongs upstream.
-  local ca="${SONAR_CA_CERT:-${NODE_EXTRA_CA_CERTS:-/usr/local/share/ca-certificates/gitea-ca.crt}}"
-  local tls=(-k)
-  [ -f "$ca" ] && tls=(--cacert "$ca")
-  curl -s "${tls[@]}" -X "$method" -H "Authorization: Bearer ${SONAR_TOKEN}" "${SONAR_HOST_URL}${path}" "$@"
+  local tls=()
+  [[ -n "$SONAR_CA_CERT" ]] && tls=(--cacert "$SONAR_CA_CERT")
+  curl --fail --silent --show-error "${tls[@]}" -X "$method" \
+    -H "Authorization: Bearer ${SONAR_TOKEN}" "${SONAR_HOST_URL}${path}" "$@"
 }
 
+# shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
 cleanup() {
   local rc=$?
-  if [ "$EPHEMERAL" = "1" ]; then
+  if [[ "$EPHEMERAL" == "1" ]]; then
     echo "→ deleting temporary Sonar project: $PROJECT_KEY"
     api POST "/api/projects/delete" --data-urlencode "project=${PROJECT_KEY}" >/dev/null 2>&1 \
       || echo "  (delete non-zero — may already be gone)"
@@ -175,19 +166,19 @@ cleanup() {
 trap cleanup EXIT
 
 # Coverage file optional; when requested ensure it exists.
-if [ -n "$COVERAGE_FILE" ]; then
-  if [ ! -s "$COVERAGE_FILE" ] && [ -n "$COVERAGE_GENERATE_CMD" ]; then
+if [[ -n "$COVERAGE_FILE" ]]; then
+  if [[ ! -s "$COVERAGE_FILE" && -n "$COVERAGE_GENERATE_CMD" ]]; then
     echo "→ generating $COVERAGE_FILE"
     bash -c "$COVERAGE_GENERATE_CMD"
   fi
-  if [ ! -s "$COVERAGE_FILE" ]; then
+  if [[ ! -s "$COVERAGE_FILE" ]]; then
     echo "✘ COVERAGE_FILE=$COVERAGE_FILE missing or empty"
     exit 1
   fi
-  if [ -z "$COVERAGE_PROPERTY" ]; then
+  if [[ -z "$COVERAGE_PROPERTY" ]]; then
     # Sensible defaults by stack hint
     case "$COVERAGE_FILE" in
-      *.out|coverage.out) COVERAGE_PROPERTY="sonar.go.coverage.reportPaths=${COVERAGE_FILE}" ;;
+      *.out)              COVERAGE_PROPERTY="sonar.go.coverage.reportPaths=${COVERAGE_FILE}" ;;
       *.xml)              COVERAGE_PROPERTY="sonar.python.coverage.reportPaths=${COVERAGE_FILE}" ;;
       lcov.info|*.lcov)   COVERAGE_PROPERTY="sonar.javascript.lcov.reportPaths=${COVERAGE_FILE}" ;;
       *)                  COVERAGE_PROPERTY="sonar.coverageReportPaths=${COVERAGE_FILE}" ;;
@@ -205,9 +196,9 @@ ARGS=(
   "-Dsonar.projectName=${PROJECT_NAME}"
   "-Dsonar.qualitygate.wait=true"
 )
-if [ "$USE_PROJECT_PROPERTIES" = "1" ]; then
+if [[ "$USE_PROJECT_PROPERTIES" == "1" ]]; then
   echo "→ USE_PROJECT_PROPERTIES=1 (sources/tests/exclusions from sonar-project.properties)"
-  if [ -n "$COVERAGE_PROPERTY" ]; then
+  if [[ -n "$COVERAGE_PROPERTY" ]]; then
     ARGS+=("-D${COVERAGE_PROPERTY#-D}")
   fi
 else
@@ -215,20 +206,20 @@ else
     "-Dsonar.sources=${SONAR_SOURCES}"
     "-Dsonar.sourceEncoding=UTF-8"
   )
-  if [ -n "$SONAR_TESTS" ]; then
+  if [[ -n "$SONAR_TESTS" ]]; then
     ARGS+=("-Dsonar.tests=${SONAR_TESTS}")
   fi
-  if [ -n "$SONAR_TEST_INCLUSIONS" ]; then
+  if [[ -n "$SONAR_TEST_INCLUSIONS" ]]; then
     ARGS+=("-Dsonar.test.inclusions=${SONAR_TEST_INCLUSIONS}")
   fi
-  if [ -n "$SONAR_COVERAGE_EXCLUSIONS" ]; then
+  if [[ -n "$SONAR_COVERAGE_EXCLUSIONS" ]]; then
     ARGS+=("-Dsonar.coverage.exclusions=${SONAR_COVERAGE_EXCLUSIONS}")
   fi
-  if [ -n "$COVERAGE_PROPERTY" ]; then
+  if [[ -n "$COVERAGE_PROPERTY" ]]; then
     ARGS+=("-D${COVERAGE_PROPERTY#-D}")
   fi
 fi
-if [ -n "$EXTRA_SONAR_ARGS" ]; then
+if [[ -n "$EXTRA_SONAR_ARGS" ]]; then
   # shellcheck disable=SC2206
   EXTRA=( $EXTRA_SONAR_ARGS )
   ARGS+=("${EXTRA[@]}")
@@ -277,7 +268,8 @@ host = os.environ["SONAR_HOST_URL"].rstrip("/")
 token = os.environ["SONAR_TOKEN"]
 key = os.environ["PROJECT_KEY"]
 report_dir = Path(os.environ["REPORT_DIR"])
-ctx = ssl._create_unverified_context()
+# TLS verification is never disabled; honor SONAR_CA_CERT for private CAs.
+ctx = ssl.create_default_context(cafile=os.environ.get("SONAR_CA_CERT") or None)
 
 page, ps = 1, 100
 all_issues, components, rules = [], [], []
@@ -689,14 +681,14 @@ if failures:
         print(f"  - {f}")
 PY
 
-if [ "$GENERATE_PDF" = "1" ] && [ -f "$REPORT_DIR/sonar-report.md" ]; then
-  if [ -n "$PDF_CMD" ]; then
+if [[ "$GENERATE_PDF" == "1" && -f "$REPORT_DIR/sonar-report.md" ]]; then
+  if [[ -n "$PDF_CMD" ]]; then
     echo "→ generating PDF via PDF_CMD"
     set +e
     bash -c "$PDF_CMD" 2>"$REPORT_DIR/sonar-pdf.log"
     PDF_RC=$?
     set -e
-    if [ "$PDF_RC" -eq 0 ] && [ -f "$REPORT_DIR/sonar-report.pdf" ]; then
+    if [[ "$PDF_RC" -eq 0 && -f "$REPORT_DIR/sonar-report.pdf" ]]; then
       echo "→ wrote $REPORT_DIR/sonar-report.pdf"
     else
       echo "  (PDF skipped — see $REPORT_DIR/sonar-pdf.log)"
@@ -708,7 +700,7 @@ fi
 
 echo "→ report files in $REPORT_DIR:"
 ls -la "$REPORT_DIR" || true
-if [ -f "$REPORT_DIR/sonar-report.md" ]; then
+if [[ -f "$REPORT_DIR/sonar-report.md" ]]; then
   echo ""
   echo "======== sonar-report.md (full) ========"
   cat "$REPORT_DIR/sonar-report.md"
@@ -721,22 +713,22 @@ echo "quality_gate_status=$QG_STATUS"
 echo "local_gate_result=$GATE_RESULT"
 
 FAIL=0
-if [ "$QG_STATUS" = "ERROR" ] || [ "$QG_STATUS" = "FAILED" ]; then
+if [[ "$QG_STATUS" == "ERROR" || "$QG_STATUS" == "FAILED" ]]; then
   echo "✘ Sonar quality gate FAILED (status=$QG_STATUS)"
   FAIL=1
 fi
-if [ "${SCAN_RC}" -ne 0 ]; then
+if [[ "${SCAN_RC}" -ne 0 ]]; then
   echo "✘ Scanner exit code ${SCAN_RC} (reports kept under $REPORT_DIR)"
   FAIL=1
 fi
-if [ "$GATE_RESULT" = "FAIL" ]; then
+if [[ "$GATE_RESULT" == "FAIL" ]]; then
   echo "✘ Local quality floors FAILED (bugs/vulns/smells/coverage/ratings — see report)"
-  if [ -s "$REPORT_DIR/.gate_failures" ]; then
+  if [[ -s "$REPORT_DIR/.gate_failures" ]]; then
     sed 's/^/  - /' "$REPORT_DIR/.gate_failures"
   fi
   FAIL=1
 fi
-if [ "$FAIL" -ne 0 ]; then
+if [[ "$FAIL" -ne 0 ]]; then
   echo "✘ Gate blocked — reports persisted under $REPORT_DIR before project delete"
   exit 1
 fi
