@@ -78,10 +78,15 @@ WORKDIR /workspace
 # Copy only inputs required by the CI contract. The host-generated patch is
 # explicit, so secrets or unrelated files cannot enter through a broad COPY.
 COPY go.mod go.sum .golangci.yml .ci-golangci.patch ./
+# Root package.json/package-lock.json + electron/ feed the Electron TypeScript
+# check (tsc -p electron/tsconfig.json) in ci-container.sh. electron/dist and
+# node_modules stay out via .dockerignore.
+COPY package.json package-lock.json ./
 COPY cmd ./cmd
 COPY internal ./internal
 COPY ui ./ui
 COPY web ./web
+COPY electron ./electron
 COPY scripts/ci-container.sh ./scripts/ci-container.sh
 
 ENTRYPOINT ["/workspace/scripts/ci-container.sh"]

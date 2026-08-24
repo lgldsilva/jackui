@@ -14,7 +14,19 @@ mkdir -p "$DIST_ELECTRON"
 PLATFORM="${1:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
 ARCH="${2:-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')}"
 
-GOOS="$PLATFORM" GOARCH="$ARCH" go build -ldflags="-s -w" -o "$DIST_ELECTRON/jackui-server" ./cmd/server
+# Build metadata injected into internal/version (served by GET /status), same
+# -ldflags pattern as the Dockerfile. Version comes from electron/version.json
+# (generated above by scripts/version.sh), so the embedded server, the About
+# dialog and version.json all report the same value for a given build.
+APP_VERSION=$(node -p "require('$ROOT/electron/version.json').version")
+GIT_COMMIT=$(git rev-parse HEAD)
+BUILD_TIMESTAMP=$(date -u +%s)
+
+GOOS="$PLATFORM" GOARCH="$ARCH" go build -ldflags="-s -w \
+  -X github.com/lgldsilva/jackui/internal/version.Version=$APP_VERSION \
+  -X github.com/lgldsilva/jackui/internal/version.Commit=$GIT_COMMIT \
+  -X github.com/lgldsilva/jackui/internal/version.BuildTime=$BUILD_TIMESTAMP" \
+  -o "$DIST_ELECTRON/jackui-server" ./cmd/server
 echo "  ✓ jackui-server ($PLATFORM/$ARCH)"
 
 echo "▶ [2/3] Building React frontend..."
