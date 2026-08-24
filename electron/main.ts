@@ -74,6 +74,13 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let prefs: Preferences = { downloadFolder: '' }
 let pollFailures = 0 // consecutive failures → red icon
 
+// ─── Go server restart (crash resilience) ───────────────────────────────────
+// Consecutive crash restarts use capped backoff; the counter resets once the
+// status poll succeeds again (server healthy).
+const GO_RESTART_DELAYS_MS = [1000, 3000, 10000]
+let goRestartAttempts = 0
+let goRestartTimer: ReturnType<typeof setTimeout> | null = null
+
 // ─── Preferences ────────────────────────────────────────────────────────────
 
 function prefsPath(): string {
@@ -109,6 +116,16 @@ function findFreePort(): Promise<number> {
   })
 }
 
+function canBindPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = http.createServer()
+    srv.once('error', () => resolve(false))
+    srv.listen(port, '127.0.0.1', () => {
+      srv.close(() => resolve(true))
+    })
+  })
+}
+
 function goBinaryPath(): string {
   if (isDev) return ''
   const platform = process.platform
@@ -123,10 +140,14 @@ function goBinaryPath(): string {
   return ''
 }
 
-async function startGoServer(): Promise<number> {
+async function startGoServer(preferredPort?: number): Promise<number> {
   if (isDev) return 8989
 
-  const port = await findFreePort()
+  // On restart, try to rebind the same port so the window URL stays valid;
+  // fall back to a fresh port if the old one is still occupied.
+  const port = preferredPort !== undefined && (await canBindPort(preferredPort))
+    ? preferredPort
+    : await findFreePort()
   const bin = goBinaryPath()
   console.log(`[electron] spawning ${bin} on port ${port}`)
   goProc = spawn(bin, [], {
@@ -147,6 +168,8 @@ async function startGoServer(): Promise<number> {
     console.log(`[electron] Go server exited (code=${code})`)
     goProc = null
     goReady = false
+    updateTray() // reflect the outage immediately (red icon)
+    if (!isQuitting) scheduleGoRestart()
   })
 
   // Also set ready quickly — the stderr-based detection is a backstop.
@@ -166,6 +189,42 @@ async function startGoServer(): Promise<number> {
     throw new Error('Go server failed to start')
   }
   return port
+}
+
+// scheduleGoRestart: restart the embedded server after an unexpected exit,
+// with capped backoff. After all attempts are exhausted, give up with an
+// error dialog instead of restarting forever.
+function scheduleGoRestart(): void {
+  if (isDev || isQuitting || goRestartTimer) return
+  if (goRestartAttempts >= GO_RESTART_DELAYS_MS.length) {
+    console.error('[electron] Go server restart attempts exhausted')
+    dialog.showErrorBox(
+      'JackUI — servidor embutido morreu',
+      'O servidor embutido encerrou repetidamente e não foi possível recuperá-lo. Feche e reabra o aplicativo.',
+    )
+    return
+  }
+  const delay = GO_RESTART_DELAYS_MS[goRestartAttempts]
+  goRestartAttempts++
+  console.log(`[electron] restarting Go server in ${delay}ms (attempt ${goRestartAttempts}/${GO_RESTART_DELAYS_MS.length})`)
+  goRestartTimer = setTimeout(() => {
+    goRestartTimer = null
+    if (isQuitting) return
+    restartGoServer().catch((err) => {
+      console.error('[electron] Go server restart failed:', err)
+      scheduleGoRestart()
+    })
+  }, delay)
+}
+
+async function restartGoServer(): Promise<void> {
+  const prevPort = serverPort
+  const port = await startGoServer(prevPort)
+  if (port !== prevPort) {
+    // The old port was still occupied — the window must follow the new URL.
+    console.log(`[electron] Go server moved :${prevPort} → :${port}; reloading window`)
+    mainWindow?.loadURL(`http://localhost:${port}`)
+  }
 }
 
 // ─── Deep Links ──────────────────────────────────────────────────────────────
@@ -303,6 +362,12 @@ function buildAppMenu(): void {
 
 // ─── Window ─────────────────────────────────────────────────────────────────
 
+// Renderer crash tracking: reload on the first crash, show a dialog instead of
+// a reload loop when crashes repeat inside a short window.
+const RENDERER_CRASH_WINDOW_MS = 60_000
+let rendererCrashTimes: number[] = []
+let unresponsiveTimer: ReturnType<typeof setTimeout> | null = null
+
 function createWindow(): void {
   const url = `http://localhost:${serverPort}`
   mainWindow = new BrowserWindow({
@@ -323,6 +388,41 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show()
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    console.error(`[electron] renderer process gone (reason=${details.reason}, exitCode=${details.exitCode})`)
+    if (isQuitting) return
+    const now = Date.now()
+    rendererCrashTimes = rendererCrashTimes.filter((t) => now - t < RENDERER_CRASH_WINDOW_MS)
+    rendererCrashTimes.push(now)
+    if (rendererCrashTimes.length >= 2) {
+      dialog.showErrorBox(
+        'JackUI — interface travou',
+        'A janela do aplicativo travou repetidamente. Feche e reabra o JackUI.',
+      )
+      return
+    }
+    mainWindow?.webContents.reload()
+  })
+
+  mainWindow.webContents.on('unresponsive', () => {
+    console.warn('[electron] renderer unresponsive')
+    if (isQuitting || unresponsiveTimer) return
+    // Give the renderer a grace period; reload only if it stays stuck.
+    unresponsiveTimer = setTimeout(() => {
+      unresponsiveTimer = null
+      if (isQuitting) return
+      console.warn('[electron] renderer still unresponsive — reloading')
+      mainWindow?.webContents.reload()
+    }, 10_000)
+  })
+
+  mainWindow.webContents.on('responsive', () => {
+    if (unresponsiveTimer) {
+      clearTimeout(unresponsiveTimer)
+      unresponsiveTimer = null
+    }
   })
 
   mainWindow.on('close', (e) => {
@@ -556,6 +656,7 @@ async function pollStatus(): Promise<void> {
   if (rate) {
     currentRate = rate
     pollFailures = 0
+    goRestartAttempts = 0 // server answered → reset crash-restart backoff
   } else {
     pollFailures++
   }
@@ -804,6 +905,10 @@ app.on('ready', async () => {
       await startGoServer()
     } catch (err) {
       console.error('[electron] failed to start Go server:', err)
+      dialog.showErrorBox(
+        'JackUI — falha ao iniciar',
+        'Não foi possível iniciar o servidor embutido. O aplicativo será encerrado.',
+      )
       app.quit()
       return
     }
@@ -830,6 +935,10 @@ function killGoServer(): void {
 
 app.on('before-quit', () => {
   isQuitting = true
+  if (goRestartTimer) {
+    clearTimeout(goRestartTimer)
+    goRestartTimer = null
+  }
   stopPolling()
   killGoServer()
 })
