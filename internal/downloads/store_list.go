@@ -220,13 +220,17 @@ func (s *Store) DistinctCategories(userID int) ([]string, error) {
 }
 
 func scanSlice(rows *sql.Rows) ([]Download, error) {
-	out := []Download{}
+	// Pré-aloca para o caso típico dos polls (dezenas–milhares de linhas) e
+	// escaneia direto no elemento do slice (scanGenericInto): elimina o
+	// `&Download{}` por linha + o copy do append crescente. Um pack de 5000
+	// linhas (~400 B/row) antes realocava o slice ~13 vezes copiando ~2 MB.
+	out := make([]Download, 0, 256)
 	for rows.Next() {
-		d, err := scanRows(rows)
-		if err != nil {
-			continue
+		out = append(out, Download{}) // slot zero: cresce a capacidade, sem heap alloc extra
+		if err := scanGenericInto(rows, &out[len(out)-1]); err != nil {
+			out = out[:len(out)-1]
+			continue // linha ilegível: pula (mesmo comportamento anterior)
 		}
-		out = append(out, *d)
 	}
 	return out, rows.Err()
 }
