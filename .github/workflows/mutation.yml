@@ -1,0 +1,128 @@
+# Nightly mutation testing (gremlins) on jackui's pure business-logic packages.
+# Port of the archived Gitea Actions workflow (docs/archive/gitea-workflows/mutation.yml)
+# to GitHub Actions — issue #80, fase P1.2c.
+#
+# Mutation testing re-runs the tests per mutant, so it is too slow for a per-PR
+# gate; it runs on a schedule (and on demand) on GitHub-hosted x64 (this is
+# analysis, not a product gate — product CI stays on ARM).
+#
+# NON-BLOCKING by design: the old workflow had `--threshold-efficacy 50` as a
+# regression alarm. The threshold was dropped in this port because the baseline
+# efficacy on GitHub-hosted runners is not measured yet; the score is published
+# as an artifact + step summary for inspection, and thresholds return in a
+# follow-up once a stable baseline exists.
+#
+# Scope: gremlins mutates only packages with fast, self-contained unit tests.
+# The excludes below skip packages that need infra or drive external systems
+# (same rationale as the archived workflow):
+#   - DB-backed (need JACKUI_TEST_DATABASE_URL): db, dbtest, dbutil, streamer
+#   - ffmpeg / exec-driven: audiometa, transcode, localstream
+#   - HTTP handlers (httptest-driven, integration-shaped): handlers, middleware
+#   - auth (lockout test → 15 min timeout por mutante): auth
+#   - external APIs / IO: jackett, tmdb, imagesearch, lyrics, subtitles,
+#     musictrending, watchlist, transmissionrpc, downloader, downloads, mailer,
+#     push, gluetun, preview, transfer, library, playlists, history, stats, ai
+#   - non-Go / wiring: web, electron, cmd, ui
+# Covered set: config, contentid, diskutil, httpretry, local, localcache,
+# metrics, parser, renamer, version. Expanding to DB-backed downloads/streamer
+# (PROJECT_ANALYSIS P2) is a follow-up: it needs Postgres per mutant run, so it
+# should only land after this baseline's runtime is measured.
+name: Mutation (nightly)
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serializa runs noturnas; não interrompe mutation em andamento.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gremlins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      # Sem threshold: gremlins sai 0 mesmo com mutantes vivos (não é gate).
+      - name: gremlins unleash (business logic)
+        run: |
+          go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash \
+            --exclude-files 'internal/db/.*' \
+            --exclude-files 'internal/dbtest/.*' \
+            --exclude-files 'internal/dbutil/.*' \
+            --exclude-files 'internal/streamer/.*' \
+            --exclude-files 'internal/localstream/.*' \
+            --exclude-files 'internal/audiometa/.*' \
+            --exclude-files 'internal/transcode/.*' \
+            --exclude-files 'internal/handlers/.*' \
+            --exclude-files 'internal/middleware/.*' \
+            --exclude-files 'internal/jackett/.*' \
+            --exclude-files 'internal/tmdb/.*' \
+            --exclude-files 'internal/imagesearch/.*' \
+            --exclude-files 'internal/lyrics/.*' \
+            --exclude-files 'internal/subtitles/.*' \
+            --exclude-files 'internal/musictrending/.*' \
+            --exclude-files 'internal/watchlist/.*' \
+            --exclude-files 'internal/transmissionrpc/.*' \
+            --exclude-files 'internal/downloader/.*' \
+            --exclude-files 'internal/downloads/.*' \
+            --exclude-files 'internal/mailer/.*' \
+            --exclude-files 'internal/push/.*' \
+            --exclude-files 'internal/gluetun/.*' \
+            --exclude-files 'internal/preview/.*' \
+            --exclude-files 'internal/transfer/.*' \
+            --exclude-files 'internal/library/.*' \
+            --exclude-files 'internal/playlists/.*' \
+            --exclude-files 'internal/history/.*' \
+            --exclude-files 'internal/stats/.*' \
+            --exclude-files 'internal/auth/.*' \
+            --exclude-files 'internal/ai/.*' \
+            --exclude-files 'ui/.*' \
+            --exclude-files 'web/.*' \
+            --exclude-files 'electron/.*' \
+            --exclude-files 'cmd/.*' \
+            --output mutation-report.json
+
+      - name: Mutation score summary
+        if: always()
+        run: |
+          if [ ! -f mutation-report.json ]; then
+            echo '## Mutation testing' >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            echo '⚠️ gremlins não gerou `mutation-report.json` — veja o log do step anterior.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo '## Mutation testing (gremlins)'
+            echo ''
+            echo '| Métrica | Valor |'
+            echo '| --- | --- |'
+            echo "| Test efficacy | $(jq -r '.test_efficacy' mutation-report.json)% |"
+            echo "| Mutant coverage | $(jq -r '.mutations_coverage' mutation-report.json)% |"
+            echo "| Mutants total | $(jq -r '.mutants_total' mutation-report.json) |"
+            echo "| Killed | $(jq -r '.mutants_killed' mutation-report.json) |"
+            echo "| Lived | $(jq -r '.mutants_lived' mutation-report.json) |"
+            echo "| Not covered | $(jq -r '.mutants_not_covered' mutation-report.json) |"
+            echo "| Not viable | $(jq -r '.mutants_not_viable' mutation-report.json) |"
+            echo ''
+            echo 'Relatório completo no artifact `mutation-report`. Sem gate neste PR — thresholds em follow-up.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: mutation-report
+          path: mutation-report.json
+          if-no-files-found: warn
