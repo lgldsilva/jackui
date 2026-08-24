@@ -154,16 +154,12 @@ export default function PlaylistDetailPage() {
           <div className="flex flex-col gap-1.5">
             {items.map((it, idx) => (
               <div
-                role="button"
-                tabIndex={0}
                 key={it.id}
                 draggable
                 onDragStart={() => setDragIdx(idx)}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => handleReorderDrop(idx)}
                 onDragEnd={() => setDragIdx(null)}
-                onKeyDown={(e) => { if (e.key === 'Enter') startAt(idx) }}
-                {...newTabProps(it.infoHash ? playHref(it.infoHash, it.fileIndex) : `/playlists/${playlistID}`, () => startAt(idx))}
                 className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-surface-secondary/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
               >
                 {/* ↑/↓ — reorder por toque no mobile (a alça de drag é ruim no
@@ -190,16 +186,19 @@ export default function PlaylistDetailPage() {
                 </div>
                 <GripVertical className="hidden md:block w-4 h-4 text-text-muted flex-shrink-0 cursor-grab active:cursor-grabbing" />
                 <div className="flex-1 min-w-0">
-                  {/* Texto, não botão: o clique do título é tratado pela row
-                      (plain → startAt; ctrl/middle → nova aba). Antes era um
-                      <button> sem stopPropagation aninhado no <button> da row
-                      (HTML inválido) → Ctrl+clique tocava E abria nova aba. */}
-                  <span
-                    className="text-sm text-text-primary group-hover:text-green-400 transition-colors text-left font-medium truncate block w-full"
+                  {/* A row é um container estático (drag & drop apenas); a ação
+                      primária vive neste botão-título (plain → startAt;
+                      ctrl/middle → nova aba via newTabProps). Assim os botões
+                      irmãos (↑/↓, Play, Trash) nunca ficam aninhados dentro de
+                      outro interativo. */}
+                  <button
+                    type="button"
+                    {...newTabProps(it.infoHash ? playHref(it.infoHash, it.fileIndex) : `/playlists/${playlistID}`, () => startAt(idx))}
+                    className="text-sm text-text-primary group-hover:text-green-400 transition-colors text-left font-medium truncate block w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
                     title={it.title}
                   >
                     {idx + 1}. {it.title}
-                  </span>
+                  </button>
                   {it.infoHash && (
                     <p className="text-[10px] text-text-muted mt-0.5 font-mono">
                       {it.infoHash.slice(0, 16)}...

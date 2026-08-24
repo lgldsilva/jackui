@@ -27,8 +27,11 @@ export function shellProps(opts: {
   onHome?: () => void
   onClose: () => void
   setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void
+  // Nome acessível do role="dialog" (regra aria-dialog-name do axe) — título
+  // da mídia em reprodução.
+  ariaLabel: string
 }): React.HTMLAttributes<HTMLDivElement> {
-  const { minimized, audioMode, fullViewport, onHome, onClose, setMinimized } = opts
+  const { minimized, audioMode, fullViewport, onHome, onClose, setMinimized, ariaLabel } = opts
   if (minimized) {
     // Áudio: barra fina full-width colada no footer (acima da nav inferior, se houver)
     // — o "mini-player" de música de verdade. Vídeo: card PiP no canto (um vídeo numa
@@ -47,6 +50,7 @@ export function shellProps(opts: {
       onKeyDown: (e) => { if (e.key === 'Escape') (onHome ?? onClose)() },
       role: 'dialog',
       'aria-modal': 'true',
+      'aria-label': ariaLabel,
       tabIndex: -1,
     }
   }
@@ -56,6 +60,7 @@ export function shellProps(opts: {
     onKeyDown: (e) => { if (e.key === 'Escape') setMinimized(true) },
     role: 'dialog',
     'aria-modal': 'true',
+    'aria-label': ariaLabel,
     tabIndex: -1,
   }
 }
@@ -104,7 +109,7 @@ export function renderPlayerHeader(props: {
           : (
             <>
               <button onClick={() => setMinimized(m => !m)} title={minimized ? t('player.modal.expand') : t('player.modal.minimize')} className="text-text-secondary hover:text-text-primary transition-colors">{minimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-5 h-5" />}</button>
-              <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors"><X className="w-5 h-5" /></button>
+              <button onClick={onClose} title={t('misc.close')} aria-label={t('misc.close')} className="text-text-secondary hover:text-text-primary transition-colors"><X className="w-5 h-5" /></button>
             </>
           )}
       </div>

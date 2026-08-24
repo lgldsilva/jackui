@@ -1,6 +1,7 @@
 import tseslint from 'typescript-eslint'
 import sonarjs from 'eslint-plugin-sonarjs'
 import reactHooks from 'eslint-plugin-react-hooks'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
 
 // Baseline (auditoria 2026-07): arquivos que já violavam cognitive-complexity>15
 // quando o gate nasceu. Neles a regra fica em 'warn' até serem fatiados
@@ -25,8 +26,19 @@ export default tseslint.config(
   {
     files: ['src/**/*.{ts,tsx}'],
     languageOptions: { parser: tseslint.parser },
-    plugins: { sonarjs, 'react-hooks': reactHooks },
+    plugins: { sonarjs, 'react-hooks': reactHooks, 'jsx-a11y': jsxA11y },
     rules: {
+      ...jsxA11y.flatConfigs.recommended.rules,
+      // ratchet a11y — promover a error conforme as violações são corrigidas.
+      // Estas três regras flagram padrões deliberados e já acessíveis:
+      // - no-autofocus (10 ocorrências): autofoco em inputs de busca/login e em
+      //   modais que já têm focus trap (useDialogFocus) — UX intencional.
+      // - no-static/noninteractive-element-interactions (3 ocorrências): overlay
+      //   "clique-fora-fecha" dos modais; o teclado já fecha via Esc + botão
+      //   Close, então o backdrop é affordance extra de ponteiro, não barreira.
+      'jsx-a11y/no-autofocus': 'warn',
+      'jsx-a11y/no-static-element-interactions': 'warn',
+      'jsx-a11y/no-noninteractive-element-interactions': 'warn',
       // Espelha o S3776 do SonarQube (limite 15) que o gate da main aplica —
       // aqui ele quebra JÁ no PR, antes de queimar um ciclo de CI de ~12min.
       'sonarjs/cognitive-complexity': ['error', 15],

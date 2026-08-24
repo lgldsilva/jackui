@@ -374,7 +374,7 @@ export default function PlayerModal({
   )
 
   return (
-    <div {...shellProps({ minimized, audioMode, fullViewport, onHome, onClose, setMinimized })}>
+    <div {...shellProps({ minimized, audioMode, fullViewport, onHome, onClose, setMinimized, ariaLabel: info?.name || result.title })}>
       <div className={minimizedOrFullClass(minimized, audioMode, fullViewport)}>
         {/* Minimized (PiP) control strip — renderPlayerHeader returns null when
             minimized. This bar restores the expand + close affordances. */}

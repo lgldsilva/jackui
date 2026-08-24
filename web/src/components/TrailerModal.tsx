@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
 // youtube-nocookie host. Unmounting the iframe stops playback, so closing
 // needs no player API.
 export default function TrailerModal({ videoKey, title, onClose }: Readonly<Props>) {
+  const { t } = useTranslation()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     globalThis.addEventListener('keydown', onKey)
@@ -36,7 +38,7 @@ export default function TrailerModal({ videoKey, title, onClose }: Readonly<Prop
           <button
             onClick={onClose}
             className="flex items-center justify-center w-9 h-9 rounded-lg text-white/80 hover:text-white hover:bg-white/10"
-            aria-label="Fechar"
+            aria-label={t('misc.close')}
           >
             <X className="w-5 h-5" />
           </button>
