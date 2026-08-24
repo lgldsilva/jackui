@@ -26,10 +26,26 @@ wait_for_healthz() {
 	return 1
 }
 
+# Module fetches hit proxy.golang.org, whose transient errors have failed
+# whole CI runs mid-`go test`. Download explicitly, with retries, up front.
+download_modules_with_retry() {
+	local attempt=1
+	until go mod download; do
+		attempt=$((attempt + 1))
+		if ((attempt > 4)); then
+			printf 'go mod download failed after 4 attempts\n' >&2
+			return 1
+		fi
+		printf 'go mod download failed; retrying in %ds\n' "$((attempt * 10))" >&2
+		sleep "$((attempt * 10))"
+	done
+}
+
 main() {
 	mkdir -p "${ARTIFACT_DIR}" /tmp/jackui-ci-stream /tmp/jackui-ci-downloads /tmp/jackui-ci-library
 	trap stop_server EXIT INT TERM
 
+	download_modules_with_retry
 	[[ -z "$(gofmt -l .)" ]]
 	go vet ./internal/...
 	go test -p 4 -timeout 20m -coverprofile="${ARTIFACT_DIR}/coverage.out" ./internal/...
