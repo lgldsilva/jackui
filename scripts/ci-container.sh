@@ -60,6 +60,13 @@ main() {
 	npm run build
 	popd >/dev/null
 
+	# Electron TypeScript gate. The root package carries electron,
+	# electron-builder and typescript; --ignore-scripts skips the postinstall
+	# (version.json generation + JS emit), which the --noEmit typecheck does
+	# not need.
+	npm ci --ignore-scripts
+	./node_modules/.bin/tsc -p electron/tsconfig.json --noEmit
+
 	# The patch is generated on the runner before the Docker build because .git
 	# is intentionally excluded from this image and remote contexts.
 	golangci-lint run --new-from-patch=.ci-golangci.patch ./...
