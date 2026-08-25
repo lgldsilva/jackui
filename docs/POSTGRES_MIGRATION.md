@@ -25,7 +25,9 @@ tokens) são preservados na virada; o resto nasce vazio.
 ## Deploy em PROD (atrás do gluetun — hand-file)
 
 ⚠ Em prod o compose é **hand-maintained** em `<prod-config-dir>/docker-compose.yml`
-e o Jenkins **só troca a imagem** — mudanças de compose/env NÃO chegam por CI.
+e o deploy **só troca a imagem** — mudanças de compose/env NÃO chegam por CI.
+(O release do GitHub Actions publica a imagem em `ghcr.io/lgldsilva/jackui`; o
+deploy em si é manual, via `make deploy-auto`. Jenkins foi descomissionado.)
 Edite à mão:
 
 1. Faça backup do auth.db: `cp .../jackui/auth.db auth.db.bak-$(date +%F)`.
@@ -51,7 +53,7 @@ Edite à mão:
      --to "postgres://jackui:<senha>@localhost:5432/jackui?sslmode=disable"
    ```
    Valide: `count(*)` por tabela + 1 login + 1 refresh token ativo.
-7. **Só depois da imagem nova (com pgx) buildada/pushada pelo Jenkins**, recrie:
+7. **Só depois da imagem nova (com pgx) publicada pelo workflow de release**, recrie:
    `docker compose up -d --force-recreate jackui` e acompanhe `logs -f jackui`.
 
 Ordem segura: PG up → migrar dados → imagem pgx → recreate jackui. Enquanto a
@@ -63,7 +65,7 @@ volta ao estado anterior sem perda.
 ## Testes
 
 Os testes de store rodam contra um Postgres real. Configure
-`JACKUI_TEST_DATABASE_URL` (no CI o Jenkinsfile sobe um sidecar `jackui-ci-pg`
-com `fsync=off`); sem a env, os testes que dependem de banco fazem `t.Skip`
+`JACKUI_TEST_DATABASE_URL` (no CI a stack descartável do `docker-compose.ci.yml`
+sobe um sidecar `postgres`); sem a env, os testes que dependem de banco fazem `t.Skip`
 (`make test` segue verde). O `internal/dbtest` migra um schema por processo e
 isola cada teste com `TRUNCATE` (rápido).
