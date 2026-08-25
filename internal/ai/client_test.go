@@ -1011,3 +1011,24 @@ func TestChatBadJSON(t *testing.T) {
 		t.Fatal("expected error for bad JSON")
 	}
 }
+
+func TestProviders(t *testing.T) {
+	// A nil client (AI disabled) must not panic.
+	var nilC *Client
+	if got := nilC.Providers(); got != nil {
+		t.Fatalf("nil client: want nil, got %v", got)
+	}
+
+	// Names come back sorted regardless of map iteration order, so the UI
+	// dropdown stays stable between reloads.
+	c := &Client{providers: map[string]config.AIProvider{
+		"openrouter": {}, "groq": {}, "ollama": {},
+	}}
+	if got := strings.Join(c.Providers(), ","); got != "groq,ollama,openrouter" {
+		t.Fatalf("want sorted providers, got %q", got)
+	}
+
+	if got := (&Client{providers: map[string]config.AIProvider{}}).Providers(); len(got) != 0 {
+		t.Fatalf("empty providers: want none, got %v", got)
+	}
+}

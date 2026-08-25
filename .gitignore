@@ -82,3 +82,7 @@ sonar-out/
 
 # spec-kit extension catalog cache (regenerated on demand)
 .specify/extensions/.cache/
+
+# AI agent tooling artifacts (local only)
+.mimosa/
+.zcode/
