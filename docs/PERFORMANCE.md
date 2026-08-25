@@ -134,3 +134,26 @@ curl -s 'http://jackui:8989/debug/pprof/goroutine?debug=2&token=<TOKEN>' | head 
 O `?token=` na query existe porque o `go tool pprof` busca a URL direto, sem header.
 Ele **não** é o media token da auth (`isMediaPath` não cobre `/debug/`) — é o token
 estático dedicado ao profiling. Desligue depois da investigação.
+
+## Benchmarks no CI
+
+Job `bench` (`.github/workflows/ci.yml`), **informativo**: runner compartilhado é
+barulhento demais para virar gate, então ele só falha se um benchmark parar de
+compilar ou entrar em panic — nunca por regressão de número.
+
+- Descobre sozinho os pacotes com `func Benchmark` (nada de lista hardcoded).
+- Em PR, roda também o **merge base** no mesmo runner e publica o delta via
+  `benchstat` no step summary. Comparar contra o número de outra máquina/outro dia
+  não significaria nada.
+- `new.txt`/`old.txt` sobem como artefato (`jackui-benchmarks`, 14 dias).
+
+Rodando local:
+
+```bash
+go test -run '^$' -bench . -benchmem -count 6 ./internal/downloads/ | tee new.txt
+benchstat old.txt new.txt
+```
+
+Os benchmarks atuais cobrem o poll de downloads (`BenchmarkStoreList` em 100/1000/5000
+linhas, `BenchmarkMarshalDownloadsList`) e `BenchmarkSubtitlesSearch`. São
+self-contained (SQLite in-memory) — nenhum precisa de Postgres nem de rede.
