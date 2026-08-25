@@ -117,6 +117,7 @@ case "$REPORT_DIR" in
     echo "✘ REPORT_DIR ($REPORT_DIR) refuses to be wiped — point it at a scratch dir"
     exit 1
     ;;
+  *) ;;
 esac
 rm -rf "${REPORT_DIR:?}"
 mkdir -p "$REPORT_DIR"
