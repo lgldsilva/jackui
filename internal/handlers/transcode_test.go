@@ -4,13 +4,26 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
+// requireFFmpeg skips tests whose handler shells out to ffmpeg. The transcode
+// capability probe returns 500 ("ffmpeg not found in PATH") on runners without
+// it — product CI (ARM) ships ffmpeg, but the nightly mutation runner is a bare
+// GitHub-hosted image and gremlins runs the whole suite before mutating.
+func requireFFmpeg(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not in PATH")
+	}
+}
+
 func TestTranscodeCapabilities_ReturnsJSON(t *testing.T) {
+	requireFFmpeg(t)
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
@@ -49,6 +62,7 @@ func TestParseIntOr(t *testing.T) {
 }
 
 func TestTranscodeCapabilities_RefreshFlag(t *testing.T) {
+	requireFFmpeg(t)
 	gin.SetMode(gin.TestMode)
 
 	w := httptest.NewRecorder()
