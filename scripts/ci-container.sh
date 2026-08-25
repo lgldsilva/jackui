@@ -56,7 +56,11 @@ main() {
 	npm run lint
 	npm run check:i18n
 	npm test -- --coverage
-	cp coverage/lcov.info "${ARTIFACT_DIR}/lcov.info"
+	# lcov.info records paths relative to web/ (SF:src/...), but SonarCloud
+	# analyses the repository root, where those files live under web/. Without
+	# the prefix the scanner matches nothing and frontend coverage is silently
+	# dropped, which is exactly what the gate exists to prevent.
+	sed 's|^SF:|SF:web/|' coverage/lcov.info >"${ARTIFACT_DIR}/lcov.info"
 	npm run build
 	popd >/dev/null
 
