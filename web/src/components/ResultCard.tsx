@@ -67,7 +67,8 @@ async function resolveMagnetIfNeeded(
 
 function useTmdbMatch(title: string) {
   const [tmdb, setTmdb] = useState<TmdbMatch | null>(null)
-  // HTMLElement: the card wrapper is a focusable/clickable <div>.
+  // HTMLElement: the card wrapper is a plain container <div> (a ação primária
+  // vive no botão-título; o wrapper só ancora o IntersectionObserver).
   const cardRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -187,7 +188,7 @@ function renderCardTitle(
   tmdb: TmdbMatch | null,
   result: SearchResult,
   isFavorited: boolean,
-  cardClickable: boolean,
+  cardAction: (() => void) | undefined,
   titleAttr: string,
   toggleFavorite: (e: React.MouseEvent) => void,
   favResolving: boolean,
@@ -195,8 +196,21 @@ function renderCardTitle(
   return (
     <div className="flex items-start justify-between gap-2">
       {renderArtSection(tmdb)}
-      <h3 className={`text-sm font-medium text-text-primary line-clamp-2 flex-1 min-w-0 break-words ${cardClickable ? 'hover:text-green-400' : ''}`} title={titleAttr}>
-        {result.title}
+      {/* O título é o interativo primário do card (button real): o wrapper do
+          card é um container estático, então botões/âncoras irmãos (favorito,
+          IMDb, Play...) nunca ficam aninhados dentro de outro interativo. */}
+      <h3 className={`text-sm font-medium text-text-primary flex-1 min-w-0 ${cardAction ? '' : 'line-clamp-2 break-words'}`} title={titleAttr}>
+        {cardAction ? (
+          <button
+            type="button"
+            onClick={cardAction}
+            className="block w-full text-left line-clamp-2 break-words hover:text-green-400 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+          >
+            {result.title}
+          </button>
+        ) : (
+          result.title
+        )}
         {tmdb && (
           <span className="block text-[11px] font-normal text-text-secondary mt-0.5 line-clamp-2">
               {tmdb.kind === 'tv' ? '📺' : '🎬'} {tmdb.title}{tmdb.year ? ` (${tmdb.year})` : ''}
@@ -377,12 +391,6 @@ type CardShell = {
   cardClass: string
   cardTapStyle: { WebkitTapHighlightColor: string } | undefined
   cardTitle: string | undefined
-  interactiveProps: {
-    role?: 'button'
-    tabIndex?: number
-    onClick?: () => void
-    onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
-  }
 }
 
 function resolveCardClick(
@@ -409,19 +417,13 @@ function cardShellTitle(canPlay: boolean, cardClickable: boolean): string | unde
   return undefined
 }
 
-function cardKeyDownHandler(handleCardClick: () => void): (e: React.KeyboardEvent<HTMLDivElement>) => void {
-  return (e) => {
-    if (e.target !== e.currentTarget) return
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      handleCardClick()
-    }
-  }
-}
-
+// O card em si é um container estático (sem role/tabIndex/handlers): a ação
+// primária vive no botão-título e as demais nos botões irmãos. Manter o hover
+// de borda/fundo preserva o visual de "card vivo" sem que o wrapper inteiro
+// seja um interativo envelopando os demais.
 const CLICKABLE_CARD_CLASS =
-  'card flex flex-col gap-3 text-left cursor-pointer hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-[color,background-color,border-color,box-shadow,transform] focus-visible:ring-2 focus-visible:ring-green-500 focus:outline-none'
-const STATIC_CARD_CLASS = 'card flex flex-col gap-3 text-left cursor-default'
+  'card flex flex-col gap-3 text-left hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-[color,background-color,border-color,box-shadow,transform]'
+const STATIC_CARD_CLASS = 'card flex flex-col gap-3 text-left'
 
 function buildCardShell(
   result: SearchResult,
@@ -440,9 +442,6 @@ function buildCardShell(
     cardClass: cardClickable ? CLICKABLE_CARD_CLASS : STATIC_CARD_CLASS,
     cardTapStyle: cardClickable ? { WebkitTapHighlightColor: 'rgba(16, 185, 129, 0.15)' } : undefined,
     cardTitle: cardShellTitle(canPlay, cardClickable),
-    interactiveProps: cardClickable
-      ? { role: 'button' as const, tabIndex: 0, onClick: handleCardClick, onKeyDown: cardKeyDownHandler(handleCardClick) }
-      : {},
   }
 }
 
@@ -501,9 +500,8 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
       className={shell.cardClass}
       style={shell.cardTapStyle}
       title={shell.cardTitle}
-      {...shell.interactiveProps}
     >
-      {renderCardTitle(tmdb, result, actions.isFavorited, shell.cardClickable, shell.titleAttr, actions.toggleFavorite, actions.favResolving)}
+      {renderCardTitle(tmdb, result, actions.isFavorited, shell.handleCardClick, shell.titleAttr, actions.toggleFavorite, actions.favResolving)}
       <QualityBadges quality={result.quality} />
       {renderCategoryBadges(result)}
       {renderCardStats(result, onRefresh, refreshing, refreshedAt)}

@@ -100,7 +100,7 @@ describe('Sheet — acessibilidade', () => {
       <Sheet open onClose={onClose} title="Modal foco">
         <button data-testid="btn-1">Botão 1</button>
         <button data-testid="btn-2">Botão 2</button>
-        <a data-testid="link-1" href="#">Link</a>
+        <a data-testid="link-1" href="https://example.com/">Link</a>
       </Sheet>,
     )
 
