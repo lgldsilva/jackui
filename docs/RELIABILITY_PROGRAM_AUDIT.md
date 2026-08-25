@@ -28,11 +28,21 @@ entregue, em qual PR, e qual é a evidência** de que continua valendo depois do
 
 Não é dívida escondida — é escopo que foi avaliado e adiado com motivo:
 
-- **Threshold de mutation score.** O workflow noturno é **não-bloqueante** por
-  enquanto: o antigo `--threshold-efficacy 50` valia para runners do homelab, e o
-  baseline em runner GitHub-hosted ainda não foi medido (a primeira execução limpa
-  só foi possível depois de [#99](https://github.com/lgldsilva/jackui/pull/99)).
-  O threshold volta quando existir um baseline estável.
+- **Threshold de mutation score.** O workflow noturno segue **não-bloqueante**.
+  O antigo `--threshold-efficacy 50` valia para runners do homelab; o baseline em
+  runner GitHub-hosted só pôde ser medido depois de
+  [#99](https://github.com/lgldsilva/jackui/pull/99). Primeira execução limpa
+  (`main@8d46f528`, run 32799273373):
+
+  | Métrica | Valor |
+  |---|---|
+  | Test efficacy | 72,8% |
+  | Mutant coverage | 88,1% |
+  | Mutantes | 467 (340 killed · 127 lived · 63 not covered) |
+  | Tempo | ~116s |
+
+  Com folga sobre o threshold antigo — reativar o gate é um follow-up de uma
+  linha, depois de algumas noites confirmarem que o número é estável.
 - **Mutation em pacotes com Postgres** (`downloads`, `streamer`): exige um Postgres
   por mutante. Só faz sentido depois de medir o tempo do baseline atual.
 - **Benchmarks como gate.** Runner compartilhado tem variância grande demais;
