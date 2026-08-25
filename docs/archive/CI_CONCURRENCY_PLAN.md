@@ -1,5 +1,10 @@
 # Plano Completo — Concurrency no Gitea Actions (JackUI + Semidx)
 
+> **ARQUIVADO.** Escrito para o Gitea Actions, que deixou de ser o CI do JackUI.
+> O objetivo do plano está entregue no GitHub Actions: `.github/workflows/ci.yml`
+> usa `concurrency: group: <workflow>-<pr|ref>` com `cancel-in-progress: true`.
+> Mantido só como registro do raciocínio. CI ativo: [../CICD.md](../CICD.md).
+
 ## Contexto e problema
 
 Nos dois repositórios (`jackui` e `semidx`), quando há múltiplos commits em sequência no mesmo PR, o CI dispara múltiplas execuções completas dos mesmos gates. Isso gera:

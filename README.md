@@ -236,6 +236,8 @@ What JackUI does **not** do: it is not hardened for public-internet exposure wit
 | [docs/TRANSMISSION_RPC.md](docs/TRANSMISSION_RPC.md) | Using JackUI as a Sonarr/Radarr/Prowlarr download client |
 | [docs/CICD.md](docs/CICD.md) | Build pipeline, quality gates, deploy |
 | [docs/RCLONE.md](docs/RCLONE.md) | Tuning rclone/Google-Drive mounts for streaming (cache, chunking, read-ahead) |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | N+1 backlog, on-demand profiling (`/debug/pprof`), benchmarks in CI |
+| [docs/RELIABILITY_PROGRAM_AUDIT.md](docs/RELIABILITY_PROGRAM_AUDIT.md) | Closing record of the reliability program (issue #80): phase → PR → evidence |
 
 ## Legal
 
