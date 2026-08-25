@@ -93,6 +93,10 @@ services:
       # Token estático pro scraper do Prometheus quando JACKUI_AUTH_ENABLED=1
       # (JWTs expiram; scrape configs não fazem refresh). Vazio = só admin JWT.
       - JACKUI_METRICS_TOKEN=${JACKUI_METRICS_TOKEN:-}
+      # Profiling sob demanda: /debug/pprof só existe com JACKUI_PPROF_ENABLED=1
+      # e sempre autenticado (token estático abaixo ou JWT de admin).
+      - JACKUI_PPROF_ENABLED=${JACKUI_PPROF_ENABLED:-}
+      - JACKUI_PPROF_TOKEN=${JACKUI_PPROF_TOKEN:-}
       # ── Perfil de baixo consumo (auditoria de perf, perfil "Balanceado") ───
       # Memória: GOGC=75 aperta o heap-alvo entre GCs (de 100 → menos RSS gordo
       # esperando o próximo GC); GOMEMLIMIT é o teto rígido (~1.6 GiB, ~400 MB de

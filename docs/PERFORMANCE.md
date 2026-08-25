@@ -104,3 +104,33 @@ Erro por-arquivo é inline (um arquivo ruim não derruba o lote). `forceHLS` só
 `skeletonGroup` marca cada grupo local `'ready'` sem fetch; o driver de ativação em
 background vira no-op pra playlists locais (as N chamadas ffprobe somem). Grupos de torrent
 seguem o caminho `streamMetadata` (será coberto por #4).
+
+## Profiling sob demanda — `/debug/pprof`
+
+O backlog acima nasceu de leitura de código; para medir em vez de adivinhar, o servidor
+expõe o `net/http/pprof` — **desligado por padrão**, porque um profile carrega heap e
+goroutines (nomes de torrent, caminhos de arquivo, tokens em voo).
+
+Ligar (`cmd/server/pprof.go`):
+
+| Env | Efeito |
+|---|---|
+| `JACKUI_PPROF_ENABLED=1` | registra `/debug/pprof/*` |
+| `JACKUI_PPROF_TOKEN=<token longo>` | autentica via `Authorization: Bearer` ou `?token=` |
+
+Sem `JACKUI_PPROF_TOKEN` mas com a auth JWT ligada, o endpoint cai no **JWT de admin**.
+Sem token **e** sem auth não há identidade para checar: as rotas **não são registradas**
+(fica um log explicando), em vez de abrirem um dump de memória para a rede.
+
+```bash
+# heap ao vivo
+go tool pprof -http=:8080 'http://jackui:8989/debug/pprof/heap?token=<TOKEN>'
+# 30s de CPU
+go tool pprof 'http://jackui:8989/debug/pprof/profile?seconds=30&token=<TOKEN>'
+# goroutines travadas (o caso clássico do teardown com VPN caída)
+curl -s 'http://jackui:8989/debug/pprof/goroutine?debug=2&token=<TOKEN>' | head -50
+```
+
+O `?token=` na query existe porque o `go tool pprof` busca a URL direto, sem header.
+Ele **não** é o media token da auth (`isMediaPath` não cobre `/debug/`) — é o token
+estático dedicado ao profiling. Desligue depois da investigação.

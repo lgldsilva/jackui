@@ -75,7 +75,8 @@ electron/version.json
 # ai-jail sandbox config (local AI tooling, not for the repo)
 .ai-jail
 
-# Sonar security artifacts & output
+# Sonar security artifacts & output (REPORT_DIR default lives under build/)
+build/
 sonar-out/
 *.pem
 

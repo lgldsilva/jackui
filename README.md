@@ -49,7 +49,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 - **Low-footprint mode** — the HLS pipeline shuts ffmpeg down when the **last** viewer leaves (no 5-min survival), the UI pauses its polling when the tab is hidden, and a balanced runtime profile (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS` + `JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`) keeps idle memory low on a home server.
 - **Desktop app** (optional) — an Electron wrapper bundling the Go server, with a status tray, magnet deep-links, and native downloads. See [`electron/`](electron/).
 - **Auth** — JWT **on by default** (opt out only with `JACKUI_AUTH_ENABLED=0` + `JACKUI_ALLOW_INSECURE_AUTH=1`) with rotated refresh tokens, roles, MFA/passkeys, and `AdminOnly` routes (incl. admin password reset).
-- **Observability** — public `/status` (version/commit/buildTime), Prometheus `/api/metrics` (admin JWT or `JACKUI_METRICS_TOKEN`), structured logs (`JACKUI_LOG_FORMAT=json`), and scheduled **bandwidth windows** for the streamer.
+- **Observability** — public `/status` (version/commit/buildTime), Prometheus `/api/metrics` (admin JWT or `JACKUI_METRICS_TOKEN`), opt-in `/debug/pprof` (`JACKUI_PPROF_ENABLED` + token/admin JWT), structured logs (`JACKUI_LOG_FORMAT=json`), and scheduled **bandwidth windows** for the streamer.
 
 ## Stack
 
@@ -140,6 +140,8 @@ All variables below accept empty/unset as "use default". The canonical default i
 | | `JACKUI_ADMIN_PASSWORD` | — | Admin password |
 | | `JACKUI_JWT_SECRET` | — | JWT signing secret (≥32 bytes, **required** with auth) |
 | | `JACKUI_METRICS_TOKEN` | — | Static token for Prometheus `/api/metrics` |
+| | `JACKUI_PPROF_ENABLED` | `0` | Expose `/debug/pprof` (opt-in; never anonymous) |
+| | `JACKUI_PPROF_TOKEN` | — | Static token for `/debug/pprof` (else admin JWT; without either the routes stay off) |
 | **Notifications** | `JACKUI_NTFY_TOPIC` | — | ntfy.sh topic for watchlist push |
 | | `JACKUI_NTFY_URL` | `https://ntfy.sh` | ntfy server URL |
 | | `JACKUI_NTFY_TOKEN` | — | ntfy auth token (optional) |

@@ -77,11 +77,7 @@ func metricsStaticTokenBypass(prom gin.HandlerFunc) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		presented := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
-		if presented == "" || presented == c.GetHeader("Authorization") {
-			presented = c.Query("token")
-		}
-		if subtle.ConstantTimeCompare([]byte(presented), []byte(static)) == 1 {
+		if subtle.ConstantTimeCompare([]byte(presentedToken(c)), []byte(static)) == 1 {
 			prom(c)
 			c.Abort()
 			return
@@ -166,6 +162,10 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	} else {
 		router.GET("/api/metrics", promHandler)
 	}
+	// /debug/pprof — OFF por padrão (JACKUI_PPROF_ENABLED) e nunca anônimo:
+	// token estático (JACKUI_PPROF_TOKEN) ou JWT de admin. Ver pprof.go.
+	registerPprofRoutes(router, deps)
+
 	// Peer-port refresh: lets the gluetun port-forward up-command push an immediate
 	// rebind when ProtonVPN rotates the forwarded port (vs waiting for the ~2min
 	// watcher poll). Static-token auth (JACKUI_CONTROL_TOKEN) — the caller is a
