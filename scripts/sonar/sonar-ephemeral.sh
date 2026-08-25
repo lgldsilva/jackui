@@ -20,7 +20,7 @@
 #   SONAR_CA_CERT    [optional PEM CA for private Sonar HTTPS]
 #   PROJECT_NAME     [$PROJECT_KEY]
 #   EPHEMERAL        [1]
-#   REPORT_DIR       [$PWD/sonar-out]
+#   REPORT_DIR       [$PWD/build/sonar-out]
 #   SONAR_SOURCES    [src/]
 #   SONAR_TESTS      [tests/]
 #   SONAR_TEST_INCLUSIONS   [empty]
@@ -58,7 +58,7 @@ SONAR_TOKEN="${SONAR_TOKEN:-}"
 PROJECT_KEY="${PROJECT_KEY:-}"
 PROJECT_NAME="${PROJECT_NAME:-${PROJECT_KEY}}"
 EPHEMERAL="${EPHEMERAL:-1}"
-REPORT_DIR="${REPORT_DIR:-$PWD/sonar-out}"
+REPORT_DIR="${REPORT_DIR:-$PWD/build/sonar-out}"
 REPORT_FILE="${REPORT_FILE:-$REPORT_DIR/sonar-report.txt}"
 SONAR_SOURCES="${SONAR_SOURCES:-src/}"
 SONAR_TESTS="${SONAR_TESTS:-tests/}"
@@ -109,7 +109,19 @@ if [[ -z "$PROJECT_KEY" ]]; then
   exit 1
 fi
 
+# Wipe before writing: a half-written REPORT_DIR from an older run (stale
+# .qg_status / _issues.json / trust store) reads exactly like a fresh result and
+# has already been mistaken for one. Reports are regenerated on every run.
+case "$REPORT_DIR" in
+  "" | "/" | "$HOME" | "$HOME/")
+    echo "✘ REPORT_DIR ($REPORT_DIR) refuses to be wiped — point it at a scratch dir"
+    exit 1
+    ;;
+  *) ;;
+esac
+rm -rf "${REPORT_DIR:?}"
 mkdir -p "$REPORT_DIR"
+date -u +"%Y-%m-%dT%H:%M:%SZ" >"$REPORT_DIR/.generated_at"
 export SONAR_HOST_URL SONAR_TOKEN PROJECT_KEY PROJECT_NAME EPHEMERAL REPORT_DIR REPORT_FILE
 
 # Java SonarScanner uses the system trust store for public HTTPS. When a private

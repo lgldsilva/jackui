@@ -114,3 +114,94 @@ jobs:
       - name: SonarCloud skipped
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set — skipping SonarCloud analysis."
+
+  # Go microbenchmarks. INFORMATIONAL: shared runners are too noisy for a
+  # perf gate, so the job never fails on a regression — it fails only when a
+  # benchmark stops compiling or panics. On a PR it also runs the merge base
+  # and publishes a benchstat delta, which is the number worth reading.
+  bench:
+    name: Benchmarks (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Discover benchmarked packages
+        id: pkgs
+        run: |
+          pkgs=$(grep -rl '^func Benchmark' --include='*_test.go' . \
+            | xargs -r -n1 dirname | sed 's|^\./||' | sort -u | sed 's|^|./|' | tr '\n' ' ')
+          echo "list=$pkgs" >> "$GITHUB_OUTPUT"
+          echo "Benchmarked packages: ${pkgs:-<none>}"
+
+      - name: Benchmark this revision
+        if: steps.pkgs.outputs.list != ''
+        env:
+          PKGS: ${{ steps.pkgs.outputs.list }}
+        run: |
+          # shellcheck disable=SC2086 -- PKGS is a space-separated package list
+          go test -run '^$' -bench . -benchmem -count 6 $PKGS | tee new.txt
+
+      # Same code, same runner, same minute — the only honest baseline for a
+      # number produced on shared hardware.
+      - name: Benchmark the merge base
+        if: github.event_name == 'pull_request' && steps.pkgs.outputs.list != ''
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          # checkout gives us the PR merge ref; the base branch may not exist
+          # as a remote-tracking ref yet.
+          git fetch --no-tags --quiet origin \
+            "$BASE_REF:refs/remotes/origin/$BASE_REF" 2>/dev/null || true
+          base=$(git merge-base HEAD "origin/$BASE_REF")
+          echo "merge base: $base"
+          git worktree add /tmp/bench-base "$base"
+          cd /tmp/bench-base
+          # Packages are resolved against the base tree: a benchmark added by
+          # this PR simply has no baseline, and benchstat says so.
+          pkgs=$(grep -rl '^func Benchmark' --include='*_test.go' . \
+            | xargs -r -n1 dirname | sed 's|^\./||' | sort -u | sed 's|^|./|' | tr '\n' ' ')
+          [ -n "$pkgs" ] || { echo "no benchmarks at the base"; exit 0; }
+          go test -run '^$' -bench . -benchmem -count 6 $pkgs \
+            | tee "$GITHUB_WORKSPACE/old.txt"
+
+      - name: Publish results
+        if: always() && steps.pkgs.outputs.list != ''
+        run: |
+          go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260819171926-ebcb4798430d
+          {
+            echo '## Benchmarks'
+            echo
+            if [ -s old.txt ] && [ -s new.txt ]; then
+              echo 'Merge base vs. this PR (informational — shared runners are noisy):'
+              echo '```'
+              # A benchmark added by this PR has no baseline; benchstat treats a
+              # mismatched set as an error, so never let it sink the summary.
+              benchstat old.txt new.txt || echo '(benchstat failed — raw output is in the artifact)'
+              echo '```'
+            elif [ -s new.txt ]; then
+              echo '```'
+              benchstat new.txt
+              echo '```'
+            else
+              echo 'No benchmark output was produced.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark output
+        if: always() && steps.pkgs.outputs.list != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jackui-benchmarks
+          path: |
+            new.txt
+            old.txt
+          if-no-files-found: ignore
+          retention-days: 14
