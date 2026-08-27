@@ -37,9 +37,9 @@ import { useSearchStreams } from '../components/search/useSearchStreams'
 
 export default function SearchPage() {
   const { t } = useTranslation()
-  const initial = hydrateTabs()
+  const [initial] = useState(() => hydrateTabs())
   const [tabs, setTabs] = useState<TabState[]>(initial.tabs)
-  const [activeId, setActiveId] = useState(initial.activeId)
+  const [activeId, setActiveId] = useState<string>(initial.activeId)
   // Restaura o scroll da aba ativa quando ela já tem resultados (best-effort: em
   // re-busca os resultados chegam por SSE, então pode restaurar parcialmente).
   useScrollRestoration((tabs.find(t => t.id === activeId)?.results.length ?? 0) > 0)
@@ -129,16 +129,23 @@ export default function SearchPage() {
   // SSE streams (uma por aba): start/stop/close vivem no hook.
   const { handleSearch, stopSearch, closeStream } = useSearchStreams(tabs, updateTab, setTabs)
 
-  const closeActiveTab = useCallback(() => {
+  const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    closeStream(id)
     setTabs(prev => {
       if (prev.length === 1) return prev
-      closeStream(activeId)
-      const next = prev.filter(t => t.id !== activeId)
-      const idx = prev.findIndex(t => t.id === activeId)
-      setActiveId(next[Math.max(0, idx - 1)].id)
+      const next = prev.filter(t => t.id !== id)
+      if (id === activeId) {
+        const idx = prev.findIndex(t => t.id === id)
+        setActiveId(next[Math.max(0, idx - 1)].id)
+      }
       return next
     })
   }, [activeId, closeStream])
+
+  const closeActiveTab = useCallback(() => {
+    closeTab(activeId)
+  }, [activeId, closeTab])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -206,20 +213,6 @@ export default function SearchPage() {
   const addTabAndFocus = () => {
     addTab()
     setTimeout(() => searchInputRef.current?.focus(), 50)
-  }
-
-  const closeTab = (id: string, e?: React.MouseEvent) => {
-    e?.stopPropagation()
-    closeStream(id)
-    setTabs(prev => {
-      if (prev.length === 1) return prev
-      const next = prev.filter(t => t.id !== id)
-      if (id === activeId) {
-        const idx = prev.findIndex(t => t.id === id)
-        setActiveId(next[Math.max(0, idx - 1)].id)
-      }
-      return next
-    })
   }
 
   // Drag-to-reorder the tab strip. dragIndexRef holds the index of the tab being

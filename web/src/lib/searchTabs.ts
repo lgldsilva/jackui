@@ -1,11 +1,12 @@
 // Estado/persistência das abas de busca — extraído do SearchPage.tsx (móvel puro:
-// types + funções puras, sem JSX). O contador de abas vira nextTabId().
+// types + funções puras, sem JSX). O contador de abas vira nextTabId() (via uid()).
 import { load, save } from './storage'
 import type { SearchResult } from '../api/client'
 import { mergeCachedResults, getTabResults } from './searchResultsCache'
 import type { SearchPhase } from './searchResultsCache'
 import { appendUnique } from './searchStream'
 import { isIncognito } from './incognito'
+import { uid } from './uid'
 
 export const TABS_KEY = 'searchTabs'
 export const ACTIVE_KEY = 'activeTabId'
@@ -82,7 +83,7 @@ export type TabState = {
   codecGroup: string
 }
 
-export function newTab(id: string): TabState {
+export function newTab(id: string = uid()): TabState {
   // Seed filters from the user's last-used preferences so a new search keeps
   // e.g. the "min 10 seeders" threshold instead of starting at zero.
   const d = load<FilterDefaults>(FILTER_DEFAULTS_KEY, FALLBACK_FILTERS)
@@ -99,8 +100,6 @@ export function newTab(id: string): TabState {
   }
 }
 
-let tabCounter = 1
-
 export function hydrateTabs(): { tabs: TabState[]; activeId: string } {
   // Migração one-shot dos defaults: floor de minSeeders em 1 (não derrubamos um
   // valor que o usuário tenha subido) e onlyPlayable desligado.
@@ -115,16 +114,21 @@ export function hydrateTabs(): { tabs: TabState[]; activeId: string } {
   const persisted = load<PersistedTab[]>(TABS_KEY, [])
   if (persisted.length === 0) {
     if (!migrated) save(FILTER_MIGRATION_KEY, true)
-    const id = String(tabCounter++)
+    const id = uid()
     return { tabs: [newTab(id)], activeId: id }
   }
-  // Restore counter so new tabs get unique IDs beyond persisted ones
-  const maxId = persisted.reduce((m, t) => Math.max(m, Number.parseInt(t.id) || 0), 0)
-  tabCounter = maxId + 1
+
+  // Deduplicate any corrupted/collided IDs from legacy persisted state
+  const seenIds = new Set<string>()
   // onlyPlayable nunca é restaurado (deixou de esconder sem-magnet); na migração
   // inicial, abas que estavam em 0 seeds passam a 1 — sem mexer em valores >0.
   const tabs = persisted.map(p => {
-    const t = { ...newTab(p.id), ...p, onlyPlayable: false }
+    let id = p.id
+    if (!id || seenIds.has(id)) {
+      id = uid()
+    }
+    seenIds.add(id)
+    const t = { ...newTab(id), ...p, id, onlyPlayable: false }
     if (!migrated && t.minSeeders < 1) t.minSeeders = 1
     // localStorage never stores results — pull them back from the in-memory
     // cache (same tab id + same query) so SPA navigation keeps the search.
@@ -178,8 +182,8 @@ export function setErrorMsg(prev: TabState[], tabId: string, message: string): T
   return prev.map(t => t.id === tabId ? { ...t, error: message } : t)
 }
 
-// nextTabId devolve um id único de aba (contador do módulo), substituindo o
-// `tabCounter++` inline que morava no SearchPage.
+// nextTabId devolve um id único de aba (UUID), substituindo o
+// contador sequencial que sofria colisão em abas paralelas.
 export function nextTabId(): string {
-  return String(tabCounter++)
+  return uid()
 }

@@ -16,6 +16,11 @@ export function useSearchStreams(
 ) {
   const { t } = useTranslation()
   const esMap = useRef<Map<string, SearchStreamHandle>>(new Map())
+  const tabsRef = useRef(tabs)
+
+  useEffect(() => {
+    tabsRef.current = tabs
+  }, [tabs])
 
   useEffect(() => {
     return () => { esMap.current.forEach(es => es.close()) }
@@ -27,7 +32,7 @@ export function useSearchStreams(
   }, [])
 
   const handleSearch = useCallback((tabId: string, queryOverride?: string) => {
-    const tab = tabs.find(t => t.id === tabId)
+    const tab = tabsRef.current.find(t => t.id === tabId)
     // queryOverride lets a caller (e.g. the Discover page seeding via ?q=) run a
     // search before the tab's query state has propagated through a re-render.
     const q = (queryOverride ?? tab?.query ?? '').trim()
@@ -65,8 +70,7 @@ export function useSearchStreams(
       },
     })
     esMap.current.set(tabId, handle)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs, updateTab])
+  }, [updateTab, setTabs, t])
 
   // Abort the in-flight search for a tab. Closing the EventSource cancels the
   // request on the backend (the SSE handler watches c.Request.Context()), so the
