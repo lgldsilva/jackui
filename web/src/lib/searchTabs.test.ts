@@ -239,8 +239,9 @@ describe('searchTabs', () => {
       expect(tabs[3].results).toHaveLength(1)
       expect(tabs[3].results[0].title).toBe('Result C')
 
-      // Close tab 3
+      // Close tab 3 (which is active)
       const closeTarget = 'tab-3'
+      activeId = 'tab-3'
       const remaining = tabs.filter(t => t.id !== closeTarget)
       if (activeId === closeTarget) {
         const idx = tabs.findIndex(t => t.id === closeTarget)
@@ -248,7 +249,8 @@ describe('searchTabs', () => {
       }
       tabs = remaining
 
-      // Verify ONLY tab 3 was closed; tabs 1, 2, 4 remain intact
+      // Verify ONLY tab 3 was closed; tabs 1, 2, 4 remain intact and activeId switched to tab-2
+      expect(activeId).toBe('tab-2')
       expect(tabs).toHaveLength(3)
       expect(tabs.map(t => t.id)).toEqual(['tab-1', 'tab-2', 'tab-4'])
       expect(tabs[1].results[0].title).toBe('Result A')
