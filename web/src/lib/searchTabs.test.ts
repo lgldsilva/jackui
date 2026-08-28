@@ -209,14 +209,14 @@ describe('searchTabs', () => {
 
   describe('Multi-tab concurrent operations & isolation', () => {
     it('supports 4+ independent tabs with distinct updates and independent close', () => {
-      // Simulate user opening 4 tabs
+      // Simulate user opening 4 tabs with tab-3 active
       let tabs: TabState[] = [
         newTab('tab-1'),
         newTab('tab-2'),
         newTab('tab-3'),
         newTab('tab-4'),
       ]
-      let activeId = 'tab-4'
+      let activeId = 'tab-3'
 
       // Search in tab 2
       tabs = tabs.map(t => t.id === 'tab-2' ? { ...t, query: 'term-a', phase: 'live' as const } : t)
@@ -241,7 +241,6 @@ describe('searchTabs', () => {
 
       // Close tab 3 (which is active)
       const closeTarget = 'tab-3'
-      activeId = 'tab-3'
       const remaining = tabs.filter(t => t.id !== closeTarget)
       if (activeId === closeTarget) {
         const idx = tabs.findIndex(t => t.id === closeTarget)
