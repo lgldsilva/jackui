@@ -1,18 +1,9 @@
-import { afterEach, describe, it, expect, vi, beforeAll } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import ResultCard from './ResultCard'
 import type { SearchResult } from '../api/client'
-
-// jsdom não tem IntersectionObserver nativo
-beforeAll(() => {
-  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  })))
-})
 
 // Mock tmdbMatch pra não fazer chamada real de API
 vi.mock('../api/client', async () => {

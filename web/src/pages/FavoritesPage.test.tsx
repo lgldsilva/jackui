@@ -1,17 +1,8 @@
-import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import FavoritesPage from './FavoritesPage'
-
-// jsdom não tem IntersectionObserver nativo (cards da grade usam lazy render)
-beforeAll(() => {
-  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  })))
-})
 
 // Apenas as chamadas de rede são mockadas; o resto do api/client real segue.
 vi.mock('../api/client', async () => {

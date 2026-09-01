@@ -17,14 +17,8 @@ import type { SearchResult, TorrentInfo } from '../api/client'
 // jsdom (revisão visual/Sonar).
 const AXE_OPTS = { rules: { 'color-contrast': { enabled: false } } } as const
 
-// jsdom não tem IntersectionObserver nem matchMedia nativos (usados por cards
-// com lazy load e pelo useFullscreen do player)
+// jsdom não tem matchMedia nativo (useFullscreen do player)
 beforeAll(() => {
-  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  })))
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
     matches: false,
     media: query,
