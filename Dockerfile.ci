@@ -2,7 +2,7 @@
 #
 # Reproducible, glibc-based CI image. A remote Docker context cannot safely
 # bind-mount the runner's tree. Digest for node:24.19.0-bookworm-slim.
-FROM node@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS node
+FROM node@sha256:f5d1cc40abc10c2843339a2134d07817cf33c405cb16bfd052b0ed790254c3a3 AS node
 
 # Digest for golang:1.26.7-bookworm.
 FROM golang@sha256:6ef6e30f0ea5c384f6d111cf856e024e3086bbdcb1779da3f3b3fbba0aea53d2
