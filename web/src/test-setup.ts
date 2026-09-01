@@ -13,9 +13,9 @@ expect.extend(toHaveNoViolations)
 vi.stubGlobal(
   'IntersectionObserver',
   class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    observe() { /* no-op: jsdom has no IntersectionObserver */ }
+    unobserve() { /* no-op: jsdom has no IntersectionObserver */ }
+    disconnect() { /* no-op: jsdom has no IntersectionObserver */ }
     takeRecords() { return [] }
   },
 )
