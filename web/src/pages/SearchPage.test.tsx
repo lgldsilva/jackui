@@ -6,11 +6,6 @@ import SearchPage from './SearchPage'
 
 beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = vi.fn()
-  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  })))
 })
 
 vi.mock('../api/client', async () => {

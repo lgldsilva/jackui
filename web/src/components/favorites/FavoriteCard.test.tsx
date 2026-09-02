@@ -1,17 +1,8 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import FavoriteCard from './FavoriteCard'
 import type { StreamFavorite, FavoriteFolder, DownloadEntry } from '../../api/client'
-
-// jsdom não tem IntersectionObserver nativo
-beforeAll(() => {
-  vi.stubGlobal('IntersectionObserver', vi.fn(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  })))
-})
 
 vi.mock('../Thumbnail', () => ({ default: () => <div data-testid="thumbnail" /> }))
 vi.mock('../SeedBadge', () => ({ default: () => <span data-testid="seed-badge" /> }))
