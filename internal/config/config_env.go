@@ -303,6 +303,28 @@ func applyAuthEnv(cfg *Config) {
 	if v := os.Getenv("JACKUI_JWT_SECRET"); v != "" {
 		cfg.Auth.JWTSecret = v
 	}
+	// Google OAuth (optional). Same "explicit value wins" contract as above.
+	switch os.Getenv("JACKUI_OAUTH_ENABLED") {
+	case "0", "false":
+		cfg.Auth.OAuth.Enabled = false
+	case "1", "true":
+		cfg.Auth.OAuth.Enabled = true
+	}
+	if v := os.Getenv("JACKUI_OAUTH_CLIENT_ID"); v != "" {
+		cfg.Auth.OAuth.ClientID = v
+	}
+	if v := os.Getenv("JACKUI_OAUTH_CLIENT_SECRET"); v != "" {
+		cfg.Auth.OAuth.ClientSecret = v
+	}
+	if v := os.Getenv("JACKUI_OAUTH_REDIRECT_URL"); v != "" {
+		cfg.Auth.OAuth.RedirectURL = v
+	}
+	if os.Getenv("JACKUI_OAUTH_AUTO_PROVISION") == "1" {
+		cfg.Auth.OAuth.AutoProvision = true
+	}
+	if v := os.Getenv("JACKUI_OAUTH_ALLOWED_DOMAINS"); v != "" {
+		cfg.Auth.OAuth.AllowedDomains = splitCSV(v)
+	}
 }
 
 func applyNotificationsEnv(cfg *Config) {

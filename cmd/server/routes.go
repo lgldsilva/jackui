@@ -205,6 +205,17 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		pub.POST("/reset", handlers.Reset(deps.authStore))
 		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(deps.authStore, deps.waManager))
 		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(deps.authStore, deps.tokenMgr, deps.waManager))
+		// Google OAuth login (opt-in via JACKUI_OAUTH_*). /providers stays public
+		// even when disabled so the SPA can feature-detect the button.
+		oauthHandlers := handlers.GoogleOAuth(deps.authStore, deps.tokenMgr, deps.cfg.Auth.OAuth, deps.cfg.BaseURL, auth.DefaultGoogleEndpoints)
+		pub.GET("/oauth/providers", oauthHandlers.Providers())
+		if oauthHandlers.Ready() {
+			pub.GET("/oauth/google/start", oauthHandlers.Start())
+			pub.GET("/oauth/google/callback", oauthHandlers.Callback())
+			pub.POST("/oauth/exchange", oauthHandlers.Exchange())
+			log.Printf("Google OAuth: enabled (redirect_url=%s, auto_provision=%v)",
+				deps.cfg.Auth.OAuth.RedirectURL, deps.cfg.Auth.OAuth.AutoProvision)
+		}
 	}
 
 	api := router.Group("/api")

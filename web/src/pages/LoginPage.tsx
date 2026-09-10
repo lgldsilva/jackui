@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Loader2, AlertCircle, KeyRound } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { isPasskeySupported } from '../api/client'
+import GoogleSignInSection from '../components/GoogleSignInSection'
 
 export default function LoginPage() {
   const { t } = useTranslation()
@@ -157,6 +158,8 @@ export default function LoginPage() {
               {t('login.sign_in_passkey')}
             </button>
           )}
+
+          <GoogleSignInSection remember={remember} onError={setError} />
 
           <div className="flex items-center justify-between text-xs">
             <button type="button" onClick={() => nav('/register')} className="text-text-secondary hover:text-green-400">{t('login.create_account')}</button>
