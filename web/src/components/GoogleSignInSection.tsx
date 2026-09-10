@@ -14,8 +14,8 @@ function GoogleMark() {
 }
 
 type Props = {
-  remember: boolean
-  onError: (message: string) => void
+  readonly remember: boolean
+  readonly onError: (message: string) => void
 }
 
 // Feature-detects JACKUI_OAUTH_* via /oauth/providers and, when enabled,

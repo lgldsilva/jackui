@@ -1,15 +1,72 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { oauthExchange } from '../api/client'
 
-function AuthErrorBanner({ message }: { message: string }) {
+function AuthErrorBanner({ message }: { readonly message: string }) {
   return (
     <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 flex items-center gap-2">
       <AlertCircle className="w-4 h-4 flex-shrink-0" />
       {message}
+    </div>
+  )
+}
+
+type MfaFormProps = {
+  readonly totp: string
+  readonly busy: boolean
+  readonly error: string
+  readonly onTotp: (value: string) => void
+  readonly onSubmit: (e: React.FormEvent) => void
+}
+
+function MfaForm({ totp, busy, error, onTotp, onSubmit }: MfaFormProps) {
+  const { t } = useTranslation()
+  const totpRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    totpRef.current?.focus()
+  }, [])
+  return (
+    <form onSubmit={onSubmit} className="flex flex-col gap-3">
+      <h1 className="text-lg font-semibold text-text-primary">{t('login.mfa_label')}</h1>
+      <input
+        ref={totpRef}
+        type="text"
+        autoComplete="one-time-code"
+        value={totp}
+        onChange={e => onTotp(e.target.value.slice(0, 14))}
+        placeholder={t('login.mfa_placeholder')}
+        className="input-field tracking-widest text-center font-mono"
+      />
+      {error && <AuthErrorBanner message={error} />}
+      <button type="submit" disabled={busy || !totp} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
+        {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+        {t('login.sign_in')}
+      </button>
+    </form>
+  )
+}
+
+function ExchangeError({ message, onBack }: { readonly message: string; readonly onBack: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex flex-col gap-3">
+      <AuthErrorBanner message={message} />
+      <button type="button" onClick={onBack} className="btn-secondary">
+        {t('auth.go_to_login')}
+      </button>
+    </div>
+  )
+}
+
+function Finishing() {
+  const { t } = useTranslation()
+  return (
+    <div className="flex items-center justify-center gap-3 text-text-secondary">
+      <Loader2 className="w-5 h-5 animate-spin" />
+      <span>{t('login.sso_finishing')}</span>
     </div>
   )
 }
@@ -68,6 +125,13 @@ export default function OAuthCallbackPage() {
     }
   }
 
+  let body = <Finishing />
+  if (mfaStep) {
+    body = <MfaForm totp={totp} busy={busy} error={error} onTotp={setTotp} onSubmit={submitMfa} />
+  } else if (error) {
+    body = <ExchangeError message={error} onBack={() => nav('/login', { replace: true })} />
+  }
+
   return (
     <main id="main-content" tabIndex={-1} className="min-h-screen bg-surface flex items-center justify-center px-4 safe-top safe-bottom">
       <div className="w-full max-w-sm">
@@ -76,37 +140,7 @@ export default function OAuthCallbackPage() {
           <span className="text-3xl font-bold text-text-primary">UI</span>
         </div>
         <div className="bg-surface-secondary border border-default rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
-          {mfaStep ? (
-            <form onSubmit={submitMfa} className="flex flex-col gap-3">
-              <h1 className="text-lg font-semibold text-text-primary">{t('login.mfa_label')}</h1>
-              <input
-                type="text"
-                autoFocus
-                autoComplete="one-time-code"
-                value={totp}
-                onChange={e => setTotp(e.target.value.slice(0, 14))}
-                placeholder={t('login.mfa_placeholder')}
-                className="input-field tracking-widest text-center font-mono"
-              />
-              {error && <AuthErrorBanner message={error} />}
-              <button type="submit" disabled={busy || !totp} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
-                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                {t('login.sign_in')}
-              </button>
-            </form>
-          ) : error ? (
-            <div className="flex flex-col gap-3">
-              <AuthErrorBanner message={error} />
-              <button type="button" onClick={() => nav('/login', { replace: true })} className="btn-secondary">
-                {t('auth.go_to_login')}
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center gap-3 text-text-secondary">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>{t('login.sso_finishing')}</span>
-            </div>
-          )}
+          {body}
         </div>
       </div>
     </main>
