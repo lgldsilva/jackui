@@ -183,6 +183,33 @@ func TestExchangeGoogleCodeHappy(t *testing.T) {
 	}
 }
 
+func TestExchangeGoogleCodeInvalidJSONUnreachableAndLongError(t *testing.T) {
+	eps, _ := fakeGoogle(t, http.StatusOK, `not-json`, "", 0)
+	if _, err := ExchangeGoogleCode(context.Background(), eps, GoogleOptions{}, "c", "v"); err == nil {
+		t.Fatal("invalid token JSON must fail")
+	}
+	if _, err := ExchangeGoogleCode(context.Background(), GoogleEndpoints{TokenURL: "http://127.0.0.1:1/token"}, GoogleOptions{}, "c", "v"); err == nil {
+		t.Fatal("unreachable token must fail")
+	}
+	if _, err := ExchangeGoogleCode(context.Background(), GoogleEndpoints{TokenURL: "://bad"}, GoogleOptions{}, "c", "v"); err == nil {
+		t.Fatal("invalid token URL must fail")
+	}
+	long := strings.Repeat("e", 250)
+	eps2, _ := fakeGoogle(t, http.StatusBadRequest, long, "", 0)
+	if _, err := ExchangeGoogleCode(context.Background(), eps2, GoogleOptions{}, "c", "v"); err == nil || !strings.Contains(err.Error(), "token exchange failed") {
+		t.Fatal("long token error body must be truncated into the failure")
+	}
+}
+
+func TestFetchGoogleUserInfoUnreachableAndBadURL(t *testing.T) {
+	if _, err := FetchGoogleUserInfo(context.Background(), GoogleEndpoints{UserInfoURL: "http://127.0.0.1:1/userinfo"}, "tok"); err == nil {
+		t.Fatal("unreachable userinfo must fail")
+	}
+	if _, err := FetchGoogleUserInfo(context.Background(), GoogleEndpoints{UserInfoURL: "://bad"}, "tok"); err == nil {
+		t.Fatal("invalid userinfo URL must fail")
+	}
+}
+
 func TestExchangeGoogleCodeTokenError(t *testing.T) {
 	eps, _ := fakeGoogle(t, http.StatusBadRequest, `{"error":"invalid_grant"}`, "", 0)
 	if _, err := ExchangeGoogleCode(context.Background(), eps, GoogleOptions{}, "c", "v"); err == nil {

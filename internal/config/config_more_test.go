@@ -191,6 +191,49 @@ func TestApplyAuthEnv_DisabledExplicit(t *testing.T) {
 	}
 }
 
+func TestApplyAuthEnv_OAuthOverrides(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_OAUTH_ENABLED", "1")
+	t.Setenv("JACKUI_OAUTH_CLIENT_ID", "cid")
+	t.Setenv("JACKUI_OAUTH_CLIENT_SECRET", "csec")
+	t.Setenv("JACKUI_OAUTH_REDIRECT_URL", "https://jackui.example.com/api/auth/oauth/google/callback")
+	t.Setenv("JACKUI_OAUTH_AUTO_PROVISION", "1")
+	t.Setenv("JACKUI_OAUTH_ALLOWED_DOMAINS", "gmail.com, lgldsilva.com.br")
+	applyAuthEnv(cfg)
+	if !cfg.Auth.OAuth.Enabled || cfg.Auth.OAuth.ClientID != "cid" || cfg.Auth.OAuth.ClientSecret != "csec" {
+		t.Fatalf("oauth creds: %+v", cfg.Auth.OAuth)
+	}
+	if cfg.Auth.OAuth.RedirectURL == "" || !cfg.Auth.OAuth.AutoProvision {
+		t.Fatalf("oauth redirect/provision: %+v", cfg.Auth.OAuth)
+	}
+	if len(cfg.Auth.OAuth.AllowedDomains) != 2 {
+		t.Fatalf("allowed domains = %v", cfg.Auth.OAuth.AllowedDomains)
+	}
+}
+
+func TestApplyAuthEnv_OAuthDisabledAndTrue(t *testing.T) {
+	off := &Config{}
+	off.Auth.OAuth.Enabled = true
+	t.Setenv("JACKUI_OAUTH_ENABLED", "false")
+	applyAuthEnv(off)
+	if off.Auth.OAuth.Enabled {
+		t.Fatal("JACKUI_OAUTH_ENABLED=false must disable")
+	}
+	on := &Config{}
+	t.Setenv("JACKUI_OAUTH_ENABLED", "true")
+	applyAuthEnv(on)
+	if !on.Auth.OAuth.Enabled {
+		t.Fatal("JACKUI_OAUTH_ENABLED=true must enable")
+	}
+	zero := &Config{}
+	zero.Auth.OAuth.Enabled = true
+	t.Setenv("JACKUI_OAUTH_ENABLED", "0")
+	applyAuthEnv(zero)
+	if zero.Auth.OAuth.Enabled {
+		t.Fatal("JACKUI_OAUTH_ENABLED=0 must disable")
+	}
+}
+
 func TestApplyNotificationsEnv(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("JACKUI_NTFY_TOPIC", "mytopic")

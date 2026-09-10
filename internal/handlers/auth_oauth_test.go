@@ -380,6 +380,41 @@ func TestOAuthProvisionUsernameCollision(t *testing.T) {
 	}
 }
 
+func TestOAuthCallbackNotReadyRedirectsToLogin(t *testing.T) {
+	h := testOAuthHandlers(t, nil, func(c *config.AuthOAuth) { c.ClientID = "" })
+	w := callOAuth(h.Callback(), http.MethodGet, "/cb?code=x&state=y", "")
+	if w.Code != http.StatusFound || !strings.Contains(w.Header().Get("Location"), "oauthError=disabled") {
+		t.Fatalf("callback not ready = %d %s", w.Code, w.Header().Get("Location"))
+	}
+}
+
+func TestGoogleOAuthDefaultRedirectFromBaseURL(t *testing.T) {
+	h := GoogleOAuth(nil, nil, config.AuthOAuth{ClientID: "cid", ClientSecret: "csec"}, "https://jackui.example.com/", auth.DefaultGoogleEndpoints)
+	if h.opts.RedirectURL != "https://jackui.example.com/api/auth/oauth/google/callback" {
+		t.Fatalf("redirect = %q", h.opts.RedirectURL)
+	}
+	if !h.Ready() {
+		t.Fatal("ready")
+	}
+	if got := h.spaOrigin(); got != "https://jackui.example.com" {
+		t.Fatalf("spaOrigin = %q", got)
+	}
+	if got := h.spaCallbackURL("ab c"); !strings.Contains(got, "code=ab+c") && !strings.Contains(got, "code=ab%20c") {
+		t.Fatalf("callback URL = %q", got)
+	}
+}
+
+func TestOAuthFailJSONOnNonGET(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/oauth/exchange", nil)
+	oauthFail(c, "/login?oauthError=state")
+	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "oauth login failed") {
+		t.Fatalf("oauthFail POST = %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestOAuthEmptyBaseURLFallsBackToRelativeSPAPaths(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := GoogleOAuth(nil, nil, config.AuthOAuth{ClientID: "", ClientSecret: "", RedirectURL: ""}, "", auth.DefaultGoogleEndpoints)
