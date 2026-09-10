@@ -1753,7 +1753,20 @@
     "sign_in_passkey": "Sign in with a passkey",
     "create_account": "Create account",
     "forgot_password": "Forgot password",
-    "tagline": "JackUI — a visual interface for Jackett + torrent streaming"
+    "tagline": "JackUI — a visual interface for Jackett + torrent streaming",
+    "sso_or": "or",
+    "sso_google": "Sign in with Google",
+    "sso_finishing": "Finishing Google sign-in…",
+    "oauth_error_generic": "Could not sign in with Google.",
+    "oauth_error_disabled": "Google sign-in is not configured on this server.",
+    "oauth_error_state": "Login session expired — please try again.",
+    "oauth_error_exchange": "Failed to validate the Google response.",
+    "oauth_error_email_unverified": "The Google account's e-mail is not verified.",
+    "oauth_error_domain_not_allowed": "This e-mail domain is not allowed to sign in.",
+    "oauth_error_unknown_account": "No JackUI account is linked to this Google e-mail — ask the administrator for an invite.",
+    "oauth_error_account_pending": "Account awaiting administrator approval.",
+    "oauth_error_account_disabled": "Account disabled.",
+    "oauth_error_login_failed": "Sign-in was cancelled or denied by Google."
   },
   "auth": {
     "register_failed": "Registration failed",

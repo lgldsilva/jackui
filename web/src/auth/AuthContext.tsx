@@ -36,6 +36,7 @@ type AuthContextValue = {
   readonly isAuthenticated: boolean
   readonly login: (username: string, password: string, remember: boolean, totp?: string) => Promise<void>
   readonly loginWithPasskey: (username: string, remember: boolean) => Promise<void>
+  readonly completeOAuthLogin: (bundle: { access: string; refresh: string; user: AuthUser }) => void
   readonly logout: () => Promise<void>
   readonly refresh: () => Promise<void>
 }
@@ -158,6 +159,14 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     setUser(data.user)
   }, [])
 
+  // Sessão pronta vinda do fluxo Google OAuth (o bundle já foi trocado pelo
+  // código single-use no /auth/oauth/exchange).
+  const completeOAuthLogin = useCallback((bundle: { access: string; refresh: string; user: AuthUser }) => {
+    save(ACCESS_KEY, bundle.access)
+    save(REFRESH_KEY, bundle.refresh)
+    setUser(bundle.user)
+  }, [])
+
   const logout = useCallback(async () => {
     // Purge server-side incognito rows while the access token is still valid
     // (belt-and-suspenders with Logout's Optional claims path).
@@ -184,9 +193,10 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     isAuthenticated: !enabled || user !== null,
     login,
     loginWithPasskey,
+    completeOAuthLogin,
     logout,
     refresh,
-  }), [user, loading, enabled, login, loginWithPasskey, logout, refresh])
+  }), [user, loading, enabled, login, loginWithPasskey, completeOAuthLogin, logout, refresh])
 
   return (
     <Ctx.Provider value={ctx}>

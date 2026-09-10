@@ -49,6 +49,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 - **Low-footprint mode** — the HLS pipeline shuts ffmpeg down when the **last** viewer leaves (no 5-min survival), the UI pauses its polling when the tab is hidden, and a balanced runtime profile (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS` + `JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`) keeps idle memory low on a home server.
 - **Desktop app** (optional) — an Electron wrapper bundling the Go server, with a status tray, magnet deep-links, and native downloads. See [`electron/`](electron/).
 - **Auth** — JWT **on by default** (opt out only with `JACKUI_AUTH_ENABLED=0` + `JACKUI_ALLOW_INSECURE_AUTH=1`) with rotated refresh tokens, roles, MFA/passkeys, and `AdminOnly` routes (incl. admin password reset).
+- **Google OAuth (optional)** — "Sign in with Google" via OIDC + PKCE (`JACKUI_OAUTH_ENABLED` + `JACKUI_OAUTH_CLIENT_ID/SECRET/REDIRECT_URL`). Links by verified e-mail: existing accounts only unless `JACKUI_OAUTH_AUTO_PROVISION=1`; optional `JACKUI_OAUTH_ALLOWED_DOMAINS` (CSV). MFA accounts are still TOTP-challenged. Local password login remains as fallback.
 - **Observability** — public `/status` (version/commit/buildTime), Prometheus `/api/metrics` (admin JWT or `JACKUI_METRICS_TOKEN`), opt-in `/debug/pprof` (`JACKUI_PPROF_ENABLED` + token/admin JWT), structured logs (`JACKUI_LOG_FORMAT=json`), and scheduled **bandwidth windows** for the streamer.
 
 ## Stack

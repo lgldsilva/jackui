@@ -1,15 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { LogIn, Loader2, AlertCircle, KeyRound } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
-import { isPasskeySupported } from '../api/client'
+import { isPasskeySupported, oauthProviders } from '../api/client'
+
+// Google "G" mark (single-color variant inherits the current text color).
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor" aria-hidden="true">
+      <path d="M21.35 11.1h-9.17v2.73h6.51c-.33 3.81-3.5 5.44-6.5 5.44C8.36 19.27 5 16.25 5 12c0-4.1 3.2-7.27 7.2-7.27 3.09 0 4.9 1.97 4.9 1.97L19 4.72S16.56 2 12.1 2C6.42 2 2.03 6.8 2.03 12c0 5.05 4.13 10 10.22 10 5.35 0 9.25-3.67 9.25-9.09 0-1.15-.15-1.81-.15-1.81Z" />
+    </svg>
+  )
+}
 
 export default function LoginPage() {
   const { t } = useTranslation()
   const { login, loginWithPasskey } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
+  const [params] = useSearchParams()
   const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/'
 
   const [username, setUsername] = useState('')
@@ -19,6 +29,23 @@ export default function LoginPage() {
   const [mfaStep, setMfaStep] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [googleEnabled, setGoogleEnabled] = useState(false)
+
+  // Feature-detect the Google button (backend answers false unless the
+  // JACKUI_OAUTH_* settings are complete) and surface redirect errors.
+  useEffect(() => {
+    oauthProviders().then(r => setGoogleEnabled(!!r.google)).catch(() => setGoogleEnabled(false))
+    const oauthError = params.get('oauthError')
+    if (oauthError) {
+      const key = `login.oauth_error_${oauthError}`
+      setError(t(key) === key ? t('login.oauth_error_generic') : t(key))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const googleStart = () => {
+    window.location.href = `/api/auth/oauth/google/start?remember=${remember ? '1' : '0'}`
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -156,6 +183,24 @@ export default function LoginPage() {
               <KeyRound className="w-4 h-4" />
               {t('login.sign_in_passkey')}
             </button>
+          )}
+
+          {googleEnabled && (
+            <>
+              <div className="flex items-center gap-3 text-[11px] text-text-muted" role="separator">
+                <span className="h-px flex-1 bg-default" />
+                {t('login.sso_or')}
+                <span className="h-px flex-1 bg-default" />
+              </div>
+              <button
+                type="button"
+                onClick={googleStart}
+                className="btn-secondary flex items-center justify-center gap-2"
+              >
+                <GoogleMark />
+                {t('login.sso_google')}
+              </button>
+            </>
           )}
 
           <div className="flex items-center justify-between text-xs">

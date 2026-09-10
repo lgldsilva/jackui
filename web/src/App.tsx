@@ -23,6 +23,7 @@ const RegisterPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default
 const VerifyEmailPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.VerifyEmailPage })))
 const ForgotPasswordPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.ForgotPasswordPage })))
 const ResetPasswordPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.ResetPasswordPage })))
+const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallback'))
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 import { ConfirmProvider } from './components/ConfirmDialog'
@@ -117,6 +118,7 @@ function AppRoutes() {
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
       <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/auth/google/callback" element={<OAuthCallbackPage />} />
       <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
       <Route path="/search" element={<ProtectedRoute><SearchPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />

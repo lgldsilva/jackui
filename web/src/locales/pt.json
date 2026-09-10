@@ -1753,7 +1753,20 @@
     "sign_in_passkey": "Entrar com passkey",
     "create_account": "Criar conta",
     "forgot_password": "Esqueci a senha",
-    "tagline": "JackUI — interface visual para Jackett + streaming de torrents"
+    "tagline": "JackUI — interface visual para Jackett + streaming de torrents",
+    "sso_or": "ou",
+    "sso_google": "Entrar com Google",
+    "sso_finishing": "Finalizando login com Google…",
+    "oauth_error_generic": "Não foi possível entrar com o Google.",
+    "oauth_error_disabled": "Login com Google não está configurado neste servidor.",
+    "oauth_error_state": "Sessão de login expirada — tente novamente.",
+    "oauth_error_exchange": "Falha ao validar a resposta do Google.",
+    "oauth_error_email_unverified": "O e-mail da conta Google não está verificado.",
+    "oauth_error_domain_not_allowed": "Este domínio de e-mail não tem permissão de acesso.",
+    "oauth_error_unknown_account": "Não existe conta JackUI vinculada a este e-mail Google — peça um convite ao administrador.",
+    "oauth_error_account_pending": "Conta aguardando aprovação do administrador.",
+    "oauth_error_account_disabled": "Conta desabilitada.",
+    "oauth_error_login_failed": "Login cancelado ou negado pelo Google."
   },
   "auth": {
     "register_failed": "Falha no cadastro",
