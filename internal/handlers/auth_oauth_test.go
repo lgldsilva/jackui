@@ -75,10 +75,10 @@ func testOAuthHandlers(t *testing.T, store *auth.Store, mutate func(*config.Auth
 	t.Helper()
 	tm := auth.NewTokenManager([]byte("test-secret-0123456789abcdef-0123456789"), 15*time.Minute)
 	cfg := config.AuthOAuth{
-		Enabled:     true,
-		ClientID:    "cid",
+		Enabled:      true,
+		ClientID:     "cid",
 		ClientSecret: "csec",
-		RedirectURL: "https://jackui.example.com/api/auth/oauth/google/callback",
+		RedirectURL:  "https://jackui.example.com/api/auth/oauth/google/callback",
 	}
 	if mutate != nil {
 		mutate(&cfg)

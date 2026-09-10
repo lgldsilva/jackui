@@ -109,67 +109,20 @@ func (h *GoogleOAuthHandlers) Callback() gin.HandlerFunc {
 			oauthFail(c, h.spaLoginURL(oauthErrDisabled))
 			return
 		}
-		if e := c.Query("error"); e != "" {
-			// User denied consent / Google-side failure — treat as a cancelled
-			// login, not an exception worth logging beyond a line.
-			log.Printf("Google OAuth: provider returned error %q", httpshared.SanitizeForLog(e))
-			oauthFail(c, h.spaLoginURL(oauthErrLoginFailed))
+		info, remember, slug := h.googleIdentity(c)
+		if slug != "" {
+			oauthFail(c, h.spaLoginURL(slug))
 			return
 		}
-		code := c.Query("code")
-		state := c.Query("state")
-		if code == "" || state == "" {
-			oauthFail(c, h.spaLoginURL(oauthErrState))
-			return
-		}
-		verifier, remember, ok := h.flow.ConsumeState(state)
-		if !ok {
-			oauthFail(c, h.spaLoginURL(oauthErrState))
-			return
-		}
-		info, err := auth.ExchangeGoogleCode(c.Request.Context(), h.eps, h.opts, code, verifier)
-		if err != nil {
-			log.Printf("Google OAuth: token/userinfo exchange failed: %v", err)
-			oauthFail(c, h.spaLoginURL(oauthErrExchange))
-			return
-		}
-		if !info.EmailVerified {
-			oauthFail(c, h.spaLoginURL(oauthErrEmailUnverified))
-			return
-		}
-		if !h.opts.DomainAllowed(info.Email) {
-			oauthFail(c, h.spaLoginURL(oauthErrDomainNotAllowed))
-			return
-		}
-
-		user, err := h.store.GetUserByEmail(info.Email)
+		user, slug, err := h.userFromGoogle(info)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		if user == nil {
-			if !h.opts.AutoProvision {
-				// Same linking contract as Gitea: no account with this e-mail →
-				// refuse (an admin creates/invites the account first).
-				log.Printf("Google OAuth: no JackUI account for e-mail of user id 0 (refused; auto_provision=off)")
-				oauthFail(c, h.spaLoginURL(oauthErrUnknownAccount))
-				return
-			}
-			if user, err = h.provision(info.Email); err != nil {
-				httpshared.RespondError(c, http.StatusInternalServerError, err)
-				return
-			}
-		}
-
-		switch user.Status {
-		case auth.StatusPending:
-			oauthFail(c, h.spaLoginURL(oauthErrAccountPending))
-			return
-		case auth.StatusDisabled:
-			oauthFail(c, h.spaLoginURL(oauthErrAccountDisabled))
+		if slug != "" {
+			oauthFail(c, h.spaLoginURL(slug))
 			return
 		}
-
 		exchangeCode, err := h.flow.SavePending(user.ID, remember)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
@@ -177,6 +130,66 @@ func (h *GoogleOAuthHandlers) Callback() gin.HandlerFunc {
 		}
 		c.Redirect(http.StatusFound, h.spaCallbackURL(exchangeCode))
 	}
+}
+
+// googleIdentity consumes the authorize state and talks to Google. A non-empty
+// slug is an SPA oauthError (login_failed / state / exchange).
+func (h *GoogleOAuthHandlers) googleIdentity(c *gin.Context) (*auth.GoogleUserInfo, bool, string) {
+	if e := c.Query("error"); e != "" {
+		// User denied consent / Google-side failure — treat as a cancelled
+		// login, not an exception worth logging beyond a line.
+		log.Printf("Google OAuth: provider returned error %q", httpshared.SanitizeForLog(e))
+		return nil, false, oauthErrLoginFailed
+	}
+	code := c.Query("code")
+	state := c.Query("state")
+	if code == "" || state == "" {
+		return nil, false, oauthErrState
+	}
+	verifier, remember, ok := h.flow.ConsumeState(state)
+	if !ok {
+		return nil, false, oauthErrState
+	}
+	info, err := auth.ExchangeGoogleCode(c.Request.Context(), h.eps, h.opts, code, verifier)
+	if err != nil {
+		log.Printf("Google OAuth: token/userinfo exchange failed: %v", err)
+		return nil, false, oauthErrExchange
+	}
+	return info, remember, ""
+}
+
+// userFromGoogle applies the linking contract (verified e-mail, domain
+// allowlist, existing account or opt-in provision, status gates).
+func (h *GoogleOAuthHandlers) userFromGoogle(info *auth.GoogleUserInfo) (*auth.User, string, error) {
+	if !info.EmailVerified {
+		return nil, oauthErrEmailUnverified, nil
+	}
+	if !h.opts.DomainAllowed(info.Email) {
+		return nil, oauthErrDomainNotAllowed, nil
+	}
+	user, err := h.store.GetUserByEmail(info.Email)
+	if err != nil {
+		return nil, "", err
+	}
+	if user == nil {
+		if !h.opts.AutoProvision {
+			// Same linking contract as Gitea: no account with this e-mail →
+			// refuse (an admin creates/invites the account first).
+			log.Printf("Google OAuth: no JackUI account for e-mail of user id 0 (refused; auto_provision=off)")
+			return nil, oauthErrUnknownAccount, nil
+		}
+		user, err = h.provision(info.Email)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	switch user.Status {
+	case auth.StatusPending:
+		return nil, oauthErrAccountPending, nil
+	case auth.StatusDisabled:
+		return nil, oauthErrAccountDisabled, nil
+	}
+	return user, "", nil
 }
 
 // Exchange handles POST /api/auth/oauth/exchange — body {code, totp?}. Issues
@@ -208,16 +221,8 @@ func (h *GoogleOAuthHandlers) Exchange() gin.HandlerFunc {
 			h.flow.ConsumePending(req.Code)
 			return
 		}
-		if user.MfaEnabled {
-			if req.Totp == "" {
-				httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA obrigatório", gin.H{"mfaRequired": true})
-				return
-			}
-			secret, _, _ := h.store.GetTOTPSecret(user.ID)
-			if !auth.ValidateTOTP(secret, req.Totp) && !h.store.ConsumeBackupCode(user.ID, req.Totp) {
-				httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA inválido", gin.H{"mfaRequired": true})
-				return
-			}
+		if h.rejectOAuthMFA(c, user, req.Totp) {
+			return
 		}
 		// Single-use: consumed only on the success path — a wrong TOTP code can
 		// be retried while the pending code is still alive.
@@ -229,6 +234,24 @@ func (h *GoogleOAuthHandlers) Exchange() gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+// rejectOAuthMFA challenges MFA accounts (missing/invalid TOTP). The pending
+// exchange code is left intact so the SPA can retry.
+func (h *GoogleOAuthHandlers) rejectOAuthMFA(c *gin.Context, user *auth.User, totp string) bool {
+	if !user.MfaEnabled {
+		return false
+	}
+	if totp == "" {
+		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA obrigatório", gin.H{"mfaRequired": true})
+		return true
+	}
+	secret, _, _ := h.store.GetTOTPSecret(user.ID)
+	if !auth.ValidateTOTP(secret, totp) && !h.store.ConsumeBackupCode(user.ID, totp) {
+		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA inválido", gin.H{"mfaRequired": true})
+		return true
+	}
+	return false
 }
 
 // provision auto-creates an account for a verified Google e-mail. Username is

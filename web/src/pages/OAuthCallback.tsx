@@ -5,6 +5,15 @@ import { Loader2, AlertCircle } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { oauthExchange } from '../api/client'
 
+function AuthErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 flex items-center gap-2">
+      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+      {message}
+    </div>
+  )
+}
+
 // OAuthCallbackPage is the browser landing after Google bounces back to
 // /auth/google/callback?code=... — the code here is a single-use, 5-minute
 // exchange code (not a token). Tokens come from POST /auth/oauth/exchange, so
@@ -40,6 +49,8 @@ export default function OAuthCallbackPage() {
           setBusy(false)
         }
       })
+    // Exchange once per landing code; MFA is a separate submit path.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code])
 
   const submitMfa = async (e: React.FormEvent) => {
@@ -77,12 +88,7 @@ export default function OAuthCallbackPage() {
                 placeholder={t('login.mfa_placeholder')}
                 className="input-field tracking-widest text-center font-mono"
               />
-              {error && (
-                <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {error}
-                </div>
-              )}
+              {error && <AuthErrorBanner message={error} />}
               <button type="submit" disabled={busy || !totp} className="btn-primary flex items-center justify-center gap-2 disabled:opacity-50">
                 {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                 {t('login.sign_in')}
@@ -90,10 +96,7 @@ export default function OAuthCallbackPage() {
             </form>
           ) : error ? (
             <div className="flex flex-col gap-3">
-              <div className="bg-red-500/10 border border-red-500/30 text-red-400 text-sm rounded-lg p-3 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                {error}
-              </div>
+              <AuthErrorBanner message={error} />
               <button type="button" onClick={() => nav('/login', { replace: true })} className="btn-secondary">
                 {t('auth.go_to_login')}
               </button>

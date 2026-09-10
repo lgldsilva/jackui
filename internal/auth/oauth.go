@@ -43,8 +43,8 @@ var DefaultGoogleEndpoints = GoogleEndpoints{
 type GoogleOptions struct {
 	ClientID       string
 	ClientSecret   string
-	RedirectURL    string // must match the URI registered in Google Console
-	AutoProvision  bool   // create an account for unknown (verified) e-mails
+	RedirectURL    string   // must match the URI registered in Google Console
+	AutoProvision  bool     // create an account for unknown (verified) e-mails
 	AllowedDomains []string // empty = any domain (Google consent screen gates users)
 }
 
