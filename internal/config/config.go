@@ -155,11 +155,25 @@ type TMDBConfig struct {
 }
 
 type AuthConfig struct {
-	Enabled       bool   `yaml:"enabled"`        // env default ON; explicit JACKUI_AUTH_ENABLED=0 + escape for dev/LAN
-	JWTSecret     string `yaml:"jwt_secret"`     // HS256 secret; REQUIRED (>=32 bytes) when auth enabled — boot fails otherwise
-	AdminUsername string `yaml:"admin_username"` // bootstrap admin login
-	AdminPassword string `yaml:"admin_password"` // bootstrap admin password (only used on first run)
-	DBPath        string `yaml:"db_path"`        // auth DB (defaults to /data/auth.db)
+	Enabled       bool      `yaml:"enabled"`        // env default ON; explicit JACKUI_AUTH_ENABLED=0 + escape for dev/LAN
+	JWTSecret     string    `yaml:"jwt_secret"`     // HS256 secret; REQUIRED (>=32 bytes) when auth enabled — boot fails otherwise
+	AdminUsername string    `yaml:"admin_username"` // bootstrap admin login
+	AdminPassword string    `yaml:"admin_password"` // bootstrap admin password (only used on first run)
+	DBPath        string    `yaml:"db_path"`        // auth DB (defaults to /data/auth.db)
+	OAuth         AuthOAuth `yaml:"oauth"`          // "Entrar com Google" — optional; see AuthOAuth
+}
+
+// AuthOAuth configures the Google OIDC login. The linking rule is the same as
+// the homelab's Gitea: Google matches an account by E-MAIL; unknown e-mails
+// need AutoProvision (opt-in) or they're refused. RedirectURL must match —
+// byte for byte — the URI registered in Google Console.
+type AuthOAuth struct {
+	Enabled        bool     `yaml:"enabled"`         // env JACKUI_OAUTH_ENABLED
+	ClientID       string   `yaml:"client_id"`       // env JACKUI_OAUTH_CLIENT_ID
+	ClientSecret   string   `yaml:"client_secret"`   // env JACKUI_OAUTH_CLIENT_SECRET
+	RedirectURL    string   `yaml:"redirect_url"`    // env JACKUI_OAUTH_REDIRECT_URL (default: BaseURL + /api/auth/oauth/google/callback)
+	AutoProvision  bool     `yaml:"auto_provision"`  // env JACKUI_OAUTH_AUTO_PROVISION
+	AllowedDomains []string `yaml:"allowed_domains"` // env JACKUI_OAUTH_ALLOWED_DOMAINS (CSV, e.g. "gmail.com,lgldsilva.com.br")
 }
 
 type BandwidthSchedule struct {
