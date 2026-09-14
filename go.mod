@@ -12,7 +12,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/nwaples/rardecode/v2 v2.4.1
 	github.com/prometheus/client_golang v1.24.1
 	golang.org/x/crypto v0.56.0
