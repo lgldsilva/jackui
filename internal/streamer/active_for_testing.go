@@ -15,7 +15,7 @@ import (
 // transmissionrpc) can exercise the pause/drop guards without a real swarm.
 // Mirrors the entry shape the streamer itself creates in registerTorrent.
 //
-// The returned close func releases the throwaway torrent client; callers MUST
+// The returned cleanup func releases the throwaway torrent client; callers MUST
 // defer it. Test scaffolding only — same family as NewForTesting.
 func (s *Streamer) SeedActiveForTesting(name string, lastAccess time.Time) (metainfo.Hash, func()) {
 	const piece = 1 << 14
@@ -28,17 +28,11 @@ func (s *Streamer) SeedActiveForTesting(name string, lastAccess time.Time) (meta
 		Pieces:      pieceHash[:],
 	}
 	infoBytes, err := bencode.Marshal(info)
-	if err != nil {
-		panic("SeedActiveForTesting: bencode.Marshal: " + err.Error())
-	}
+	mustFixture("bencode.Marshal", err)
 	spec, err := torrent.TorrentSpecFromMetaInfoErr(&metainfo.MetaInfo{InfoBytes: infoBytes})
-	if err != nil {
-		panic("SeedActiveForTesting: TorrentSpecFromMetaInfoErr: " + err.Error())
-	}
+	mustFixture("TorrentSpecFromMetaInfoErr", err)
 	dataDir, err := os.MkdirTemp("", "jackui-seedactive-*")
-	if err != nil {
-		panic("SeedActiveForTesting: MkdirTemp: " + err.Error())
-	}
+	mustFixture("MkdirTemp", err)
 	cfg := torrent.NewDefaultClientConfig()
 	cfg.DataDir = dataDir
 	cfg.NoDHT = true
@@ -47,16 +41,9 @@ func (s *Streamer) SeedActiveForTesting(name string, lastAccess time.Time) (meta
 	cfg.DisableUTP = true
 	cfg.ListenPort = 0
 	cl, err := torrent.NewClient(cfg)
-	if err != nil {
-		os.RemoveAll(dataDir)
-		panic("SeedActiveForTesting: torrent.NewClient: " + err.Error())
-	}
+	mustFixture("torrent.NewClient", err)
 	tor, _, err := cl.AddTorrentSpec(spec)
-	if err != nil {
-		cl.Close()
-		os.RemoveAll(dataDir)
-		panic("SeedActiveForTesting: AddTorrentSpec: " + err.Error())
-	}
+	mustFixture("AddTorrentSpec", err)
 
 	h := tor.InfoHash()
 	s.mu.Lock()
@@ -66,5 +53,15 @@ func (s *Streamer) SeedActiveForTesting(name string, lastAccess time.Time) (meta
 	return h, func() {
 		cl.Close()
 		os.RemoveAll(dataDir)
+	}
+}
+
+// mustFixture aborts the test binary when a SeedActiveForTesting step fails.
+// The fixture has no *testing.T to report to (it is called from other
+// packages), and a half-built fixture would only produce confusing downstream
+// assertions — failing loudly at the broken step is the honest outcome.
+func mustFixture(step string, err error) {
+	if err != nil {
+		panic("SeedActiveForTesting: " + step + ": " + err.Error())
 	}
 }

@@ -95,33 +95,51 @@ func StreamDropBatch(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, 
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		seen := make(map[string]struct{}, len(req.Hashes))
-		dropped := 0
-		failed := make([]string, 0)
-		for _, raw := range req.Hashes {
-			h, err := parseHash(raw)
-			if err != nil {
-				failed = append(failed, raw)
-				continue
-			}
-			key := h.HexString()
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			if err := dropStreamHash(s, hlsMgr, h); streamer.IsDropRefusal(err) {
-				// Held by a viewer/background download: count as failed instead
-				// of pretending the drop happened; row is NOT marked seed-stopped.
-				failed = append(failed, raw)
-				continue
-			}
-			if store != nil {
-				_ = store.StopSeedByInfoHash(userID, key)
-			}
-			dropped++
-		}
+		dropped, failed := dropStreamHashes(s, hlsMgr, store, userID, req.Hashes)
 		c.JSON(http.StatusOK, gin.H{"dropped": dropped, "total": len(req.Hashes), "failed": failed})
 	}
+}
+
+// dropStreamHashes runs the batch drop loop for StreamDropBatch: dedupes the
+// raw hashes, drops each one once, and returns (dropped, failed). failed keeps
+// the RAW input strings so the client can match them back — both invalid hex
+// and refusals (viewer lease / background download) land there; a refused
+// hash is NOT marked seed-stopped because the torrent is still alive.
+func dropStreamHashes(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, store *downloads.Store, userID int, raws []string) (int, []string) {
+	seen := make(map[string]struct{}, len(raws))
+	dropped := 0
+	failed := make([]string, 0)
+	for _, raw := range raws {
+		h, err := parseHash(raw)
+		if err != nil {
+			failed = append(failed, raw)
+			continue
+		}
+		key := h.HexString()
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		if !dropStreamHashRow(s, hlsMgr, store, userID, h) {
+			failed = append(failed, raw)
+			continue
+		}
+		dropped++
+	}
+	return dropped, failed
+}
+
+// dropStreamHashRow drops one hash and, when the torrent is actually gone,
+// marks the backing completed download row seed-stopped. Returns false on a
+// refusal (the torrent is still held by a viewer/background download).
+func dropStreamHashRow(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, store *downloads.Store, userID int, h metainfo.Hash) bool {
+	if err := dropStreamHash(s, hlsMgr, h); streamer.IsDropRefusal(err) {
+		return false
+	}
+	if store != nil {
+		_ = store.StopSeedByInfoHash(userID, h.HexString())
+	}
+	return true
 }
 
 // dropStreamHash tears down swarm seed + HLS for one info-hash (shared by

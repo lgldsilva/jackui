@@ -134,7 +134,7 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 //
 // Por ser ação EXPLÍCITA do usuário, bypassa o guard activeReadGuard do drop
 // (o torrent-get da stack *arr renova lastAccess a cada ~60s, e isso mantinha
-// o guard eternamente armado — todo "Parar" era recusado em silêncio). Ainda
+// o guard eternamente armado — qualquer "Parar" era recusado em silêncio). Ainda
 // recusa, porém, quando um viewer lease ou download em background segura o
 // torrent; nesses casos retorna o erro de recusa para o handler responder
 // 409 em vez de fingir sucesso. ErrTorrentNotActive = idempotente (já foi).
