@@ -194,6 +194,41 @@ describe('useDownloadActions', () => {
     expect(notifyErrorMock).toHaveBeenCalled()
   })
 
+  // Remover um torrent de streaming ("Parar" no card) — o backend agora
+  // responde 409 com o motivo quando o drop é recusado (player aberto); o
+  // hook precisa mostrar esse motivo em vez de engolir o erro em silêncio,
+  // e liberar o busy flag em qualquer desfecho.
+  it('onTorrentDelete dropa o stream, recarrega e libera o busy flag', async () => {
+    const { result, state } = setup()
+    await act(async () => { await result.current.onTorrentDelete('a') })
+
+    expect(mocks.streamDrop).toHaveBeenCalledWith('a')
+    expect(state.loadTorrents).toHaveBeenCalled()
+    expect(state.setBusyHash).toHaveBeenCalledWith('a')
+    expect(state.setBusyHash).toHaveBeenLastCalledWith(null)
+    expect(notifyErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('onTorrentDelete mostra o motivo da recusa (409) e não recarrega', async () => {
+    const refusal = Object.assign(new Error('torrent em uso'), { response: { status: 409 } })
+    mocks.streamDrop.mockRejectedValue(refusal)
+    const { result, state } = setup()
+    await act(async () => { await result.current.onTorrentDelete('a') })
+
+    expect(notifyErrorMock).toHaveBeenCalledWith(refusal)
+    expect(state.loadTorrents).not.toHaveBeenCalled()
+    expect(state.setBusyHash).toHaveBeenLastCalledWith(null)
+  })
+
+  it('onTorrentDelete não faz nada quando o usuário cancela a confirmação', async () => {
+    confirmMock.mockResolvedValue(false)
+    const { result, state } = setup()
+    await act(async () => { await result.current.onTorrentDelete('a') })
+
+    expect(mocks.streamDrop).not.toHaveBeenCalled()
+    expect(state.setBusyHash).not.toHaveBeenCalled()
+  })
+
   it('onStopSeedMany remove otimistamente os alvos', async () => {
     const { result, state } = setup()
     const targets = [dl({ id: 3, infoHash: 'c', status: 'completed' })]
