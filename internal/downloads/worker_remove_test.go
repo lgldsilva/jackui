@@ -40,7 +40,7 @@ func newRemoveWorker(t *testing.T) (*Worker, *Store, *dropRecorder) {
 	w.drop = rec.drop
 	// Remove usa o seam dropSeed (DropSeed); lifecycle drops seguem no drop.
 	// Ambos apontam pro mesmo recorder para os asserts de "dropou o hash".
-	w.dropSeed = rec.drop
+	w.dropSeed = rec.dropSeed
 	return w, store, rec
 }
 
@@ -53,6 +53,13 @@ func (r *dropRecorder) drop(h metainfo.Hash) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.dropped = append(r.dropped, h)
+}
+
+// dropSeed is the explicit-removal seam (streamer.DropSeed signature): same
+// recorder, error-free outcome for the assertions above.
+func (r *dropRecorder) dropSeed(h metainfo.Hash) error {
+	r.drop(h)
+	return nil
 }
 
 func (r *dropRecorder) calls() []metainfo.Hash {

@@ -153,40 +153,60 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 // lastAccess on every read, including the HLS transcode's source reads.
 const activeReadGuard = 60 * time.Second
 
+// errRecentlyRead marks the non-explicit refusal when the torrent was read
+// within activeReadGuard. Generic Drop discards it (silent protection); it
+// must never leak into user-facing responses — explicit stops bypass this guard.
+var errRecentlyRead = errors.New("torrent read within activeReadGuard")
+
 // Drop forcibly removes a torrent (stops download, keeps files until GC).
+// Lifecycle/cleanup path (idle reaper, health probe, move teardown): refusal
+// is the intended protection and is intentionally silent.
 func (s *Streamer) Drop(hash metainfo.Hash) {
+	_ = s.drop(hash, false)
+}
+
+// drop removes a torrent honoring the protection guards. explicit=true marks a
+// user-initiated stop/remove ("Parar", stop-seed, row delete): it bypasses ONLY
+// the 60s activeReadGuard — that guard exists to protect co-watcher playback,
+// but MONITORING reads (the *arr stack's torrent-get polls refresh lastAccess
+// every ~60s) were keeping it permanently armed, so every explicit stop was
+// silently refused (incident 2026-09-28: 6× DELETE /api/stream/:hash → 200,
+// torrent never stopped). Viewer leases and background-download protection
+// still win over an explicit stop; the caller surfaces the refusal.
+func (s *Streamer) drop(hash metainfo.Hash, explicit bool) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
-	if ok {
-		// Do not drop while a player still holds a viewer lease — the lease is
-		// the authoritative "someone is watching" signal. A forced Drop (manual
-		// StreamDrop, health probe) must not kill a co-watcher's playback.
-		if e.viewers > 0 {
-			s.mu.Unlock()
-			return
-		}
-		// Do not drop if it is registered as an active background download
-		if _, protected := s.downloads[e.t.Name()]; protected {
-			s.mu.Unlock()
-			return
-		}
-		// Do not drop a torrent another reader is actively streaming. The player
-		// calls Drop() on close, but with MULTIPLE sessions on the same torrent
-		// (e.g. two browsers, or an HLS transcode still pulling segments for
-		// another viewer), an eager drop killed the survivors' ffmpeg mid-playback
-		// ("torrent closed" → demux I/O error → segment 404). A recent read means
-		// someone is still watching — leave eviction to the idle reaper.
-		if time.Since(e.lastAccess) < activeReadGuard {
-			s.mu.Unlock()
-			return
-		}
-		delete(s.active, hash)
+	if !ok {
+		s.mu.Unlock()
+		return ErrTorrentNotActive
 	}
+	// Do not drop while a player still holds a viewer lease — the lease is
+	// the authoritative "someone is watching" signal. A forced Drop (manual
+	// StreamDrop, health probe) must not kill a co-watcher's playback.
+	if e.viewers > 0 {
+		s.mu.Unlock()
+		return ErrTorrentViewerActive
+	}
+	// Do not drop if it is registered as an active background download
+	if _, protected := s.downloads[e.t.Name()]; protected {
+		s.mu.Unlock()
+		return ErrTorrentDownloadProtected
+	}
+	// Do not drop a torrent another reader is actively streaming. The player
+	// calls Drop() on close, but with MULTIPLE sessions on the same torrent
+	// (e.g. two browsers, or an HLS transcode still pulling segments for
+	// another viewer), an eager drop killed the survivors' ffmpeg mid-playback
+	// ("torrent closed" → demux I/O error → segment 404). A recent read means
+	// someone is still watching — leave eviction to the idle reaper.
+	if !explicit && time.Since(e.lastAccess) < activeReadGuard {
+		s.mu.Unlock()
+		return errRecentlyRead
+	}
+	delete(s.active, hash)
 	s.mu.Unlock()
-	if ok {
-		e.t.Drop()
-		s.purgeVerifiedFiles(hash)
-	}
+	e.t.Drop()
+	s.purgeVerifiedFiles(hash)
+	return nil
 }
 
 // purgeVerifiedFiles drops the hash-check dedup keys for a torrent when it

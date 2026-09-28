@@ -8,7 +8,9 @@ import (
 )
 
 // Stats/peers/rate por torrent — extraído de streamer.go.
-// Get returns the current TorrentInfo for an active torrent.
+// Get returns the current TorrentInfo for an active torrent. Counts as "use":
+// refreshes lastAccess, so the activeReadGuard and the idle reaper treat the
+// torrent as freshly watched.
 func (s *Streamer) Get(hash metainfo.Hash) (*TorrentInfo, error) {
 	s.mu.Lock()
 	e, ok := s.active[hash]
@@ -17,10 +19,28 @@ func (s *Streamer) Get(hash metainfo.Hash) (*TorrentInfo, error) {
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
+		return nil, errTorrentGone
 	}
 	return s.buildInfo(e, true), nil
 }
+
+// GetUntouched returns the same snapshot as Get WITHOUT refreshing lastAccess.
+// For MONITORING readers — the Transmission-compat torrent-get polled by the
+// *arr stack every ~60s — whose reads must not count as "use": treating them
+// as use kept the activeReadGuard permanently armed (explicit user stops were
+// silently refused) and pinned torrents against the idle reaper forever.
+func (s *Streamer) GetUntouched(hash metainfo.Hash) (*TorrentInfo, error) {
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	s.mu.Unlock()
+	if !ok {
+		return nil, errTorrentGone
+	}
+	return s.buildInfo(e, true), nil
+}
+
+// errTorrentGone — Get/GetUntouched on a hash no longer in the active set.
+var errTorrentGone = errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
 
 // LiveStats returns a torrent's current down/up rate + connected seeders WITHOUT
 // building the full file list. buildInfo (used by Get) iterates t.Files() — a

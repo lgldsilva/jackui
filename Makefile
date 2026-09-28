@@ -365,6 +365,6 @@ sonar-scan:
 		-Dsonar.token=$(SONAR_TOKEN) \
 		-Dsonar.projectKey=jackui \
 		-Dsonar.projectName=JackUI \
-		2>&1 | tail -15
+		> /tmp/jackui-sonar-scan.log 2>&1; rc=$$?; tail -15 /tmp/jackui-sonar-scan.log; exit $$rc
 	@rm -f coverage.out
 	$(call ok,Quality gate OK — mesmo gate do CI)

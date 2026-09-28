@@ -109,7 +109,7 @@ func (w *Worker) dropTorrent(h metainfo.Hash) {
 // in unit tests that override `drop` directly).
 func (w *Worker) dropTorrentSeed(h metainfo.Hash) {
 	if w.dropSeed != nil {
-		w.dropSeed(h)
+		_ = w.dropSeed(h)
 		return
 	}
 	w.dropTorrent(h)
