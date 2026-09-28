@@ -130,10 +130,7 @@ func TestStreamDropBatch_RefusedHashLandsInFailed(t *testing.T) {
 	// string raw (é assim que o cliente casa de volta com a seleção).
 	rawWatched := strings.ToUpper(watched.HexString())
 	body := `{"hashes":["` + rawWatched + `","` + idle.HexString() + `","` + idle.HexString() + `"]}`
-	req := httptest.NewRequest("POST", "/api/stream/drop/batch", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	w := postDropBatch(t, router, body)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
@@ -186,10 +183,7 @@ func TestStreamDropBatch_SeedStoppedOnlyForDroppedRows(t *testing.T) {
 	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil, store))
 
 	body := `{"hashes":["` + watched.HexString() + `","` + idle.HexString() + `"]}`
-	req := httptest.NewRequest("POST", "/api/stream/drop/batch", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	w := postDropBatch(t, router, body)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
