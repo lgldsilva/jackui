@@ -131,13 +131,20 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 // torrent / excluir download) — ao contrário do Drop genérico (idle/health),
 // que preserva o auto-seed. Sem isto, um torrent auto-seedado reaparecia como
 // "ativo" para sempre, mesmo após ser removido.
-func (s *Streamer) DropSeed(hash metainfo.Hash) {
+//
+// Por ser ação EXPLÍCITA do usuário, bypassa o guard activeReadGuard do drop
+// (o torrent-get da stack *arr renova lastAccess a cada ~60s, e isso mantinha
+// o guard eternamente armado — todo "Parar" era recusado em silêncio). Ainda
+// recusa, porém, quando um viewer lease ou download em background segura o
+// torrent; nesses casos retorna o erro de recusa para o handler responder
+// 409 em vez de fingir sucesso. ErrTorrentNotActive = idempotente (já foi).
+func (s *Streamer) DropSeed(hash metainfo.Hash) error {
 	if s.seeds != nil {
 		if err := s.seeds.Remove(hash.HexString()); err != nil {
 			log.Printf("streamer: remove persisted seed %s failed: %v", hash.HexString()[:8], err)
 		}
 	}
-	s.Drop(hash)
+	return s.drop(hash, true)
 }
 
 func (s *Streamer) maybePersistSeed(t *torrent.Torrent) {

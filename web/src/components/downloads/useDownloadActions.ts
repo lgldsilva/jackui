@@ -261,7 +261,15 @@ export function useDownloadActions(deps: {
   const onTorrentDelete = async (hash: string) => {
     if (!await confirm({ title: t('downloads.page.removeTorrentTitle'), message: t('downloads.page.removeStreamingTorrentMessage'), confirmLabel: t('downloads.page.remove'), destructive: true })) return
     setBusyHash(hash)
-    try { await streamDrop(hash); await loadTorrents() } finally { setBusyHash(null) }
+    try {
+      await streamDrop(hash)
+      await loadTorrents()
+    } catch (err) {
+      // O backend agora responde 409 com o motivo quando alguém ainda está
+      // assistindo (viewer lease) — o toast mostra o porquê em vez de falhar
+      // em silêncio.
+      notifyError(err)
+    } finally { setBusyHash(null) }
   }
   const onSaveLimits = async () => {
     setLimitsSaving(true); setLimitsMsg('')

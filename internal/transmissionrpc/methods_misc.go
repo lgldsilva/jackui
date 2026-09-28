@@ -213,7 +213,10 @@ func (h *Handler) methodTorrentRemove(args map[string]interface{}) rpcResponse {
 func (h *Handler) removeDownload(d downloads.Download, deleteLocal bool) error {
 	if deleteLocal && h.streamer != nil {
 		if hh, herr := hashFromDownload(d); herr == nil {
-			h.streamer.Drop(hh)
+			// DropSeed (não Drop): a remoção via *arr é explícita e a row está
+			// sendo apagada — o auto-seed persistido tem que ir junto, senão o
+			// resumeSeeding ressuscita o torrent no próximo boot.
+			_ = h.streamer.DropSeed(hh)
 		}
 	}
 	if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusFailed); err != nil {

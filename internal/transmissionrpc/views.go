@@ -54,6 +54,10 @@ func (h *Handler) methodTorrentGet(args map[string]interface{}) rpcResponse {
 }
 
 // activeTorrentInfo resolve, por infoHash, os torrents ativos no streamer.
+// GetUntouched (não Get): o torrent-get é poll de monitoramento — a stack *arr
+// bate aqui a cada ~60s, e tratar isso como "uso" renovava o lastAccess,
+// mantendo o activeReadGuard do Drop eternamente armado (todo "Parar" manual
+// era recusado em silêncio) e prendendo os torrents contra o idle reaper.
 func (h *Handler) activeTorrentInfo(all []downloads.Download) map[string]*streamer.TorrentInfo {
 	active := make(map[string]*streamer.TorrentInfo)
 	if h.streamer == nil {
@@ -64,7 +68,7 @@ func (h *Handler) activeTorrentInfo(all []downloads.Download) map[string]*stream
 		if err := hh.FromHexString(d.InfoHash); err != nil {
 			continue
 		}
-		if info, err := h.streamer.Get(hh); err == nil && info != nil {
+		if info, err := h.streamer.GetUntouched(hh); err == nil && info != nil {
 			active[d.InfoHash] = info
 		}
 	}
