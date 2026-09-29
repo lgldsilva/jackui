@@ -150,7 +150,7 @@ func localSlotContext(ctx context.Context, remainingSlots int) (context.Context,
 	return context.WithTimeout(ctx, share)
 }
 
-func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore { //nolint:gocognit // NOSONAR: cognitive complexity tracked in the god-files refactor (audit #416)
+func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore {
 	if len(cases) == 0 {
 		cases = AllDefaultBenchmarkCases()
 	}
@@ -165,6 +165,12 @@ func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []Ben
 	// goroutine per slot to cut wall-clock. Both groups run concurrently: the local
 	// queue overlaps the parallel cloud calls.
 	results := make([]SlotScore, len(slots))
+	emit := func(i int, score SlotScore) {
+		results[i] = score
+		if onResult != nil {
+			onResult(score)
+		}
+	}
 	var wg sync.WaitGroup
 	for i, s := range slots {
 		if s.Local {
@@ -173,43 +179,47 @@ func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []Ben
 		wg.Add(1)
 		go func(i int, s Slot) {
 			defer wg.Done()
-			results[i] = c.scoreSlot(ctx, s, cases, false)
-			if onResult != nil {
-				onResult(results[i])
-			}
+			emit(i, c.scoreSlot(ctx, s, cases, false))
 		}(i, s)
-	}
-	// Local models: a single goroutine drains them sequentially (with warmup),
-	// each capped to a FAIR SHARE of the run's remaining time (see
-	// localSlotContext) so one slow/stuck model can't starve every local model
-	// still queued behind it.
-	localTotal := 0
-	for _, s := range slots {
-		if s.Local {
-			localTotal++
-		}
 	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		done := 0
-		for i, s := range slots {
-			if !s.Local {
-				continue
-			}
-			slotCtx, slotCancel := localSlotContext(ctx, localTotal-done)
-			results[i] = c.scoreSlot(slotCtx, s, cases, true)
-			slotCancel()
-			done++
-			if onResult != nil {
-				onResult(results[i])
-			}
-		}
+		c.runLocalSlotsSequential(ctx, slots, cases, emit)
 	}()
 	wg.Wait()
 
 	sort.SliceStable(results, func(i, j int) bool { return RankBefore(results[i], results[j]) })
 	return results
+}
+
+// runLocalSlotsSequential drains the LOCAL slots one at a time (with warmup),
+// each capped to a FAIR SHARE of the run's remaining time (see localSlotContext)
+// so one slow/stuck model can't starve every local model still queued behind it.
+// emit receives the slot's index in slots plus its score.
+func (c *Client) runLocalSlotsSequential(ctx context.Context, slots []Slot, cases []BenchmarkCase, emit func(int, SlotScore)) {
+	localTotal := countLocalSlots(slots)
+	done := 0
+	for i, s := range slots {
+		if !s.Local {
+			continue
+		}
+		slotCtx, slotCancel := localSlotContext(ctx, localTotal-done)
+		score := c.scoreSlot(slotCtx, s, cases, true)
+		slotCancel()
+		done++
+		emit(i, score)
+	}
+}
+
+func countLocalSlots(slots []Slot) int {
+	n := 0
+	for _, s := range slots {
+		if s.Local {
+			n++
+		}
+	}
+	return n
 }
 
 // warmupTimeout bounds the untimed priming call for a local Ollama model. It has
