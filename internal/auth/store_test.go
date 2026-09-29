@@ -130,9 +130,19 @@ func TestSetStatus(t *testing.T) {
 
 func TestAuthTokenExpired(t *testing.T) {
 	s := newTestStore(t)
-	plain, _ := s.CreateToken(TokenVerifyEmail, 1, "", -time.Minute) // already expired
-	if _, err := s.ConsumeToken(plain, TokenVerifyEmail); err == nil {
-		t.Fatal("expected expired token to fail")
+	uid, err := s.CreateUser("expired-owner", "pass", RoleUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	// The token must really be persisted (a dangling user_id would fail the FK
+	// and make the consume fail for the wrong reason: "invalid token").
+	plain, err := s.CreateToken(TokenVerifyEmail, uid, "", -time.Minute) // already expired
+	if err != nil {
+		t.Fatalf("CreateToken: %v", err)
+	}
+	_, err = s.ConsumeToken(plain, TokenVerifyEmail)
+	if err == nil || err.Error() != "token expired" {
+		t.Fatalf("ConsumeToken err = %v, want %q", err, "token expired")
 	}
 }
 

@@ -345,18 +345,17 @@ func TestLocalPromoteDestIsFile(t *testing.T) {
 	}
 }
 
+// A DIRECTORY already sitting at the destination name makes both the rename and
+// the copy fallback fail (EISDIR) — independent of permission bits, so the test
+// also runs as root (the CI container) instead of being skipped there.
 func TestLocalPromoteMoveFails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores permission bits")
-	}
 	mountDir := t.TempDir()
 	writeFile(t, filepath.Join(mountDir, "a.txt"), []byte("x"))
 	sharedDir := t.TempDir()
-	if err := os.Chmod(sharedDir, 0o555); err != nil {
+	if err := os.MkdirAll(filepath.Join(sharedDir, "a.txt"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(sharedDir, 0o755) })
 	b := newTestBrowser("M", mountDir)
 	handler := LocalPromote(newPromoteDeps(b, sharedDir))
 	w := invokeMove(t, handler, http.MethodPost, "/api/local/promote", `{"mount":"M","path":"a.txt"}`)

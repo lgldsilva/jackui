@@ -234,3 +234,18 @@ func TestMovePathJob_Rename(t *testing.T) {
 		t.Fatal("source must be removed")
 	}
 }
+
+func TestResolveRenameDest_InvalidName(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.txt")
+	writeFile(t, src, []byte("x"))
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	_, ok := resolveRenameDest(c, src, "../b.txt")
+	if ok {
+		t.Fatal("name with a path separator must not be ok")
+	}
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid name") {
+		t.Fatalf("status = %d; body=%s", w.Code, w.Body.String())
+	}
+}

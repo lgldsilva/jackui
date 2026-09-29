@@ -1,6 +1,7 @@
 package localcache
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -197,5 +198,26 @@ func TestCopyErrorMarksEntry(t *testing.T) {
 	c.runJob(job{key: key("M", "missing.mkv"), srcAbs: "/no/such/file"})
 	if snap := c.StatusFor("M", "missing.mkv"); snap.Status != "error" {
 		t.Fatalf("status=%q want error", snap.Status)
+	}
+}
+
+// With no worker draining the queue, the 65th distinct enqueue overflows the
+// 64-slot channel: the entry is marked error ("cache queue full") so the UI
+// stops spinning instead of waiting for a copy that will never start.
+func TestEnqueueQueueFullMarksError(t *testing.T) {
+	c, _ := newCache(t.TempDir(), 1<<30, nil, false)
+	defer c.Close()
+
+	for i := 0; i < cap(c.jobs); i++ {
+		c.Enqueue("M", fmt.Sprintf("f%d.mkv", i), "/nonexistent/src", 1)
+	}
+	c.Enqueue("M", "overflow.mkv", "/nonexistent/src", 1)
+
+	snap := c.StatusFor("M", "overflow.mkv")
+	if snap.Status != string(StatusError) || snap.Error != "cache queue full" {
+		t.Fatalf("overflow status=%+v, want error/cache queue full", snap)
+	}
+	if snap := c.StatusFor("M", "f0.mkv"); snap.Status != string(StatusQueued) {
+		t.Fatalf("queued entry status=%+v, want queued", snap)
 	}
 }
