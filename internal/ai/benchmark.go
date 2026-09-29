@@ -150,7 +150,7 @@ func localSlotContext(ctx context.Context, remainingSlots int) (context.Context,
 	return context.WithTimeout(ctx, share)
 }
 
-func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore { // NOSONAR: cognitive complexity tracked in the god-files refactor (audit #416)
+func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore { //nolint:gocognit // NOSONAR: cognitive complexity tracked in the god-files refactor (audit #416)
 	if len(cases) == 0 {
 		cases = AllDefaultBenchmarkCases()
 	}
