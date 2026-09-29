@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
+	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
 // hgA prefix on every identifier to avoid collisions with the other test files
@@ -44,6 +46,24 @@ func hgAFavStreamer(t *testing.T) *streamer.Streamer {
 	s := streamer.NewForTesting()
 	s.SetFavorites(favs)
 	return s
+}
+
+// hgADrainedTracker returns a real Tracker for promote tests. The promote copy
+// runs in a background job; with a nil Tracker it is an untracked goroutine the
+// test cannot wait for, so it could still be writing into shared/src when
+// t.TempDir's RemoveAll ran ("directory not empty" flake on CI). Call it AFTER
+// the TempDir/store setup: cleanups run LIFO, so the drain happens first.
+func hgADrainedTracker(t *testing.T) *transfer.Tracker {
+	t.Helper()
+	tr := transfer.New()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if !tr.WaitIdle(ctx) {
+			t.Error("promote transfer job still running at cleanup")
+		}
+	})
+	return tr
 }
 
 func hgADo(router *gin.Engine, method, path string, body []byte) *httptest.ResponseRecorder {
@@ -519,7 +539,7 @@ func Test_hgA_DownloadsPromote_Success(t *testing.T) {
 	d := hgACompletedDownload(t, store, srcDir, "promote_me.mkv")
 
 	router := gin.New()
-	router.POST("/api/downloads/:id/promote", DownloadsPromote(PromoteDeps{Store: store, Streamer: s, SharedDir: shared}))
+	router.POST("/api/downloads/:id/promote", DownloadsPromote(PromoteDeps{Store: store, Streamer: s, SharedDir: shared, Tracker: hgADrainedTracker(t)}))
 
 	body, _ := json.Marshal(promoteReq{KeepSeeding: true})
 	w := hgADo(router, "POST", "/api/downloads/"+itoa(d.ID)+"/promote", body)
@@ -581,7 +601,7 @@ func Test_hgA_DownloadsPromoteBatch_Mixed(t *testing.T) {
 	good := hgACompletedDownload(t, store, srcDir, "ok.mkv")
 
 	router := gin.New()
-	router.POST("/api/downloads/promote", DownloadsPromoteBatch(PromoteDeps{Store: store, Streamer: s, SharedDir: shared}))
+	router.POST("/api/downloads/promote", DownloadsPromoteBatch(PromoteDeps{Store: store, Streamer: s, SharedDir: shared, Tracker: hgADrainedTracker(t)}))
 
 	// One valid id + one bogus id → promoted 1, failed 1.
 	body, _ := json.Marshal(promoteReq{IDs: []int{good.ID, 99999}, KeepSeeding: true})
