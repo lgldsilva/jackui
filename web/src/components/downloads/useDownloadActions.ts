@@ -85,10 +85,10 @@ export function useDownloadActions(deps: {
     markDeleted(pendingDeletesRef.current, [id])
     setItems(prev => prev.filter(x => x.id !== id))
     try {
-      await downloadPause(id).catch(() => {}) // pausa antes de remover
-      // Play de um download cria uma sessão de stream/transcode no anacrolix pro
-      // MESMO hash, separada da row. Sem derrubá-la, o torrent "tocado" reaparece
-      // como card de Streaming após o delete (sintoma: "permaneceu mesmo após excluir").
+      await downloadPause(id).catch(() => {}) // pause before removing
+      // Playing a download creates a stream/transcode session on anacrolix for the
+      // SAME hash, separate from the row. Without dropping it, the "played" torrent reappears
+      // as a Streaming card after the delete (symptom: "it stayed even after deleting").
       if (target?.infoHash) await streamDrop(target.infoHash).catch(() => {})
       await downloadDelete(id)
       await reloadDownloadsRef.current(); await loadTorrents()
@@ -100,8 +100,8 @@ export function useDownloadActions(deps: {
       notifyError(err)
     } finally { setBusyID(null) }
   }
-  // Abre o modal de promove (single ou batch). Single: passa só esse item;
-  // batch: passa todos os selected. UI faz o resto.
+  // Opens the promote modal (single or batch). Single: passes just this item;
+  // batch: passes all the selected ones. The UI does the rest.
   const onPromote = (d: DownloadEntry) => {
     setPromoteTargets([d])
   }
@@ -143,8 +143,8 @@ export function useDownloadActions(deps: {
     markDeleted(pendingDeletesRef.current, ids)
     setItems(prev => prev.filter(x => !ids.includes(x.id)))
     try {
-      await downloadBatchPause(ids).catch(() => {}) // pausa todos antes de remover
-      // Encerra sessões de stream/transcode abertas pelo Play — 1 batch (Perf #7).
+      await downloadBatchPause(ids).catch(() => {}) // pause all before removing
+      // Ends the stream/transcode sessions opened by Play — 1 batch (Perf #7).
       await dropStreamsForEntries(targets)
       const res = await downloadBatchDelete(ids)
       const failed = res.failed ?? []
@@ -175,7 +175,7 @@ export function useDownloadActions(deps: {
         details: result.failed.map(f => `#${f.id}: ${f.error}`).join('; '),
       }), 'error')
     }
-    // Limpa seleção dos que deram certo
+    // Clears the selection of the ones that succeeded
     if (result.promoted.length > 0) {
       const ok = new Set(result.promoted.map(d => d.id))
       setSelected(prev => {
@@ -190,9 +190,9 @@ export function useDownloadActions(deps: {
   const onStopSeed = async (id: number, name: string) => {
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedMessage', { name }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBusyID(id)
-    // OPTIMISTIC (mesmo mecanismo do delete): o stop-seed agora REMOVE a row no
-    // backend, então esconde na hora e blinda contra polls stale de 2s; em erro
-    // restaura para o usuário ver a realidade.
+    // OPTIMISTIC (same mechanism as delete): stop-seed now REMOVES the row on
+    // the backend, so hide it right away and shield against stale 2s polls; on error
+    // restore it so the user sees reality.
     markDeleted(pendingDeletesRef.current, [id])
     setItems(prev => prev.filter(x => x.id !== id))
     try {
@@ -205,7 +205,7 @@ export function useDownloadActions(deps: {
     } finally { setBusyID(null) }
   }
 
-  // ── Ações no nível do torrent (grupo de arquivos do mesmo infoHash) ──
+  // ── Torrent-level actions (group of files with the same infoHash) ──
   const onPromoteMany = (ds: DownloadEntry[]) => { if (ds.length > 0) setPromoteTargets(ds) }
   const onDeleteMany = async (ds: DownloadEntry[]) => {
     const ids = ds.map(d => d.id)
@@ -219,8 +219,8 @@ export function useDownloadActions(deps: {
     if (!await confirm({ title: t('downloads.page.stopSeedTitle'), message: t('downloads.page.stopSeedManyMessage', { count: ds.length }), confirmLabel: t('downloads.page.stop'), destructive: true })) return
     setBulkBusy(true)
     const ids = ds.map(d => d.id)
-    // OPTIMISTIC: o batch remove as rows no backend; esconde já e desfaz só o
-    // que o servidor reportar como failed.
+    // OPTIMISTIC: the batch removes the rows on the backend; hide right away and undo only
+    // the ones the server reports as failed.
     markDeleted(pendingDeletesRef.current, ids)
     setItems(prev => prev.filter(x => !ids.includes(x.id)))
     try {
@@ -284,8 +284,8 @@ export function useDownloadActions(deps: {
     } catch { setLimitsMsg(t('downloads.page.saveFailed')) } finally { setLimitsSaving(false) }
   }
 
-  // Ações em lote globais (reusadas pela barra inline do desktop e pelo Sheet
-  // de "Ações" do mobile).
+  // Global batch actions (reused by the desktop's inline bar and the mobile
+  // "Actions" Sheet).
   const doResumeAll = async () => {
     setBulkBusy(true)
     try {
@@ -315,9 +315,9 @@ export function useDownloadActions(deps: {
     setBulkBusy(true)
     try { await runBatchDelete(completedDownloads.map(d => d.id), completedDownloads) } finally { setBulkBusy(false) }
   }
-  // Limpeza em massa por status — "limpar falhados" e "limpar fila". Caso de
-  // uso: o antigo "Baixar tudo" (1 row POR arquivo) podia entupir a fila com
-  // centenas de itens; isto remove o lixo em 1 clique sem caçar checkbox.
+  // Bulk cleanup by status — "clear failed" and "clear queue". Use case: the old
+  // "Download all" (1 row PER file) could clog the queue with
+  // hundreds of items; this removes the junk in 1 click without hunting checkboxes.
   const doClearByStatus = async (targets: DownloadEntry[], title: string, message: string) => {
     if (targets.length === 0) return
     const ok = await confirm({ title, message, confirmLabel: t('downloads.clear_confirm'), destructive: true })

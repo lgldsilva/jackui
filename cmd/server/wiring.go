@@ -42,7 +42,7 @@ func resolvePeerPort() int {
 			p, err := gluetun.ForwardedPort(ctx, ctrl)
 			cancel()
 			if err == nil && p > 0 {
-				// #nosec G706 -- falso-positivo: loga inteiro (%d), sem injecao de log possivel
+				// #nosec G706 -- false positive: logs an integer (%d), no log injection possible
 				log.Printf("peer port: using gluetun forwarded port %d", p)
 				return p
 			}
@@ -79,7 +79,7 @@ func watchForwardedPort(ctrl string, current int, restart chan<- struct{}) {
 		p, err := gluetun.ForwardedPort(ctx, ctrl)
 		cancel()
 		if err == nil && p > 0 && p != current {
-			// #nosec G706 -- falso-positivo: loga inteiro (%d), sem injecao de log possivel
+			// #nosec G706 -- false positive: logs an integer (%d), no log injection possible
 			log.Printf("forwarded port changed %d→%d — triggering graceful restart to rebind", current, p)
 			// Non-blocking: main drains this and runs graceful shutdown (closing
 			// stores, stopping ffmpeg, waiting on moves). The old os.Exit(0) here
@@ -106,8 +106,8 @@ func loadConfig() (*config.Config, string) {
 	return cfg, configPath
 }
 
-// transmissionRPCEnabled diz se a camada de compat Transmission RPC deve ser
-// exposta. Opt-in (default OFF) por ser uma superfície RPC sensível.
+// transmissionRPCEnabled tells whether the Transmission RPC compat layer should
+// be exposed. Opt-in (default OFF) because it is a sensitive RPC surface.
 func transmissionRPCEnabled() bool {
 	v := os.Getenv("JACKUI_TRANSMISSION_RPC_ENABLED")
 	return v == "1" || v == "true"
@@ -120,7 +120,7 @@ func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) streamer.C
 		MetadataWait:  time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
 		MaxCacheSize:  int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
 		JackettAPIKey: cfg.Jackett.APIKey,
-		// Performance / hardware tuning (ver config.StreamConfig).
+		// Performance / hardware tuning (see config.StreamConfig).
 		MaxDownloadRate:    cfg.Stream.MaxDownloadRate,
 		MaxUploadRate:      cfg.Stream.MaxUploadRate,
 		Readahead:          int64(cfg.Stream.ReadaheadMB) << 20,
@@ -194,7 +194,7 @@ func initStreamer(deps *appDeps) {
 	}
 }
 
-// recoverFavoritesLimit caps the camada-3 (Jackett re-search) re-links per boot.
+// recoverFavoritesLimit caps the layer-3 (Jackett re-search) re-links per boot.
 const recoverFavoritesLimit = 25
 
 // recoverFavorites repairs favorites whose magnet went missing (the inert-row
@@ -222,7 +222,7 @@ func recoverFavorites(s *streamer.Streamer, jc *jackett.Client) {
 }
 
 // jackettMagnetSearcher adapts the Jackett client to streamer.MagnetSearcher for
-// the camada-3 favorites recovery.
+// the layer-3 favorites recovery.
 type jackettMagnetSearcher struct{ c *jackett.Client }
 
 func (a jackettMagnetSearcher) SearchByName(name string) ([]streamer.MagnetMatch, error) {
@@ -409,7 +409,7 @@ func dirWritable(path string) bool {
 		return false
 	}
 	probe := filepath.Join(path, ".jackui-wtest")
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return false
@@ -433,7 +433,7 @@ func setupLogger() {
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
 
-	// Redireciona os logs do pacote standard "log" para o handler slog
+	// Redirect the standard "log" package logs to the slog handler
 	log.SetOutput(slog.NewLogLogger(handler, slog.LevelInfo).Writer())
 	log.SetFlags(0)
 }

@@ -29,14 +29,14 @@ export default function TrackerStatsList({ infoHash, magnet }: Props) {
 
   return (
     <div className="mt-3">
-      <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Trackers (seeds reais)</div>
+      <div className="text-xs text-text-muted uppercase tracking-wider mb-1">Trackers (real seeds)</div>
       {loading && (
         <div className="flex items-center gap-2 text-xs text-text-secondary">
-          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Consultando trackers…
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Querying trackers…
         </div>
       )}
       {!loading && rows?.length === 0 && (
-        <div className="text-xs text-text-muted">Nenhum tracker para consultar (magnet/.torrent sem announce).</div>
+        <div className="text-xs text-text-muted">No trackers to query (magnet/.torrent without announce).</div>
       )}
       {!loading && !!rows?.length && (
         <ul className="flex flex-col gap-1">
@@ -50,7 +50,7 @@ export default function TrackerStatsList({ infoHash, magnet }: Props) {
                   <span className="text-red-400">{t.leechers} leech</span>
                 </span>
               ) : (
-                <span className="text-text-muted flex items-center gap-1 flex-shrink-0"><X className="w-3 h-3" /> sem resposta</span>
+                <span className="text-text-muted flex items-center gap-1 flex-shrink-0"><X className="w-3 h-3" /> no response</span>
               )}
             </li>
           ))}

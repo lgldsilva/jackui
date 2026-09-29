@@ -31,8 +31,8 @@ func logReject(c *gin.Context, reason string) {
 
 // Required is the Gin middleware that rejects requests without a valid Bearer token.
 // On success, the parsed Claims are attached to the context and available via FromCtx.
-// Media tokens (scope="media") only valem em rotas de mídia chamadas via
-// ?token=; rejeitadas aqui mesmo que a assinatura seja válida.
+// Media tokens (scope="media") are only valid on media routes called via
+// ?token=; rejected here even when the signature is valid.
 func Required(tm *TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := extractToken(c)
@@ -59,8 +59,8 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 
 // Optional attaches claims if a valid token is present but never blocks.
 // Useful for endpoints where behavior changes based on auth state (e.g., admin sees more).
-// Aplica o mesmo gate de scope que Required pra evitar elevação de privilégio
-// silenciosa via media token em rotas sensíveis.
+// Applies the same scope gate as Required to prevent silent privilege
+// escalation via a media token on sensitive routes.
 func Optional(tm *TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw := extractToken(c)
@@ -175,7 +175,7 @@ func GuestRestrict() gin.HandlerFunc {
 					c.Next()
 					return
 				}
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "convidados não têm permissão para modificar recursos"})
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "guests are not allowed to modify resources"})
 				return
 			}
 		}

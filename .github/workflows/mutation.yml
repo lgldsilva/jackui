@@ -1,6 +1,6 @@
 # Nightly mutation testing (gremlins) on jackui's pure business-logic packages.
 # Port of the archived Gitea Actions workflow (docs/archive/gitea-workflows/mutation.yml)
-# to GitHub Actions — issue #80, fase P1.2c.
+# to GitHub Actions — issue #80, phase P1.2c.
 #
 # Mutation testing re-runs the tests per mutant, so it is too slow for a per-PR
 # gate; it runs on a schedule (and on demand) on GitHub-hosted x64 (this is
@@ -18,7 +18,7 @@
 #   - DB-backed (need JACKUI_TEST_DATABASE_URL): db, dbtest, dbutil, streamer
 #   - ffmpeg / exec-driven: audiometa, transcode, localstream
 #   - HTTP handlers (httptest-driven, integration-shaped): handlers, middleware
-#   - auth (lockout test → 15 min timeout por mutante): auth
+#   - auth (lockout test → 15 min timeout per mutant): auth
 #   - external APIs / IO: jackett, tmdb, imagesearch, lyrics, subtitles,
 #     musictrending, watchlist, transmissionrpc, downloader, downloads, mailer,
 #     push, gluetun, preview, transfer, library, playlists, history, stats, ai
@@ -38,7 +38,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Serializa runs noturnas; não interrompe mutation em andamento.
+  # Serializes nightly runs; does not interrupt a mutation run in progress.
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
@@ -63,7 +63,7 @@ jobs:
           mkdir -p ui/dist
           printf '<!doctype html><title>mutation stub</title>\n' > ui/dist/index.html
 
-      # Sem threshold: gremlins sai 0 mesmo com mutantes vivos (não é gate).
+      # No threshold: gremlins exits 0 even with live mutants (not a gate).
       - name: gremlins unleash (business logic)
         run: |
           go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 unleash \
@@ -109,13 +109,13 @@ jobs:
           if [ ! -f mutation-report.json ]; then
             echo '## Mutation testing' >> "$GITHUB_STEP_SUMMARY"
             echo '' >> "$GITHUB_STEP_SUMMARY"
-            echo '⚠️ gremlins não gerou `mutation-report.json` — veja o log do step anterior.' >> "$GITHUB_STEP_SUMMARY"
+            echo '⚠️ gremlins did not produce `mutation-report.json` — see the log of the previous step.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           {
             echo '## Mutation testing (gremlins)'
             echo ''
-            echo '| Métrica | Valor |'
+            echo '| Metric | Value |'
             echo '| --- | --- |'
             echo "| Test efficacy | $(jq -r '.test_efficacy' mutation-report.json)% |"
             echo "| Mutant coverage | $(jq -r '.mutations_coverage' mutation-report.json)% |"
@@ -125,7 +125,7 @@ jobs:
             echo "| Not covered | $(jq -r '.mutants_not_covered' mutation-report.json) |"
             echo "| Not viable | $(jq -r '.mutants_not_viable' mutation-report.json) |"
             echo ''
-            echo 'Relatório completo no artifact `mutation-report`. Sem gate neste PR — thresholds em follow-up.'
+            echo 'Full report in the `mutation-report` artifact. No gate in this PR — thresholds in a follow-up.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

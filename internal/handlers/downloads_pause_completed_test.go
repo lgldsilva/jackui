@@ -18,10 +18,10 @@ func pauseRouter(store *downloads.Store) *gin.Engine {
 	return router
 }
 
-// PATCH /downloads/:id/pause num item concluído precisa ser recusado: deixar
-// passar transformava o `completed` em `paused`, e aí o card perdia as ações de
-// concluído (Promover / Parar e remover / Abrir no local) — o item ficava preso
-// na lista sem como tirá-lo mantendo os arquivos no disco.
+// PATCH /downloads/:id/pause on a completed item must be refused: letting it
+// through turned `completed` into `paused`, and then the card lost the completed
+// actions (Promote / Stop and remove / Open location) — the item got stuck
+// in the list with no way to remove it while keeping the files on disk.
 func TestDownloadsPause_RejectsCompleted(t *testing.T) {
 	store := hgAStore(t)
 	d := mustCreateDownload(t, store, hgAValidHash, downloads.StatusCompleted)
@@ -37,11 +37,11 @@ func TestDownloadsPause_RejectsCompleted(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.Status != downloads.StatusCompleted {
-		t.Errorf("status=%q, want %q — a row não pode sair de concluído", got.Status, downloads.StatusCompleted)
+		t.Errorf("status=%q, want %q — a row must not leave completed", got.Status, downloads.StatusCompleted)
 	}
 }
 
-// Um download em andamento continua pausável — a guarda é só para os terminais.
+// A download in progress remains pausable — the guard only covers terminal states.
 func TestDownloadsPause_AllowsDownloading(t *testing.T) {
 	store := hgAStore(t)
 	d := mustCreateDownload(t, store, hgAValidHash, downloads.StatusDownloading)
@@ -58,8 +58,8 @@ func TestDownloadsPause_AllowsDownloading(t *testing.T) {
 	}
 }
 
-// O batch não pode falhar inteiro por causa de um terminal na seleção: pausa o
-// que dá e reporta `affected` com a contagem real (o frontend usa esse número).
+// The batch must not fail as a whole because of a terminal item in the selection: it
+// pauses what it can and reports `affected` with the real count (the frontend uses that number).
 func TestDownloadsBatchPause_SkipsCompletedRows(t *testing.T) {
 	store := hgAStore(t)
 	secondHash := "c1c2c3c4c5c6c7c8c9c0c1c2c3c4c5c6c7c8c9c0c1c2c3c4"
@@ -79,11 +79,11 @@ func TestDownloadsBatchPause_SkipsCompletedRows(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if resp.Affected != 1 {
-		t.Errorf("affected=%d, want 1 — só a row ativa pode ser pausada", resp.Affected)
+		t.Errorf("affected=%d, want 1 — only the active row can be paused", resp.Affected)
 	}
 
 	gotCompleted, _ := store.Get(completed.UserID, completed.ID)
 	if gotCompleted.Status != downloads.StatusCompleted {
-		t.Errorf("completed virou %q no batch pause", gotCompleted.Status)
+		t.Errorf("completed turned into %q on batch pause", gotCompleted.Status)
 	}
 }

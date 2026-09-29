@@ -166,7 +166,7 @@ func TestSetEmailVerified_WithPromote(t *testing.T) {
 }
 
 func TestVerifyPassword_BcryptDBError(t *testing.T) {
-	// Just verify the "usuário ou senha inválidos" error message
+	// Just verify the "invalid username or password" error message
 	s := newTestStore(t)
 	_, err := s.VerifyPassword("nonexistent", "pass")
 	if err == nil {

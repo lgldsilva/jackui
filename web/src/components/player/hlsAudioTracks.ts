@@ -1,13 +1,13 @@
 import Hls from 'hls.js'
 
-// Fase 8 (HLS master): trocar a faixa de áudio SEM recriar o player quando o HLS
-// master expõe renditions EXT-X-MEDIA TYPE=AUDIO (backend com
-// JACKUI_HLS_MEDIA_RENDITIONS ligado). Com o toggle OFF o master traz ≤1 faixa,
-// nada aqui ativa e a troca cai no caminho legado ?audio=N (reload) — inércia
-// total em prod. Ver docs/HLS_MASTER_PLAYLIST_PLAN.md.
+// Phase 8 (HLS master): switch the audio track WITHOUT recreating the player when the HLS
+// master exposes EXT-X-MEDIA TYPE=AUDIO renditions (backend with
+// JACKUI_HLS_MEDIA_RENDITIONS on). With the toggle OFF the master carries ≤1 track,
+// nothing here activates and the switch falls to the legacy ?audio=N path (reload) —
+// zero impact in prod. See docs/HLS_MASTER_PLAYLIST_PLAN.md.
 
-// AudioTrackList/AudioTrack do WebKit (Safari/iOS tocam o master HLS nativo, sem
-// hls.js). Não fazem parte dos libs padrão do TS DOM — só os campos usados.
+// WebKit's AudioTrackList/AudioTrack (Safari/iOS play the HLS master natively, without
+// hls.js). Not part of the standard TS DOM libs — only the fields used.
 type NativeAudioTrack = { enabled: boolean }
 export type NativeAudioTrackList = {
   readonly length: number
@@ -17,43 +17,43 @@ export type NativeAudioTrackList = {
 }
 export type VideoWithAudioTracks = HTMLVideoElement & { audioTracks?: NativeAudioTrackList }
 
-// seamlessAudioAvailable: o master expôs >1 faixa selecionável → a troca vai por
-// hls.audioTrack / video.audioTracks (sem reload). ≤1 = caminho legado ?audio=N.
+// seamlessAudioAvailable: the master exposed >1 selectable track → the switch goes via
+// hls.audioTrack / video.audioTracks (no reload). ≤1 = legacy ?audio=N path.
 export function seamlessAudioAvailable(hlsAudioCount: number): boolean {
   return hlsAudioCount > 1
 }
 
-// probeAudioToPosition mapeia o índice ABSOLUTO de stream (probe.audio[k].index,
-// o que a UI mostra) para a POSIÇÃO k na lista de renditions. O backend emite as
-// EXT-X-MEDIA em ordem de probe (writeAudioRenditions), então audioTracks[k] ↔
-// probe.audio[k]. null (default) → 0 (a 1ª rendition, a DEFAULT muxada). Devolve
-// null quando o índice não bate com nenhuma faixa (não aplica nada).
+// probeAudioToPosition maps the ABSOLUTE stream index (probe.audio[k].index,
+// what the UI shows) to the POSITION k in the rendition list. The backend emits the
+// EXT-X-MEDIA entries in probe order (writeAudioRenditions), so audioTracks[k] ↔
+// probe.audio[k]. null (default) → 0 (the 1st rendition, the muxed DEFAULT). Returns
+// null when the index doesn't match any track (applies nothing).
 export function probeAudioToPosition(idx: number | null, probeAudio: readonly { index: number }[]): number | null {
   if (idx === null) return 0
   const pos = probeAudio.findIndex(a => a.index === idx)
   return pos >= 0 ? pos : null
 }
 
-// nativeAudioCount lê a contagem de faixas do HLS nativo (Safari/iOS). 0 quando
-// não há AudioTrackList (browser não-WebKit ou lista ainda não populada).
+// nativeAudioCount reads the native HLS (Safari/iOS) track count. 0 when
+// there's no AudioTrackList (non-WebKit browser or list not yet populated).
 export function nativeAudioCount(video: VideoWithAudioTracks | null): number {
   return video?.audioTracks?.length ?? 0
 }
 
-// wireHlsAudioSubs registra os listeners de faixa no hls.js: reporta a contagem de
-// faixas de áudio (>1 = troca seamless) e DESLIGA as legendas do HLS
-// (SUBTITLE_TRACKS_UPDATED → subtitleTrack=-1) — o pipeline <track> do React é a
-// fonte única de legenda, senão o EXT-X-MEDIA TYPE=SUBTITLES dobraria a legenda no
-// Chrome/Firefox (Fase 8c). Fora do componente p/ não inflar sua complexidade.
+// wireHlsAudioSubs registers the track listeners on hls.js: reports the audio
+// track count (>1 = seamless switch) and turns the HLS subtitles OFF
+// (SUBTITLE_TRACKS_UPDATED → subtitleTrack=-1) — React's <track> pipeline is the
+// single source of subtitles, otherwise EXT-X-MEDIA TYPE=SUBTITLES would double the subtitle on
+// Chrome/Firefox (Phase 8c). Outside the component so its complexity isn't inflated.
 export function wireHlsAudioSubs(hls: Hls, onHlsAudioCount?: (n: number) => void): void {
   hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => onHlsAudioCount?.(hls.audioTracks.length))
   hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => { hls.subtitleTrack = -1 })
 }
 
-// applyAudioSelection aplica a faixa (posição) na engine ativa sem recriar nada:
-// hls.js via hls.audioTrack (o id da faixa, não a posição — os ids do hls.js podem
-// não ser 0-based); Safari/iOS HLS nativo via a AudioTrackList do WebKit
-// (enabled). No-op quando a engine tem ≤1 faixa (o master não trouxe renditions).
+// applyAudioSelection applies the track (position) on the active engine without recreating anything:
+// hls.js via hls.audioTrack (the track id, not the position — hls.js ids may
+// not be 0-based); Safari/iOS native HLS via WebKit's AudioTrackList
+// (enabled). No-op when the engine has ≤1 track (the master brought no renditions).
 export function applyAudioSelection(hls: Hls | null, video: VideoWithAudioTracks | null, pos: number): void {
   if (hls && hls.audioTracks.length > 1) {
     const track = hls.audioTracks[pos]

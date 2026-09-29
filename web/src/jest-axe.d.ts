@@ -1,6 +1,6 @@
-// Tipos do matcher toHaveNoViolations (jest-axe) para o expect do Vitest.
-// jest-axe declara seus tipos contra o namespace global do Jest; aqui o
-// matcher é registrado na interface Assertion do Vitest.
+// Types for jest-axe's toHaveNoViolations matcher on Vitest's expect.
+// jest-axe declares its types against Jest's global namespace; here the
+// matcher is registered on Vitest's Assertion interface.
 import 'vitest'
 
 declare module 'vitest' {

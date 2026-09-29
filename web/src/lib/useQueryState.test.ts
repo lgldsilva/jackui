@@ -10,31 +10,31 @@ describe('mergeQuery', () => {
     expect(out).toEqual({ play: 'abc', f: '2', tab: 'paused' })
   })
 
-  it('sobrescreve uma chave existente', () => {
+  it('overwrites an existing key', () => {
     expect(parse(mergeQuery('tab=all', { tab: 'paused' }))).toEqual({ tab: 'paused' })
   })
 
-  it('remove a chave quando o valor é vazio ou null (URL limpa)', () => {
+  it('removes the key when the value is empty or null (clean URL)', () => {
     expect(parse(mergeQuery('tab=all&play=x', { tab: '' }))).toEqual({ play: 'x' })
     expect(mergeQuery('tab=all', { tab: null })).toBe('')
   })
 
-  it('aplica várias chaves de uma vez, set e delete juntos', () => {
+  it('applies several keys at once, set and delete together', () => {
     const out = parse(mergeQuery('play=keep&old=1', { q: 'foo', old: null }))
     expect(out).toEqual({ play: 'keep', q: 'foo' })
   })
 
-  it('nunca toca em ?play= ao mexer noutra chave', () => {
+  it('never touches ?play= when changing another key', () => {
     expect(parse(mergeQuery('play=HASH&f=3&t=10', { status: 'completed' })).play).toBe('HASH')
   })
 })
 
 describe('pickEnum', () => {
   const tabs = ['all', 'paused', 'completed'] as const
-  it('retorna o valor quando é permitido', () => {
+  it('returns the value when it is allowed', () => {
     expect(pickEnum('paused', tabs, 'all')).toBe('paused')
   })
-  it('cai no fallback para valor inválido ou ausente', () => {
+  it('falls back for an invalid or missing value', () => {
     expect(pickEnum('garbage', tabs, 'all')).toBe('all')
     expect(pickEnum(null, tabs, 'all')).toBe('all')
     expect(pickEnum('', tabs, 'all')).toBe('all')

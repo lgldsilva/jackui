@@ -27,15 +27,15 @@ export function shellProps(opts: {
   onHome?: () => void
   onClose: () => void
   setMinimized: (v: boolean | ((prev: boolean) => boolean)) => void
-  // Nome acessível do role="dialog" (regra aria-dialog-name do axe) — título
-  // da mídia em reprodução.
+  // Accessible name of the role="dialog" (axe's aria-dialog-name rule) — the
+  // playing media's title.
   ariaLabel: string
 }): React.HTMLAttributes<HTMLDivElement> {
   const { minimized, audioMode, fullViewport, onHome, onClose, setMinimized, ariaLabel } = opts
   if (minimized) {
-    // Áudio: barra fina full-width colada no footer (acima da nav inferior, se houver)
-    // — o "mini-player" de música de verdade. Vídeo: card PiP no canto (um vídeo numa
-    // barra fina não faz sentido).
+    // Audio: thin full-width bar glued to the footer (above the bottom nav, if any)
+    // — the real music "mini-player". Video: PiP card in the corner (a video in a
+    // thin bar makes no sense).
     if (audioMode) {
       return { className: 'fixed inset-x-0 z-50', style: { bottom: 'var(--bottom-bar-h, 0px)' } }
     }

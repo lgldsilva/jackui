@@ -59,7 +59,7 @@ type chatResp struct {
 
 var errRateLimited = errors.New("ai: rate limited")
 var errModelNotFound = errors.New("ai: model not found")
-var errInsufficientBalance = errors.New("ai: saldo insuficiente")
+var errInsufficientBalance = errors.New("ai: insufficient balance")
 
 // rateLimitError is a 429 carrying the vendor's Retry-After hint (0 if none). It
 // unwraps to errRateLimited so existing errors.Is checks still match; the benchmark
@@ -114,7 +114,7 @@ func (c *Client) noteChainFailure(s Slot, err error) {
 
 // looksPaymentError checks if a failed response is due to insufficient balance
 // (paid model with no credits) vs a genuine error. These should be recorded
-// as "pago — sem saldo" rather than a hard failure, so the benchmark knows the
+// as "paid — no balance" rather than a hard failure, so the benchmark knows the
 // model exists but couldn't be tested.
 func looksPaymentError(status int, body string) bool {
 	if status == http.StatusPaymentRequired || status == http.StatusForbidden {
@@ -172,7 +172,7 @@ func httpResponseError(s Slot, status int, raw string, retryAfter time.Duration)
 		return fmt.Errorf("%w: %s/%s", errModelNotFound, s.Provider, s.Model)
 	}
 	if looksPaymentError(status, raw) {
-		return fmt.Errorf("%w: %s/%s — sem saldo", errInsufficientBalance, s.Provider, s.Model)
+		return fmt.Errorf("%w: %s/%s — no balance", errInsufficientBalance, s.Provider, s.Model)
 	}
 	// A 400 is the vendor rejecting the model's own output (e.g. Groq's
 	// json_validate_failed) — a quality failure of this model, not a transient

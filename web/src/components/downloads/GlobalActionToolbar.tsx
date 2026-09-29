@@ -67,7 +67,7 @@ export function GlobalActionToolbar(props: {
       {/* Global controls */}
       {!isGuest && (
         <>
-          {/* Desktop: ações inline */}
+          {/* Desktop: inline actions */}
           <div className="hidden sm:flex items-center gap-2">
             <button
               onClick={onResumeAll}
@@ -116,7 +116,7 @@ export function GlobalActionToolbar(props: {
               </button>
             )}
           </div>
-          {/* Mobile: agrupadas num Sheet de "Ações" */}
+          {/* Mobile: grouped in an "Actions" Sheet */}
           <button
             onClick={onOpenSheet}
             disabled={bulkBusy}

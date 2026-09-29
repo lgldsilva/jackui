@@ -11,19 +11,19 @@ type SimpleAudioPlayerProps = {
   readonly onPlaying?: () => void
   readonly onPause?: () => void
   readonly onError?: () => void
-  // Espelha o <audio> real para o pai (callback ref) — sem mexer na máquina iOS.
-  // Permite ao PlayerModal controlar play/pause/seek (MediaSession, atalhos) e
-  // o replay do repeat-one no MESMO elemento que o usuário "abençoou" com o gesto.
+  // Mirrors the real <audio> to the parent (callback ref) — without touching the iOS machine.
+  // Lets PlayerModal control play/pause/seek (MediaSession, shortcuts) and
+  // repeat-one's replay on the SAME element the user "blessed" with the gesture.
   readonly elementRef?: (el: HTMLAudioElement | null) => void
   readonly className?: string
 }
 
-// SimpleAudioPlayer: <audio controls> NATIVO direto. O src é declarativo e o usuário
-// toca no PLAY NATIVO — que no iOS já É o gesto que o WebKit exige pra tocar com som.
-// Sem overlay custom, sem v.load(), sem máquina de gesto. No iOS o preload é 'none'
-// (não pré-carrega → não estaciona em readyState 2; o play nativo dispara um load
-// FRESCO dentro do gesto). Depois do 1º play (blessed), a faixa seguinte toca sozinha
-// (auto-avanço: a Apple libera o play() programático no mesmo elemento pós-gesto).
+// SimpleAudioPlayer: direct NATIVE <audio controls>. The src is declarative and the user
+// presses the NATIVE play — which on iOS already IS the gesture WebKit requires to play with sound.
+// No custom overlay, no v.load(), no gesture machine. On iOS preload is 'none'
+// (no pre-fetch → doesn't park at readyState 2; the native play fires a FRESH load
+// inside the gesture). After the 1st play (blessed), the next track plays by itself
+// (auto-advance: Apple allows programmatic play() on the same element post-gesture).
 export function SimpleAudioPlayer({
   src,
   autoAdvance = true,
@@ -40,20 +40,20 @@ export function SimpleAudioPlayer({
   const blessedRef = useRef(false)
   const attachedSrcRef = useRef('')
 
-  // Mudo/volume são preferência do usuário: mantidos entre faixas e entre
-  // sessões do player (os controles nativos são a via de mute aqui).
+  // Mute/volume are a user preference: kept across tracks and across
+  // player sessions (the native controls are the mute path here).
   usePersistedVolume({ mediaRef: audioRef, elementKey: src })
 
-  // Auto-avanço: quando o src muda E já tocou uma vez (blessed), toca a faixa nova.
-  // Antes do 1º play NÃO auto-toca — o usuário usa o play nativo (gesto). O guard
-  // attachedSrcRef evita re-disparar no mesmo src (re-render).
+  // Auto-advance: when the src changes AND it has played once (blessed), plays the new track.
+  // Before the 1st play it does NOT auto-play — the user uses the native play (gesture). The
+  // attachedSrcRef guard avoids re-firing on the same src (re-render).
   useEffect(() => {
     const el = audioRef.current
     if (!el || !src) return
     if (attachedSrcRef.current === src) return
     attachedSrcRef.current = src
     if (blessedRef.current) {
-      el.play().catch((e) => clientLog('warn', 'audio', 'auto-advance play falhou', { err: String(e) }))
+      el.play().catch((e) => clientLog('warn', 'audio', 'auto-advance play failed', { err: String(e) }))
     }
   }, [src])
 

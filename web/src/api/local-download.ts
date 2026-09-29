@@ -3,10 +3,10 @@
 // user's local machine (Save dialog → filesystem). Falls back to browser
 // download (anchor element) when not in Electron.
 // apiPath: relative path starting with /api/... (withToken() already applied).
-// Extraído de local.ts (#417 follow-up).
+// Extracted from local.ts (#417 follow-up).
 
-// Fallback de navegador: dispara o download via <a download>. Compartilhado
-// pelas duas funções de download local (sem duplicar — usa globalThis + remove()).
+// Browser fallback: triggers the download via <a download>. Shared
+// by the two local download functions (no duplication — uses globalThis + remove()).
 function browserAnchorDownload(apiPath: string, suggestedName: string): { success: true } {
   const a = document.createElement('a')
   a.href = apiPath.startsWith('http') ? apiPath : `${globalThis.location.origin}${apiPath}`

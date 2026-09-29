@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import FavoritesPage from './FavoritesPage'
 
-// Apenas as chamadas de rede são mockadas; o resto do api/client real segue.
+// Only the network calls are mocked; the rest of the real api/client remains.
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof import('../api/client')>('../api/client')
   return {
@@ -29,20 +29,20 @@ vi.mock('../components/NavHeader', () => ({ default: () => null }))
 vi.mock('../components/ConfirmDialog', () => ({ useConfirm: () => vi.fn(async () => true) }))
 vi.mock('../components/Toast', () => ({ useToast: () => ({ notify: vi.fn(), notifyError: vi.fn() }) }))
 
-describe('FavoritesPage — sheet de import', () => {
+describe('FavoritesPage — import sheet', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    // Sem storage prévio o usePersistedState aplica o default do código — é
-    // exatamente o que o teste avalia.
+    // Without prior storage, usePersistedState applies the code's default — which is
+    // exactly what the test evaluates.
     localStorage.clear()
   })
 
   afterEach(cleanup)
 
-  // Origem da poluição relatada: favoritos "não marcados pra baixar" ganharam
-  // rows de download porque o checkbox "também baixar" vinha LIGADO por padrão.
-  // O default correto é desligado — baixar precisa ser escolha explícita.
-  it('"também baixar" vem desmarcado por padrão', async () => {
+  // Origin of the reported pollution: favorites "not checked for download" gained
+  // download rows because the "also download" checkbox came ON by default.
+  // The correct default is off — downloading must be an explicit choice.
+  it('"also download" comes unchecked by default', async () => {
     render(
       <MemoryRouter>
         <FavoritesPage />

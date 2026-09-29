@@ -45,8 +45,8 @@ export default function EpubViewer({ infoHash, fileIdx }: EpubViewerProps) {
   return (
     <div className="flex flex-col h-full min-h-[60vh]">
       <iframe
-        // sandbox sem allow-scripts/allow-same-origin: capítulo roda em origem
-        // opaca, sem JS — o conteúdo do livro é hostil por padrão.
+        // sandbox without allow-scripts/allow-same-origin: the chapter runs in an opaque
+        // origin, no JS — book content is hostile by default.
         sandbox=""
         src={previewEpubChapterURL(infoHash, fileIdx, chapters[chapter])}
         title={title || t('viewer.epub_chapter', { n: chapter + 1 })}

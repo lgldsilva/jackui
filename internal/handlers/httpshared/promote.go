@@ -26,23 +26,23 @@ func ResolveTargetBase(targetBase, sharedDir string, dests []PromoteDest) (strin
 			return d.Path, nil
 		}
 	}
-	return "", errors.New("destino inválido: " + targetBase)
+	return "", errors.New("invalid destination: " + targetBase)
 }
 
-// SanitizeSubdir valida o subdir digitado pelo usuário pra não escapar do
-// sharedDir via "..", caminhos absolutos. Retorna o caminho limpo (Clean) ou
-// erro descritivo.
+// SanitizeSubdir validates the user-typed subdir so it cannot escape the
+// sharedDir via ".." or absolute paths. Returns the cleaned path (Clean) or
+// a descriptive error.
 func SanitizeSubdir(subdir string) (string, error) {
 	if subdir == "" {
 		return "", nil
 	}
 	if filepath.IsAbs(subdir) {
-		return "", errors.New("subdir não pode ser absoluto")
+		return "", errors.New("subdir cannot be absolute")
 	}
 	clean := filepath.Clean(subdir)
 	for _, seg := range strings.Split(clean, string(filepath.Separator)) {
 		if seg == ".." {
-			return "", errors.New("subdir não pode conter '..'")
+			return "", errors.New("subdir cannot contain '..'")
 		}
 	}
 	if clean == "." {

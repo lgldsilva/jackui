@@ -11,7 +11,7 @@ export type MusicAlbum = {
   releaseDate: string
 }
 
-// musicTrending returns the top albums for a country (Discover in Música mode).
+// musicTrending returns the top albums for a country (Discover in Music mode).
 // Empty on error — the grid degrades to a hint instead of failing, mirroring
 // tmdbTrending.
 export const musicTrending = async (opts?: { country?: string; limit?: number }): Promise<MusicAlbum[]> => {

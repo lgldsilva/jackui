@@ -259,12 +259,12 @@ func deleteDuplicates(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer,
 	for _, p := range paths {
 		abs, rerr := b.ResolvePath(mount, p)
 		if rerr != nil || !withinBase(baseAbs, abs) || isMountRoot(b, abs) {
-			errs = append(errs, p+": acesso negado")
+			errs = append(errs, p+": access denied")
 			continue
 		}
 		st, serr := os.Stat(abs)
 		if serr != nil || st.IsDir() {
-			errs = append(errs, p+": não é um arquivo")
+			errs = append(errs, p+": not a file")
 			continue
 		}
 		var linked []downloads.Download

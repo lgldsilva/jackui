@@ -46,10 +46,10 @@ func mustCreateDownload(t *testing.T, store *downloads.Store, infoHash, status s
 	return *d
 }
 
-// "Parar" precisa remover o item da lista de downloads: o usuário espera que o
-// torrent suma da área de downloads, não que apenas migre de "Semeando" para
-// "No disco". O bug original: stop-seed só marcava seed_stopped_at e a linha
-// continuava sendo retornada por GET /api/downloads para sempre.
+// "Stop" must remove the item from the downloads list: the user expects the
+// torrent to vanish from the downloads area, not to merely migrate from "Seeding"
+// to "On disk". The original bug: stop-seed only set seed_stopped_at and the row
+// kept being returned by GET /api/downloads forever.
 func TestDownloadsStopSeed_CompletedRowRemovedFromList(t *testing.T) {
 	store := hgAStore(t)
 	d := mustCreateDownload(t, store, hgAValidHash, downloads.StatusCompleted)
@@ -75,10 +75,10 @@ func TestDownloadsStopSeed_CompletedRowRemovedFromList(t *testing.T) {
 	}
 }
 
-// Pausar antes de parar não pode anular a ação: o modal de detalhes oferece
-// "Parar de semear" para qualquer status, então o fluxo pausar→parar também
-// precisa remover a linha. O bug original: StopSeed só gravava com
-// status='completed', então a row pausada nem marcada ficava.
+// Pausing before stopping must not void the action: the details modal offers
+// "Stop seeding" for any status, so the pause→stop flow must also
+// remove the row. The original bug: StopSeed only wrote with
+// status='completed', so the paused row wasn't even marked.
 func TestDownloadsStopSeed_PausedRowRemovedFromList(t *testing.T) {
 	store := hgAStore(t)
 	d := mustCreateDownload(t, store, hgAValidHash, downloads.StatusPaused)
@@ -94,7 +94,7 @@ func TestDownloadsStopSeed_PausedRowRemovedFromList(t *testing.T) {
 	}
 }
 
-// Batch stop-seed segue a mesma semântica do endpoint único: as linhas somem.
+// Batch stop-seed follows the same semantics as the single endpoint: the rows disappear.
 func TestDownloadsBatchStopSeed_RemovesRows(t *testing.T) {
 	store := hgAStore(t)
 	secondHash := "c1c2c3c4c5c6c7c8c9c0c1c2c3c4c5c6c7c8c9c0c1c2c3c4"

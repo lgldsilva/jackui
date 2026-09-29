@@ -294,7 +294,7 @@ func TestDedupCheck_MissingMagnet(t *testing.T) {
 
 func TestUserFromCtx_NoClaims(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	// Sem claims no contexto → "" (caminho não-autenticado).
+	// No claims in the context → "" (unauthenticated path).
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	if got := userFromCtx(c); got != "" {
 		t.Errorf("no claims: got %q, want empty", got)

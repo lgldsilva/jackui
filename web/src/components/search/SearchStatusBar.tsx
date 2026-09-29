@@ -14,10 +14,10 @@ type Props = {
   readonly hasResults: boolean
 }
 
-// Barra de status da busca (fase/contagem + controle de ordenação). No mobile a
-// contagem e o sort NÃO dividem a mesma linha (encavalavam com o `ml-auto`):
-// empilham, com a ordenação numa linha própria full-width; no sm:+ voltam pra
-// mesma linha, com o sort empurrado pra direita. Extraído do SearchPage (god-file).
+// Search status bar (phase/count + sort control). On mobile the count
+// and the sort do NOT share the same line (they piled up over the `ml-auto`):
+// they stack, with sorting on its own full-width line; on sm:+ they return to
+// the same line, with the sort pushed right. Extracted from SearchPage (god-file).
 export function SearchStatusBar({
   tab, onUpdate, isFiltered, filteredCount, groupedCount, hasDuplicates, isSearching, hasResults,
 }: Props) {

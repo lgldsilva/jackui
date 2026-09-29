@@ -11,7 +11,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
-var errSessionExpired = errors.New("passkey: sessão expirada — tente de novo")
+var errSessionExpired = errors.New("passkey: session expired — try again")
 
 // WAManager wraps go-webauthn plus a short-lived in-memory store for the
 // challenge (SessionData) that bridges the begin/finish steps of each ceremony.
@@ -86,7 +86,7 @@ func waUserFrom(id int, name string, creds []webauthn.Credential) *waUser {
 }
 func (u *waUser) WebAuthnID() []byte {
 	b := make([]byte, 8)
-	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
+	// #nosec G115 -- bounded conversion (statfs/Unix time/id/ASCII rune/fs magic); no real overflow
 	binary.BigEndian.PutUint64(b, uint64(u.id))
 	return b
 }

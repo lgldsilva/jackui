@@ -13,7 +13,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/mailer"
 )
 
-const errUserNotFound = "usuário não encontrado"
+const errUserNotFound = "user not found"
 
 // userFromIDParam resolves the :id route param to an existing user, answering
 // 400/404 itself. Returns nil when the response was already written.
@@ -48,7 +48,7 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 		_ = c.ShouldBindJSON(&req)
 		if req.Password != "" {
 			if len(req.Password) < 6 {
-				httpshared.RespondErrorMessage(c, http.StatusBadRequest, "a nova senha precisa ter ao menos 6 caracteres")
+				httpshared.RespondErrorMessage(c, http.StatusBadRequest, "the new password must be at least 6 characters")
 				return
 			}
 			if err := store.SetPassword(user.ID, req.Password); err != nil {
@@ -56,12 +56,12 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 				return
 			}
 			_ = store.RevokeAllSessions(user.ID)
-			c.JSON(http.StatusOK, gin.H{"message": "senha redefinida"})
+			c.JSON(http.StatusOK, gin.H{"message": "password reset"})
 			return
 		}
 		base := baseURL(c, cfgBaseURL)
 		if base == "" {
-			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "base URL pública não configurada")
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "public base URL not configured")
 			return
 		}
 		tok, err := store.CreateToken(auth.TokenResetPassword, user.ID, user.Email, resetTTL)
@@ -71,7 +71,7 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 		}
 		link := base + "/reset-password?token=" + tok
 		if user.Email != "" {
-			notify(mlr, user.Email, "JackUI — recuperar senha", "Um administrador iniciou a redefinição da sua senha:", link)
+			notify(mlr, user.Email, "JackUI — password recovery", "An administrator started a password reset for your account:", link)
 		}
 		_ = store.RevokeAllSessions(user.ID)
 		c.JSON(http.StatusOK, gin.H{"link": link})
@@ -106,7 +106,7 @@ func AdminRevokeUserSession(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "sessão encerrada"})
+		c.JSON(http.StatusOK, gin.H{"message": "session terminated"})
 	}
 }
 
@@ -122,7 +122,7 @@ func AdminRevokeUserSessions(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "sessões encerradas"})
+		c.JSON(http.StatusOK, gin.H{"message": "sessions terminated"})
 	}
 }
 
@@ -147,11 +147,11 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 		_ = c.ShouldBindJSON(&req)
 		email := strings.TrimSpace(strings.ToLower(req.Email))
 		if !emailFormat.MatchString(email) {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "e-mail inválido")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid email")
 			return
 		}
 		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha incorreta")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "incorrect password")
 			return
 		}
 		used, err := store.EmailInUse(email, claims.UserID)
@@ -160,7 +160,7 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 			return
 		}
 		if used {
-			httpshared.RespondErrorMessage(c, http.StatusConflict, "e-mail já cadastrado")
+			httpshared.RespondErrorMessage(c, http.StatusConflict, "email already registered")
 			return
 		}
 		if err := store.UpdateEmail(claims.UserID, email); err != nil {
@@ -168,6 +168,6 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 			return
 		}
 		sendVerifyEmail(store, mlr, c, cfgBaseURL, claims.UserID, email)
-		c.JSON(http.StatusOK, gin.H{"message": "e-mail atualizado — confirme pelo link enviado"})
+		c.JSON(http.StatusOK, gin.H{"message": "email updated — confirm it via the sent link"})
 	}
 }

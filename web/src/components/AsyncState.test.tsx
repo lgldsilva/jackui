@@ -9,48 +9,48 @@ import '../test-setup'
 afterEach(() => cleanup())
 
 describe('AsyncState', () => {
-  it('mostra loading quando loading=true', () => {
+  it('shows loading when loading=true', () => {
     render(
-      <AsyncState loading loadingLabel="Carregando…">
-        <p>conteúdo</p>
+      <AsyncState loading loadingLabel="Loading…">
+        <p>content</p>
       </AsyncState>,
     )
     expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true')
-    expect(screen.queryByText('conteúdo')).toBeNull()
+    expect(screen.queryByText('content')).toBeNull()
   })
 
-  it('mostra erro com retry', async () => {
+  it('shows error with retry', async () => {
     const onRetry = vi.fn()
     render(
-      <AsyncState error="falhou" onRetry={onRetry}>
-        <p>conteúdo</p>
+      <AsyncState error="failed" onRetry={onRetry}>
+        <p>content</p>
       </AsyncState>,
     )
-    expect(screen.getByRole('alert')).toHaveTextContent('falhou')
+    expect(screen.getByRole('alert')).toHaveTextContent('failed')
     await userEvent.click(screen.getByRole('button', { name: /try again/i }))
     expect(onRetry).toHaveBeenCalledOnce()
   })
 
-  it('renderiza children no sucesso', () => {
+  it('renders children on success', () => {
     render(<AsyncState><p>ok</p></AsyncState>)
     expect(screen.getByText('ok')).toBeTruthy()
   })
 })
 
 describe('StatusBanner', () => {
-  it('usa role=alert para variant error', () => {
-    render(<StatusBanner variant="error" title="Erro">detalhe</StatusBanner>)
+  it('uses role=alert for the error variant', () => {
+    render(<StatusBanner variant="error" title="Error">detail</StatusBanner>)
     const el = screen.getByRole('alert')
-    expect(el).toHaveTextContent('Erro')
-    expect(el).toHaveTextContent('detalhe')
+    expect(el).toHaveTextContent('Error')
+    expect(el).toHaveTextContent('detail')
   })
 })
 
 describe('RetryPanel', () => {
-  it('dispara onRetry', async () => {
+  it('fires onRetry', async () => {
     const fn = vi.fn()
-    render(<RetryPanel onRetry={fn} label="Tentar de novo" />)
-    await userEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }))
+    render(<RetryPanel onRetry={fn} label="Try again" />)
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(fn).toHaveBeenCalledOnce()
   })
 })

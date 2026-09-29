@@ -85,21 +85,21 @@ type Config struct {
 	// Behind a VPN this should be the provider's forwarded port so peers can
 	// reach us (seed + better leech). See resolvePeerPort in main.
 	ListenPort int
-	// ── Performance / hardware tuning (0/"" = default da lib) ──
-	// Readahead é o buffer de leitura à frente por sessão de streaming, em bytes.
-	// 0 → 32 MiB. Aplicado por Reader; mutável ao vivo via SetStreamReadahead.
+	// ── Performance / hardware tuning (0/"" = library default) ──
+	// Readahead is the read-ahead buffer per streaming session, in bytes.
+	// 0 → 32 MiB. Applied per Reader; mutable live via SetStreamReadahead.
 	Readahead int64
-	// StorageBackend: "file" (default, grava direto) ou "mmap" (page cache).
-	// Lido só na construção do client (New) — mudar exige reiniciar o processo.
+	// StorageBackend: "file" (default, direct writes) or "mmap" (page cache).
+	// Read only at client construction (New) — changing it requires a process restart.
 	StorageBackend string
-	// Tuning de peers/CPU — só aplicados em New (exigem reinício). 0 = default
-	// anacrolix (conns=50, half-open=25, peersHighWater=500, pieceHashers=2).
+	// Peer/CPU tuning — only applied in New (require a restart). 0 = anacrolix
+	// default (conns=50, half-open=25, peersHighWater=500, pieceHashers=2).
 	MaxConnsPerTorrent int
 	HalfOpenConns      int
 	PeersHighWater     int
 	PieceHashers       int
-	// SeedTrackers lista substrings de announce URLs cujos torrents devem
-	// continuar seedando após o uso (não dropados). Ver Streamer.seedTrackers.
+	// SeedTrackers lists announce URL substrings whose torrents should keep
+	// seeding after use (not dropped). See Streamer.seedTrackers.
 	SeedTrackers []string
 }
 
@@ -147,12 +147,12 @@ type Streamer struct {
 	// chunk read/write.
 	dlLimiter *rate.Limiter
 	upLimiter *rate.Limiter
-	// storageImpl é o backend de storage quando explicitamente escolhido (mmap).
-	// nil quando usamos o default FileStorage do anacrolix (gerido internamente
-	// pelo client). Fechado no Close() para liberar mapeamentos/handles.
+	// storageImpl is the storage backend when explicitly chosen (mmap). nil when
+	// we use anacrolix's default FileStorage (managed internally by the client).
+	// Closed on Close() to release mappings/handles.
 	storageImpl storage.ClientImplCloser
-	// readahead é o buffer de leitura à frente por stream, em bytes. Lido sob mu;
-	// mutável ao vivo via SetStreamReadahead. 0 → streamReadaheadDefault.
+	// readahead is the read-ahead buffer per stream, in bytes. Read under mu;
+	// mutable live via SetStreamReadahead. 0 → streamReadaheadDefault.
 	readahead int64
 	// Eviction observability: lifetime counters bumped by evictCandidates and
 	// surfaced via Stats(), so the cache UI can show how much the LRU has been
@@ -173,9 +173,9 @@ type Streamer struct {
 	seeds        *SeedsStore
 }
 
-// streamReadaheadDefault é o readahead de streaming quando não configurado: 32
-// MiB. Calibrado para o caminho de transcode HLS — abaixo disso o Reader do
-// anacrolix bloqueia esperando o próximo piece e o ffmpeg engasga.
+// streamReadaheadDefault is the streaming readahead when not configured: 32
+// MiB. Calibrated for the HLS transcode path — below that the anacrolix Reader
+// blocks waiting for the next piece and ffmpeg starves.
 const streamReadaheadDefault = 32 << 20
 
 // DefaultPeerPort is the inbound BitTorrent peer port used when none is
@@ -329,12 +329,12 @@ func New(cfg Config) (*Streamer, error) {
 	// Reduce log noise
 	tcfg.Logger = tcfg.Logger.WithFilterLevel(alog.Critical)
 
-	// Tuning de peers/CPU: só sobrescreve quando configurado (>0), senão mantém o
-	// default sensato da lib. Lido só aqui — mudar exige reiniciar o processo.
+	// Peer/CPU tuning: only overrides when configured (>0), otherwise keeps the
+	// library's sensible default. Read only here — changing it requires a process restart.
 	applyPeerTuning(tcfg, cfg)
 
-	// Storage backend: mmap mapeia os arquivos em memória (page cache) p/ seek mais
-	// rápido; file (default) grava direto. Guardamos o closer p/ liberar no Close().
+	// Storage backend: mmap maps files into memory (page cache) for faster seeks;
+	// file (default) writes directly. We keep the closer to release on Close().
 	var storageImpl storage.ClientImplCloser
 	if cfg.StorageBackend == "mmap" {
 		storageImpl = storage.NewMMap(cfg.DataDir)
@@ -363,14 +363,14 @@ func New(cfg Config) (*Streamer, error) {
 	// hashes. Without this, even a magnet we've seen 10 times waits ~3-10s for
 	// peers + DHT to deliver the metadata anew every cold-start.
 	metainfoDir := filepath.Join(cfg.DataDir, ".metainfo")
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	_ = os.MkdirAll(metainfoDir, 0o755)
 
 	// Shared persistent piece-completion DB for download-to-bulk storage. Lives in
 	// the cache dir (it's only piece metadata — KB/MB), at a path DISTINCT from the
 	// client's own completion DB so the two Bolt files never lock each other.
 	dlCompletionDir := filepath.Join(cfg.DataDir, ".piece-completion-dl")
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	_ = os.MkdirAll(dlCompletionDir, 0o755)
 	dlPieceCompletion, err := storage.NewBoltPieceCompletion(dlCompletionDir)
 	if err != nil {
@@ -402,8 +402,8 @@ func New(cfg Config) (*Streamer, error) {
 	return s, nil
 }
 
-// applyPeerTuning sobrescreve os limites de conexão/peers/hashers do ClientConfig
-// quando configurados (>0). Valores 0 preservam o default da lib anacrolix.
+// applyPeerTuning overrides the ClientConfig connection/peer/hasher limits when
+// configured (>0). A value of 0 preserves the anacrolix library default.
 func applyPeerTuning(tcfg *torrent.ClientConfig, cfg Config) {
 	if cfg.MaxConnsPerTorrent > 0 {
 		tcfg.EstablishedConnsPerTorrent = cfg.MaxConnsPerTorrent
@@ -419,7 +419,7 @@ func applyPeerTuning(tcfg *torrent.ClientConfig, cfg Config) {
 	}
 }
 
-// streamReadahead retorna o readahead de streaming em bytes (configurado ou default).
+// streamReadahead returns the streaming readahead in bytes (configured or default).
 func (s *Streamer) streamReadahead() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -429,8 +429,8 @@ func (s *Streamer) streamReadahead() int64 {
 	return streamReadaheadDefault
 }
 
-// SetStreamReadahead atualiza ao vivo o readahead de streaming (em MB). Vale a
-// partir do próximo Reader aberto. mb<=0 volta ao default. Não exige reinício.
+// SetStreamReadahead live-updates the streaming readahead (in MB). Takes effect
+// from the next opened Reader. mb<=0 reverts to the default. No restart needed.
 func (s *Streamer) SetStreamReadahead(mb int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -441,6 +441,6 @@ func (s *Streamer) SetStreamReadahead(mb int) {
 	s.readahead = int64(mb) << 20
 }
 
-// StreamReadaheadForTesting expõe o readahead efetivo (em bytes) para testes de
-// outros pacotes verificarem que um setter foi aplicado.
+// StreamReadaheadForTesting exposes the effective readahead (in bytes) so tests
+// in other packages can check that a setter was applied.
 func (s *Streamer) StreamReadaheadForTesting() int64 { return s.streamReadahead() }

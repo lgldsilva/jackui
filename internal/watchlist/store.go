@@ -82,7 +82,7 @@ func (s *Store) nextFor(sched Schedule, now time.Time) time.Time {
 // disables a filter.
 func (p *Params) normalize() error {
 	if p.Query == "" {
-		return errors.New("query é obrigatória")
+		return errors.New("query is required")
 	}
 	if p.MinSeeders < 0 {
 		p.MinSeeders = 0
@@ -150,7 +150,7 @@ func (s *Store) Update(userID, id int, p Params) error {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return errors.New("watchlist não encontrada")
+		return errors.New("watchlist not found")
 	}
 	return nil
 }
@@ -170,7 +170,7 @@ func (s *Store) Delete(userID, id int) error {
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return errors.New("watchlist não encontrada")
+		return errors.New("watchlist not found")
 	}
 	return nil
 }

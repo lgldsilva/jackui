@@ -21,33 +21,33 @@ export function runStatus(s: AISlotScore): RunStatus {
   return 'unknown'
 }
 
-// lastSuccessLabel: "último OK: 3h atrás" style. Reads 'nunca deu certo' only for
+// lastSuccessLabel: "last OK: 3h ago" style. Reads 'never worked' only for
 // a genuine hard failure (zero usable replies) with no prior success; empty when
 // there's no history at all (legacy rows stay quiet instead of claiming a
-// misleading "nunca") OR the last run was 'incomplete' — cut short by a rate
+// misleading "never") OR the last run was 'incomplete' — cut short by a rate
 // limit, but it can still have scored real samples (composite > 0), so labeling
-// it "nunca deu certo" would contradict the score shown right next to it.
+// it "never worked" would contradict the score shown right next to it.
 export function lastSuccessLabel(s: AISlotScore): string {
-  if (s.lastSuccessAt) return `último OK: ${formatDate(s.lastSuccessAt)}`
-  if (runStatus(s) === 'error') return 'nunca deu certo'
+  if (s.lastSuccessAt) return `last OK: ${formatDate(s.lastSuccessAt)}`
+  if (runStatus(s) === 'error') return 'never worked'
   return ''
 }
 
-// persistenceLabel surfaces a SUSTAINED failure ("o erro se manteve"): only when
+// persistenceLabel surfaces a SUSTAINED failure ("the error persisted"): only when
 // the model errored on the last run AND the streak is ≥2, e.g.
-// "erro persiste: 3 falhas seguidas desde 12 jun".
+// "error persists: 3 failures in a row since 12 jun".
 export function persistenceLabel(s: AISlotScore): string {
   const n = s.consecutiveFailures ?? 0
   if (runStatus(s) !== 'error' || n < 2) return ''
-  const since = s.firstFailureAt ? ` desde ${formatDate(s.firstFailureAt)}` : ''
-  return `erro persiste: ${n} falhas seguidas${since}`
+  const since = s.firstFailureAt ? ` since ${formatDate(s.firstFailureAt)}` : ''
+  return `error persists: ${n} failures in a row${since}`
 }
 
-// absoluteDateTime gives the full pt-BR timestamp for a tooltip (the inline labels
+// absoluteDateTime gives the full timestamp for a tooltip (the inline labels
 // are relative). Empty for missing/unparseable input.
 export function absoluteDateTime(iso?: string): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('pt-BR')
+  return d.toLocaleString()
 }

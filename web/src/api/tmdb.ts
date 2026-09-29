@@ -6,7 +6,7 @@ export type TmdbMatch = {
   tmdbId: number
   imdbId?: string
   title: string
-  originalTitle?: string // título original (não traduzido) — usado pra semear a busca
+  originalTitle?: string // original (untranslated) title — used to seed the search
   year: number
   posterUrl: string
   overview: string

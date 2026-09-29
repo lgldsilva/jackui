@@ -360,7 +360,7 @@ func TestOAuthExchangeInvalidCode(t *testing.T) {
 
 func TestOAuthProvisionUsernameCollision(t *testing.T) {
 	store := newOAuthTestStore(t)
-	// "luiz" já existe → auto-provision precisa derivar "luiz-2".
+	// "luiz" already exists → auto-provision must derive "luiz-2".
 	if _, err := store.CreateUserFull("luiz", "old@example.com", "password1", auth.RoleUser, auth.StatusActive); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

@@ -7,9 +7,9 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 )
 
-// hlsSessionKey deve isolar sessões por VARIANTE e por ÁUDIO, mantendo a chave
-// single-variant legada (variant<0 && audio<0) idêntica ao pré-Phase-2. A ordem
-// é `-v` antes de `-a` (o EffectiveKey ainda anexa -vod/-evt depois).
+// hlsSessionKey must isolate sessions by VARIANT and by AUDIO, keeping the legacy
+// single-variant key (variant<0 && audio<0) identical to pre-Phase-2. The order
+// is `-v` before `-a` (EffectiveKey still appends -vod/-evt afterwards).
 func TestHlsSessionKeyMatrix(t *testing.T) {
 	var h metainfo.Hash
 	h.FromHexString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -19,11 +19,11 @@ func TestHlsSessionKeyMatrix(t *testing.T) {
 		variant, audio int
 		wantSuffix     string
 	}{
-		{-1, -1, ""},     // legado single-variant
-		{0, -1, "-v0"},   // variante sem áudio escolhido
-		{-1, 2, "-a2"},   // áudio sem variante (path legado com ?audio)
-		{1, 2, "-v1-a2"}, // ambos, na ordem v depois a
-		{2, 0, "-v2-a0"}, // audio 0 é escolha explícita (>=0)
+		{-1, -1, ""},     // legacy single-variant
+		{0, -1, "-v0"},   // variant without a chosen audio
+		{-1, 2, "-a2"},   // audio without a variant (legacy path with ?audio)
+		{1, 2, "-v1-a2"}, // both, in v-then-a order
+		{2, 0, "-v2-a0"}, // audio 0 is an explicit choice (>=0)
 	}
 	seen := map[string]bool{}
 	for _, c := range cases {
@@ -33,10 +33,10 @@ func TestHlsSessionKeyMatrix(t *testing.T) {
 			t.Errorf("hlsSessionKey(_,3,%d,%d) = %q, want %q", c.variant, c.audio, got, want)
 		}
 		if !strings.HasPrefix(got, base) {
-			t.Errorf("chave %q não começa com %q", got, base)
+			t.Errorf("key %q does not start with %q", got, base)
 		}
 		if seen[got] {
-			t.Errorf("colisão de chave: %q repetida (variantes/áudios distintos devem gerar chaves distintas)", got)
+			t.Errorf("key collision: %q repeated (distinct variants/audios must yield distinct keys)", got)
 		}
 		seen[got] = true
 	}

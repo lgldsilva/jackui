@@ -93,55 +93,55 @@ export function useResumePlayback(deps: {
   // Seek once the video can play. Priority:
   //   1. URL-supplied initialSeek (explicit, e.g. shared link with `t=120`)
   //   2. per-user library resumeSeconds (background-saved, silent)
-  // iosAudio: caminho ÁUDIO no iPhone/iPad. Gate único do "tap-to-play": no iOS o
-  // play() de mídia-com-áudio EXIGE um gesto (regra da Apple), então desligamos o
-  // autoplay não-gesto e os nudges, mostramos o overlay "Tocar" e deixamos o tap do
-  // usuário iniciar. isIOS() (não isSafariBrowser) pra NÃO regredir o macOS-Safari,
-  // que toca com autoplay normal. Só depende de audioMode (prop) → válido aqui.
+  // iosAudio: AUDIO path on iPhone/iPad. Single gate of "tap-to-play": on iOS the
+  // play() of audio-bearing media REQUIRES a gesture (Apple's rule), so we turn off
+  // non-gesture autoplay and the nudges, show the "Play" overlay and let the user's
+  // tap start it. isIOS() (not isSafariBrowser) so we do NOT regress macOS Safari,
+  // which plays with normal autoplay. Only depends on audioMode (prop) → valid here.
   const iosAudio = audioMode && isIOS()
-  // Autoplay no caminho NATIVO (<video> sem hls.js): o iOS ignora o atributo
-  // autoPlay quando há áudio, então tentamos play() explicitamente (com fallback
-  // mudo). Uma vez por fonte. Não chamado quando vamos exibir o prompt de resume
-  // — aí o usuário escolhe continuar/recomeçar. (O caminho hls.js já trata o
-  // autoplay no MANIFEST_PARSED; um play() extra aqui seria no-op idempotente.)
+  // Autoplay on the NATIVE path (<video> without hls.js): iOS ignores the autoPlay
+  // attribute when there's audio, so we try play() explicitly (with muted
+  // fallback). Once per source. Not called when we're about to show the resume prompt
+  // — then the user picks continue/restart. (The hls.js path already handles
+  // autoplay on MANIFEST_PARSED; an extra play() here would be an idempotent no-op.)
   const maybeAutoplayNative = (v: HTMLVideoElement) => {
     if (autoplayTriedRef.current) return
     autoplayTriedRef.current = true
-    // iOS-áudio AINDA NÃO iniciado (não blessed): NÃO tentar autoplay. A Apple proíbe
-    // play() de mídia-com-áudio fora de um gesto; um play() não-gesto trava o elemento
-    // em readyState 1 e aborta em loop. Deixamos pausado e mostramos o overlay "Tocar"
-    // — o tap do usuário (gesto) inicia. DEPOIS de iniciado (blessed), a Apple libera
-    // o play() programático → caímos no caminho normal abaixo e a faixa seguinte do
-    // álbum toca sozinha (auto-avanço).
+    // iOS-audio NOT yet started (not blessed): do NOT attempt autoplay. Apple forbids
+    // play() of audio-bearing media outside a gesture; a non-gesture play() wedges the element
+    // at readyState 1 and aborts in a loop. We leave it paused and show the "Play" overlay
+    // — the user's tap (gesture) starts it. AFTER it has started (blessed), Apple allows
+    // programmatic play() → we fall into the normal path below and the album's next
+    // track plays by itself (auto-advance).
     if (iosAudio && !blessed) {
-      clientLog('info', 'player', 'iOS: autoplay pulado — aguardando gesto (tap-to-play)', { readyState: v.readyState })
+      clientLog('info', 'player', 'iOS: autoplay skipped — waiting for gesture (tap-to-play)', { readyState: v.readyState })
       return
     }
-    // DIAGNÓSTICO (temporário): registra qual caminho o autoplay tomou no device,
-    // pra cravar a intermitência do iOS — tocou com SOM, caiu no MUDO (sem gesto),
-    // ou falhou. Mesma lógica do tryAutoplayMutedFallback + logs.
+    // DIAGNOSTIC (temporary): logs which autoplay path the device took,
+    // to pin down the iOS flakiness — played with SOUND, fell back to MUTED (no gesture),
+    // or failed. Same logic as tryAutoplayMutedFallback + logs.
     clientLog('info', 'player', 'autoplay try', { readyState: v.readyState, file: selectedFile })
     v.play()
-      .then(() => clientLog('info', 'player', 'autoplay ok (som)', {}))
+      .then(() => clientLog('info', 'player', 'autoplay ok (sound)', {}))
       .catch((e) => {
-        // AbortError ≠ bloqueio de autoplay (NotAllowedError): o play() foi
-        // INTERROMPIDO por um load()/troca de src/remontagem do elemento enquanto
-        // ainda estava pendente (no iOS a janela de buffering inicial é longa).
-        // NÃO encadear um play() mudo num elemento ainda carregando — isso só
-        // agrava o abort e mata o som de vez. Em vez disso, libera o guard
-        // one-shot pra o PRÓXIMO loadedmetadata/canplay re-tentar limpo no
-        // elemento já estabilizado (com SOM). Era a causa do "tocou e parou /
-        // sem som" no iPhone.
+        // AbortError ≠ autoplay block (NotAllowedError): the play() was
+        // INTERRUPTED by a load()/src swap/element remount while
+        // still pending (on iOS the initial buffering window is long).
+        // do NOT chain a muted play() on a still-loading element — that only
+        // worsens the abort and kills sound for good. Instead, release the
+        // one-shot guard so the NEXT loadedmetadata/canplay retries cleanly on the
+        // already-settled element (with SOUND). That was the cause of "played then stopped /
+        // no sound" on the iPhone.
         if ((e as { name?: string })?.name === 'AbortError') {
-          clientLog('warn', 'player', 'autoplay abortado (load interrompeu) — re-tentará', { err: String(e) })
+          clientLog('warn', 'player', 'autoplay aborted (load interrupted) — will retry', { err: String(e) })
           autoplayTriedRef.current = false
           return
         }
-        clientLog('warn', 'player', 'autoplay bloqueado, tentando mudo', { err: String(e) })
+        clientLog('warn', 'player', 'autoplay blocked, trying muted', { err: String(e) })
         v.muted = true
         v.play()
-          .then(() => clientLog('info', 'player', 'autoplay ok (mudo)', {}))
-          .catch((error_) => clientLog('error', 'player', 'autoplay falhou (nem mudo)', { err: String(error_) }))
+          .then(() => clientLog('info', 'player', 'autoplay ok (muted)', {}))
+          .catch((error_) => clientLog('error', 'player', 'autoplay failed (not even muted)', { err: String(error_) }))
       })
   }
   const handleVideoCanPlay = () => {
@@ -161,13 +161,13 @@ export function useResumePlayback(deps: {
       appliedAutoResumeRef.current = true
       // Ask instead of silently jumping: the user picks "continue" or "restart"
       // via the overlay (see resume prompt). Mark applied so it only asks once.
-      // DIAGNÓSTICO (temporário): este caminho NÃO auto-toca (espera o gesto no
-      // prompt) — se aparecer muito, é a causa do "não tocou" em faixas c/ posição.
-      clientLog('info', 'player', 'resume prompt mostrado (autoplay pulado)', { resumePosition })
+      // DIAGNOSTIC (temporary): this path does NOT auto-play (waits for the gesture on
+      // the prompt) — if it shows up a lot, it's the cause of "didn't play" on tracks with a position.
+      clientLog('info', 'player', 'resume prompt shown (autoplay skipped)', { resumePosition })
       setShowResumePrompt(true)
       return
     }
-    // Sem seek explícito nem prompt de resume → começa a tocar sozinho.
+    // No explicit seek and no resume prompt → starts playing by itself.
     maybeAutoplayNative(v)
   }
 

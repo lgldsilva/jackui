@@ -83,7 +83,7 @@ func (ds *DestinationService) Resolve(userID int, base, subdir string) (string, 
 			return d.Path, sub, nil
 		}
 	}
-	return "", "", errors.New("destino inválido: " + base)
+	return "", "", errors.New("invalid destination: " + base)
 }
 
 func mountVisibleTo(m config.ExternalMount, user string) bool {
@@ -115,7 +115,7 @@ func DownloadsDestinationBrowse(ds *DestinationService) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		base, _, err := ds.Resolve(userID, c.Query("base"), "")
 		if err != nil || base == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "destino inválido")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid destination")
 			return
 		}
 		sub, err := httpshared.SanitizeSubdir(c.Query("path"))

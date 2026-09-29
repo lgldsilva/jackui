@@ -85,7 +85,7 @@ export type ParsedSchedule = {
   schedMinute: number
 }
 
-// watchlistsParseSchedule converts a free-text phrase ("toda segunda às 9h")
+// watchlistsParseSchedule converts a free-text phrase ("every Monday at 9am")
 // into a schedule via the server's AI chain. Errors: 400 empty text, 422 the
 // AI couldn't read it as a schedule, 503 AI disabled/unavailable.
 export const watchlistsParseSchedule = async (text: string): Promise<ParsedSchedule> => {

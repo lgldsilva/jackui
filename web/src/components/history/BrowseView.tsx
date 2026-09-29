@@ -10,8 +10,8 @@ import { newTabProps, searchHref } from '../../lib/cardNav'
 import { EntrySortKey, ResultSortKey } from './types'
 import { ResultSortButtons } from './ResultSortButtons'
 
-// Estado vazio do modo "browse" (nenhuma busca em cache). Extraído pra fora de
-// renderBrowseContent pra manter a complexidade cognitiva daquele render baixa.
+// Empty state of "browse" mode (no cached searches). Extracted out of
+// renderBrowseContent to keep that render's cognitive complexity low.
 export function BrowseEmptyState() {
   const { t } = useTranslation()
   return (
@@ -76,7 +76,7 @@ export function BrowseEntryList({
                 <Loader2 className="w-3.5 h-3.5 text-green-400 animate-spin" aria-label={t('history.refreshingSearch')} />
               )}
               <button type="button" onClick={e => { e.stopPropagation(); navigate(searchHref(entry.query)) }} title={t('history.newSearch')} aria-label={t('history.newSearch')} className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 text-text-muted hover:text-green-400 transition-colors"><Search className="w-3.5 h-3.5" /></button>
-              {/* Delete por hover — desktop. No mobile usa o swipe-to-delete do SwipeRow. */}
+              {/* Delete on hover — desktop. On mobile it uses SwipeRow's swipe-to-delete. */}
               <button type="button" onClick={e => onDeleteEntry(entry.query, e)} title={t('history.removeFromCache')} aria-label={t('history.removeFromCache')} className="hidden sm:flex items-center justify-center text-text-muted hover:text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
             </div>
           </button>

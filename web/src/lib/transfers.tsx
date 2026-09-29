@@ -42,10 +42,10 @@ export function TransfersProvider({ children }: TransfersProviderProps) {
     } catch {
       // transient (e.g. token refresh) — back off to idle and try again
     }
-    // Pausa enquanto a aba está oculta: a doca de transferências em background
-    // não precisa rodar se ninguém está olhando. O visibilitychange retoma no
-    // foco; bump() também força um poll imediato após qualquer move/promote do
-    // usuário. timer=null sinaliza "pausado" pro resume não duplicar.
+    // Pause while the tab is hidden: the transfers dock in the background
+    // doesn't need to run when nobody is looking. visibilitychange resumes on
+    // focus; bump() also forces an immediate poll after any user move/promote.
+    // timer=null signals "paused" so the resume doesn't duplicate.
     if (!stopped.current && !document.hidden) {
       timer.current = setTimeout(poll, next)
     } else {
@@ -77,7 +77,7 @@ export function TransfersProvider({ children }: TransfersProviderProps) {
       return () => { stopped.current = true }
     }
     firePoll()
-    // Retoma o poll ao voltar pra aba (quando estava pausado: timer.current null).
+    // Resumes the poll when the tab comes back (while paused: timer.current null).
     const onVisible = () => {
       if (!document.hidden && !timer.current && !stopped.current) firePoll()
     }

@@ -38,7 +38,7 @@ export type PlayerModalProps = {
   /** Navigate back to Home (used by the full-viewport Home button). */
   readonly onHome?: () => void
   /** Reports the playhead (seconds) on every timeupdate. Lets the provider
-   *  preserve position when it re-keys the modal on a Cinema/Música switch. */
+   *  preserve position when it re-keys the modal on a Cinema/Music switch. */
   readonly onProgress?: (sec: number) => void
 }
 

@@ -11,17 +11,17 @@ import (
 	"github.com/lgldsilva/jackui/internal/auth"
 )
 
-// pprofEnabled diz se o /debug/pprof deve ser exposto. Opt-in (default OFF):
-// os profiles carregam heap/goroutines, ou seja, nomes de torrent, caminhos de
-// arquivo e tokens em voo.
+// pprofEnabled tells whether /debug/pprof should be exposed. Opt-in (default
+// OFF): the profiles carry heap/goroutines, i.e. torrent names, file paths and
+// in-flight tokens.
 func pprofEnabled() bool {
 	v := os.Getenv("JACKUI_PPROF_ENABLED")
 	return v == "1" || v == "true"
 }
 
-// staticTokenGuard aborta com 401 quando o token estático não confere. Aceita
-// `Authorization: Bearer <token>` ou `?token=` — `go tool pprof <url>` não tem
-// como mandar header, então a query é o caminho realista. Compare constante.
+// staticTokenGuard aborts with 401 when the static token does not match. Accepts
+// `Authorization: Bearer <token>` or `?token=` — `go tool pprof <url>` has no way
+// to send a header, so the query is the realistic path. Constant-time compare.
 func staticTokenGuard(static string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if subtle.ConstantTimeCompare([]byte(presentedToken(c)), []byte(static)) != 1 {
@@ -32,7 +32,7 @@ func staticTokenGuard(static string) gin.HandlerFunc {
 	}
 }
 
-// presentedToken extrai o token do header Bearer ou, na ausência dele, da query.
+// presentedToken extracts the token from the Bearer header or, failing that, from the query.
 func presentedToken(c *gin.Context) string {
 	authz := c.GetHeader("Authorization")
 	presented := strings.TrimPrefix(authz, "Bearer ")
@@ -42,16 +42,16 @@ func presentedToken(c *gin.Context) string {
 	return presented
 }
 
-// registerPprofRoutes expõe net/http/pprof sob /debug/pprof, sempre autenticado.
+// registerPprofRoutes exposes net/http/pprof under /debug/pprof, always authenticated.
 //
-// Dois modos, nenhum deles anônimo:
-//   - JACKUI_PPROF_TOKEN definido → token estático (header ou ?token=), que é o
-//     único jeito de o `go tool pprof` chegar no endpoint sem browser.
-//   - sem token, mas com auth JWT ligada → exige JWT de admin.
+// Two modes, neither anonymous:
+//   - JACKUI_PPROF_TOKEN set → static token (header or ?token=), the only way
+//     for `go tool pprof` to reach the endpoint without a browser.
+//   - no token, but JWT auth enabled → requires an admin JWT.
 //
-// Sem token E sem auth não há identidade nenhuma para checar, então as rotas
-// NÃO são registradas (log explícito) em vez de abrirem um dump de memória para
-// a rede inteira. Devolve true quando registrou.
+// With no token AND no auth there is no identity to check at all, so the routes
+// are NOT registered (explicit log) instead of opening a memory dump to the
+// whole network. Returns true when registered.
 func registerPprofRoutes(router gin.IRouter, deps *appDeps) bool {
 	if !pprofEnabled() {
 		return false
@@ -67,8 +67,8 @@ func registerPprofRoutes(router gin.IRouter, deps *appDeps) bool {
 	case jwtAvailable:
 		guards = append(guards, auth.Required(deps.tokenMgr), auth.AdminOnly())
 	default:
-		log.Printf("pprof: JACKUI_PPROF_ENABLED está ligado mas não há como autenticar " +
-			"(defina JACKUI_PPROF_TOKEN ou habilite a auth JWT) — /debug/pprof NÃO foi exposto")
+		log.Printf("pprof: JACKUI_PPROF_ENABLED is on but there is no way to authenticate " +
+			"(set JACKUI_PPROF_TOKEN or enable JWT auth) — /debug/pprof was NOT exposed")
 		return false
 	}
 
@@ -79,8 +79,8 @@ func registerPprofRoutes(router gin.IRouter, deps *appDeps) bool {
 	group.GET("/trace", gin.WrapF(pprof.Trace))
 	group.GET("/symbol", gin.WrapF(pprof.Symbol))
 	group.POST("/symbol", gin.WrapF(pprof.Symbol))
-	// Perfis nomeados, explícitos: um wildcard :profile colidiria com as rotas
-	// estáticas acima na mesma posição da árvore do gin.
+	// Named profiles, explicit: a :profile wildcard would collide with the
+	// static routes above at the same position in gin's route tree.
 	for _, name := range []string{"heap", "goroutine", "allocs", "block", "mutex", "threadcreate"} {
 		group.GET("/"+name, gin.WrapH(pprof.Handler(name)))
 	}

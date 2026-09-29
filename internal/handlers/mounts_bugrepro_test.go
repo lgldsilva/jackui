@@ -81,7 +81,7 @@ func assertSaveFailureRollsBack(t *testing.T, configPath string) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body: %s", w.Code, w.Body.String())
 	}
-	if !bytes.Contains(w.Body.Bytes(), []byte("grav")) {
+	if !bytes.Contains(w.Body.Bytes(), []byte("writable")) {
 		t.Errorf("500 body should hint at config.yaml writability, got: %s", w.Body.String())
 	}
 

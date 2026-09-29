@@ -38,7 +38,7 @@ type Tags struct {
 // dhowden/tag never panics on garbage, it returns tag.ErrNoTagsFound or a parse
 // error. The file handle is always closed.
 func ReadTags(absPath string) (Tags, error) {
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 	f, err := os.Open(absPath)
 	if err != nil {
 		return Tags{}, err
@@ -83,7 +83,7 @@ type Cover struct {
 // parse failure (caller then falls back to TMDB/web art, as the cards already do
 // for torrents).
 func ReadCover(absPath string) (Cover, bool, error) {
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 	f, err := os.Open(absPath)
 	if err != nil {
 		return Cover{}, false, err

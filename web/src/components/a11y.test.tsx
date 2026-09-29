@@ -11,13 +11,13 @@ import { shellProps, renderPlayerHeader } from './player/PlayerHeader'
 import i18n from '../lib/i18n'
 import type { SearchResult, TorrentInfo } from '../api/client'
 
-// Gate axe-core (P1.3, issue #80): cada componente central renderiza com props
-// típicas e NÃO pode ter violações axe. color-contrast fica fora porque o
-// jsdom não tem layout/getComputedStyle real — contraste é auditado fora do
-// jsdom (revisão visual/Sonar).
+// axe-core gate (P1.3, issue #80): each core component renders with typical props
+// and MUST NOT have axe violations. color-contrast is excluded because
+// jsdom has no real layout/getComputedStyle — contrast is audited outside
+// jsdom (visual review/Sonar).
 const AXE_OPTS = { rules: { 'color-contrast': { enabled: false } } } as const
 
-// jsdom não tem matchMedia nativo (useFullscreen do player)
+// jsdom has no native matchMedia (player's useFullscreen)
 beforeAll(() => {
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
     matches: false,
@@ -31,16 +31,16 @@ beforeAll(() => {
   })))
 })
 
-// Chamadas de rede mockadas; o restante do api/client real segue. streamAdd
-// fica pendente para manter DownloadModal/PlayerModal no estado inicial
-// (loading), que é o estado sob auditoria aqui.
+// Network calls mocked; the rest of the real api/client remains. streamAdd
+// stays pending to keep DownloadModal/PlayerModal in the initial
+// (loading) state, which is the state under audit here.
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof import('../api/client')>('../api/client')
   return {
     ...actual,
     getClients: vi.fn().mockResolvedValue([]),
     streamMetadata: vi.fn().mockResolvedValue(null),
-    streamAdd: vi.fn(() => new Promise(() => { /* pendente de propósito */ })),
+    streamAdd: vi.fn(() => new Promise(() => { /* pending on purpose */ })),
     dedupCheck: vi.fn().mockResolvedValue(null),
   }
 })
@@ -72,31 +72,31 @@ function makeResult(overrides: Partial<SearchResult> = {}): SearchResult {
   }
 }
 
-describe('axe — componentes centrais', () => {
-  it('Sheet (diálogo base) sem violações', async () => {
+describe('axe — core components', () => {
+  it('Sheet (base dialog) with no violations', async () => {
     const { container } = render(
       <Sheet open onClose={vi.fn()} title="Modal axe">
-        <p>Conteúdo do modal</p>
-        <button type="button">Ação</button>
+        <p>Modal content</p>
+        <button type="button">Action</button>
       </Sheet>,
     )
     expect(await axe(container, AXE_OPTS)).toHaveNoViolations()
   })
 
-  it('TrailerModal sem violações', async () => {
+  it('TrailerModal with no violations', async () => {
     const { container } = render(
-      <TrailerModal videoKey="abc123" title="Trailer de Teste" onClose={vi.fn()} />,
+      <TrailerModal videoKey="abc123" title="Test Trailer" onClose={vi.fn()} />,
     )
-    // iframes:false — axe tentaria injetar no frame do YouTube e o jsdom não
-    // suporta cross-frame messaging ("Respondable target must be a frame").
+    // iframes:false — axe would try to inject into the YouTube frame and jsdom
+    // doesn't support cross-frame messaging ("Respondable target must be a frame").
     expect(await axe(container, { ...AXE_OPTS, iframes: false } as Parameters<typeof axe>[1])).toHaveNoViolations()
   })
 
-  it('ConfirmDialog (via ConfirmProvider) sem violações', async () => {
+  it('ConfirmDialog (via ConfirmProvider) with no violations', async () => {
     function Trigger() {
       const confirm = useConfirm()
       useEffect(() => {
-        void confirm({ title: 'Apagar item?', message: 'Esta ação não pode ser desfeita.' })
+        void confirm({ title: 'Delete item?', message: 'This action cannot be undone.' })
       }, [confirm])
       return null
     }
@@ -109,7 +109,7 @@ describe('axe — componentes centrais', () => {
     expect(await axe(container, AXE_OPTS)).toHaveNoViolations()
   })
 
-  it('DownloadModal sem violações', async () => {
+  it('DownloadModal with no violations', async () => {
     const { container } = render(
       <MemoryRouter>
         <DownloadModal result={makeResult()} onClose={vi.fn()} />
@@ -119,11 +119,11 @@ describe('axe — componentes centrais', () => {
     expect(await axe(container, AXE_OPTS)).toHaveNoViolations()
   })
 
-  // Shell do PlayerModal via os helpers reais (shellProps + renderPlayerHeader).
-  // Montar o PlayerModal inteiro puxa a subárvore de hooks/views do player pra
-  // dentro do gate de cobertura (vitest.config.mts) e derruba branches abaixo
-  // do threshold — o que o axe precisa auditar aqui (role="dialog" nomeado +
-  // botões do header) são exatamente estes dois helpers.
+  // PlayerModal shell via the real helpers (shellProps + renderPlayerHeader).
+  // Mounting the whole PlayerModal pulls the player's hooks/views subtree into
+  // the coverage gate (vitest.config.mts) and drops branches below the
+  // threshold — what axe needs to audit here (named role="dialog" +
+  // header buttons) are exactly these two helpers.
   function renderPlayerShell(info: TorrentInfo | null) {
     const ariaLabel = info?.name ?? 'Test.Movie.2024'
     return render(
@@ -149,12 +149,12 @@ describe('axe — componentes centrais', () => {
     )
   }
 
-  it('PlayerModal shell (header em loading, info=null) sem violações', async () => {
+  it('PlayerModal shell (header loading, info=null) with no violations', async () => {
     const { container } = renderPlayerShell(null)
     expect(await axe(container, AXE_OPTS)).toHaveNoViolations()
   })
 
-  it('PlayerModal shell (header com info: botões Info/Favorito) sem violações', async () => {
+  it('PlayerModal shell (header with info: Info/Favorite buttons) with no violations', async () => {
     const info: TorrentInfo = {
       infoHash: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
       name: 'Test.Movie.2024',

@@ -252,7 +252,7 @@ type dedupLinkReq struct {
 }
 
 // DedupLink (POST /api/downloads/link) creates completed+linked download rows
-// for files the user confirmed they already have (the "você já tem" flow). Each
+// for files the user confirmed they already have (the "you already have it" flow). Each
 // item's path is resolved through the browser's per-user access control, so a
 // user can only link to files they're allowed to see.
 func DedupLink(dls *downloads.Store, b *local.Browser) gin.HandlerFunc {

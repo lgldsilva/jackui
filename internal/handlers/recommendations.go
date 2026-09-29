@@ -100,7 +100,7 @@ func recCacheInvalidate(userID int) {
 // a TMDB lookup and crowds out real seeds.
 //
 // Hidden content & the reveal curtain: hidden-folder titles are reveal-AWARE.
-// With the easter egg closed they're dropped before seeding (no "Porque você viu
+// With the easter egg closed they're dropped before seeding (no "Because you watched
 // <hidden>" leak); with it open they DO seed, like every other hidden listing.
 // The result cache is keyed by that curtain state so flipping it rebuilds.
 // The user can also explicitly dismiss a recommendation; dismissed titles are

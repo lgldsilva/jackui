@@ -62,7 +62,7 @@ export function DownloadsTabsBar(props: {
         {isAdmin && (
           <button
             onClick={() => {
-              if (showAllUsers) { setQuery({ users: null, uid: null }) } // desligar: limpa users + uid órfão
+              if (showAllUsers) { setQuery({ users: null, uid: null }) } // turn off: clears users + orphan uid
               else { setUsersParam('all'); downloadUsers().then(setAvailableUsers).catch(() => {}) }
             }}
             className={`flex items-center gap-1.5 text-xs px-4 py-2 rounded-xl font-semibold transition-all duration-200 mb-2 md:mb-0 ${

@@ -149,7 +149,7 @@ describe('useDownloadActions', () => {
     expect(state.setSelected).toHaveBeenCalledWith(new Set())
   })
 
-  it('runBatchDelete notifica falhas parciais e restaura só os falhos', async () => {
+  it('runBatchDelete notifies about partial failures and restores only the failed ones', async () => {
     mocks.downloadBatchDelete.mockResolvedValue({ failed: [1] })
     const { result, state } = setup({ selected: new Set([1]) })
     await act(async () => { await result.current.onBatchDelete() })
@@ -158,7 +158,7 @@ describe('useDownloadActions', () => {
     expect(notifyMock).toHaveBeenCalled()
   })
 
-  it('busy flags são setados e resetados mesmo em erro', async () => {
+  it('busy flags are set and reset even on error', async () => {
     mocks.downloadPause.mockRejectedValue(new Error('boom'))
     const { result, state } = setup()
     await act(async () => {
@@ -169,11 +169,11 @@ describe('useDownloadActions', () => {
     expect(state.setBusyID).toHaveBeenLastCalledWith(null)
   })
 
-  // "Parar" precisa remover o item da lista na hora (otimista) e blindá-lo
-  // contra polls stale de 2s — mesmo mecanismo do delete. O bug original: o
-  // stop-seed não tocava em setItems/pendingDeletes e o card continuava na
-  // lista até o backend parar de retorná-lo.
-  it('onStopSeed remove otimistamente da lista', async () => {
+  // "Stop" must remove the item from the list immediately (optimistic) and shield it
+  // against stale 2s polls — same mechanism as delete. The original bug: stop-seed
+  // didn't touch setItems/pendingDeletes and the card stayed on the
+  // list until the backend stopped returning it.
+  it('onStopSeed optimistically removes from the list', async () => {
     const { result, state } = setup()
     await act(async () => { await result.current.onStopSeed(1, 'x') })
 

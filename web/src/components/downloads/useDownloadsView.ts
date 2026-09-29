@@ -22,12 +22,12 @@ export function useDownloadsView(params: {
   const { items, torrents, sortCol, sortDir, maxActive, activeTab, completedFilter } = params
   const { t } = useTranslation()
 
-  // Esconde o card de STREAMING quando existe QUALQUER download row pro mesmo
-  // hash — incluindo `completed`. Antes só filtrávamos `downloading|queued`, e
-  // ao terminar o download a streaming card voltava a aparecer ao lado da
-  // download card (ambas dizendo 4GB/4GB) — duplicata óbvia. Agora a download
-  // row é a fonte canônica e a streaming card só aparece pra torrents que NÃO
-  // foram enfileirados como background download (puro stream).
+  // Hides the STREAMING card when ANY download row exists for the same
+  // hash — including `completed`. We used to filter only `downloading|queued`, and
+  // once the download finished the streaming card reappeared next to the
+  // download card (both saying 4GB/4GB) — an obvious duplicate. Now the download
+  // row is the canonical source and the streaming card only shows for torrents that were NOT
+  // enqueued as a background download (pure stream).
   const bgHashes = new Set(items.map(d => d.infoHash))
   const displayTorrents = torrents.filter(t => !bgHashes.has(t.infoHash))
 
@@ -42,10 +42,10 @@ export function useDownloadsView(params: {
     return s === 'seeding' || s === 'complete'
   })
 
-  // Ordenação por métrica AO VIVO (velocidade ↓/↑, seeds) é client-side: esses
-  // valores não são persistidos, então o backend não os ordena (ORDER BY). As
-  // demais chaves (data/nome/...) seguem server-side; aqui a ordem é preservada.
-  // As seções/grupos derivam de sortedItems para herdar a ordem escolhida.
+  // Sorting by LIVE metric (speed ↓/↑, seeds) is client-side: those
+  // values aren't persisted, so the backend doesn't sort by them (ORDER BY). The
+  // other keys (date/name/...) stay server-side; here the order is preserved.
+  // Sections/groups derive from sortedItems to inherit the chosen order.
   const sortedItems = useMemo(
     () => applyDownloadSort(items, sortCol, sortDir),
     [items, sortCol, sortDir],

@@ -13,49 +13,49 @@ func TestInTimeRange(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "caminho feliz dentro do intervalo diurno",
+			name:     "happy path inside the daytime range",
 			now:      time.Date(2026, 6, 9, 10, 30, 0, 0, time.Local),
 			rangeStr: "08:00-18:00",
 			expected: true,
 		},
 		{
-			name:     "caminho feliz fora do intervalo diurno",
+			name:     "happy path outside the daytime range",
 			now:      time.Date(2026, 6, 9, 19, 0, 0, 0, time.Local),
 			rangeStr: "08:00-18:00",
 			expected: false,
 		},
 		{
-			name:     "dentro do intervalo que cruza meia-noite",
+			name:     "inside the range that crosses midnight",
 			now:      time.Date(2026, 6, 9, 23, 30, 0, 0, time.Local),
 			rangeStr: "22:00-06:00",
 			expected: true,
 		},
 		{
-			name:     "dentro do intervalo que cruza meia-noite (madrugada do dia seguinte)",
+			name:     "inside the range that crosses midnight (early morning of the next day)",
 			now:      time.Date(2026, 6, 9, 3, 15, 0, 0, time.Local),
 			rangeStr: "22:00-06:00",
 			expected: true,
 		},
 		{
-			name:     "fora do intervalo que cruza meia-noite",
+			name:     "outside the range that crosses midnight",
 			now:      time.Date(2026, 6, 9, 12, 0, 0, 0, time.Local),
 			rangeStr: "22:00-06:00",
 			expected: false,
 		},
 		{
-			name:     "formato de faixa invalido",
+			name:     "invalid range format",
 			now:      time.Date(2026, 6, 9, 10, 30, 0, 0, time.Local),
 			rangeStr: "08:00_18:00",
 			expected: false,
 		},
 		{
-			name:     "horas invalidas no inicio",
+			name:     "invalid hours at the start",
 			now:      time.Date(2026, 6, 9, 10, 30, 0, 0, time.Local),
 			rangeStr: "25:00-18:00",
 			expected: false,
 		},
 		{
-			name:     "minutos invalidos no fim",
+			name:     "invalid minutes at the end",
 			now:      time.Date(2026, 6, 9, 10, 30, 0, 0, time.Local),
 			rangeStr: "08:00-18:65",
 			expected: false,

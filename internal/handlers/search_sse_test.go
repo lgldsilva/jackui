@@ -32,11 +32,11 @@ func TestDedupKey_HashLessEntryUsesTrackerTitleSize(t *testing.T) {
 	// as the key so cache+live duplicates are correctly suppressed.
 	r := jackett.Result{
 		Tracker: "Amigos Share Club",
-		Title:   "Filme Teste 2024 1080p",
+		Title:   "Test Movie 2024 1080p",
 		Size:    4_000_000_000,
 	}
 	got := dedupKey(r)
-	want := fmt.Sprintf("%s|%s|%d", "amigos share club", "filme teste 2024 1080p", r.Size)
+	want := fmt.Sprintf("%s|%s|%d", "amigos share club", "test movie 2024 1080p", r.Size)
 	if got != want {
 		t.Errorf("dedupKey = %q, want %q", got, want)
 	}
@@ -46,7 +46,7 @@ func TestDedupKey_HashBearingEntryUsesHash(t *testing.T) {
 	h := "c12fe1c06bba254a9dc9f519b335aa7c1367a88a"
 	r := jackett.Result{
 		Tracker:  "ThePirateBay",
-		Title:    "Filme Teste 2024 1080p",
+		Title:    "Test Movie 2024 1080p",
 		InfoHash: h,
 	}
 	got := dedupKey(r)

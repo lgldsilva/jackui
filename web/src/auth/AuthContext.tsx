@@ -159,8 +159,8 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     setUser(data.user)
   }, [])
 
-  // Sessão pronta vinda do fluxo Google OAuth (o bundle já foi trocado pelo
-  // código single-use no /auth/oauth/exchange).
+  // Session ready from the Google OAuth flow (the bundle was already exchanged for the
+  // single-use code at /auth/oauth/exchange).
   const completeOAuthLogin = useCallback((bundle: { access: string; refresh: string; user: AuthUser }) => {
     save(ACCESS_KEY, bundle.access)
     save(REFRESH_KEY, bundle.refresh)
@@ -174,9 +174,9 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       try { await clearIncognitoData() } catch { /* ignore */ }
     }
     const refresh = load<string>(REFRESH_KEY, '')
-    // Marca a chamada como lifecycle: o interceptor de 401 não deve reagir a um
-    // 401 do /auth/logout (o token já está morto numa sessão expirada) — senão
-    // o logout reentra no refresh e o loop volta. Best-effort por design.
+    // Marks the call as lifecycle: the 401 interceptor must not react to a
+    // 401 from /auth/logout (the token is already dead in an expired session) — otherwise
+    // logout re-enters refresh and the loop returns. Best-effort by design.
     try { if (refresh) await api.post('/auth/logout', { refresh }, sessionLifecycle()) } catch { /* ignore */ }
     clearTokens()
     setUser(null)
@@ -273,8 +273,8 @@ async function doRefresh(): Promise<void> {
 function clearTokens() {
   remove(ACCESS_KEY)
   remove(REFRESH_KEY)
-  // Invalida o media token cacheado (módulo http) junto do logout/limpeza de auth,
-  // pra que a próxima sessão pegue um token fresco em vez de reusar o da sessão antiga.
+  // Invalidates the cached media token (http module) along with logout/auth cleanup,
+  // so the next session gets a fresh token instead of reusing the old session's.
   clearMediaToken()
   // Private-session hygiene: do not leave the next browser user with the
   // previous session's playlist, open curtain, or inherited incognito toggle.

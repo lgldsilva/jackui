@@ -24,11 +24,11 @@ type Props = {
   readonly onDeleted?: (id: number) => void
   readonly onPromote?: (d: DownloadEntry) => void
   readonly onPlay?: (d: DownloadEntry) => void
-  /** Outros registros de download do MESMO torrent (mesmo info_hash). Usado pra
-      saber quais arquivos do torrent JÁ são download e quais estão só em
-      streaming (sem registro) → estes ganham botão "Baixar". */
+  /** Other download records of the SAME torrent (same info_hash). Used to
+      know which torrent files are ALREADY downloads and which are streaming-only
+      (no record) → the latter get a "Download" button. */
   readonly siblings?: readonly DownloadEntry[]
-  /** Chamado após adotar um arquivo só-streaming como download (pra recarregar). */
+  /** Called after adopting a streaming-only file as a download (to reload). */
   readonly onAdopted?: () => void
 }
 
@@ -173,10 +173,10 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     } catch {}
   }
 
-  // adopt cria um registro de download pra um arquivo que estava só em streaming.
-  // O worker anexa ao torrent já ativo, reaproveita os pedaços em cache e — ao
-  // completar — move o arquivo pro diretório de downloads. Se já estava 100% no
-  // cache, conclui quase instantâneo e vai pros "baixados".
+  // adopt creates a download record for a file that was streaming-only.
+  // The worker attaches to the already-active torrent, reuses the cached pieces and — on
+  // completion — moves the file to the downloads directory. If it was already 100% in
+  // cache, it completes almost instantly and lands in "downloaded".
   const adopt = async (f: StreamFile) => {
     if (adopting !== null) return
     setAdopting(f.index)
@@ -208,7 +208,7 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     try {
       const updated = await downloadRecheck(d.id)
       onMutated?.(updated)
-      // re-busca details pra refletir reset de bytes
+      // re-fetch details to reflect the bytes reset
       await refresh()
     } catch (e: unknown) {
       setError(errMessage(e) || t('downloads.inspect.errorRecheck'))
@@ -223,8 +223,8 @@ export default function DownloadInspectModal({ download, onClose, onMutated, onD
     setError('')
     try {
       await downloadStopSeed(d.id)
-      // Stop-seed agora REMOVE a row da lista (backend deleta) — fecha o modal
-      // como o delete; o refresh() antigo buscaria uma row que não existe mais.
+      // Stop-seed now REMOVES the row from the list (backend deletes) — close the modal
+      // like delete; the old refresh() would look for a row that no longer exists.
       onDeleted?.(d.id)
       onClose()
     } catch (e: unknown) {

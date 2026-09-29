@@ -90,7 +90,7 @@ type AIChainSlot struct {
 	ID       string `yaml:"id"`       // unique label (used by the benchmark + logs)
 	Provider string `yaml:"provider"` // key into Providers
 	Model    string `yaml:"model"`    // model id sent to /chat/completions
-	// Disabled lets the benchmark (Fase 3) park a model without deleting it.
+	// Disabled lets the benchmark (Phase 3) park a model without deleting it.
 	Disabled bool `yaml:"disabled"`
 }
 
@@ -136,7 +136,7 @@ type ExternalConfig struct {
 }
 
 type ExternalMount struct {
-	Name         string   `yaml:"name" json:"name"`                  // Display name shown in the UI ("HD Externo", "NAS")
+	Name         string   `yaml:"name" json:"name"`                  // Display name shown in the UI ("External HDD", "NAS")
 	Path         string   `yaml:"path" json:"path"`                  // Absolute path inside the container
 	AllowedUsers []string `yaml:"allowed_users" json:"allowedUsers"` // Empty = visible to all; otherwise only these usernames
 	UserSubpath  bool     `yaml:"user_subpath" json:"userSubpath"`   // When true, each user sees/writes only their own subdir
@@ -160,7 +160,7 @@ type AuthConfig struct {
 	AdminUsername string    `yaml:"admin_username"` // bootstrap admin login
 	AdminPassword string    `yaml:"admin_password"` // bootstrap admin password (only used on first run)
 	DBPath        string    `yaml:"db_path"`        // auth DB (defaults to /data/auth.db)
-	OAuth         AuthOAuth `yaml:"oauth"`          // "Entrar com Google" — optional; see AuthOAuth
+	OAuth         AuthOAuth `yaml:"oauth"`          // "Sign in with Google" — optional; see AuthOAuth
 }
 
 // AuthOAuth configures the Google OIDC login. The linking rule is the same as
@@ -193,61 +193,61 @@ type StreamConfig struct {
 	// download move, Local-tab move); the rest queue FIFO. 0 = default (3). Higher
 	// helps cloud/rclone destinations; lower (1-2) is better for a single HDD.
 	MaxConcurrentTransfers int `yaml:"max_concurrent_transfers"`
-	// TransferConcurrencyMode controla como as cópias de promote/move concorrem:
-	//   "" / "auto" → detecta o disco DESTINO: serializa em HDD (evita seek
-	//                 thrashing), paraleliza em SSD/NVMe. (default, recomendado)
-	//   "serial"    → sempre uma cópia por vez (qualquer disco).
-	//   "parallel"  → sempre em paralelo até MaxConcurrentTransfers (ignora a
-	//                 detecção de HDD; útil p/ RAID/NVMe-cache onde seek não dói).
-	// Lido AO VIVO a cada promote (UI/yaml alteram sem reiniciar).
+	// TransferConcurrencyMode controls how promote/move copies contend:
+	//   "" / "auto" → detect the DESTINATION disk: serialize on HDD (avoids seek
+	//                 thrashing), parallelize on SSD/NVMe. (default, recommended)
+	//   "serial"    → always one copy at a time (any disk).
+	//   "parallel"  → always parallel up to MaxConcurrentTransfers (ignores HDD
+	//                 detection; useful for RAID/NVMe-cache where seeks don't hurt).
+	// Read LIVE on every promote (UI/yaml change it without a restart).
 	TransferConcurrencyMode string              `yaml:"transfer_concurrency_mode"`
 	PromoteDirs             []PromoteDir        `yaml:"promote_dirs"` // additional promote destinations (name + path)
 	BandwidthSchedules      []BandwidthSchedule `yaml:"bandwidth_schedules"`
 
-	// ── Performance / hardware tuning (0/"" = usar default; aplicado no streamer) ──
-	// Banda: caps de peer em bytes/seg; 0 = ilimitado. Aplicados AO VIVO via
-	// Streamer.SetRateLimits (não exigem reinício).
+	// ── Performance / hardware tuning (0/"" = use default; applied in the streamer) ──
+	// Bandwidth: peer caps in bytes/sec; 0 = unlimited. Applied LIVE via
+	// Streamer.SetRateLimits (no restart required).
 	MaxDownloadRate int64 `yaml:"max_download_rate"`
 	MaxUploadRate   int64 `yaml:"max_upload_rate"`
-	// ReadaheadMB é o buffer de leitura à frente por sessão de streaming. 0 → 32.
-	// Mais readahead = playback mais suave em rede/disco lento, porém mais RAM por
-	// stream simultâneo. Aplicado ao vivo (vale no próximo play).
+	// ReadaheadMB is the read-ahead buffer per streaming session. 0 → 32.
+	// More readahead = smoother playback on slow network/disk, but more RAM per
+	// concurrent stream. Applied live (takes effect on the next play).
 	ReadaheadMB int `yaml:"readahead_mb"`
-	// StorageBackend escolhe como os pieces são abertos no disco: "file" (padrão,
-	// grava direto) ou "mmap" (mapeia em memória via page cache; random-access/seek
-	// mais rápido). Mudança exige REINÍCIO (o anacrolix lê isso na construção).
+	// StorageBackend chooses how pieces are opened on disk: "file" (default,
+	// writes directly) or "mmap" (memory-mapped via page cache; faster
+	// random-access/seek). Changing it requires a RESTART (anacrolix reads this at construction).
 	StorageBackend string `yaml:"storage_backend"`
-	// Tuning de peers/CPU — todos exigem REINÍCIO. 0 = default da lib anacrolix
+	// Peer/CPU tuning — all require a RESTART. 0 = anacrolix lib default
 	// (conns=50, half-open=25, peersHighWater=500, pieceHashers=2).
 	MaxConnsPerTorrent int `yaml:"max_conns_per_torrent"`
 	HalfOpenConns      int `yaml:"half_open_conns"`
 	PeersHighWater     int `yaml:"peers_high_water"`
 	PieceHashers       int `yaml:"piece_hashers"`
-	// HLSVODMode controla o caminho de VOD finito (seekbar) no HLS transcodado:
-	// "all" (padrão: VOD para todos, inclusive HLS nativo do Safari), "hlsjs"
-	// (VOD apenas para clientes não-Safari — rollback se o Safari regredir),
-	// "off" (só EVENT/live). Permite ajustar sem recompilar; rollback
-	// instantâneo voltando para "hlsjs" ou "off".
-	// Env: JACKUI_HLS_VOD_MODE. Aplicado ao vivo (vale na próxima sessão HLS).
+	// HLSVODMode controls the finite-VOD (seekbar) path in transcoded HLS:
+	// "all" (default: VOD for everyone, including Safari's native HLS), "hlsjs"
+	// (VOD only for non-Safari clients — rollback if Safari regresses),
+	// "off" (EVENT/live only). Tunable without recompiling; instant rollback
+	// by switching back to "hlsjs" or "off".
+	// Env: JACKUI_HLS_VOD_MODE. Applied live (takes effect on the next HLS session).
 	HLSVODMode string `yaml:"hls_vod_mode"`
-	// HLSMediaRenditions liga as renditions EXT-X-MEDIA do master HLS (Phase 2
-	// M2b): faixas de áudio alternativas como TYPE=AUDIO (a/:track) e legendas de
-	// texto como TYPE=SUBTITLES (sub/:track, WebVTT). DEFAULT false (dark launch):
-	// o frontend precisa migrar pra hls.audioTrack (troca seamless, sem reload) e
-	// ser validado no Chrome/Safari antes de ligar — com false o master mantém o
-	// comportamento M2a (só STREAM-INF multi-resolução + ?audio via reload).
+	// HLSMediaRenditions enables the EXT-X-MEDIA renditions of the HLS master (Phase 2
+	// M2b): alternate audio tracks as TYPE=AUDIO (a/:track) and text subtitles as
+	// TYPE=SUBTITLES (sub/:track, WebVTT). DEFAULT false (dark launch):
+	// the frontend still needs to migrate to hls.audioTrack (seamless switching, no reload) and
+	// be validated in Chrome/Safari before enabling — with false the master keeps the
+	// M2a behavior (STREAM-INF multi-resolution only + ?audio via reload).
 	// Env: JACKUI_HLS_MEDIA_RENDITIONS (1/true).
 	HLSMediaRenditions bool `yaml:"hls_media_renditions"`
-	// SeedTrackers lista substrings/hostnames de trackers cujos torrents devem
-	// CONTINUAR seedando após o uso (não são dropados pelo idle reaper nem pelo
-	// fim do stream), em vez do comportamento padrão de dropar. Casado
-	// case-insensitive contra as announce URLs do torrent (ex.: "amigos-share").
-	// Vazio = ninguém é mantido (comportamento atual). Aplicado ao vivo via
+	// SeedTrackers lists tracker substrings/hostnames whose torrents should
+	// KEEP SEEDING after use (not dropped by the idle reaper or by the
+	// end of the stream), instead of the default drop behavior. Matched
+	// case-insensitively against the torrent's announce URLs (e.g. "amigos-share").
+	// Empty = nothing is kept (current behavior). Applied live via
 	// Streamer.SetSeedTrackers. Env: JACKUI_SEED_TRACKERS (CSV).
 	SeedTrackers []string `yaml:"seed_trackers"`
 }
 
-// StorageBackendFile/Mmap são os valores válidos de StreamConfig.StorageBackend.
+// StorageBackendFile/Mmap are the valid values of StreamConfig.StorageBackend.
 const (
 	StorageBackendFile = "file"
 	StorageBackendMmap = "mmap"
@@ -276,7 +276,7 @@ type DownloadClient struct {
 }
 
 func Load(path string) (*Config, error) {
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from hash/internal config
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -313,7 +313,7 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+	// #nosec G306 -- media/cache file; 0644 intentional for readability
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}

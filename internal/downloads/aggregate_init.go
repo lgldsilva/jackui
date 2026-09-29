@@ -63,7 +63,7 @@ func (w *Worker) initGroup(ctx context.Context, g Group) {
 	select {
 	case <-t.GotInfo():
 	case <-ctx.Done():
-		w.failOrRetryGroup(g, "timeout aguardando metadados")
+		w.failOrRetryGroup(g, "timeout waiting for metadata")
 		return
 	}
 	w.applyFilePriorities(ctx, g, hash, t)

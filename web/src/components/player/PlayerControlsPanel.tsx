@@ -82,7 +82,7 @@ type PlayerControlsPanelProps = {
 }
 
 // Everything below the <video> when expanded: transport row (series nav + time
-// + subtitle offset), the mobile "Opções" collapse, the status/buffer bar, the
+// + subtitle offset), the mobile "Options" collapse, the status/buffer bar, the
 // embedded-tracks panel, the action bar (subtitle/VLC/download), and the
 // OpenSubtitles picker. Hidden entirely while minimized.
 export function PlayerControlsPanel({
@@ -389,9 +389,9 @@ export function PlayerControlsPanel({
 
       </div>
 
-      {/* Seletor de legendas — bottom-sheet no mobile (lista E filtro acessíveis,
-          que o painel embutido abaixo da dobra não permitia) e card centralizado
-          no desktop. z-[60] pra ficar acima do modal do player. */}
+      {/* Subtitle picker — bottom-sheet on mobile (list AND filter reachable,
+          which the embedded panel below the fold didn't allow) and centered card
+          on desktop. z-[60] to sit above the player modal. */}
       <Sheet
         open={subOpen}
         onClose={() => setSubOpen(false)}

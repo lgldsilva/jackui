@@ -200,7 +200,7 @@ func waitForLocalFile(t *testing.T, path string, timeout time.Duration) {
 		if _, err := os.Stat(path); err == nil {
 			return
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine que cria o arquivo
+		<-time.After(2 * time.Millisecond) // yields the CPU to the goroutine creating the file
 	}
 	t.Fatalf("file %q did not appear within %s", path, timeout)
 }

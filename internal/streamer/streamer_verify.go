@@ -42,17 +42,18 @@ func (s *Streamer) releaseVerify(label string) {
 	}
 }
 
-// Verify/recheck de pieces/arquivos — extraído de streamer.go.
-// VerifyFile is the exported entrypoint para o worker de downloads disparar a
-// reconciliação de pieces no disco antes de pedir mais dados ao swarm. Reusa
-// o mesmo dedupe set (`verifiedFiles`) que o caminho de streaming, então a
-// verificação acontece NO MÁXIMO uma vez por (hash, file) por processo —
-// não importa se foi streaming ou download que disparou primeiro.
+// Piece/file verify/recheck — extracted from streamer.go.
+// VerifyFile is the exported entrypoint for the download worker to trigger
+// on-disk piece reconciliation before requesting more data from the swarm. It
+// reuses the same dedupe set (`verifiedFiles`) as the streaming path, so the
+// verification happens AT MOST once per (hash, file) per process — regardless
+// of whether streaming or download triggered it first.
 //
-// Background: anacrolix tradicionalmente não re-verifica em startup; confia no
-// bolt DB. Se o shutdown anterior foi ungraceful (SIGKILL, container OOM), o
-// bolt fica desatualizado e anacrolix "esquece" pieces que estão no disco.
-// Sem essa chamada, o worker pede ao swarm bytes que já temos.
+// Background: anacrolix traditionally doesn't re-verify on startup; it trusts
+// the bolt DB. If the previous shutdown was ungraceful (SIGKILL, container OOM),
+// the bolt becomes stale and anacrolix "forgets" pieces that are on disk.
+// Without this call, the worker requests bytes from the swarm that we already
+// have.
 func (s *Streamer) VerifyFile(ctx context.Context, hash metainfo.Hash, fileIdx int) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
@@ -73,8 +74,8 @@ func (s *Streamer) VerifyFile(ctx context.Context, hash metainfo.Hash, fileIdx i
 
 // VerifyTorrent reconciles on-disk pieces for EVERY file of a torrent — the
 // whole-torrent download path. Same rationale and per-(hash,file) dedupe as
-// VerifyFile, applied file by file (sequencial: custo proporcional ao que está
-// no disco; pieces ausentes falham o hash rápido via sparse reads).
+// VerifyFile, applied file by file (sequential: cost proportional to what's on
+// disk; missing pieces fail the hash quickly via sparse reads).
 func (s *Streamer) VerifyTorrent(ctx context.Context, hash metainfo.Hash) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
@@ -91,10 +92,10 @@ func (s *Streamer) VerifyTorrent(ctx context.Context, hash metainfo.Hash) error 
 	return ctx.Err()
 }
 
-// RecheckAllFiles força o "Force Recheck" em TODOS os arquivos de um torrent
-// (download de torrent inteiro). Mesmo contrato do RecheckFile; os arquivos são
-// re-hashados sequencialmente — um torrent de milhares de arquivos não dispara
-// milhares de hash loops concorrentes.
+// RecheckAllFiles forces "Force Recheck" on ALL files of a torrent
+// (whole-torrent download). Same contract as RecheckFile; files are re-hashed
+// sequentially — a torrent with thousands of files doesn't fire thousands of
+// concurrent hash loops.
 func (s *Streamer) RecheckAllFiles(ctx context.Context, hash metainfo.Hash) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
@@ -117,14 +118,14 @@ func (s *Streamer) RecheckAllFiles(ctx context.Context, hash metainfo.Hash) erro
 	return nil
 }
 
-// RecheckFile força uma re-verificação completa dos pieces de um arquivo,
-// IGNORANDO o dedup do verifiedFiles e re-hashando até pieces marcados como
-// "complete" no momento. Caso de uso: ação manual do user via UI ("recheck")
-// quando ele suspeita que os bytes no disco estão corrompidos (BitErrors)
-// ou quando o tamanho/contagem do downloads.db não bate com o real.
-// Diferente do VerifyFile, que pula pieces já completos e dedupa por processo,
-// aqui valida tudo de novo — semantics equivalente ao "Force Recheck" do
-// qBittorrent. Bloqueia até terminar: o handler HTTP só reenfileira depois.
+// RecheckFile forces a full re-verification of a file's pieces, IGNORING the
+// verifiedFiles dedupe and re-hashing even pieces currently marked "complete".
+// Use case: manual user action via the UI ("recheck") when they suspect the
+// on-disk bytes are corrupted (BitErrors) or when the size/count in
+// downloads.db doesn't match reality. Unlike VerifyFile, which skips
+// already-complete pieces and dedupes per process, this validates everything
+// again — semantics equivalent to qBittorrent's "Force Recheck". Blocks until
+// done: the HTTP handler only re-enqueues afterwards.
 func (s *Streamer) RecheckFile(ctx context.Context, hash metainfo.Hash, fileIdx int) error {
 	s.mu.Lock()
 	e, ok := s.active[hash]
@@ -136,9 +137,10 @@ func (s *Streamer) RecheckFile(ctx context.Context, hash metainfo.Hash, fileIdx 
 	if fileIdx < 0 || fileIdx >= len(files) {
 		return fmt.Errorf(errFileIndexOutOfRange, fileIdx)
 	}
-	// Libera o claim do dedup antes de re-hashar — assim a verificação roda
-	// de verdade. Mantém a guarda: se outro recheck já está em voo no mesmo
-	// (hash,fileIdx), LoadOrStore retorna loaded=true e a 2ª chamada vira no-op.
+	// Releases the dedup claim before re-hashing — that way the verification
+	// actually runs. Keeps the guard: if another recheck is already in flight for
+	// the same (hash,fileIdx), LoadOrStore returns loaded=true and the 2nd call
+	// becomes a no-op.
 	key := fmt.Sprintf("%s-%d", hash.HexString(), fileIdx)
 	s.verifiedMu.Lock()
 	delete(s.verifiedFiles, key)
@@ -150,8 +152,8 @@ func (s *Streamer) RecheckFile(ctx context.Context, hash metainfo.Hash, fileIdx 
 // recheckFilePieces re-hashes every piece of a file (no skip-complete). Returns
 // the first VerifyData error so callers can fail the recheck end-to-end.
 func (s *Streamer) recheckFilePieces(ctx context.Context, key string, f *torrent.File) error {
-	// Marca como em-progresso antes da hashagem pra concorrent calls não
-	// dispararem 2ª pass.
+	// Marks as in-progress before hashing so concurrent calls don't fire a
+	// 2nd pass.
 	s.verifiedMu.Lock()
 	if s.verifiedFiles == nil {
 		s.verifiedFiles = make(map[string]bool)
@@ -265,7 +267,7 @@ func (s *Streamer) warmTail(f *torrent.File) {
 	r.SetReadahead(tail)
 	r.SetResponsive()
 	if _, err := r.Seek(length-tail, io.SeekStart); err != nil {
-		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
+		// #nosec G104 -- Close is best-effort during cleanup; teardown errors are irrelevant
 		r.Close()
 		return
 	}
@@ -279,6 +281,6 @@ func (s *Streamer) warmTail(f *torrent.File) {
 	case <-done:
 	case <-time.After(30 * time.Second):
 	}
-	// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
+	// #nosec G104 -- Close is best-effort during cleanup; teardown errors are irrelevant
 	r.Close()
 }

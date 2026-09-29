@@ -260,7 +260,7 @@ func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
 	for rows.Next() {
 		var st stale
 		if err := rows.Scan(&st.id, &st.hash); err != nil {
-			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
+			// #nosec G104 -- Close is best-effort without cleanup; teardown error is irrelevant
 			rows.Close()
 			return 0, err
 		}
@@ -269,7 +269,7 @@ func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
+	// #nosec G104 -- Close is best-effort without cleanup; teardown error is irrelevant
 	rows.Close()
 	updated := 0
 	for _, st := range todo {

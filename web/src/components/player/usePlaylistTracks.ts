@@ -41,11 +41,11 @@ export type PlaylistTracksAPI = {
 // the already-loaded `currentInfo` (no refetch); the rest fill in in the
 // background, current-first then ascending, cache-first, throttled.
 //
-// `enabled` controla a RESOLUÇÃO EM RAJADA (cada item faz streamMetadata/streamAdd
-// — no caso local, ffprobe no servidor). O ESQUELETO da lista NÃO depende de
-// `enabled` (persiste ao fechar a sidebar → não re-resolve ~47 faixas ao reabrir).
-// O antigo `resolveEnabled`/blessed foi removido: com preload='none' no iOS não
-// há byte-stream no cold-start pra a rajada sufocar, então o defer é desnecessário.
+// `enabled` controls the BURST RESOLUTION (each item does streamMetadata/streamAdd
+// — locally, ffprobe on the server). The list's SKELETON doesn't depend on
+// `enabled` (persists when the sidebar closes → doesn't re-resolve ~47 tracks on reopen).
+// The old `resolveEnabled`/blessed was removed: with preload='none' on iOS there's
+// no byte-stream at cold-start for the burst to choke, so the defer is unnecessary.
 export function usePlaylistTracks(
   items: readonly PlaylistItemLite[],
   currentItemIndex: number,
@@ -168,8 +168,8 @@ export function usePlaylistTracks(
     }
   }, [groups, enabled, batchWarmDone, currentItemIndex, resolveOne])
 
-  // ensureLoaded resolve UM grupo sob demanda (clique do usuário pra expandir um
-  // grupo ainda 'pending'). É 1 requisição vinda de um gesto — não a rajada de N.
+  // ensureLoaded resolves ONE group on demand (user click to expand a group still 'pending').
+  // It's 1 request coming from a gesture — not the N burst.
   const ensureLoaded = useCallback((itemIndex: number) => {
     resolveOne(itemIndex).catch(() => { /* on-demand resolve; status set in resolveOne */ })
   }, [resolveOne])

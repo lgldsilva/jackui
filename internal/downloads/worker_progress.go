@@ -48,7 +48,7 @@ func (w *Worker) sampleProgress(d Download, td *trackedDL) {
 // it nor untracks-and-unregisters it mid-move — eviction protection stays until
 // the move goroutine releases it), opens a transfer.Job for the Transfers dock,
 // and runs the actual relocation in its own goroutine. A nil/zero target (no
-// file yet) is a no-op. This is the fix for "100% mas não finaliza": the slow
+// file yet) is a no-op. This is the fix for "100% but never finalizes": the slow
 // cross-filesystem copy no longer wedges the tick, and a move that keeps failing
 // ends as `failed` (with the error) instead of retrying silently forever.
 func (w *Worker) checkCompletion(d Download, td *trackedDL) {
@@ -113,7 +113,7 @@ func (w *Worker) failOrRetry(d Download, msg string) {
 		if name == "" {
 			name = d.InfoHash
 		}
-		go w.sendNtfy(context.Background(), "Download falhou: "+name, msg, "x,torrent")
+		go w.sendNtfy(context.Background(), "Download failed: "+name, msg, "x,torrent")
 		return
 	}
 	log.Printf("downloads: init #%d (%s) transient failure %d/%d: %s", d.ID, d.InfoHash, n, maxInitRetries, msg)

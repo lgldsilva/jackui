@@ -11,10 +11,10 @@ type Props = {
   readonly onRenamed: () => void
 }
 
-// Renomeia um arquivo/pasta in-place (mesma pasta-pai). O backend valida que o
-// nome é "puro" (sem barras nem ".."), recusa colisão e mantém o vínculo do
-// torrent. O input pré-seleciona o "stem" (nome sem extensão) pra editar o
-// título sem mexer no ".mkv".
+// Renames a file/folder in place (same parent folder). The backend validates that the
+// name is "clean" (no slashes or ".."), refuses collisions and keeps the torrent
+// link. The input pre-selects the "stem" (name without extension) so the
+// title can be edited without touching the ".mkv".
 export default function RenameModal({ mount, entry, onClose, onRenamed }: Props) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
@@ -27,8 +27,8 @@ export default function RenameModal({ mount, entry, onClose, onRenamed }: Props)
     setName(entry.name)
     setError('')
     setSubmitting(false)
-    // Foca e seleciona só o stem (até a última extensão) num arquivo; numa pasta
-    // seleciona tudo. Timeout: o Sheet monta o DOM no próximo tick.
+    // Focuses and selects only the stem (up to the last extension) for a file; for a folder
+    // selects everything. Timeout: the Sheet mounts the DOM on the next tick.
     const t = setTimeout(() => {
       const el = inputRef.current
       if (!el) return

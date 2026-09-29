@@ -19,8 +19,8 @@ type Props = {
   readonly onToggleSort: (key: SortKey) => void
 }
 
-// Toolbar: busca + selecionar; chips de tipo + status + ordenação (flex-shrink-0
-// pra ficar fixa enquanto a lista abaixo rola).
+// Toolbar: search + select; type + status + sort chips (flex-shrink-0
+// so it stays fixed while the list below scrolls).
 export function LocalToolbar({
   search, onSearchChange, canManipulate, isAdmin, selectMode, onEnterSelectMode,
   kind, onKindChange, statusFilter, onStatusChange, sortKey, sortDir, onToggleSort,
@@ -57,10 +57,10 @@ export function LocalToolbar({
           </button>
         )}
       </div>
-      {/* Dois grupos rotulados (Tipo / Ordenar). No mobile empilham
-          (flex-col) com rótulo visível em cada um — antes os chips dos
-          dois grupos se misturavam numa mesma linha-que-quebra, sem
-          rótulo, e ficava confuso. No desktop voltam pra uma linha. */}
+      {/* Two labeled groups (Type / Sort). On mobile they stack
+          (flex-col) with a visible label on each — the chips of
+          both groups used to mix on the same wrapping line, without
+          a label, and it was confusing. On desktop they go back to one line. */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-text-muted sm:hidden mr-0.5">{t('local.typeLabel')}</span>

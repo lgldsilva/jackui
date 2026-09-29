@@ -136,7 +136,7 @@ func WatchlistDelete(s *watchlist.Store) gin.HandlerFunc {
 const scheduleParseTimeout = 25 * time.Second
 
 // WatchlistScheduleParse — POST /api/watchlists/schedule/parse. Converts a
-// free-text phrase ("toda segunda às 9h") into a normalized Schedule via the AI
+// free-text phrase ("every monday at 9am") into a normalized Schedule via the AI
 // chain. Returns the same schedKind/schedMinutes/... JSON shape the watchlist
 // CRUD uses; the human-readable confirmation lives in the frontend summary.
 // client == nil means AI is disabled (ai.New returned nil) → 503.
@@ -147,21 +147,21 @@ func WatchlistScheduleParse(client *ai.Client) gin.HandlerFunc {
 		if client == nil {
 			// code distinguishes "AI not configured" (frontend hides the field)
 			// from a transient chain failure below (frontend keeps it).
-			httpshared.RespondErrorMessageFields(c, http.StatusServiceUnavailable, "ai indisponível", gin.H{"code": "ai_disabled"})
+			httpshared.RespondErrorMessageFields(c, http.StatusServiceUnavailable, "ai unavailable", gin.H{"code": "ai_disabled"})
 			return
 		}
 		var in struct {
 			Text string `json:"text"`
 		}
 		if err := c.BindJSON(&in); err != nil || strings.TrimSpace(in.Text) == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "texto vazio")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "empty text")
 			return
 		}
 		text := strings.TrimSpace(in.Text)
 		if len(text) > maxScheduleTextLen {
 			// Bounded prompt: an authenticated user must not relay megabytes to
 			// the AI provider (token cost / latency).
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "texto longo demais")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "text too long")
 			return
 		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), scheduleParseTimeout)
@@ -169,10 +169,10 @@ func WatchlistScheduleParse(client *ai.Client) gin.HandlerFunc {
 		res, err := client.ParseSchedule(ctx, text)
 		if err != nil {
 			if errors.Is(err, ai.ErrInvalidSchedule) {
-				httpshared.RespondErrorMessage(c, http.StatusUnprocessableEntity, "não consegui interpretar o texto como agendamento")
+				httpshared.RespondErrorMessage(c, http.StatusUnprocessableEntity, "could not interpret the text as a schedule")
 				return
 			}
-			httpshared.RespondErrorMessageFields(c, http.StatusServiceUnavailable, "ai indisponível", gin.H{"code": "ai_transient"})
+			httpshared.RespondErrorMessageFields(c, http.StatusServiceUnavailable, "ai unavailable", gin.H{"code": "ai_transient"})
 			return
 		}
 		sched := watchlist.Schedule{

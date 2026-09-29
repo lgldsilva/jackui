@@ -114,13 +114,13 @@ func (s *Store) ChangePassword(userID int, current, new string) error {
 	var hash string
 	err := s.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&hash)
 	if err == sql.ErrNoRows {
-		return errors.New("usuário não encontrado")
+		return errors.New("user not found")
 	}
 	if err != nil {
 		return err
 	}
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(current)) != nil {
-		return errors.New("senha atual incorreta")
+		return errors.New("incorrect current password")
 	}
 	return s.SetPassword(userID, new)
 }
@@ -242,13 +242,13 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 		username,
 	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
 	if err == sql.ErrNoRows {
-		return nil, errors.New("usuário ou senha inválidos")
+		return nil, errors.New("invalid username or password")
 	}
 	if err != nil {
 		return nil, err
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
-		return nil, errors.New("usuário ou senha inválidos")
+		return nil, errors.New("invalid username or password")
 	}
 	return &u, nil
 }

@@ -1,13 +1,13 @@
-// Arquivos locais: browser de mounts (config `external.mounts`), cache whole-file,
-// upload, promote, e o "pseudo info-hash" (`local-<b64>`) que faz um arquivo de
-// disco passar por torrent no PlayerModal. Extraído de client.ts (god-file, #417).
-// As funções /api/local/* espelham as de torrent (streamProbe, subtitlesAuto…):
-// detectam o prefixo e roteiam pra cá em vez de /api/stream/*.
+// Local files: mount browser (config `external.mounts`), whole-file cache,
+// upload, promote, and the "pseudo info-hash" (`local-<b64>`) that lets a disk
+// file pass as a torrent in PlayerModal. Extracted from client.ts (god-file, #417).
+// The /api/local/* functions mirror the torrent ones (streamProbe, subtitlesAuto…):
+// they detect the prefix and route here instead of /api/stream/*.
 //
-// Este arquivo continua sendo o ponto de entrada único (`client.ts` faz
-// `export * from './local'`): re-exporta os módulos irmãos abaixo pra que NENHUM
-// import externo quebre. A base compartilhada (pseudo-hash + "view as user") vive
-// em ./local-base pra evitar ciclos com os irmãos.
+// This file remains the single entry point (`client.ts` does
+// `export * from './local'`): it re-exports the sibling modules below so NO
+// external import breaks. The shared base (pseudo-hash + "view as user") lives
+// in ./local-base to avoid cycles with the siblings.
 import { api, withToken } from './http'
 import { audioCapsParam } from '../lib/audioCaps'
 import { isIOS } from './stream-browser'
@@ -23,21 +23,21 @@ export * from './local-cache'
 export * from './local-transfer'
 export * from './local-download'
 
-// Cache da URL resolvida por localPlay (direct ou HLS) — populada por
-// synthesizeLocalInfo, lida pelos URL builders (streamFileURL etc.) pra que
-// PlayerModal não precise distinguir torrent de local.
+// Cache of the URL resolved by localPlay (direct or HLS) — populated by
+// synthesizeLocalInfo, read by the URL builders (streamFileURL etc.) so
+// PlayerModal doesn't need to distinguish torrent from local.
 type LocalPlayable = Pick<LocalPlaySource, 'url' | 'kind'>
 const localPlayableURLCache = new Map<string, LocalPlayable>()
 
-// synthesizeLocalInfo constrói um TorrentInfo "falso" pra arquivos locais.
-// O PlayerModal não distingue — só lê os mesmos campos (infoHash, name, files,
-// totalSize, primaryFile). file index é sempre 0 (o próprio arquivo local).
+// synthesizeLocalInfo builds a "fake" TorrentInfo for local files.
+// PlayerModal doesn't distinguish — it just reads the same fields (infoHash, name, files,
+// totalSize, primaryFile). File index is always 0 (the local file itself).
 export async function synthesizeLocalInfo(hash: string): Promise<TorrentInfo> {
   const loc = parseLocalHash(hash)
   if (!loc) throw new Error('invalid local hash')
   const isVideo = !/\.(mp3|flac|ogg|wav|m4a|aac|opus)$/i.test(loc.path)
-  // Vídeo local no iOS → força HLS (o WebKit trava em MP4 progressive). Áudio e
-  // desktop seguem no direct.
+  // Local video on iOS → force HLS (WebKit chokes on progressive MP4). Audio and
+  // desktop stay on direct.
   const play = await localPlay(loc.mount, loc.path, isVideo && isIOS())
   // The URL from localPlay starts with /api/... (no token); withToken adds it.
   localPlayableURLCache.set(hash, { url: play.url, kind: play.kind })
@@ -323,9 +323,9 @@ export const localPlay = async (mount: string, path: string, forceHLS = false): 
   // do FLAC/OGG/Opus. Harmless on video files (the server ignores it there).
   const caps = audioCapsParam()
   if (caps) sp.set('acaps', caps)
-  // forceHLS: vídeo local no iOS/Safari. O WebKit trava em MP4 progressive por HTTP,
-  // então o vídeo local vai por HLS (remux, sem re-encode pra H264) — o MESMO caminho
-  // confiável do torrent. Sem isto o iOS carregava o <video src=mp4> e travava em rs2.
+  // forceHLS: local video on iOS/Safari. WebKit chokes on progressive MP4 over HTTP,
+  // so local video goes through HLS (remux, no re-encode to H264) — the SAME reliable
+  // path as torrent. Without this iOS loaded the <video src=mp4> and stalled at rs2.
   if (forceHLS) sp.set('transcode', 'hls')
   const params = appendViewAs(sp)
   const { data } = await api.get<LocalPlaySource>(`/local/play?${params}`)

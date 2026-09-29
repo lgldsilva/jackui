@@ -1,5 +1,5 @@
-// Controles estilo Transmission (pause/resume/priority/limits/viewer).
-// Extraído de stream.ts (R3 follow-up).
+// Transmission-style controls (pause/resume/priority/limits/viewer).
+// Extracted from stream.ts (R3 follow-up).
 import { api } from './http'
 import type { StreamLimits, StreamPriority, TorrentInfo } from './stream-types'
 

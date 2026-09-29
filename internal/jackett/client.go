@@ -24,7 +24,7 @@ const (
 	// at once. Jackett commonly has 50-100 configured indexers; firing them ALL in
 	// parallel saturates Jackett (it then serializes the upstream tracker calls),
 	// so many indexers exceed perIndexerTimeout and are silently dropped — the
-	// "Jackett tem N trackers mas o JackUI só mostra ~7" bug. A modest cap keeps
+	// "Jackett has N trackers but JackUI only shows ~7" bug. A modest cap keeps
 	// Jackett responsive so even slow private trackers finish inside the timeout.
 	maxConcurrentIndexerSearches = 12
 
@@ -302,7 +302,7 @@ func (c *Client) TestConnection() error {
 	case http.StatusOK:
 		return nil
 	case http.StatusFound, http.StatusMovedPermanently:
-		return fmt.Errorf("API key inválida (Jackett redirecionou para login)")
+		return fmt.Errorf("invalid API key (Jackett redirected to login)")
 	case http.StatusForbidden, http.StatusUnauthorized:
 		return fmt.Errorf("invalid API key")
 	default:

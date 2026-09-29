@@ -24,7 +24,7 @@ const NEVER_PLAY_TAGS = /\b(ebook|audiobook[. ]?pdf|programs?|software|game[. ]?
  * (music album, audiobook, podcast) or video (movie, series, TV).
  *
  * Used by PlayerProvider to choose between the audio UI (cover + EQ) and the
- * full-screen video player. `fallback` is the user's Cinema/Música preference
+ * full-screen video player. `fallback` is the user's Cinema/Music preference
  * (NavHeader): it ONLY decides the uncertain case — a title with a clear video
  * or audio signal always follows the content. Defaults to 'video' (the prior
  * behaviour) so callers that don't pass it are unaffected.
@@ -55,7 +55,7 @@ export function fileKind(path: string, isVideo?: boolean): 'audio' | 'video' | '
  * Is this result audio (music/audiobook)? Prefers the backend-resolved mediaKind
  * (parser.DetectKind), falling back to the title/category heuristic. Used by the
  * music-mode search filter — 'other'/unknown falls back to the heuristic, which
- * defaults to video, so the "mostrar tudo" escape exists for ambiguous releases.
+ * defaults to video, so the "show all" escape exists for ambiguous releases.
  */
 export function isAudioResult(r: SearchResult): boolean {
   if (r.mediaKind === 'audio') return true

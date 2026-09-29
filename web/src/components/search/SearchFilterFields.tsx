@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next'
 import type { TabState } from '../../lib/searchTabs'
 
 type Props = {
-  // `stacked` controla a largura: no desktop os campos fluem no flex-wrap
-  // (display:contents nos numéricos); no Sheet ficam full-width.
+  // `stacked` controls the width: on desktop the fields flow in the flex-wrap
+  // (display:contents on the numeric ones); in the Sheet they are full-width.
   readonly stacked: boolean
   readonly tab: TabState
   readonly onUpdate: (patch: Partial<TabState>) => void
@@ -16,8 +16,8 @@ type Props = {
   readonly onClearFilters: () => void
 }
 
-// Campo numérico com rótulo (min-seeders/min-leechers/max-GB). Extraído para
-// manter SearchFilterFields com complexidade cognitiva <=15 (CA-1.2).
+// Numeric field with a label (min-seeders/min-leechers/max-GB). Extracted to
+// keep SearchFilterFields at cognitive complexity <=15 (CA-1.2).
 function NumberFilter({ stacked, label, value, placeholder, widthClass, step, onChange }: {
   readonly stacked: boolean
   readonly label: string
@@ -41,8 +41,8 @@ function NumberFilter({ stacked, label, value, placeholder, widthClass, step, on
   )
 }
 
-// Botão-toggle de filtro (playable/HDR/série). `icon` já vem montado no call
-// site para preservar o fill-current dependente de estado.
+// Filter toggle button (playable/HDR/series). `icon` arrives already mounted at the
+// call site to preserve the state-dependent fill-current.
 function FilterToggle({ stacked, active, activeClass, title, label, icon, onClick }: {
   readonly stacked: boolean
   readonly active: boolean
@@ -66,9 +66,9 @@ function FilterToggle({ stacked, active, activeClass, title, label, icon, onClic
   )
 }
 
-// Campos de filtro compartilhados entre a barra inline (desktop) e o Sheet
-// (mobile). Extraído do SearchPage (god-file): antes era a função filterFields
-// que engordava o componente.
+// Filter fields shared between the inline bar (desktop) and the Sheet
+// (mobile). Extracted from SearchPage (god-file): it used to be the filterFields
+// function that bloated the component.
 export function SearchFilterFields({
   stacked, tab, onUpdate, trackers,
   groupSeries, onToggleGroupSeries, activeFilterCount, onClearFilters,

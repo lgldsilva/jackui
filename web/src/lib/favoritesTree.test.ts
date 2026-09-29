@@ -21,7 +21,7 @@ const folder = (over: Partial<FavoriteFolder> & { id: number }): FavoriteFolder 
 } as FavoriteFolder)
 
 describe('buildTree', () => {
-  it('organiza pastas em raízes e filhos', () => {
+  it('organizes folders into roots and children', () => {
     const folders: FavoriteFolder[] = [
       folder({ id: 1, name: 'Raiz', position: 0 }),
       folder({ id: 2, name: 'Filha', parentId: 1, position: 1 }),
@@ -34,7 +34,7 @@ describe('buildTree', () => {
     expect(tree[1].folder.id).toBe(3)
   })
 
-  it('órfãos são renderizados na raiz', () => {
+  it('orphans are rendered at the root', () => {
     const folders: FavoriteFolder[] = [
       folder({ id: 1, name: 'Orfã', parentId: 999 }),
     ]

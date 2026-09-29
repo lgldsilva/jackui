@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// Setters/updates de campos do store — extraído de store.go.
+// Field setters/updates of the store — extracted from store.go.
 // SetStatus updates the lifecycle column and clears the error message when
 // transitioning back to an active state. Scoped by user_id so a row can only be
 // mutated by its owner (defense-in-depth: handlers also check ownership, the
@@ -121,7 +121,7 @@ func (s *Store) UpdateName(userID, id int, name string) error {
 	return err
 }
 
-// SetCategory updates the download's category/label. Used pela Transmission RPC
+// SetCategory updates the download's category/label. Used by the Transmission RPC
 // (torrent-set "labels"). Scoped by user_id.
 func (s *Store) SetCategory(userID, id int, category string) error {
 	_, err := s.db.Exec(`UPDATE downloads SET category=? WHERE id=? AND user_id=?`, category, id, userID)

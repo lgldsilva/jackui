@@ -5,7 +5,7 @@ import { axe } from 'jest-axe'
 import ResultCard from './ResultCard'
 import type { SearchResult } from '../api/client'
 
-// Mock tmdbMatch pra não fazer chamada real de API
+// Mock tmdbMatch so no real API call is made
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof import('../api/client')>('../api/client')
   return {
@@ -38,8 +38,8 @@ function makeResult(overrides: Partial<SearchResult> = {}): SearchResult {
   }
 }
 
-describe('ResultCard — estrutura', () => {
-  it('usa <div> como wrapper principal (não <a> ou <button>)', () => {
+describe('ResultCard — structure', () => {
+  it('uses <div> as the main wrapper (not <a> or <button>)', () => {
     const { container } = render(
       <ResultCard result={makeResult()} onDownload={vi.fn()} />,
     )
@@ -49,7 +49,7 @@ describe('ResultCard — estrutura', () => {
     expect(container.querySelector('button.card')).toBeNull()
   })
 
-  it('card clicável: wrapper estático (sem role) + título vira botão primário', () => {
+  it('clickable card: static wrapper (no role) + title becomes the primary button', () => {
     const { container } = render(
       <ResultCard result={makeResult()} onDownload={vi.fn()} onPlay={vi.fn()} />,
     )
@@ -60,8 +60,8 @@ describe('ResultCard — estrutura', () => {
     expect(titleBtn).toBeInTheDocument()
   })
 
-  it('card não clicável: título segue texto puro (sem botão)', () => {
-    // Sem onPlay e sem onExploreContents → card não clicável
+  it('non-clickable card: title stays plain text (no button)', () => {
+    // Without onPlay and without onExploreContents → card not clickable
     const result = makeResult({ playable: false })
     const { container } = render(
       <ResultCard result={result} onDownload={vi.fn()} />,
@@ -72,11 +72,11 @@ describe('ResultCard — estrutura', () => {
     expect(screen.queryByRole('button', { name: /Test\.Movie\.2024/ })).toBeNull()
   })
 
-  it('não aninha interativos: botões não ficam dentro de role=button/<a> de card', () => {
+  it('does not nest interactives: buttons don\'t sit inside the card\'s role=button/<a>', () => {
     const { container } = render(
       <ResultCard result={makeResult()} onDownload={vi.fn()} onPlay={vi.fn()} onExploreContents={vi.fn()} />,
     )
-    // Nenhum botão pode ser descendente de outro botão ou de uma âncora.
+    // No button may be a descendant of another button or of an anchor.
     for (const btn of container.querySelectorAll('button')) {
       expect(btn.closest('a')).toBeNull()
       const parentBtn = btn.parentElement?.closest('button')
@@ -85,8 +85,8 @@ describe('ResultCard — estrutura', () => {
   })
 })
 
-describe('ResultCard — interação com teclado', () => {
-  it('Enter no botão-título chama onPlay', async () => {
+describe('ResultCard — keyboard interaction', () => {
+  it('Enter on the title button calls onPlay', async () => {
     const user = userEvent.setup()
     const onPlay = vi.fn()
     render(
@@ -97,7 +97,7 @@ describe('ResultCard — interação com teclado', () => {
     expect(onPlay).toHaveBeenCalledTimes(1)
   })
 
-  it('Space no botão-título chama onPlay', async () => {
+  it('Space on the title button calls onPlay', async () => {
     const user = userEvent.setup()
     const onPlay = vi.fn()
     render(
@@ -108,7 +108,7 @@ describe('ResultCard — interação com teclado', () => {
     expect(onPlay).toHaveBeenCalledTimes(1)
   })
 
-  it('sem onPlay mas com onExploreContents, o botão-título explora', async () => {
+  it('without onPlay but with onExploreContents, the title button explores', async () => {
     const user = userEvent.setup()
     const onExplore = vi.fn()
     render(
@@ -118,13 +118,13 @@ describe('ResultCard — interação com teclado', () => {
     expect(onExplore).toHaveBeenCalledTimes(1)
   })
 
-  it('Enter em botão filho não propaga duas vezes (swallowClick)', async () => {
+  it('Enter on a child button doesn\'t propagate twice (swallowClick)', async () => {
     const user = userEvent.setup()
     const onPlay = vi.fn()
     render(
       <ResultCard result={makeResult()} onDownload={vi.fn()} onPlay={onPlay} />,
     )
-    // Botão "Play" (texto exato)
+    // "Play" button (exact text)
     const playBtn = screen.getByRole('button', { name: 'Play' })
     playBtn.focus()
     await user.keyboard('{Enter}')
@@ -133,10 +133,10 @@ describe('ResultCard — interação com teclado', () => {
 })
 
 describe('ResultCard — axe', () => {
-  // color-contrast desligado: jsdom não tem layout/getComputedStyle real.
+  // color-contrast off: jsdom has no real layout/getComputedStyle.
   const AXE_OPTS = { rules: { 'color-contrast': { enabled: false } } } as const
 
-  it('card completo (play + ações) sem violações axe', async () => {
+  it('full card (play + actions) with no axe violations', async () => {
     const { container } = render(
       <ResultCard
         result={makeResult({ id: 1 })}
@@ -150,7 +150,7 @@ describe('ResultCard — axe', () => {
     expect(await axe(container, AXE_OPTS)).toHaveNoViolations()
   })
 
-  it('card estático (sem ação primária) sem violações axe', async () => {
+  it('static card (no primary action) with no axe violations', async () => {
     const { container } = render(
       <ResultCard result={makeResult({ playable: false })} onDownload={vi.fn()} />,
     )
@@ -159,7 +159,7 @@ describe('ResultCard — axe', () => {
 })
 
 describe('ResultCard — aria-labels', () => {
-  it('botão Refresh tem aria-label i18n (inglês: "Refresh seeders/leechers")', () => {
+  it('Refresh button has an i18n aria-label (English: "Refresh seeders/leechers")', () => {
     const onRefresh = vi.fn()
     const result = makeResult({ id: 1 })
     render(
@@ -174,7 +174,7 @@ describe('ResultCard — aria-labels', () => {
     expect(refreshBtn).toHaveAccessibleName()
   })
 
-  it('botão Explore files tem aria-label i18n quando presente', async () => {
+  it('Explore files button has an i18n aria-label when present', async () => {
     const user = userEvent.setup()
     render(
       <ResultCard
@@ -189,7 +189,7 @@ describe('ResultCard — aria-labels', () => {
     expect(exploreBtn).toBeInTheDocument()
   })
 
-  it('botão Copy magnet tem aria-label i18n', async () => {
+  it('Copy magnet button has an i18n aria-label', async () => {
     const user = userEvent.setup()
     render(
       <ResultCard result={makeResult()} onDownload={vi.fn()} onPlay={vi.fn()} />,

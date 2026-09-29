@@ -38,13 +38,13 @@ export type MediaUrlInput = {
   playbackID?: string
 }
 
-// buildStreamURL: vazia se não der pra tocar; direct-play (streamFileURL) quando
-// não precisa transcode; senão HLS-VOD pra TODOS os browsers (segmentado +
-// seekável). Safari/iOS tocam nativo; os demais anexam via hls.js (ver o efeito
-// em VideoPlayerElement). HLS substitui o antigo MP4 progressive, que não tinha
-// seek e tinha o ffmpeg morto a cada byte-range (Chrome E iOS Edge). (HLS usa a
-// faixa de áudio default → AAC; seleção de faixa não-default e burn de legenda
-// image-based não passam por aqui — tradeoff do HLS-everywhere.)
+// buildStreamURL: empty when it can't play; direct-play (streamFileURL) when
+// no transcode is needed; otherwise HLS-VOD for ALL browsers (segmented +
+// seekable). Safari/iOS play it natively; the others attach via hls.js (see the effect
+// in VideoPlayerElement). HLS replaces the old progressive MP4, which wasn't
+// seekable and had ffmpeg dying on every byte-range (Chrome AND iOS Edge). (HLS uses the
+// default audio track → AAC; non-default track selection and image-based subtitle
+// burn don't go through here — the HLS-everywhere tradeoff.)
 type StreamURLInput = Pick<MediaUrlInput, 'info' | 'selectedFile' | 'serverReady' | 'mediaToken' | 'transcodeAudio' | 'playbackID'> & {
   tokenMissing: boolean
   isTranscoded: boolean
@@ -90,14 +90,14 @@ function pickEncoderLabel(caps: TranscodeCapabilities | null): string {
   return 'CPU'
 }
 
-// computeIsTranscoded: a faixa vai por HLS-transcode (true) ou direct-play
-// (false)? Decide pelo CODEC REAL (probe do backend, navegador-agnóstico:
-// MKV/HEVC/AV1/AC3/DTS não tocam direto em browser nenhum). Antes era por NOME, o
-// que mandava incompatível pro direct-play → errorCode 4 no Safari. O probe
-// (useTrackProbe) chega logo; enquanto não chega, cai numa heurística de nome só
-// pra reduzir a janela — o probe sobrescreve assim que disponível. Extraído pra o
-// PlayerModal poder gatear o motor gapless (só direct-play) ANTES do early-return,
-// usando a MESMA verdade que computeMediaUrls.
+// computeIsTranscoded: does the track go through HLS-transcode (true) or direct-play
+// (false)? Decided by the REAL CODEC (backend probe, browser-agnostic:
+// MKV/HEVC/AV1/AC3/DTS don't direct-play in any browser). It used to be by NAME, which
+// sent incompatible ones to direct-play → errorCode 4 on Safari. The probe
+// (useTrackProbe) arrives soon; until then, falls to a name heuristic just
+// to shrink the window — the probe overwrites as soon as available. Extracted so
+// PlayerModal can gate the gapless engine (direct-play only) BEFORE the early-return,
+// using the SAME truth as computeMediaUrls.
 export function computeIsTranscoded(input: {
   info: TorrentInfo | null
   selectedFile: number
@@ -121,10 +121,10 @@ export function computeIsTranscoded(input: {
 
 export function computeMediaUrls(input: MediaUrlInput) {
   const { info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, caps, authEnabled, probe } = input
-  // O media token só é OBRIGATÓRIO com auth ligado (<video>/<track> não mandam
-  // header → carregam ?token=). Com auth off as rotas de mídia são públicas e
-  // /auth/media-token responde 404 — gatear no token aqui deixaria a streamURL
-  // vazia pra sempre e o player giraria sem nunca carregar.
+  // The media token is only MANDATORY with auth on (<video>/<track> can't send
+  // headers → they load via ?token=). With auth off the media routes are public and
+  // /auth/media-token answers 404 — gating on the token here would leave the streamURL
+  // empty forever and the player would spin without ever loading.
   const tokenMissing = authEnabled && !mediaToken
   const isTranscoded = computeIsTranscoded({ info, selectedFile, transcodeAudio, forceH264, burnSubTrack, probe })
 
@@ -158,9 +158,9 @@ export function computeMediaUrls(input: MediaUrlInput) {
   return { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, directURL: absoluteDirectURL, encoderLabel, isTranscoded }
 }
 
-// recoverHlsFatal trata erro FATAL do hls.js fora do componente (mantém a
-// complexidade cognitiva de VideoPlayerElement baixa). A DECISÃO é pura
-// (hlsFatalAction, testável); aqui só aplica o efeito no objeto Hls.
+// recoverHlsFatal handles hls.js FATAL errors outside the component (keeps
+// VideoPlayerElement's cognitive complexity low). The DECISION is pure
+// (hlsFatalAction, testable); here we only apply the effect to the Hls object.
 export function recoverHlsFatal(hls: Hls, data: ErrorData) {
   if (!data.fatal) return
   switch (hlsFatalAction(data.type, Hls.ErrorTypes)) {
@@ -170,12 +170,12 @@ export function recoverHlsFatal(hls: Hls, data: ErrorData) {
   }
 }
 
-// tryAutoplayMutedFallback: o iOS/Safari ignora o atributo autoPlay quando há
-// faixa de áudio (política de auto-play da Apple — só toca sozinho mudo, sem som
-// ou após gesto). Tenta play() com som; se a política bloquear (NotAllowed sem
-// gesto), cai pra MUDO (sempre permitido inline) e o usuário só dá unmute. No
-// desktop, onde autoplay com som é permitido, o primeiro play() já passa e o
-// vídeo NÃO fica mudo. Usado tanto no hls.js (desktop) quanto no <video> nativo.
+// tryAutoplayMutedFallback: iOS/Safari ignores the autoPlay attribute when there's
+// an audio track (Apple's auto-play policy — only plays by itself muted, without sound
+// or after a gesture). Tries play() with sound; if the policy blocks it (NotAllowed without
+// gesture), falls back to MUTED (always allowed inline) and the user just unmutes. On
+// desktop, where autoplay with sound is allowed, the first play() already succeeds and the
+// video does NOT stay muted. Used both on hls.js (desktop) and the native <video>.
 export function tryAutoplayMutedFallback(v: HTMLVideoElement) {
   v.play().catch(() => {
     v.muted = true
@@ -183,12 +183,12 @@ export function tryAutoplayMutedFallback(v: HTMLVideoElement) {
   })
 }
 
-// kickPastStartGap: aplica o nudge calculado por startGapNudgeTarget. Se o vídeo
-// estiver travado no buraco inicial do t=0 (ver startGapNudgeTarget), pula o
-// currentTime pra dentro do buffer e (re)tenta o autoplay — destrava o Safari
-// que não inicia quando buffered.start(0) é um fio > 0. No-op quando não há esse
-// buraco. Idempotente: depois do nudge o currentTime passa de buffered.start(0),
-// então a próxima chamada já devolve null e nada acontece (sem reseek em loop).
+// kickPastStartGap: applies the nudge computed by startGapNudgeTarget. If the video
+// is stuck in the initial t=0 gap (see startGapNudgeTarget), jumps the
+// currentTime into the buffer and (re)tries autoplay — unlocks Safari
+// when it won't start because buffered.start(0) is a hair > 0. No-op when there's no
+// such gap. Idempotent: after the nudge currentTime is past buffered.start(0),
+// so the next call already returns null and nothing happens (no reseek loop).
 export function kickPastStartGap(v: HTMLVideoElement): boolean {
   const start = v.buffered.length > 0 ? v.buffered.start(0) : null
   const target = startGapNudgeTarget(v.currentTime, start)

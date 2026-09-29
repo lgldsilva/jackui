@@ -10,27 +10,27 @@ import FileProgressBar from './FileProgressBar'
 type Props = {
   readonly mount: string
   readonly entry: LocalEntry | null
-  /** Modo lote: quando preenchido (e não-vazio), move todos os itens de uma vez. */
+  /** Batch mode: when filled (and non-empty), moves all items at once. */
   readonly entries?: readonly LocalEntry[]
   readonly onClose: () => void
   readonly onMoved: () => void
 }
 
-// Unifica os dois modos: lista de itens a mover (1 no modo single, N no lote).
+// Unifies the two modes: list of items to move (1 in single mode, N in batch).
 function resolveItems(entry: LocalEntry | null, entries?: readonly LocalEntry[]): readonly LocalEntry[] {
   if (entries && entries.length > 0) return entries
   return entry ? [entry] : []
 }
 
-// Destino final = pasta navegada + subpasta nova (opcional). Extraído do
-// componente: como ternário aninhado o Sonar reclama (S3358) e soma na
-// complexidade cognitiva.
+// Final destination = browsed folder + new subfolder (optional). Extracted from
+// the component: as a nested ternary Sonar complains (S3358) and it adds to
+// cognitive complexity.
 function joinDest(browsePath: string, cleanNew: string): string {
   if (!cleanNew) return browsePath
   return browsePath ? `${browsePath}/${cleanNew}` : cleanNew
 }
 
-// No lote não há uma única "localização atual"; deixa o backend validar cada item.
+// In batch there is no single "current location"; let the backend validate each item.
 function isSameLocation(isBatch: boolean, dstMount: string, srcMount: string, browsePath: string, singlePath: string): boolean {
   if (isBatch || dstMount !== srcMount) return false
   const parent = singlePath.includes('/') ? singlePath.slice(0, singlePath.lastIndexOf('/')) : ''
@@ -41,9 +41,9 @@ function moveErrorMessage(reason: any, fallback: string): string {
   return reason?.response?.data?.error || reason?.message || fallback
 }
 
-// allSettled: um item que falha na validação (ex: colisão de nome) não aborta os
-// outros. Cada move aceito roda em background (202) e reporta ao painel de
-// Transferências; aqui só validamos o aceite.
+// allSettled: an item that fails validation (e.g. name collision) doesn't abort the
+// others. Each accepted move runs in the background (202) and reports to the
+// Transfers panel; here we only validate acceptance.
 async function runMoves(
   srcMount: string, items: readonly LocalEntry[], dstMount: string, finalPath: string,
 ): Promise<PromiseRejectedResult[]> {
@@ -59,7 +59,7 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
   const [mounts, setMounts] = useState<LocalMount[]>([])
   const [dstMount, setDstMount] = useState('')
   const [browsePath, setBrowsePath] = useState('')
-  const [newFolder, setNewFolder] = useState('') // subpasta a criar no destino (opcional)
+  const [newFolder, setNewFolder] = useState('') // subfolder to create at the destination (optional)
   const [dirs, setDirs] = useState<LocalEntry[]>([])
   const [dirsLoading, setDirsLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -97,9 +97,9 @@ export default function MoveFolderModal({ mount, entry, entries, onClose, onMove
 
   const isBatch = items.length > 1
   const breadcrumb = browsePath.split('/').filter(Boolean)
-  // Subpasta nova (opcional) anexada ao destino. O backend (localMove) faz
-  // MkdirAll no destino, então a pasta é criada na hora de mover — sem endpoint
-  // extra. Aceita aninhado (a/b) e ignora barras nas pontas.
+  // New subfolder (optional) appended to the destination. The backend (localMove) does
+  // MkdirAll at the destination, so the folder is created at move time — no extra
+  // endpoint. Accepts nested (a/b) and ignores edge slashes.
   const cleanNew = trimSlashes(newFolder.trim())
   const finalPath = joinDest(browsePath, cleanNew)
 

@@ -167,13 +167,13 @@ func stopSeedOne(store *downloads.Store, s *streamer.Streamer, worker DownloadRe
 	return true
 }
 
-// DownloadsRecheck handles POST /api/downloads/:id/recheck — força um
-// "Force Recheck" estilo qBittorrent no arquivo do download: re-hasha TODOS
-// os pieces do arquivo (não só os incompletos), zera bytes_downloaded e
-// volta o status pra `downloading` pra que o worker reconcilie com a verdade
-// do disco depois. Uso típico: usuário desconfia que os bytes corromperam
-// (BitErrors, ungraceful shutdown sem grace period), ou o file_size do row
-// não bate com o real.
+// DownloadsRecheck handles POST /api/downloads/:id/recheck — forces a
+// qBittorrent-style "Force Recheck" on the download's file: re-hashes ALL
+// of the file's pieces (not just the incomplete ones), zeroes bytes_downloaded and
+// puts the status back to `downloading` so the worker reconciles with the disk
+// truth afterwards. Typical use: the user suspects the bytes got corrupted
+// (BitErrors, ungraceful shutdown without a grace period), or the row's file_size
+// doesn't match reality.
 // recheckPrepare resolves the download row + infoHash and (re-)attaches the
 // torrent so RecheckFile/RecheckAllFiles have access to the files. It writes
 // the error response itself and returns ok=false on failure.
@@ -185,11 +185,11 @@ func recheckPrepare(c *gin.Context, store *downloads.Store, s *streamer.Streamer
 		return nil, h, false
 	}
 	if err := h.FromHexString(d.InfoHash); err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "infoHash inválido")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid infoHash")
 		return nil, h, false
 	}
-	// EnsureActive antes do recheck — se o torrent foi dropado (ex.: post-
-	// completed sem seed), precisa re-attach pra ter acesso aos files.
+	// EnsureActive before the recheck — if the torrent was dropped (e.g. post-
+	// completed without seed), it must be re-attached to access the files.
 	if d.Magnet != "" {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		_, err := s.EnsureActive(ctx, d.Magnet)
@@ -226,8 +226,9 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
-		// Reset row pro worker reconciliar com o real após o hash check. Vai pra
-		// fila (não direto pra downloading) pro scheduler respeitar o limite.
+		// Reset the row so the worker reconciles with reality after the hash check.
+		// It goes to the queue (not straight to downloading) so the scheduler
+		// respects the limit.
 		if err := store.UpdateProgress(userID, id, 0); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -245,11 +246,11 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 	}
 }
 
-// DownloadsDetails handles GET /api/downloads/:id/details — devolve o row do
-// download + info do torrent (todos os arquivos, peers/seeders ao vivo,
-// tamanhos reais no disco). Usado pelo modal de inspeção pra mostrar o que
-// o torrent tem além do arquivo baixado, distinguir aparente (sparse) de
-// real, e habilitar ações por arquivo.
+// DownloadsDetails handles GET /api/downloads/:id/details — returns the
+// download row + torrent info (all files, live peers/seeders,
+// real on-disk sizes). Used by the inspection modal to show what the
+// torrent holds beyond the downloaded file, tell apparent (sparse) from
+// real, and enable per-file actions.
 type downloadFileStat struct {
 	Apparent int64 `json:"apparent"`
 	OnDisk   int64 `json:"onDisk"`

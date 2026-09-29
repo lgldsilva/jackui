@@ -47,12 +47,12 @@ func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
 			Code string `json:"code"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Code == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "código obrigatório")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "code required")
 			return
 		}
 		secret, _, _ := store.GetTOTPSecret(claims.UserID)
 		if !auth.ValidateTOTP(secret, req.Code) {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "código inválido")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid code")
 			return
 		}
 		if err := store.EnableTOTP(claims.UserID); err != nil {
@@ -66,7 +66,7 @@ func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "MFA ativado", "backupCodes": codes})
+		c.JSON(http.StatusOK, gin.H{"message": "MFA enabled", "backupCodes": codes})
 	}
 }
 
@@ -98,7 +98,7 @@ func MFABackupCodesRegenerate(store *auth.Store) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha incorreta")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "incorrect password")
 			return
 		}
 		codes, err := store.GenerateBackupCodes(claims.UserID, backupCodeCount)
@@ -125,13 +125,13 @@ func MFADisable(store *auth.Store) gin.HandlerFunc {
 		_ = c.ShouldBindJSON(&req)
 		// Re-verify the password by username (we have it in claims).
 		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha incorreta")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "incorrect password")
 			return
 		}
 		if err := store.DisableTOTP(claims.UserID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "MFA desativado"})
+		c.JSON(http.StatusOK, gin.H{"message": "MFA disabled"})
 	}
 }

@@ -71,10 +71,10 @@ export default function LocalPage() {
   const [reclassifyItem, setReclassifyItem] = useState<LocalEntry | null>(null)
   const [moveItem, setMoveItem] = useState<LocalEntry | null>(null)
   const [renameItem, setRenameItem] = useState<LocalEntry | null>(null)
-  // Viewer universal pra arquivos não-reproduzíveis (NFO/imagem/PDF/CBZ/zip/EPUB)
+  // Universal viewer for non-playable files (NFO/image/PDF/CBZ/zip/EPUB)
   const [previewEntry, setPreviewEntry] = useState<LocalEntry | null>(null)
 
-  // Busca textual por nome (filtra a lista visível) + seletor de mount (mobile).
+  // Text search by name (filters the visible list) + mount selector (mobile).
   const [search, setSearch] = useState('')
   const [mountSheetOpen, setMountSheetOpen] = useState(false)
 
@@ -91,8 +91,8 @@ export default function LocalPage() {
   const canViewAsUser = isAdmin && !!activeMountObj?.userSubpath
   const canManipulate = !isGuest && activeMount.toLowerCase() === 'meus downloads'
 
-  // useCallback: o handler passado ao breadcrumb / navegação precisa de referência
-  // estável pra que o React.memo das rows continue funcionando.
+  // useCallback: the handler passed to the breadcrumb / navigation needs a stable
+  // reference so the rows' React.memo keeps working.
   const updateNavigation = useCallback((newMount: string, newPath: string, replace = false) => {
     // Atomic two-key update (mount + path) via the shared helper, which merges over
     // the live query so an active ?play= is preserved.
@@ -103,8 +103,8 @@ export default function LocalPage() {
   // filter + sort apply within each group, folders kept on top.
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    // O filtro de status (baixando/concluído) aplica a pastas E arquivos — mas só
-    // quando ≠ 'all', pra que no default a navegação por pastas siga livre.
+    // The status filter (downloading/completed) applies to folders AND files — but only
+    // when ≠ 'all', so by default folder navigation stays free.
     const keep = (e: LocalEntry) =>
       (!q || e.name.toLowerCase().includes(q)) && matchesEntryStatus(e, statusFilter)
     const dirs = entries.filter((e) => e.isDir && keep(e))
@@ -123,9 +123,9 @@ export default function LocalPage() {
     return [...dirs.sort(cmp), ...files.sort(cmp)]
   }, [entries, kind, statusFilter, sortKey, sortDir, search])
 
-  // Windowing: renderiza a lista em LOTES e revela mais ao rolar até o fim
-  // (sentinela + IntersectionObserver) — igual Search/Favorites. resetKey volta ao
-  // 1º lote quando muda a pasta/mount ou os filtros/ordenação/busca.
+  // Windowing: renders the list in BATCHES and reveals more as you scroll to the end
+  // (sentinel + IntersectionObserver) — same as Search/Favorites. resetKey goes back to the
+  // 1st batch when the folder/mount or the filters/sort/search change.
   const reveal = useIncrementalReveal(
     visible.length,
     `${activeMount}|${path}|${kind}|${statusFilter}|${sortKey}|${sortDir}|${search}`,
@@ -196,13 +196,13 @@ export default function LocalPage() {
       })
   }, [])
 
-  // Auto-seleciona o primeiro mount sempre que NENHUM está selecionado — no land
-  // inicial E ao re-clicar "Local" na nav (que vai pra /local sem ?mount=, zerando
-  // o activeMount). Tem que ser REATIVO, não só no load: no mobile o seletor de
-  // mount vive DENTRO do bloco `{activeMount && ...}`, então um activeMount vazio
-  // escondia os mounts por completo ("clico no Local 2x e some os mounts"). Manter
-  // sempre um mount selecionado evita esse estado morto. Loop não acontece: ao
-  // selecionar, activeMount deixa de ser vazio e o efeito vira no-op.
+  // Auto-selects the first mount whenever NONE is selected — on the initial land
+  // AND when re-clicking "Local" in the nav (which goes to /local without ?mount=, zeroing
+  // activeMount). Must be REACTIVE, not just on load: on mobile the mount
+  // selector lives INSIDE the `{activeMount && ...}` block, so an empty activeMount
+  // hid the mounts entirely ("click Local 2x and the mounts vanish"). Keeping
+  // a mount always selected avoids that dead state. No loop happens: after
+  // selecting, activeMount is no longer empty and the effect becomes a no-op.
   useEffect(() => {
     if (mounts.length > 0 && !activeMount) {
       updateNavigation(mounts[0].name, '', true)
@@ -289,8 +289,8 @@ export default function LocalPage() {
             />
           )}
 
-          {/* Banner de progresso do upload (streaming direto pro disco no backend) —
-              mesmo componente FileProgressBar usado no dock global de Transferências. */}
+          {/* Upload progress banner (streamed straight to disk on the backend) —
+              same FileProgressBar component used in the global Transfers dock. */}
           {upload && (
             <div className="flex-shrink-0 bg-surface-secondary border border-green-500/30 rounded-xl p-3">
               <FileProgressBar
@@ -375,9 +375,9 @@ export default function LocalPage() {
             />
           )}
 
-          {/* Viewer universal — arquivo local não-reproduzível clicado */}
+          {/* Universal viewer — clicked non-playable local file */}
           {previewEntry && activeMount && (() => {
-            // Irmãs imagens da pasta viram navegação ←/→ no viewer.
+            // The folder's image siblings become ←/→ navigation in the viewer.
             const imageSiblings = visible.filter(x => !x.isDir && detectViewerKind(x.name) === 'image')
             const imageStart = Math.max(0, imageSiblings.findIndex(x => x.path === previewEntry.path))
             return (
@@ -393,7 +393,7 @@ export default function LocalPage() {
             )
           })()}
 
-          {/* Modal de Promoção — individual (1) ou lote (N) num único fluxo */}
+          {/* Promotion modal — single (1) or batch (N) in one flow */}
           <LocalPromoteModal
             mount={activeMount}
             entries={promoteEntries}
@@ -401,7 +401,7 @@ export default function LocalPage() {
             onPromoted={() => { refresh(); clearSelection() }}
           />
 
-          {/* Modal de Reclassificação em lote via IA */}
+          {/* Batch AI reclassification modal */}
           <ReclassifyFolderModal
             mount={activeMount}
             entry={reclassifyItem}
@@ -429,7 +429,7 @@ export default function LocalPage() {
             onMoved={refresh}
           />
 
-          {/* Modal de limpar duplicados por conteúdo (pasta atual, recursivo) */}
+          {/* Clean content-duplicates modal (current folder, recursive) */}
           {showDuplicates && activeMount && (
             <DuplicatesModal
               mount={activeMount}
@@ -444,7 +444,7 @@ export default function LocalPage() {
         </section>
       </main>
 
-      {/* Barra de ações em lote (modo seleção) */}
+      {/* Batch action bar (selection mode) */}
       {selectMode && (
         <BatchActionBar
           count={selected.size}

@@ -17,17 +17,17 @@ export type BatchActionBarProps = {
 }
 
 /**
- * Barra de ações em lote fixa no rodapé (modo de seleção do LocalPage). z-40 fica
- * abaixo dos Sheets/modais (z-50) e acima da lista. `safe-bottom` respeita a
- * home-indicator do iPhone. A lista recebe `pb-20` enquanto a barra está aberta.
+ * Batch action bar fixed at the bottom (LocalPage selection mode). z-40 sits
+ * below Sheets/modals (z-50) and above the list. `safe-bottom` respects the
+ * iPhone home-indicator. The list gets `pb-20` while the bar is open.
  */
 export function BatchActionBar({
   count, onCancel, onSelectAll, allSelected = false, canMove, canPromote, onDelete, onMove, onPromote, running = false,
 }: BatchActionBarProps) {
   const { t } = useTranslation()
-  // Reserva espaço no rodapé enquanto a barra está montada (CSS var no :root), pra
-  // o dock flutuante do player (bottom-right, z-50) subir acima dela em vez de
-  // cobrir os botões da direita. Limpa ao desmontar (sair do modo de seleção).
+  // Reserves footer space while the bar is mounted (CSS var on :root) so
+  // the player's floating dock (bottom-right, z-50) rises above it instead of
+  // covering the right-hand buttons. Cleared on unmount (leaving selection mode).
   useEffect(() => {
     const root = document.documentElement
     root.style.setProperty('--bottom-bar-h', '4.5rem')

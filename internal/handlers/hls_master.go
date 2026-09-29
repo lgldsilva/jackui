@@ -91,11 +91,11 @@ func StreamHLSAudio(s *streamer.Streamer, mgr *transcode.HLSSessionManager, stor
 	}
 }
 
-// masterOpts é o insumo do buildMasterPlaylist. Com renditions=false (M2a) só
-// há STREAM-INF de vídeo e a faixa escolhida vai na query do variant
-// (audioQuery, troca por reload). Com renditions=true (M2b, gate
-// JACKUI_HLS_MEDIA_RENDITIONS) saem EXT-X-MEDIA TYPE=AUDIO/SUBTITLES e o variant
-// fica no áudio default.
+// masterOpts is the input to buildMasterPlaylist. With renditions=false (M2a) there
+// is only a video STREAM-INF and the chosen track goes in the variant's query
+// (audioQuery, switch via reload). With renditions=true (M2b, gate
+// JACKUI_HLS_MEDIA_RENDITIONS) EXT-X-MEDIA TYPE=AUDIO/SUBTITLES are emitted and the
+// variant stays on the default audio.
 type masterOpts struct {
 	ladder     []transcode.Variant
 	srcW, srcH int
@@ -140,8 +140,8 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	return true
 }
 
-// masterWarranted: um master vale por ≥2 rungs de vídeo ou ≥2 faixas de áudio.
-// Legendas de texto só justificam um master quando o toggle M2b está ligado.
+// masterWarranted: a master is warranted by ≥2 video rungs or ≥2 audio tracks.
+// Text subtitles only justify a master when the M2b toggle is on.
 func masterWarranted(renditions bool, ladder []transcode.Variant, audio, subs []streamer.Track) bool {
 	if len(ladder) >= 2 || len(audio) >= 2 {
 		return true
@@ -149,8 +149,8 @@ func masterWarranted(renditions bool, ladder []transcode.Variant, audio, subs []
 	return renditions && len(subs) > 0
 }
 
-// textSubs filtra as legendas de TEXTO (SRT/ASS/…) — as bitmap (PGS/VOBSUB,
-// Track.Image) continuam burn-in, sem rendition (não há WebVTT sem OCR).
+// textSubs filters TEXT subtitles (SRT/ASS/…) — bitmap ones (PGS/VOBSUB,
+// Track.Image) keep burning in, without a rendition (no WebVTT without OCR).
 func textSubs(subs []streamer.Track) []streamer.Track {
 	out := make([]streamer.Track, 0, len(subs))
 	for _, s := range subs {
@@ -226,8 +226,8 @@ func writeAudioRenditions(b *strings.Builder, audio []streamer.Track, q string) 
 // resolves to the same EffectiveKey.
 func buildMasterPlaylist(o masterOpts) []byte {
 	q := mediaSegQueryWithPlayback(o.token, o.nativeHLS, o.playback)
-	// M2a (sem renditions): a faixa escolhida vai na query do variant (troca por
-	// reload). Com renditions o áudio vem por a/:track e o variant fica no default.
+	// M2a (no renditions): the chosen track goes in the variant's query (switch via
+	// reload). With renditions the audio comes via a/:track and the variant stays on the default.
 	hasAudio := len(o.audio) >= 2
 	hasSubs := o.renditions && len(o.subs) > 0
 	variantQ := q

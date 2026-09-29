@@ -1,14 +1,14 @@
-// Extende os matchers do Vitest com os do jest-dom (toBeVisible,
+// Extends Vitest's matchers with jest-dom's (toBeVisible,
 // toHaveFocus, toHaveAttribute, etc.)
 import '@testing-library/jest-dom/vitest'
 
-// Matcher toHaveNoViolations do jest-axe (tipos em src/jest-axe.d.ts)
+// jest-axe's toHaveNoViolations matcher (types in src/jest-axe.d.ts)
 import { expect, vi } from 'vitest'
 import { toHaveNoViolations } from 'jest-axe'
 expect.extend(toHaveNoViolations)
 
-// jsdom não tem IntersectionObserver. Vitest 4 exige implementação com
-// `function`/`class` quando o mock é usado via `new` (arrow throws
+// jsdom has no IntersectionObserver. Vitest 4 requires an implementation with
+// `function`/`class` when the mock is used via `new` (arrow throws
 // "is not a constructor").
 vi.stubGlobal(
   'IntersectionObserver',
@@ -20,6 +20,6 @@ vi.stubGlobal(
   },
 )
 
-// Inicializa o i18n para que useTranslation() resolva chaves corretamente
+// Initializes i18n so useTranslation() resolves keys correctly
 import './lib/i18n'
 

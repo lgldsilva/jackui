@@ -614,8 +614,8 @@ func TestPreviewItem_NonExistent(t *testing.T) {
 		mount: "Test",
 	}
 	result := previewItem(d, "nonexistent.mp4", "nonexistent.mp4")
-	if result["error"] != "arquivo não existe" {
-		t.Errorf("expected 'arquivo não existe', got %v", result["error"])
+	if result["error"] != "file does not exist" {
+		t.Errorf("expected 'file does not exist', got %v", result["error"])
 	}
 }
 

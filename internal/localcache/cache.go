@@ -8,7 +8,7 @@
 package localcache
 
 import (
-	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
+	// #nosec G505 -- sha1 imported for content hashing (dedup/oshash), not security crypto
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -111,7 +111,7 @@ func newCache(root string, maxBytes int64, nowFn func() time.Time, runWorker boo
 }
 
 func key(mount, path string) string {
-	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
+	// #nosec G401 -- sha1/md5 for content hashing (dedup/oshash), not security crypto use
 	sum := sha1.Sum([]byte(mount + "|" + path))
 	return hex.EncodeToString(sum[:])
 }
@@ -136,7 +136,7 @@ func (c *Cache) Enqueue(mount, path, srcAbs string, size int64) {
 	case c.jobs <- job{key: k, srcAbs: srcAbs}:
 	default:
 		// Queue full — mark error so the UI doesn't spin forever.
-		c.setStatus(k, StatusError, "fila de cache cheia")
+		c.setStatus(k, StatusError, "cache queue full")
 	}
 }
 
@@ -235,13 +235,13 @@ func (c *Cache) runJob(j job) {
 }
 
 func (c *Cache) copyFile(k, srcAbs, dst string) error {
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 	in, err := os.Open(srcAbs)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -361,7 +361,7 @@ func (c *Cache) saveIndex() {
 		return
 	}
 	tmp := c.indexPath() + ".tmp"
-	// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+	// #nosec G306 -- media/cache file; 0644 intentional for readability
 	if os.WriteFile(tmp, data, 0o644) == nil {
 		_ = os.Rename(tmp, c.indexPath())
 	}

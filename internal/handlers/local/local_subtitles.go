@@ -3,7 +3,7 @@ package local
 import (
 	"bytes"
 	"context"
-	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
+	// #nosec G505 -- sha1 import is for content hashing (dedup/oshash), not security crypto
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
@@ -261,11 +261,11 @@ func LocalSidecarRead(b *lb.Browser) gin.HandlerFunc {
 	}
 }
 
-// sanitizeSidecarName valida o nome do sidecar vindo do request: precisa ser um
-// nome de arquivo puro — sem separadores, sem tokens de traversal — para que o
-// Join com o diretório do vídeo (já guardado por ResolvePath) jamais escape do
-// mount. Antes o ".." exato só era bloqueado indiretamente pela whitelist de
-// extensão; a invariante agora é local e testável.
+// sanitizeSidecarName validates the sidecar name coming from the request: it must be a
+// pure file name — no separators, no traversal tokens — so that the
+// Join with the video's directory (already guarded by ResolvePath) never escapes the
+// mount. Previously an exact ".." was only blocked indirectly by the extension
+// whitelist; the invariant is now local and testable.
 func sanitizeSidecarName(name string) (string, error) {
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) || filepath.Base(name) != name {
 		return "", errors.New("invalid sidecar name")
@@ -381,7 +381,7 @@ func localSubVTTPath(cache *localcache.Cache, abs string, st os.FileInfo, track 
 	if cache == nil || st == nil {
 		return ""
 	}
-	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
+	// #nosec G401 -- sha1/md5 for content hashing (dedup/oshash), not a security-cryptographic use
 	sum := sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d|%d", abs, st.ModTime().UnixNano(), st.Size(), track)))
 	return filepath.Join(cache.Root(), "subs", hex.EncodeToString(sum[:])+".vtt")
 }
@@ -391,7 +391,7 @@ func localSubVTTPath(cache *localcache.Cache, abs string, st os.FileInfo, track 
 // (PGS/VobSub) fail here — the frontend filters them via the probe's Image flag.
 func extractEmbeddedVTT(ctx context.Context, src string, track int) ([]byte, error) {
 	// -map 0:<absoluteIndex> selects the stream; ffmpeg accepts the absolute idx.
-	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
+	// #nosec G204 -- binary fixed/from config; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		ffHideBanner, ffLogLevel, "error",
 		"-i", src,
@@ -448,12 +448,12 @@ func persistVTT(vttPath string, data []byte) {
 	if vttPath == "" {
 		return
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(filepath.Dir(vttPath), 0o755); err != nil {
 		return
 	}
 	tmp := vttPath + ".tmp"
-	// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+	// #nosec G306 -- media/cache file; 0644 intentional for readability
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return
 	}

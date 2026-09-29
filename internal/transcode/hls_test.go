@@ -386,31 +386,31 @@ func TestEncodeSpecArgsNvencForcesIDR(t *testing.T) {
 	}
 }
 
-// TestEncodeSpecZeroesPTSBothModes é o GUARD do stall do Safari no t=0: AMBOS os
-// caminhos (EVENT/live e VOD) DEVEM zerar o PTS inicial (setpts/asetpts=PTS-STARTPTS).
-// Validado na prática: torrent HEVC no Safari/macOS (VideoToolbox) com PTS≠0 deixa
-// um buraco [0,offset] e o player trava em currentTime 0 (buffera mas não toca).
-// Se alguém remover o setpts de qualquer ramo, ESTE teste quebra — exatamente o que
-// queremos pra não regredir o playback no Safari/iOS.
+// TestEncodeSpecZeroesPTSBothModes is the GUARD against the Safari stall at t=0: BOTH
+// paths (EVENT/live and VOD) MUST zero the initial PTS (setpts/asetpts=PTS-STARTPTS).
+// Validated in practice: an HEVC torrent on Safari/macOS (VideoToolbox) with PTS≠0 leaves
+// a [0,offset] hole and the player freezes at currentTime 0 (buffers but doesn't play).
+// If anyone removes the setpts from either branch, THIS test breaks — exactly what
+// we want so Safari/iOS playback doesn't regress.
 func TestEncodeSpecZeroesPTSBothModes(t *testing.T) {
 	for _, vod := range []bool{false, true} {
 		spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: vod}
 		joined := strings.Join(spec.args(0), " ")
 		if !strings.Contains(joined, "setpts=PTS-STARTPTS") || !strings.Contains(joined, "asetpts=PTS-STARTPTS") {
-			t.Errorf("vod=%v: precisa zerar o PTS inicial no filtro (guard do stall do Safari no t=0); got:\n%s", vod, joined)
+			t.Errorf("vod=%v: must zero the initial PTS in the filter (guard against the Safari stall at t=0); got:\n%s", vod, joined)
 		}
-		// CAUSA RAIZ real do stall: sem -muxdelay 0 -muxpreload 0 o muxer MPEG-TS
-		// re-adiciona ~1.4s e o seg0 sai começando em 1.4s (verificado por ffprobe).
-		// Se alguém remover, o Safari volta a travar em currentTime 0.
+		// Real ROOT CAUSE of the stall: without -muxdelay 0 -muxpreload 0 the MPEG-TS
+		// muxer re-adds ~1.4s and seg0 comes out starting at 1.4s (verified with ffprobe).
+		// If anyone removes it, Safari freezes at currentTime 0 again.
 		if !strings.Contains(joined, "-muxdelay 0") || !strings.Contains(joined, "-muxpreload 0") {
-			t.Errorf("vod=%v: precisa de -muxdelay 0 -muxpreload 0 (senão o muxer TS começa em ~1.4s → Safari trava); got:\n%s", vod, joined)
+			t.Errorf("vod=%v: needs -muxdelay 0 -muxpreload 0 (otherwise the TS muxer starts at ~1.4s → Safari freezes); got:\n%s", vod, joined)
 		}
 	}
 }
 
-// TestEncodeSpecArgsEventKeepsProvenFlags garante que o EVENT/live mantém os flags
-// provados (-g 60) e NÃO leva a cirurgia de seek exclusiva do VOD (forced keyframes
-// + output_ts_offset), que regrediu o seek-restart antes.
+// TestEncodeSpecArgsEventKeepsProvenFlags guarantees EVENT/live keeps the proven
+// flags (-g 60) and does NOT carry the VOD-exclusive seek surgery (forced keyframes
+// + output_ts_offset), which regressed seek-restart before.
 func TestEncodeSpecArgsEventKeepsProvenFlags(t *testing.T) {
 	spec := &encodeSpec{dir: "/tmp/x", inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "ffmpeg", vod: false}
 	joined := strings.Join(spec.args(0), " ")

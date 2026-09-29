@@ -1,6 +1,6 @@
-// Legendas: busca no OpenSubtitles (/api/subtitles/*), auto-search por OS-hash e
-// os sidecars .srt/.vtt que vivem DENTRO do torrent (ou ao lado do arquivo local).
-// Detecta o pseudo info-hash local e roteia pro /api/local/*. Extraído de
+// Subtitles: OpenSubtitles search (/api/subtitles/*), OS-hash auto-search and
+// the .srt/.vtt sidecars that live INSIDE the torrent (or next to the local file).
+// Detects the local pseudo info-hash and routes to /api/local/*. Extracted from
 // client.ts (god-file, #417).
 import { api, withToken } from './http'
 import { isLocalHash, parseLocalHash, localQS } from './local'
@@ -15,9 +15,9 @@ export type SidecarSubtitle = {
   format: 'srt' | 'vtt' | 'ass' | 'ssa' | 'sub'
 }
 
-// In-memory cache popularizado por streamSidecars(local) — mapeia
-// `${hash}:${index}` → filename, lido por streamSidecarURL pra construir o
-// `?name=`. Sem isso o backend teria que re-listar o dir a cada chamada.
+// In-memory cache popularized by streamSidecars(local) — maps
+// `${hash}:${index}` → filename, read by streamSidecarURL to build the
+// `?name=`. Without it the backend would have to re-list the dir on every call.
 const localSidecarNameCache = new Map<string, string>()
 
 export const streamSidecars = async (hash: string, fileIdx: number): Promise<SidecarSubtitle[]> => {

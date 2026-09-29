@@ -175,7 +175,7 @@ func (s *Streamer) ClearAll() error {
 // If the torrent is currently active, it is dropped first.
 func (s *Streamer) ClearEntry(name string) error {
 	if s.favs != nil && s.favs.IsFavorite(name) {
-		return fmt.Errorf("entry %q é favorito — desfavorite antes de remover", name)
+		return fmt.Errorf("entry %q is a favorite — unfavorite it before removing", name)
 	}
 	// Drop matching active torrent if any
 	s.mu.Lock()

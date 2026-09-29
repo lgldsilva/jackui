@@ -147,7 +147,7 @@ func (b *Browser) SetFolderLock(mountName, relPath string, locked bool) error {
 	}
 	marker := filepath.Join(abs, keepMarker)
 	if locked {
-		// #nosec G304 G302 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna; arquivo de midia; 0644 intencional p/ leitura
+		// #nosec G304 G302 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config; media file; 0644 intentional for readability
 		f, err := os.OpenFile(marker, os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return err

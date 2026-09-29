@@ -177,7 +177,7 @@ func TestRealWorkerCopiesAsync(t *testing.T) {
 			ready = true
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU ao worker de cópia
+		<-time.After(2 * time.Millisecond) // yield CPU to the copy worker
 	}
 	if !ready {
 		t.Fatal("worker did not mark the file ready in time")

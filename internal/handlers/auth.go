@@ -86,10 +86,10 @@ func respondIfLocked(c *gin.Context, lockout *auth.Lockout, username string) boo
 func respondIfInactive(c *gin.Context, status auth.Status) bool {
 	switch status {
 	case auth.StatusPending:
-		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta aguardando aprovação ou confirmação de e-mail", gin.H{"status": "pending"})
+		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "account awaiting approval or email confirmation", gin.H{"status": "pending"})
 		return true
 	case auth.StatusDisabled:
-		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta desabilitada", gin.H{"status": "disabled"})
+		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "account disabled", gin.H{"status": "disabled"})
 		return true
 	}
 	return false
@@ -100,7 +100,7 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 		return true
 	}
 	if totp == "" {
-		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA obrigatório", gin.H{"mfaRequired": true})
+		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "MFA code required", gin.H{"mfaRequired": true})
 		return false
 	}
 	secret, _, _ := store.GetTOTPSecret(user.ID)
@@ -108,7 +108,7 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 		return true
 	}
 	lockout.Fail(user.Username)
-	httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA inválido", gin.H{"mfaRequired": true})
+	httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "invalid MFA code", gin.H{"mfaRequired": true})
 	return false
 }
 
@@ -163,12 +163,12 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 func refreshOutcomeOK(c *gin.Context, store *auth.Store, user *auth.User, outcome auth.RefreshOutcome) bool {
 	switch outcome {
 	case auth.RefreshInvalid:
-		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "refresh token inválido")
+		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid refresh token")
 		return false
 	case auth.RefreshReuse:
 		// Rotated token replayed after the grace → treat as theft: revoke all.
 		_ = store.RevokeAllSessions(user.ID)
-		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "refresh token inválido")
+		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid refresh token")
 		return false
 	}
 	// Disabled/pending accounts must not keep renewing access.
@@ -372,7 +372,7 @@ func RevokeSession(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "sessão encerrada"})
+		c.JSON(http.StatusOK, gin.H{"message": "session terminated"})
 	}
 }
 
@@ -397,7 +397,7 @@ func RevokeOtherSessions(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "outras sessões encerradas", "revoked": n})
+		c.JSON(http.StatusOK, gin.H{"message": "other sessions terminated", "revoked": n})
 	}
 }
 
@@ -435,11 +435,11 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 			Refresh string `json:"refresh"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.New == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "senha atual e nova são obrigatórias")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "current and new password are required")
 			return
 		}
 		if len(req.New) < 6 {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "a nova senha precisa ter ao menos 6 caracteres")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "the new password must be at least 6 characters")
 			return
 		}
 		if err := store.ChangePassword(claims.UserID, req.Current, req.New); err != nil {
@@ -450,7 +450,7 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 		if req.Refresh != "" {
 			revoked, _ = store.RevokeOtherSessions(claims.UserID, req.Refresh)
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "senha alterada", "revoked": revoked})
+		c.JSON(http.StatusOK, gin.H{"message": "password changed", "revoked": revoked})
 	}
 }
 

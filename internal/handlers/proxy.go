@@ -20,11 +20,12 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rawURL := c.Query("url")
 		if rawURL == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "url requerida")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "url required")
 			return
 		}
-		// A URL vem do request: parse + validação contra o Jackett configurado
-		// em uma única barreira — o retorno é o único objeto que chega ao Get.
+		// The URL comes from the request: parse + validation against the configured
+		// Jackett in a single barrier — the return value is the only object that
+		// reaches Get.
 		u, code, err := sanitizeJackettURL(rawURL, client)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, code, err.Error())
@@ -34,12 +35,12 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 
 		resp, err := proxyHTTP.Get(u.String())
 		if err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadGateway, "falha ao contactar Jackett")
+			httpshared.RespondErrorMessage(c, http.StatusBadGateway, "failed to reach Jackett")
 			return
 		}
 		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
-			httpshared.RespondErrorMessage(c, resp.StatusCode, "Jackett retornou erro")
+			httpshared.RespondErrorMessage(c, resp.StatusCode, "Jackett returned an error")
 			return
 		}
 		proxyResponse(c, resp)
@@ -52,10 +53,10 @@ func ProxyTorrentDownload(client *jackett.Client) gin.HandlerFunc {
 func sanitizeJackettURL(rawURL string, client *jackett.Client) (*url.URL, int, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, http.StatusBadRequest, errors.New("url inválida")
+		return nil, http.StatusBadRequest, errors.New("invalid url")
 	}
 	if !isJackettURL(u, client) {
-		return nil, http.StatusForbidden, errors.New("URL não pertence ao Jackett configurado")
+		return nil, http.StatusForbidden, errors.New("URL does not belong to the configured Jackett")
 	}
 	return u, http.StatusOK, nil
 }
@@ -100,6 +101,6 @@ func proxyResponse(c *gin.Context, resp *http.Response) {
 	c.Header(httpshared.ContentType, ct)
 	c.Header(HeaderContentDisp, cd)
 	c.Status(http.StatusOK)
-	// #nosec G104 -- proxy stream; erro tipico = cliente desconectou
+	// #nosec G104 -- proxy stream; typical error = client disconnected
 	io.Copy(c.Writer, resp.Body) //nolint:errcheck
 }

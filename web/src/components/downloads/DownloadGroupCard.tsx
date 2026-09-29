@@ -83,12 +83,12 @@ export function DownloadGroupCard({
   readonly renderFile: (d: DownloadEntry) => React.ReactNode
 }) {
   const { t } = useTranslation()
-  // Filtro/ordenação interno do torrent (só multi-arquivo chega aqui). Default
-  // 'all' + nome asc preserva o comportamento anterior (ordem natural por nome).
+  // Torrent-internal filter/sorting (only multi-file reaches here). Default
+  // 'all' + name asc preserves the previous behavior (natural order by name).
   const [statusFilter, setStatusFilter] = useState<GroupFileStatusFilter>('all')
   const [sortKey, setSortKey] = useState<GroupFileSortKey>('name')
   const [sortDir, setSortDir] = useState<GroupFileSortDir>('asc')
-  // Clicar na chave já ativa inverte a direção; trocar de chave reinicia em asc.
+  // Clicking the already-active key flips the direction; switching keys restarts at asc.
   const onSort = (key: GroupFileSortKey) => {
     if (key === sortKey) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
     else { setSortKey(key); setSortDir('asc') }

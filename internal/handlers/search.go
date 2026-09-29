@@ -15,15 +15,15 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-// searchResult é o que o /api/search devolve por item. Estende
-// jackett.Result com enriquecimentos calculados do lado do servidor:
+// searchResult is what /api/search returns per item. Extends
+// jackett.Result with server-side computed enrichments:
 //
-//   - Cached: veio do cache local em vez de uma query live ao Jackett
-//   - Quality: parse de release (resolução, codec, source, áudio)
-//   - Playable / MediaKind: heurística "isso é audio/video tocável" (antes
-//     vivia em web/src/lib/playable.ts; movido pra cá pra fonte única)
-//   - IsFavorited / IsDownloaded: joins baratos contra favorites/downloads
-//     do usuário, eliminando o ResultCard ter que manter Sets module-scope
+//   - Cached: came from the local cache instead of a live Jackett query
+//   - Quality: release parse (resolution, codec, source, audio)
+//   - Playable / MediaKind: "is this playable audio/video" heuristic (used to
+//     live in web/src/lib/playable.ts; moved here for a single source)
+//   - IsFavorited / IsDownloaded: cheap joins against the user's favorites/downloads,
+//     sparing ResultCard from keeping module-scope Sets
 type searchResult struct {
 	jackett.Result
 	Cached       bool             `json:"cached"`
@@ -34,8 +34,8 @@ type searchResult struct {
 	IsDownloaded bool             `json:"isDownloaded"`
 }
 
-// resultEnricher pré-carrega os sets de favorites/downloads do usuário uma
-// vez e enriquece N results sem N queries. Construído por buildEnricher().
+// resultEnricher preloads the user's favorites/downloads sets once
+// and enriches N results without N queries. Built by buildEnricher().
 type resultEnricher struct {
 	favHashes map[string]bool
 	dlHashes  map[string]bool

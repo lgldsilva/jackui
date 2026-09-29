@@ -73,8 +73,8 @@ export function DownloadsFiltersBar(props: {
 
       {showFilters && (
         <div className="bg-surface-secondary/40 border border-default/50 rounded-xl p-3 flex flex-col gap-3">
-          {/* Filtros — selects preenchem a largura no mobile (flex-1) e ficam
-              no tamanho natural no desktop. */}
+          {/* Filters — selects fill the width on mobile (flex-1) and stay
+              at their natural size on desktop. */}
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={filterStatus}
@@ -126,7 +126,7 @@ export function DownloadsFiltersBar(props: {
             )}
           </div>
 
-          {/* Ordenar — grupo próprio, separado por divisória; Limpar à direita. */}
+          {/* Sort — its own group, separated by a divider; Clear on the right. */}
           <div className="flex items-center gap-2 flex-wrap border-t border-default/50 pt-3">
             <span className="text-xs text-text-muted flex items-center gap-1.5 flex-shrink-0">
               <ArrowDownWideNarrow className="w-3.5 h-3.5" /> {t('downloads.page.sort')}

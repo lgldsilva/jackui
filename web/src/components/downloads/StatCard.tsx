@@ -1,5 +1,5 @@
-// StatCard — cartão de resumo (download/upload/peers/fila) no topo do dashboard
-// de downloads. Puramente apresentacional: recebe tudo via props.
+// StatCard — summary card (download/upload/peers/queue) at the top of the downloads
+// dashboard. Purely presentational: receives everything via props.
 export function StatCard({ icon, label, value, subtitle, gradient, iconColor, pulse }: {
   readonly icon: React.ReactNode
   readonly label: string

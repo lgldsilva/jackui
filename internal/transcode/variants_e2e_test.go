@@ -38,8 +38,8 @@ func ffprobeSegHeight(t *testing.T, seg string) string {
 	if err != nil {
 		t.Fatalf("ffprobe %s: %v", seg, err)
 	}
-	// Um segmento MPEG-TS pode reportar a altura em mais de uma linha (PAT/PMT);
-	// a primeira linha não-vazia é a altura do stream de vídeo.
+	// An MPEG-TS segment may report the height on more than one line (PAT/PMT);
+	// the first non-empty line is the video stream's height.
 	for _, line := range strings.Split(string(out), "\n") {
 		if s := strings.TrimSpace(line); s != "" {
 			return s
@@ -48,11 +48,11 @@ func ffprobeSegHeight(t *testing.T, seg string) string {
 	return ""
 }
 
-// TestHLSVariantDownscaleE2E é o E2E do M2a (CA-2.3, lado do encode): uma sessão
-// com a rung de 720p, alimentada por uma fonte 1080p REAL, deve produzir
-// segmentos .ts a 720p — provando que videoScaleFilterH por variante funciona
-// ponta-a-ponta pelo ffmpeg (não só nos args). A estrutura do master (≥2
-// STREAM-INF) é coberta pelos unit tests de buildMasterPlaylist.
+// TestHLSVariantDownscaleE2E is the M2a E2E (CA-2.3, encode side): a session
+// with the 720p rung, fed by a REAL 1080p source, must produce .ts segments at
+// 720p — proving that per-variant videoScaleFilterH works end-to-end through
+// ffmpeg (not just in the args). The master's structure (≥2 STREAM-INF) is
+// covered by the buildMasterPlaylist unit tests.
 func TestHLSVariantDownscaleE2E(t *testing.T) {
 	installFastCapsForTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -75,7 +75,7 @@ func TestHLSVariantDownscaleE2E(t *testing.T) {
 		Key:        "e2e-v720",
 		Source:     f,
 		SourceSize: fi.Size(),
-		Variant:    mkVariant(720), // rung 720p do ladder
+		Variant:    mkVariant(720), // 720p rung of the ladder
 	})
 	if err != nil {
 		t.Fatalf("GetOrStart: %v", err)
@@ -84,15 +84,15 @@ func TestHLSVariantDownscaleE2E(t *testing.T) {
 
 	seg, err := sess.WaitForSegment("seg_00000.ts", 60*time.Second)
 	if err != nil {
-		t.Fatalf("segmento 720p nunca produzido: %v", err)
+		t.Fatalf("720p segment never produced: %v", err)
 	}
 	if h := ffprobeSegHeight(t, seg); h != "720" {
-		t.Errorf("altura do segmento da variante = %q, want 720 (downscale 1080→720 falhou)", h)
+		t.Errorf("variant segment height = %q, want 720 (1080→720 downscale failed)", h)
 	}
 }
 
-// Nota: o guard "sessão default (sem Variant) mantém cap 1080" fica no unit
-// TestEncodeSpecVariantArgs (assertiva de args, sem custo de ffmpeg) — este
-// arquivo mantém só o E2E do downscale por variante pra não somar carga de
-// transcode concorrente ao suite (o pacote internal/handlers já roda ffmpeg real
-// e vivia perto do timeout).
+// Note: the "default session (no Variant) keeps the 1080 cap" guard lives in the
+// TestEncodeSpecVariantArgs unit test (args assertion, no ffmpeg cost) — this
+// file keeps only the per-variant downscale E2E so the suite doesn't accumulate
+// concurrent transcode load (the internal/handlers package already runs real
+// ffmpeg and lived close to the timeout).

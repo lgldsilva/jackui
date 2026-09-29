@@ -42,9 +42,9 @@ export function useSwipe(
   opts: SwipeOptions = {},
 ): void {
   const { threshold = 60, restraint = 80, edge, edgeSize = 28, ignoreEdgePx = 0, enabled = true } = opts
-  // Handlers num ref (atualizado a cada render) pra o efeito NÃO re-anexar os
-  // listeners quando os callbacks são arrow inline (nova referência a cada render).
-  // Também evita abortar um gesto em curso quando o handler muda (ex: troca de aba).
+  // Handlers in a ref (updated on every render) so the effect does NOT re-attach the
+  // listeners when the callbacks are inline arrows (new reference every render).
+  // Also avoids aborting an in-flight gesture when the handler changes (e.g. tab switch).
   const handlersRef = useRef(handlers)
   handlersRef.current = handlers
 

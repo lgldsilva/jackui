@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { shouldPromptJackettSetup } from './jackettSetup'
 
-describe('shouldPromptJackettSetup (false "Jackett não configurado" regression)', () => {
+describe('shouldPromptJackettSetup (false "Jackett not configured" regression)', () => {
   // Repro of the production bug: the search screen shows the setup prompt when
   // /api/status reports jackett != 'ok' (e.g. a transient 5s live-ping timeout)
   // AND /api/config does not yield a jackett.url. Because /api/config is

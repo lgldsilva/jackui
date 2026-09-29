@@ -12,8 +12,8 @@ import (
 	"github.com/lgldsilva/jackui/internal/config"
 )
 
-// pprofRouter monta um engine com as rotas de pprof e um NoRoute sentinela (599)
-// que distingue "rota não registrada" de "handler rodou e devolveu erro".
+// pprofRouter builds an engine with the pprof routes and a NoRoute sentinel (599)
+// that distinguishes "route not registered" from "handler ran and returned an error".
 func pprofRouter(t *testing.T, deps *appDeps) (*gin.Engine, bool) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -40,25 +40,25 @@ func TestPprofDisabledByDefault(t *testing.T) {
 
 	r, registered := pprofRouter(t, &appDeps{cfg: &config.Config{}})
 	if registered {
-		t.Fatal("registerPprofRoutes = true sem JACKUI_PPROF_ENABLED")
+		t.Fatal("registerPprofRoutes = true without JACKUI_PPROF_ENABLED")
 	}
 	if code := pprofGet(t, r, "/debug/pprof/heap", ""); code != 599 {
-		t.Errorf("status = %d, want 599 (rota não deve existir)", code)
+		t.Errorf("status = %d, want 599 (route must not exist)", code)
 	}
 }
 
-// Sem token estático e sem auth JWT não há identidade para checar: expor um
-// dump de heap anonimamente seria pior que não expor nada.
+// With no static token and no JWT auth there is no identity to check: exposing
+// a heap dump anonymously would be worse than exposing nothing.
 func TestPprofNotExposedWithoutAnyAuth(t *testing.T) {
 	t.Setenv("JACKUI_PPROF_ENABLED", "1")
 	t.Setenv("JACKUI_PPROF_TOKEN", "")
 
 	r, registered := pprofRouter(t, &appDeps{cfg: &config.Config{}})
 	if registered {
-		t.Fatal("registerPprofRoutes = true sem token e sem auth")
+		t.Fatal("registerPprofRoutes = true with no token and no auth")
 	}
 	if code := pprofGet(t, r, "/debug/pprof/heap", ""); code != 599 {
-		t.Errorf("status = %d, want 599 (rota não deve existir)", code)
+		t.Errorf("status = %d, want 599 (route must not exist)", code)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestPprofStaticTokenGuard(t *testing.T) {
 
 	r, registered := pprofRouter(t, &appDeps{cfg: &config.Config{}})
 	if !registered {
-		t.Fatal("registerPprofRoutes = false com token estático")
+		t.Fatal("registerPprofRoutes = false with static token")
 	}
 
 	cases := []struct {
@@ -77,11 +77,11 @@ func TestPprofStaticTokenGuard(t *testing.T) {
 		header string
 		want   int
 	}{
-		{"sem token", "/debug/pprof/heap", "", http.StatusUnauthorized},
-		{"token errado", "/debug/pprof/heap?token=nope", "", http.StatusUnauthorized},
-		{"bearer errado", "/debug/pprof/heap", "Bearer nope", http.StatusUnauthorized},
-		{"token na query", "/debug/pprof/heap?token=s3cret", "", http.StatusOK},
-		{"bearer certo", "/debug/pprof/heap", "Bearer s3cret", http.StatusOK},
+		{"no token", "/debug/pprof/heap", "", http.StatusUnauthorized},
+		{"wrong token", "/debug/pprof/heap?token=nope", "", http.StatusUnauthorized},
+		{"wrong bearer", "/debug/pprof/heap", "Bearer nope", http.StatusUnauthorized},
+		{"token in query", "/debug/pprof/heap?token=s3cret", "", http.StatusOK},
+		{"correct bearer", "/debug/pprof/heap", "Bearer s3cret", http.StatusOK},
 		{"index", "/debug/pprof/?token=s3cret", "", http.StatusOK},
 		{"cmdline", "/debug/pprof/cmdline?token=s3cret", "", http.StatusOK},
 		{"goroutine", "/debug/pprof/goroutine?token=s3cret", "", http.StatusOK},
@@ -96,8 +96,8 @@ func TestPprofStaticTokenGuard(t *testing.T) {
 	}
 }
 
-// Com auth JWT ligada e sem token estático, o endpoint exige JWT de admin —
-// anônimo tem de bater em 401, não em 200.
+// With JWT auth on and no static token, the endpoint requires an admin JWT —
+// anonymous must hit 401, not 200.
 func TestPprofFallsBackToAdminJWT(t *testing.T) {
 	t.Setenv("JACKUI_PPROF_ENABLED", "1")
 	t.Setenv("JACKUI_PPROF_TOKEN", "")
@@ -108,14 +108,14 @@ func TestPprofFallsBackToAdminJWT(t *testing.T) {
 
 	r, registered := pprofRouter(t, deps)
 	if !registered {
-		t.Fatal("registerPprofRoutes = false com auth JWT habilitada")
+		t.Fatal("registerPprofRoutes = false with JWT auth enabled")
 	}
 	if code := pprofGet(t, r, "/debug/pprof/heap", ""); code != http.StatusUnauthorized {
-		t.Errorf("status anônimo = %d, want 401", code)
+		t.Errorf("anonymous status = %d, want 401", code)
 	}
-	// Um media token (não-admin) também não pode abrir profile.
+	// A media token (non-admin) must not open a profile either.
 	if code := pprofGet(t, r, "/debug/pprof/heap?token=whatever", ""); code != http.StatusUnauthorized {
-		t.Errorf("status com token inválido = %d, want 401", code)
+		t.Errorf("status with invalid token = %d, want 401", code)
 	}
 }
 

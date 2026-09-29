@@ -1,7 +1,7 @@
 export type CompletedFilterKey = 'all' | 'seeding' | 'ondisk'
 
-// Filtro da aba de concluídos: ver tudo, só o que está semeando ao vivo, ou só
-// o que está parado no disco. Top-level para evitar componente-no-pai (S6478).
+// Completed tab filter: see everything, only what's live-seeding, or only
+// what's parked on disk. Top-level to avoid a component-inside-parent (S6478).
 export function CompletedFilterChips({ value, onChange, seedingN, onDiskN }: {
   readonly value: CompletedFilterKey
   readonly onChange: (v: CompletedFilterKey) => void

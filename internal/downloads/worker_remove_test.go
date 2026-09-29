@@ -38,8 +38,8 @@ func newRemoveWorker(t *testing.T) (*Worker, *Store, *dropRecorder) {
 	})
 	rec := &dropRecorder{}
 	w.drop = rec.drop
-	// Remove usa o seam dropSeed (DropSeed); lifecycle drops seguem no drop.
-	// Ambos apontam pro mesmo recorder para os asserts de "dropou o hash".
+	// Remove uses the dropSeed seam (DropSeed); lifecycle drops go through drop.
+	// Both point at the same recorder for the "dropped the hash" assertions.
 	w.dropSeed = rec.dropSeed
 	return w, store, rec
 }

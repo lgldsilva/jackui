@@ -12,10 +12,10 @@ import (
 	"github.com/lgldsilva/jackui/internal/dbtest"
 )
 
-// cov_str4_test.go — cobertura adicional para utilitários SEM torrent real:
-// favorites store, metadata cache e probe.go. Todos os identificadores levam o
-// prefixo str4 e o teste vive no pacote `streamer`, então acessa campos privados
-// (f.db / m.db) para forjar estados de erro que os caminhos felizes não alcançam.
+// cov_str4_test.go — additional coverage for utilities WITHOUT a real torrent:
+// favorites store, metadata cache and probe.go. All identifiers carry the str4
+// prefix and the test lives in the `streamer` package, so it accesses private
+// fields (f.db / m.db) to forge error states the happy paths don't reach.
 
 // ───── helpers str4 ─────
 
@@ -43,7 +43,7 @@ func str4NewCache(t *testing.T) *MetadataCache {
 
 // ───── metadata cache ─────
 
-// Get com files JSON corrompido cai no Unmarshal-err → retorna nil (não panica).
+// Get with corrupt files JSON falls into the Unmarshal-err path → returns nil (no panic).
 func Test_str4_MetadataCache_Get_CorruptFilesJSON(t *testing.T) {
 	c := str4NewCache(t)
 	const hash = "str4corrupthash"
@@ -58,7 +58,7 @@ func Test_str4_MetadataCache_Get_CorruptFilesJSON(t *testing.T) {
 	}
 }
 
-// Get de hash inexistente → nil (Scan err).
+// Get of a missing hash → nil (Scan errs).
 func Test_str4_MetadataCache_Get_Missing(t *testing.T) {
 	c := str4NewCache(t)
 	if got := c.Get("str4nope"); got != nil {
@@ -66,7 +66,7 @@ func Test_str4_MetadataCache_Get_Missing(t *testing.T) {
 	}
 }
 
-// Set após Get prova round-trip e cobre o ramo feliz do Set sem torrent real.
+// Set after Get proves the round-trip and covers the happy path of Set without a real torrent.
 func Test_str4_MetadataCache_SetThenGet(t *testing.T) {
 	c := str4NewCache(t)
 	info := &TorrentInfo{
@@ -87,20 +87,20 @@ func Test_str4_MetadataCache_SetThenGet(t *testing.T) {
 	}
 }
 
-// GetSortMeta: nil receiver e lista vazia retornam mapa vazio (sem panic).
+// GetSortMeta: nil receiver and empty list return an empty map (no panic).
 func Test_str4_MetadataCache_GetSortMeta_Empty(t *testing.T) {
 	var nilCache *MetadataCache
 	if got := nilCache.GetSortMeta([]string{"x"}); len(got) != 0 {
-		t.Fatalf("nil cache: esperado mapa vazio, got %+v", got)
+		t.Fatalf("nil cache: expected empty map, got %+v", got)
 	}
 	c := str4NewCache(t)
 	if got := c.GetSortMeta(nil); len(got) != 0 {
-		t.Fatalf("hashes vazios: esperado mapa vazio, got %+v", got)
+		t.Fatalf("empty hashes: expected empty map, got %+v", got)
 	}
 }
 
-// GetSortMeta: traz total_size + health_seeders só dos hashes presentes; hash
-// nunca probado mantém seeders=-1 (default) e ausentes ficam fora do mapa.
+// GetSortMeta: brings total_size + health_seeders only for the present hashes; a
+// never-probed hash keeps seeders=-1 (default) and missing ones stay out of the map.
 func Test_str4_MetadataCache_GetSortMeta_Batch(t *testing.T) {
 	c := str4NewCache(t)
 	if err := c.Set(&TorrentInfo{InfoHash: "str4sortA", Name: "A", TotalSize: 100, PrimaryFile: -1}); err != nil {
@@ -109,13 +109,13 @@ func Test_str4_MetadataCache_GetSortMeta_Batch(t *testing.T) {
 	if err := c.SetHealth("str4sortA", 7, 3); err != nil {
 		t.Fatalf("SetHealth A: %v", err)
 	}
-	// B: metadata only, never probed → seeders permanece -1 (default da coluna).
+	// B: metadata only, never probed → seeders stays -1 (column default).
 	if err := c.Set(&TorrentInfo{InfoHash: "str4sortB", Name: "B", TotalSize: 50, PrimaryFile: -1}); err != nil {
 		t.Fatalf("Set B: %v", err)
 	}
 	got := c.GetSortMeta([]string{"str4sortA", "str4sortB", "str4sortMissing"})
 	if len(got) != 2 {
-		t.Fatalf("esperado 2 entradas, got %d (%+v)", len(got), got)
+		t.Fatalf("expected 2 entries, got %d (%+v)", len(got), got)
 	}
 	if got["str4sortA"].TotalSize != 100 || got["str4sortA"].Seeders != 7 {
 		t.Fatalf("A: %+v", got["str4sortA"])
@@ -124,12 +124,12 @@ func Test_str4_MetadataCache_GetSortMeta_Batch(t *testing.T) {
 		t.Fatalf("B (never probed): %+v", got["str4sortB"])
 	}
 	if _, ok := got["str4sortMissing"]; ok {
-		t.Fatalf("hash ausente não deveria estar no mapa")
+		t.Fatalf("missing hash should not be in the map")
 	}
 }
 
-// GetHealth: row existe (via SetArt) mas health_checked_at nunca foi gravado →
-// nil (ramo "row exists but health never probed").
+// GetHealth: row exists (via SetArt) but health_checked_at was never written →
+// nil ("row exists but health never probed" branch).
 func Test_str4_MetadataCache_GetHealth_NeverProbed(t *testing.T) {
 	c := str4NewCache(t)
 	const hash = "str4healthnone"
@@ -141,7 +141,7 @@ func Test_str4_MetadataCache_GetHealth_NeverProbed(t *testing.T) {
 	}
 }
 
-// GetHealth de hash inexistente → nil.
+// GetHealth of a missing hash → nil.
 func Test_str4_MetadataCache_GetHealth_Missing(t *testing.T) {
 	c := str4NewCache(t)
 	if got := c.GetHealth("str4missinghealth"); got != nil {
@@ -149,7 +149,7 @@ func Test_str4_MetadataCache_GetHealth_Missing(t *testing.T) {
 	}
 }
 
-// SetHealth + GetHealth caminho feliz com seeders>0 → Available=true.
+// SetHealth + GetHealth happy path with seeders>0 → Available=true.
 func Test_str4_MetadataCache_SetHealth_RoundTrip(t *testing.T) {
 	c := str4NewCache(t)
 	const hash = "str4healthok"
@@ -162,11 +162,11 @@ func Test_str4_MetadataCache_SetHealth_RoundTrip(t *testing.T) {
 	}
 }
 
-// GetArt: row existe mas art_source vazio → nil (ramo "art never resolved").
+// GetArt: row exists but art_source is empty → nil ("art never resolved" branch).
 func Test_str4_MetadataCache_GetArt_EmptySource(t *testing.T) {
 	c := str4NewCache(t)
 	const hash = "str4artnone"
-	if err := c.SetHealth(hash, 1, 1); err != nil { // cria row sem art_source
+	if err := c.SetHealth(hash, 1, 1); err != nil { // creates row without art_source
 		t.Fatalf("SetHealth: %v", err)
 	}
 	if got := c.GetArt(hash); got != nil {
@@ -174,7 +174,7 @@ func Test_str4_MetadataCache_GetArt_EmptySource(t *testing.T) {
 	}
 }
 
-// Nil-receiver: todos os métodos devem ser no-ops seguros.
+// Nil-receiver: all methods must be safe no-ops.
 func Test_str4_MetadataCache_NilReceiver(t *testing.T) {
 	var c *MetadataCache
 	if c.Get("h") != nil {
@@ -200,7 +200,7 @@ func Test_str4_MetadataCache_NilReceiver(t *testing.T) {
 	}
 }
 
-// DefaultMetadataCachePath compõe o caminho padrão.
+// DefaultMetadataCachePath composes the default path.
 func Test_str4_DefaultMetadataCachePath(t *testing.T) {
 	got := DefaultMetadataCachePath("/data")
 	if got != filepath.Join("/data", ".metadata-cache.db") {
@@ -208,7 +208,7 @@ func Test_str4_DefaultMetadataCachePath(t *testing.T) {
 	}
 }
 
-// ArtSourceRank cobre web + default além dos já testados.
+// ArtSourceRank covers web + default in addition to the already-tested ones.
 func Test_str4_ArtSourceRank(t *testing.T) {
 	cases := map[string]int{"torrent": 4, "tmdb": 3, "web": 2, "frame": 1, "": 0, "bogus": 0}
 	for src, want := range cases {
@@ -220,7 +220,7 @@ func Test_str4_ArtSourceRank(t *testing.T) {
 
 // ───── favorites ─────
 
-// List de store nil → erro ErrFavoritesUnavail.
+// List on a nil store → ErrFavoritesUnavail error.
 func Test_str4_Favorites_List_NilStore(t *testing.T) {
 	var f *FavoritesStore
 	if _, err := f.List(0, false, false); err == nil || err.Error() != ErrFavoritesUnavail {
@@ -228,7 +228,7 @@ func Test_str4_Favorites_List_NilStore(t *testing.T) {
 	}
 }
 
-// List com includeAll devolve favoritos de todos os usuários.
+// List with includeAll returns favorites from all users.
 func Test_str4_Favorites_List_IncludeAll(t *testing.T) {
 	f := str4NewFavorites(t)
 	if err := f.Add("a", "h1", "magnet:?xt=urn:btih:h1", "manual", 1); err != nil {
@@ -246,7 +246,7 @@ func Test_str4_Favorites_List_IncludeAll(t *testing.T) {
 	}
 }
 
-// ListFolders nil-store → (nil, nil).
+// ListFolders on nil store → (nil, nil).
 func Test_str4_Favorites_ListFolders_NilStore(t *testing.T) {
 	var f *FavoritesStore
 	got, err := f.ListFolders(1, false)
@@ -255,7 +255,7 @@ func Test_str4_Favorites_ListFolders_NilStore(t *testing.T) {
 	}
 }
 
-// ListFolders devolve uma árvore com subpasta — exercita o scan + parent_id válido.
+// ListFolders returns a tree with a subfolder — exercises the scan + valid parent_id.
 func Test_str4_Favorites_ListFolders_WithTree(t *testing.T) {
 	f := str4NewFavorites(t)
 	root, err := f.CreateFolder(1, "root", nil, false)
@@ -286,7 +286,7 @@ func Test_str4_Favorites_ListFolders_WithTree(t *testing.T) {
 	}
 }
 
-// CreateFolder nil-store → erro.
+// CreateFolder on nil store → error.
 func Test_str4_Favorites_CreateFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
 	if _, err := f.CreateFolder(1, "x", nil, false); err == nil {
@@ -294,8 +294,8 @@ func Test_str4_Favorites_CreateFolder_NilStore(t *testing.T) {
 	}
 }
 
-// MoveFolder: mover uma pasta para dentro de seu próprio descendente deve ser
-// rejeitado (caminhada da cadeia parent detecta o ciclo).
+// MoveFolder: moving a folder into its own descendant must be rejected (the
+// parent-chain walk detects the cycle).
 func Test_str4_Favorites_MoveFolder_RejectsCycle(t *testing.T) {
 	f := str4NewFavorites(t)
 	parent, err := f.CreateFolder(7, "parent", nil, false)
@@ -306,11 +306,11 @@ func Test_str4_Favorites_MoveFolder_RejectsCycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
-	// Mover `parent` para dentro de `child` (seu descendente) → ciclo.
+	// Move `parent` into `child` (its descendant) → cycle.
 	if err := f.MoveFolder(7, parent.ID, &child.ID); err == nil {
 		t.Fatal("expected cycle rejection moving parent into its child")
 	}
-	// Confirma que nada mudou: parent ainda é root.
+	// Confirm nothing changed: parent is still root.
 	got, err := f.GetFolder(7, parent.ID)
 	if err != nil {
 		t.Fatalf("GetFolder: %v", err)
@@ -320,7 +320,7 @@ func Test_str4_Favorites_MoveFolder_RejectsCycle(t *testing.T) {
 	}
 }
 
-// MoveFolder para root (newParent nil) é válido e não dispara a checagem de ciclo.
+// MoveFolder to root (newParent nil) is valid and doesn't trigger the cycle check.
 func Test_str4_Favorites_MoveFolder_ToRoot(t *testing.T) {
 	f := str4NewFavorites(t)
 	parent, err := f.CreateFolder(8, "parent", nil, false)
@@ -343,7 +343,7 @@ func Test_str4_Favorites_MoveFolder_ToRoot(t *testing.T) {
 	}
 }
 
-// MoveFolder nil-store → no-op nil.
+// MoveFolder on nil store → nil no-op.
 func Test_str4_Favorites_MoveFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
 	if err := f.MoveFolder(1, 1, nil); err != nil {
@@ -351,7 +351,7 @@ func Test_str4_Favorites_MoveFolder_NilStore(t *testing.T) {
 	}
 }
 
-// HashSetForUser nil-store → mapa vazio sem erro (ramo nil).
+// HashSetForUser on nil store → empty map without error (nil branch).
 func Test_str4_Favorites_HashSetForUser_NilStore(t *testing.T) {
 	var f *FavoritesStore
 	set, err := f.HashSetForUser(1, false)
@@ -360,7 +360,7 @@ func Test_str4_Favorites_HashSetForUser_NilStore(t *testing.T) {
 	}
 }
 
-// DefaultFavoritesPath compõe o caminho padrão.
+// DefaultFavoritesPath composes the default path.
 func Test_str4_DefaultFavoritesPath(t *testing.T) {
 	got := DefaultFavoritesPath("/data")
 	if got != filepath.Join("/data", ".favorites.db") {
@@ -368,8 +368,8 @@ func Test_str4_DefaultFavoritesPath(t *testing.T) {
 	}
 }
 
-// MoveFavoriteToFolder: caminho com folderID não-nil (atribui a uma pasta) e
-// depois de volta a root (nil) — cobre os dois ramos do interface{}.
+// MoveFavoriteToFolder: path with non-nil folderID (assigns to a folder) and
+// then back to root (nil) — covers both interface{} branches.
 func Test_str4_Favorites_MoveFavoriteToFolder(t *testing.T) {
 	f := str4NewFavorites(t)
 	if err := f.Add("movie", "h9", "", "manual", 3); err != nil {
@@ -398,7 +398,7 @@ func Test_str4_Favorites_MoveFavoriteToFolder(t *testing.T) {
 	}
 }
 
-// MoveFavoriteToFolder nil-store → no-op.
+// MoveFavoriteToFolder on nil store → no-op.
 func Test_str4_Favorites_MoveFavoriteToFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
 	if err := f.MoveFavoriteToFolder(1, "x", nil); err != nil {
@@ -406,7 +406,7 @@ func Test_str4_Favorites_MoveFavoriteToFolder_NilStore(t *testing.T) {
 	}
 }
 
-// RenameFolder / DeleteFolder nil-store → no-ops.
+// RenameFolder / DeleteFolder on nil store → no-ops.
 func Test_str4_Favorites_FolderMutators_NilStore(t *testing.T) {
 	var f *FavoritesStore
 	if err := f.RenameFolder(1, 1, "x"); err != nil {
@@ -419,7 +419,7 @@ func Test_str4_Favorites_FolderMutators_NilStore(t *testing.T) {
 
 // ───── probe.go ─────
 
-// resolveProbeInput com resolver retornando hit → input puro (sem stdin/closeFn).
+// resolveProbeInput with a resolver returning a hit → plain input (no stdin/closeFn).
 func Test_str4_ResolveProbeInput_ResolverHit(t *testing.T) {
 	s := NewForTesting()
 	s.SetFilePathResolver(func(_ metainfo.Hash, _ int) (string, bool) {
@@ -434,8 +434,8 @@ func Test_str4_ResolveProbeInput_ResolverHit(t *testing.T) {
 	}
 }
 
-// resolveProbeInput: resolver presente mas miss → cai no lookup do active e,
-// como nada está ativo, devolve ErrTorrentNotActive.
+// resolveProbeInput: resolver present but miss → falls through to the active lookup
+// and, since nothing is active, returns ErrTorrentNotActive.
 func Test_str4_ResolveProbeInput_ResolverMiss_NotActive(t *testing.T) {
 	s := NewForTesting()
 	s.SetFilePathResolver(func(_ metainfo.Hash, _ int) (string, bool) {
@@ -446,7 +446,7 @@ func Test_str4_ResolveProbeInput_ResolverMiss_NotActive(t *testing.T) {
 	}
 }
 
-// Probe sem torrent ativo e sem resolver → ErrTorrentNotActive.
+// Probe with no active torrent and no resolver → ErrTorrentNotActive.
 func Test_str4_Probe_NotActive(t *testing.T) {
 	s := NewForTesting()
 	if _, err := s.Probe(context.Background(), metainfo.HashBytes([]byte("str4probe")), 0); err == nil || !errors.Is(err, ErrTorrentNotActive) {
@@ -454,8 +454,8 @@ func Test_str4_Probe_NotActive(t *testing.T) {
 	}
 }
 
-// ExtractSubtitle via resolver apontando para um arquivo não-mídia: o caminho do
-// resolver é exercitado e o ffmpeg falha (sem stream de legenda) → erro.
+// ExtractSubtitle via a resolver pointing at a non-media file: the resolver path
+// is exercised and ffmpeg fails (no subtitle stream) → error.
 func Test_str4_ExtractSubtitle_ResolverNonMedia(t *testing.T) {
 	dir := t.TempDir()
 	notMedia := filepath.Join(dir, "str4.txt")
@@ -472,7 +472,7 @@ func Test_str4_ExtractSubtitle_ResolverNonMedia(t *testing.T) {
 	}
 }
 
-// ExtractSubtitle sem resolver e sem torrent ativo → ErrTorrentNotActive.
+// ExtractSubtitle without a resolver and no active torrent → ErrTorrentNotActive.
 func Test_str4_ExtractSubtitle_NotActive(t *testing.T) {
 	s := NewForTesting()
 	if _, err := s.ExtractSubtitle(context.Background(), metainfo.HashBytes([]byte("str4sub")), 0, 0); err == nil || !errors.Is(err, ErrTorrentNotActive) {
@@ -480,8 +480,8 @@ func Test_str4_ExtractSubtitle_NotActive(t *testing.T) {
 	}
 }
 
-// parseProbeOutput com áudio multicanal + legenda imagem (PGS) preenche Channels
-// e marca Image — caminhos de mapeamento dos campos.
+// parseProbeOutput with multichannel audio + image subtitle (PGS) fills Channels
+// and sets Image — field mapping paths.
 func Test_str4_ParseProbeOutput_AudioAndImageSub(t *testing.T) {
 	const out = `{
 		"streams": [

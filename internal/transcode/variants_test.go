@@ -53,17 +53,17 @@ func TestVariantLadder(t *testing.T) {
 	}
 }
 
-// CA-2.1: fonte ≥1080p produz ≥2 variantes. Usa o wrapper EXPORTADO VariantLadder
-// (o que os handlers chamam).
+// CA-2.1: a source ≥1080p produces ≥2 variants. Uses the EXPORTED VariantLadder
+// wrapper (what the handlers call).
 func TestVariantLadderCA21(t *testing.T) {
 	for _, src := range []int{1080, 1440, 2160, 4320} {
 		if n := len(VariantLadder(src)); n < 2 {
-			t.Errorf("CA-2.1: fonte %dp deve ter ≥2 variantes, tem %d", src, n)
+			t.Errorf("CA-2.1: %dp source must have ≥2 variants, has %d", src, n)
 		}
 	}
 }
 
-// Fonte muito baixa (<480) usa o bitrate/level mínimo, sem upscale.
+// A very short source (<480) uses the minimum bitrate/level, no upscale.
 func TestVariantLadderLowRes(t *testing.T) {
 	l := VariantLadder(360)
 	if len(l) != 1 || l[0].Height != 360 {
@@ -96,12 +96,12 @@ func TestVariantAttributes(t *testing.T) {
 			t.Errorf("%dp Bandwidth must be >0, got %d", c.h, v.Bandwidth())
 		}
 	}
-	// Bandwidth desce com a resolução (ABR coerente).
+	// Bandwidth descends with resolution (coherent ABR).
 	if mkVariant(720).Bandwidth() >= mkVariant(1080).Bandwidth() {
-		t.Error("720p BANDWIDTH deve ser < 1080p")
+		t.Error("720p BANDWIDTH must be < 1080p")
 	}
 	if mkVariant(480).Bandwidth() >= mkVariant(720).Bandwidth() {
-		t.Error("480p BANDWIDTH deve ser < 720p")
+		t.Error("480p BANDWIDTH must be < 720p")
 	}
 }
 
@@ -159,7 +159,7 @@ func TestVideoScaleFilterH(t *testing.T) {
 			t.Errorf("videoScaleFilterH(%q,720) = %q, want to contain %q", c.enc, got, c.want)
 		}
 	}
-	// maxH ≤ 0 → default 1080 (não regride o wrapper legado).
+	// maxH ≤ 0 → default 1080 (doesn't regress the legacy wrapper).
 	if got := videoScaleFilterH("libx264", 0); !strings.Contains(got, "min(1080,ih)") {
 		t.Errorf("videoScaleFilterH(_,0) must fall back to 1080; got %q", got)
 	}

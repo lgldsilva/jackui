@@ -1,4 +1,4 @@
-// URL builders e art resolve para /api/stream/*. Extraído de stream.ts (R3).
+// URL builders and art resolve for /api/stream/*. Extracted from stream.ts (R3).
 import { api, withToken } from './http'
 import { isLocalHash, localQS, parseLocalHash } from './local-base'
 import { localResolvedURL } from './local'

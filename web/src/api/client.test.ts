@@ -115,8 +115,8 @@ describe('queueAllTorrentFiles', () => {
   })
 
   it('queues the WHOLE torrent as ONE request with the sentinel fileIndex', async () => {
-    // 5699 arquivos — a versão antiga fazia 5699 POSTs (1 por arquivo) e
-    // estourava o navegador; agora tem que ser exatamente UMA chamada.
+    // 5699 files — the old version did 5699 POSTs (1 per file) and
+    // blew up the browser; now it must be exactly ONE call.
     const files = Array.from({ length: 5699 }, (_, i) => ({
       index: i, path: `dir/f${i}.bin`, size: 1000, isVideo: false,
     }))

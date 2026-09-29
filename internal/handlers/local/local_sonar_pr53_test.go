@@ -340,7 +340,7 @@ func TestLocalPromoteDestIsFile(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "criar destino") {
+	if !strings.Contains(w.Body.String(), "create destination") {
 		t.Fatalf("mkdir error missing from body: %s", w.Body.String())
 	}
 }
@@ -363,7 +363,7 @@ func TestLocalPromoteMoveFails(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want %d; body=%s", w.Code, http.StatusUnprocessableEntity, w.Body.String())
 	}
-	if !strings.Contains(w.Body.String(), "mover arquivo") {
+	if !strings.Contains(w.Body.String(), "move file") {
 		t.Fatalf("move error missing from body: %s", w.Body.String())
 	}
 }

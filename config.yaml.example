@@ -12,7 +12,7 @@ download_clients:
     password: adminadmin
     default: true
   - id: qbit-remote
-    name: "qBittorrent Remoto"
+    name: "qBittorrent Remote"
     type: qbittorrent
     url: http://your-server-ip:8080
     username: admin
@@ -26,20 +26,20 @@ download_clients:
     password: ""
     default: false
 
-# AI title identification (OPCIONAL). Normalmente basta exportar as chaves por env
+# AI title identification (OPTIONAL). Usually exporting the keys via env is enough
 # (GROQ_API_KEY / OPENROUTER_API_KEY / OPENCODE_API_KEY / GEMINI_API_KEY / OLLAMA_BASE_URL):
-# a chain é auto-semeada e o benchmark reordena por score. A seção abaixo só é necessária
-# para SOBRESCREVER as escolhas padrão de modelo (elas têm defaults no código):
+# the chain is auto-seeded and the benchmark reorders it by score. The section below is only
+# needed to OVERRIDE the default model choices (they have defaults in code):
 # ai:
 #   providers:
 #     groq:
-#       # preferred_models: ordem de preferência do pick default deste provider (a ORDEM da
-#       # chain continua vindo do benchmark; isto só decide QUAL modelo o provider oferece).
+#       # preferred_models: preference order for this provider's default pick (the chain's
+#       # ORDER still comes from the benchmark; this only decides WHICH model the provider offers).
 #       preferred_models: [llama-3.1-8b-instant, llama-3.3-70b-versatile]
 #     ollama:
 #       preferred_models: [llama3.1:8b, gemma3:4b]
 #     google:
-#       # free_models: lista fixa de ids FREE do Gemini (o /models do Google não expõe pricing).
-#       # Atualize aqui quando o Google mudar o free tier — nunca inclua modelos pagos (pro/3.5).
+#       # free_models: fixed list of Gemini FREE ids (Google's /models does not expose pricing).
+#       # Update here when Google changes the free tier — never include paid models (pro/3.5).
 #       free_models: [gemini-2.5-flash-lite, gemini-2.5-flash]
-#   max_cost_per_1m: 0        # 0 = só testa/adota modelos grátis no benchmark
+#   max_cost_per_1m: 0        # 0 = benchmark only tests/adopts free models

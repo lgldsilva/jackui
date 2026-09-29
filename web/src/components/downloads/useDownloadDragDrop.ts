@@ -112,7 +112,7 @@ export function useDownloadDragDrop(deps: {
           setLoading(false)
         }
       } else {
-        // Múltiplos arquivos
+        // Multiple files
         setPreloadFiles(torrentFiles)
         setShowAddModal(true)
       }

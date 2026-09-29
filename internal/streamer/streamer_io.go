@@ -23,8 +23,8 @@ func (s *Streamer) Close() {
 		close(s.stop)
 	}
 	s.client.Close()
-	// Fecha o storage mmap (libera mapeamentos/handles). FileStorage default é
-	// gerido pelo client, então storageImpl é nil nesse caso.
+	// Closes the mmap storage (releases mappings/handles). The default FileStorage
+	// is managed by the client, so storageImpl is nil in that case.
 	if s.storageImpl != nil {
 		_ = s.storageImpl.Close()
 	}
@@ -48,7 +48,7 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
-		return nil, nil, fmt.Errorf("índice de arquivo %d fora do intervalo (0..%d)", fileIdx, len(files)-1)
+		return nil, nil, fmt.Errorf("file index %d out of range (0..%d)", fileIdx, len(files)-1)
 	}
 	f := files[fileIdx]
 
@@ -58,8 +58,8 @@ func (s *Streamer) FileReader(hash metainfo.Hash, fileIdx int) (io.ReadSeekClose
 	// 8 MiB of readahead the anacrolix Reader blocks waiting for the next piece
 	// mid-segment, and WaitForMaster times out before the first segment lands
 	// (confirmed on the GTX 1070 with 2160p sources). 32 MiB covers ~2 segments
-	// of 4K lookahead so the encoder never starves on a healthy swarm. Configurável
-	// via StreamConfig.ReadaheadMB (default 32) — ver streamReadahead().
+	// of 4K lookahead so the encoder never starves on a healthy swarm. Configurable
+	// via StreamConfig.ReadaheadMB (default 32) — see streamReadahead().
 	r.SetReadahead(s.streamReadahead())
 	r.SetResponsive() // prioritize pieces around current read position
 
@@ -112,18 +112,18 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 	}
 	s.mu.Unlock()
 	if !ok {
-		return errors.New("torrent não ativo — chamar /stream/add primeiro")
+		return errors.New("torrent not active — call /stream/add first")
 	}
 	files := e.t.Files()
 	if fileIdx < 0 || fileIdx >= len(files) {
-		return fmt.Errorf("file index %d fora do intervalo (0..%d)", fileIdx, len(files)-1)
+		return fmt.Errorf("file index %d out of range (0..%d)", fileIdx, len(files)-1)
 	}
 	f := files[fileIdx]
 	r := f.NewReader()
 	r.SetReadahead(8 << 20) // 8 MiB — enough to cover the first few seconds
 	r.SetResponsive()
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
+		// #nosec G104 -- Close is best-effort during cleanup; teardown errors are irrelevant
 		r.Close()
 		return fmt.Errorf("prefetch seek: %w", err)
 	}
@@ -142,7 +142,7 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 		case <-done:
 		case <-time.After(5 * time.Second):
 		}
-		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
+		// #nosec G104 -- Close is best-effort during cleanup; teardown errors are irrelevant
 		r.Close()
 	}()
 	return nil
@@ -166,7 +166,7 @@ func (s *Streamer) Drop(hash metainfo.Hash) {
 }
 
 // drop removes a torrent honoring the protection guards. explicit=true marks a
-// user-initiated stop/remove ("Parar", stop-seed, row delete): it bypasses ONLY
+// user-initiated stop/remove ("Stop", stop-seed, row delete): it bypasses ONLY
 // the 60s activeReadGuard — that guard exists to protect co-watcher playback,
 // but MONITORING reads (the *arr stack's torrent-get polls refresh lastAccess
 // every ~60s) were keeping it permanently armed, so every explicit stop was

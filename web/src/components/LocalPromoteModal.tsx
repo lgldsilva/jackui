@@ -17,9 +17,9 @@ type Props = {
 }
 
 /**
- * Navegador de subpastas de SHARED_DIR + seletor de destino + ações de
- * promover para arquivos locais — individual OU em lote (uma chamada para N
- * arquivos, destino e renomeação IA escolhidos uma única vez).
+ * SHARED_DIR subfolder browser + destination selector + promote actions for
+ * local files — single OR batch (one call for N files, destination and AI
+ * rename chosen a single time).
  */
 export default function LocalPromoteModal({ mount, entries, onClose, onPromoted }: Props) {
   const { t } = useTranslation()
@@ -104,9 +104,9 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
 
   const handlePromote = async () => {
     setSubmitting(true)
-    startTracking() // snapshot + começa a acompanhar o job de promote no painel
-    // Promote é síncrono no backend; estes bumps pegam o job em andamento cedo
-    // para a barra abaixo aparecer durante a cópia (não só ao final).
+    startTracking() // snapshot + starts tracking the promote job in the panel
+    // Promote is synchronous on the backend; these bumps catch the in-flight job early
+    // so the bar below shows up during the copy (not only at the end).
     const t1 = setTimeout(bump, 400)
     const t2 = setTimeout(bump, 1200)
     try {
@@ -171,7 +171,7 @@ export default function LocalPromoteModal({ mount, entries, onClose, onPromoted 
           )}
         </div>
 
-        {/* Progresso ao vivo da promoção (mesmo componente do dock de Transferências). */}
+        {/* Live promotion progress (same component as the Transfers dock). */}
         {submitting && promoteJobs.length > 0 && (
           <div className="flex flex-col gap-3 border border-amber-500/30 bg-amber-500/5 rounded-lg p-3">
             {promoteJobs.map(j => (

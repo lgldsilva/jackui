@@ -51,10 +51,10 @@ func ffprobeStreamCount(t *testing.T, seg, codecType string) int {
 	return n
 }
 
-// TestHLSAudioOnlyRenditionE2E é o gate do M2b (Fase 6b): uma sessão AudioOnly
-// mapeando a 2ª faixa (stream 2) de uma fonte multi-áudio deve produzir
-// segmentos .ts SÓ com áudio — zero vídeo — provando a rendition EXT-X-MEDIA
-// TYPE=AUDIO ponta-a-ponta pelo ffmpeg.
+// TestHLSAudioOnlyRenditionE2E is the M2b gate (Phase 6b): an AudioOnly session
+// mapping the 2nd track (stream 2) of a multi-audio source must produce .ts
+// segments with ONLY audio — zero video — proving the EXT-X-MEDIA TYPE=AUDIO
+// rendition end-to-end through ffmpeg.
 func TestHLSAudioOnlyRenditionE2E(t *testing.T) {
 	installFastCapsForTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -77,7 +77,7 @@ func TestHLSAudioOnlyRenditionE2E(t *testing.T) {
 		Source:     f,
 		SourceSize: fi.Size(),
 		AudioOnly:  true,
-		AudioTrack: 2, // 2ª faixa de áudio (stream absoluto 2 = 880Hz)
+		AudioTrack: 2, // 2nd audio track (absolute stream 2 = 880Hz)
 	})
 	if err != nil {
 		t.Fatalf("GetOrStart: %v", err)
@@ -86,15 +86,15 @@ func TestHLSAudioOnlyRenditionE2E(t *testing.T) {
 
 	seg, err := sess.WaitForSegment("seg_00000.ts", 60*time.Second)
 	if err != nil {
-		t.Fatalf("segmento audio-only nunca produzido: %v", err)
+		t.Fatalf("audio-only segment never produced: %v", err)
 	}
-	// Vídeo == 0 é a asserção-chave (audio-only). O nº de áudio é ≥1: um
-	// segmento MPEG-TS reporta o mesmo stream mais de uma vez (PAT/PMT), então
-	// não dá pra exigir == 1 sem falso-negativo.
+	// Video == 0 is the key assertion (audio-only). Audio is ≥1: an MPEG-TS
+	// segment reports the same stream more than once (PAT/PMT), so requiring
+	// == 1 would produce false negatives.
 	if v := ffprobeStreamCount(t, seg, "video"); v != 0 {
-		t.Errorf("segmento da rendition de áudio tem %d streams de vídeo, want 0 (deveria ser audio-only)", v)
+		t.Errorf("audio rendition segment has %d video streams, want 0 (should be audio-only)", v)
 	}
 	if a := ffprobeStreamCount(t, seg, "audio"); a < 1 {
-		t.Errorf("segmento da rendition tem %d streams de áudio, want ≥1", a)
+		t.Errorf("rendition segment has %d audio streams, want ≥1", a)
 	}
 }

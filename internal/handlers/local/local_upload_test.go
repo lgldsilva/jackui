@@ -25,7 +25,7 @@ func TestLocalUpload(t *testing.T) {
 	})
 
 	router := gin.New()
-	// Middleware simples de autenticação para simular claims e permitir gravação
+	// Simple auth middleware to simulate claims and allow writing
 	router.Use(func(c *gin.Context) {
 		c.Set("jackui:claims", &auth.Claims{
 			UserID:   1,
@@ -37,18 +37,18 @@ func TestLocalUpload(t *testing.T) {
 
 	router.POST("/api/local/upload", LocalUpload(b, 100<<20))
 
-	// Prepara multipart body
+	// Prepares the multipart body
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", "teste.mp4")
+	part, err := writer.CreateFormFile("file", "test.mp4")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = part.Write([]byte("conteudo do arquivo"))
+	_, _ = part.Write([]byte("file content bytes"))
 	_ = writer.Close()
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/local/upload?mount=Meus+downloads&path=subpasta", body)
+	req := httptest.NewRequest("POST", "/api/local/upload?mount=Meus+downloads&path=subfolder", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	router.ServeHTTP(w, req)
@@ -60,18 +60,18 @@ func TestLocalUpload(t *testing.T) {
 	var resp map[string]interface{}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 
-	if resp["uploaded"] != "teste.mp4" {
-		t.Errorf("uploaded=%v, want 'teste.mp4'", resp["uploaded"])
+	if resp["uploaded"] != "test.mp4" {
+		t.Errorf("uploaded=%v, want 'test.mp4'", resp["uploaded"])
 	}
 
-	// Verifica se o arquivo foi criado com sucesso no disco
-	createdFile := filepath.Join(tempDir, "subpasta", "teste.mp4")
+	// Verifies the file was successfully created on disk
+	createdFile := filepath.Join(tempDir, "subfolder", "test.mp4")
 	content, err := os.ReadFile(createdFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(content) != "conteudo do arquivo" {
-		t.Errorf("content=%q, want 'conteudo do arquivo'", content)
+	if string(content) != "file content bytes" {
+		t.Errorf("content=%q, want 'file content bytes'", content)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestLocalUpload_AutoRenameOnCollision(t *testing.T) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	part, _ := writer.CreateFormFile("file", "movie.mkv")
-	_, _ = part.Write([]byte("novo conteudo"))
+	_, _ = part.Write([]byte("new content"))
 	_ = writer.Close()
 
 	w := httptest.NewRecorder()
@@ -114,10 +114,10 @@ func TestLocalUpload_AutoRenameOnCollision(t *testing.T) {
 	// Original must be intact.
 	orig, _ := os.ReadFile(filepath.Join(tempDir, "movie.mkv"))
 	if string(orig) != "original" {
-		t.Errorf("arquivo original foi sobrescrito: %q", orig)
+		t.Errorf("original file was overwritten: %q", orig)
 	}
 	renamed, err := os.ReadFile(filepath.Join(tempDir, "movie (1).mkv"))
-	if err != nil || string(renamed) != "novo conteudo" {
+	if err != nil || string(renamed) != "new content" {
 		t.Errorf("renamed file = %q, err=%v", renamed, err)
 	}
 }
@@ -152,9 +152,9 @@ func TestLocalUpload_ForbiddenForNonAdmin(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%s, want 403", w.Code, w.Body.String())
 	}
-	// Nada deve ter sido gravado no disco.
+	// Nothing should have been written to disk.
 	if entries, _ := os.ReadDir(tempDir); len(entries) != 0 {
-		t.Errorf("esperava diretório vazio, achei %d entradas", len(entries))
+		t.Errorf("expected empty directory, found %d entries", len(entries))
 	}
 }
 
@@ -181,8 +181,8 @@ func TestLocalFile_SecurityHeaders(t *testing.T) {
 	cases := []struct {
 		name, file, wantType, wantDisp string
 	}{
-		{"html vira download", "evil.html", "application/octet-stream", "attachment; filename=\"evil.html\""},
-		{"vtt vira text/vtt", "sub.vtt", "text/vtt; charset=utf-8", ""},
+		{"html becomes download", "evil.html", "application/octet-stream", "attachment; filename=\"evil.html\""},
+		{"vtt becomes text/vtt", "sub.vtt", "text/vtt; charset=utf-8", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -206,8 +206,8 @@ func TestLocalFile_SecurityHeaders(t *testing.T) {
 	}
 }
 
-// Uploads de tipos fora do allowlist (ex: .html) são barrados na entrada com
-// 415 — defesa em profundidade além da guarda anti-XSS do serving.
+// Uploads of types outside the allowlist (e.g. .html) are blocked at the entrance with
+// 415 — defense in depth beyond the serving's anti-XSS guard.
 func TestLocalUpload_RejectsDisallowedType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tempDir := t.TempDir()
@@ -234,12 +234,12 @@ func TestLocalUpload_RejectsDisallowedType(t *testing.T) {
 		t.Fatalf("status=%d body=%s, want 415", w.Code, w.Body.String())
 	}
 	if _, err := os.Stat(filepath.Join(tempDir, "evil.html")); !os.IsNotExist(err) {
-		t.Error("arquivo não permitido foi gravado no disco")
+		t.Error("disallowed file was written to disk")
 	}
 }
 
-// Upload acima do teto é rejeitado (MaxBytesReader corta o corpo → 400, ou o
-// Size já reportado grande → 413). Em ambos os casos, nunca 201.
+// An upload above the ceiling is rejected (MaxBytesReader cuts the body → 400, or the
+// already-reported large Size → 413). In both cases, never 201.
 func TestLocalUpload_RejectsOversize(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tempDir := t.TempDir()
@@ -249,7 +249,7 @@ func TestLocalUpload_RejectsOversize(t *testing.T) {
 		c.Set("jackui:claims", &auth.Claims{UserID: 1, Username: "u", Role: auth.RoleAdmin})
 		c.Next()
 	})
-	router.POST("/api/local/upload", LocalUpload(b, 10)) // teto de 10 bytes
+	router.POST("/api/local/upload", LocalUpload(b, 10)) // 10-byte ceiling
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -263,11 +263,11 @@ func TestLocalUpload_RejectsOversize(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	if w.Code == http.StatusCreated {
-		t.Fatalf("upload grande foi aceito (status=%d); deveria ser rejeitado", w.Code)
+		t.Fatalf("large upload was accepted (status=%d); it should be rejected", w.Code)
 	}
 }
 
-// Upload com path de destino inválido (traversal) → 400 (cobre resolveUploadDest).
+// Upload with an invalid destination path (traversal) → 400 (covers resolveUploadDest).
 func TestLocalUpload_RejectsBadDestPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tempDir := t.TempDir()
@@ -289,11 +289,11 @@ func TestLocalUpload_RejectsBadDestPath(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	router.ServeHTTP(w, req)
 	if w.Code == http.StatusCreated {
-		t.Fatalf("path traversal no destino foi aceito (status=%d)", w.Code)
+		t.Fatalf("path traversal in the destination was accepted (status=%d)", w.Code)
 	}
 }
 
-// Upload sem o campo "file" → 400 (cobre validateUpload sem arquivo).
+// Upload without the "file" field → 400 (covers validateUpload without a file).
 func TestLocalUpload_MissingFile(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tempDir := t.TempDir()
@@ -313,6 +313,6 @@ func TestLocalUpload_MissingFile(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("esperava 400 sem arquivo, got %d", w.Code)
+		t.Fatalf("expected 400 without a file, got %d", w.Code)
 	}
 }

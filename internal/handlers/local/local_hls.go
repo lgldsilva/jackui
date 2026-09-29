@@ -104,13 +104,13 @@ type localHLSSource struct {
 	nativeHLS        bool
 	knownDur         float64
 	audioOnly        bool // pure-audio file → `-vn` AAC HLS (no video map)
-	audioTrack       int  // faixa de áudio escolhida (índice absoluto do probe; <0 = primeira/default)
+	audioTrack       int  // chosen audio track (absolute index from the probe; <0 = first/default)
 }
 
 func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg *localstream.Registry, src localHLSSource) (*transcode.HLSSession, error) {
 	key := localSessionKey(src.mount, src.path)
 	if src.audioTrack >= 0 {
-		key += fmt.Sprintf("-a%d", src.audioTrack) // sessão por faixa: trocar áudio não reusa o cache
+		key += fmt.Sprintf("-a%d", src.audioTrack) // session per track: switching audio doesn't reuse the cache
 	}
 	key += httpshared.PlaybackSessionSuffix(c)
 	f, oerr := os.Open(src.abs)
@@ -194,8 +194,8 @@ func segURLBuilder(opts localSegURLOpts) func(name string) string {
 		if opts.token != "" {
 			p.Set("token", opts.token)
 		}
-		// Faixa de áudio: o segmento precisa bater na MESMA sessão (keyed por áudio)
-		// que o master, senão cai na sessão default (primeira faixa).
+		// Audio track: the segment must hit the SAME session (keyed by audio)
+		// as the master, otherwise it falls into the default session (first track).
 		if opts.audio != "" {
 			p.Set("audio", opts.audio)
 		}

@@ -157,8 +157,8 @@ func TestIsValidRenameName(t *testing.T) {
 	}
 }
 
-// sanitizeRenameName é a barreira de path-injection do Join do rename: só o
-// retorno limpo chega ao filepath.Join.
+// sanitizeRenameName is the rename Join's path-injection barrier: only the
+// cleaned return value reaches filepath.Join.
 func TestSanitizeRenameName(t *testing.T) {
 	for _, bad := range []string{"", ".", "..", "a/b", `a\b`, "../bad"} {
 		if clean, ok := sanitizeRenameName(bad); ok || clean != "" {

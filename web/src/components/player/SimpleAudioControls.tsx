@@ -1,12 +1,12 @@
 import { SkipBack, SkipForward, Shuffle, Repeat } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-// SimpleAudioControls: barra de transporte MÍNIMA para o modo áudio. Só prev/next
-// (+ shuffle/repeat + posição). NÃO toca no elemento <audio> (play/pause/seek ficam
-// nos controls nativos do SimpleAudioPlayer) — são apenas botões que trocam a FAIXA
-// via os handlers do pai (handlePrev/handleNext mudam selectedFile → o src do
-// SimpleAudioPlayer muda → ele toca a nova faixa). Zero Web Audio → iOS-safe.
-// Substitui o prev/next que a AudioTransportBar (removida na simplificação) dava.
+// SimpleAudioControls: MINIMAL transport bar for audio mode. Only prev/next
+// (+ shuffle/repeat + position). Does NOT touch the <audio> element (play/pause/seek stay
+// on SimpleAudioPlayer's native controls) — these are just buttons that switch the TRACK
+// via the parent's handlers (handlePrev/handleNext change selectedFile → SimpleAudioPlayer's
+// src changes → it plays the new track). Zero Web Audio → iOS-safe.
+// Replaces the prev/next the AudioTransportBar (removed in the simplification) provided.
 type SimpleAudioControlsProps = {
   readonly onPrev: () => void
   readonly onNext: () => void

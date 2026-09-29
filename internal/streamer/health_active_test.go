@@ -72,7 +72,7 @@ func TestMaybeScrapeActive_Scrapes(t *testing.T) {
 			got = h
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de scrape
+		<-time.After(2 * time.Millisecond) // yield CPU to the scrape goroutine
 	}
 	if got == nil || got.Seeders != 33 || got.Peers != 4 {
 		t.Fatalf("scrape did not persist (got %+v)", got)

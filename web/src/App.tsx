@@ -88,10 +88,10 @@ function RouteRestorer() {
     // into a stale ?play= on next launch would auto-reopen an old video. Incognito
     // leaves no trace, so it doesn't record the last route either.
     if (location.pathname === '/login' || isIncognito()) return
-    // Remove SÓ os params do deep-link do player (play/f/t) pra não reabrir um vídeo
-    // velho no próximo launch — mas PRESERVA o resto (ex.: ?mount=&path= da aba Local),
-    // pra o usuário voltar exatamente pra pasta onde estava. (Antes zerava a search
-    // inteira quando havia play=, perdendo mount/path se uma música estava tocando.)
+    // Remove ONLY the player deep-link params (play/f/t) so an old video isn't
+    // reopened on next launch — but PRESERVES the rest (e.g. ?mount=&path= from the
+    // Local tab), so the user lands exactly on the folder they were in. (It used to
+    // wipe the whole search when play= was present, losing mount/path if a song was playing.)
     const params = new URLSearchParams(location.search)
     params.delete('play'); params.delete('f'); params.delete('t')
     const qs = params.toString()

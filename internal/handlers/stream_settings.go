@@ -10,9 +10,9 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-// Defaults do anacrolix (v1.61.0) — usados como placeholders na UI quando o
-// campo está em 0 ("usar default da lib"). Mantidos aqui para a UI não precisar
-// adivinhar. Espelham NewDefaultClientConfig + streamReadaheadDefault.
+// anacrolix defaults (v1.61.0) — used as placeholders in the UI when the field
+// is 0 ("use the lib default"). Kept here so the UI doesn't have to guess.
+// Mirror NewDefaultClientConfig + streamReadaheadDefault.
 const (
 	defReadaheadMB        = 32
 	defMaxConnsPerTorrent = 50
@@ -39,13 +39,13 @@ type streamSettingsBody struct {
 	PeersHighWater     int    `json:"peersHighWater"`
 	PieceHashers       int    `json:"pieceHashers"`
 	MaxCacheGB         int    `json:"maxCacheGB"`
-	// SeedTrackers: substrings de announce URLs cujos torrents continuam
-	// seedando após o uso (ex.: "amigos-share"). Aplicado ao vivo, sem reinício.
+	// SeedTrackers: substrings of announce URLs whose torrents keep
+	// seeding after use (e.g. "amigos-share"). Applied live, no restart.
 	SeedTrackers []string `json:"seedTrackers"`
-	// HLSMediaRenditions liga as renditions EXT-X-MEDIA (áudio/legenda) no master
-	// HLS (Phase 2 M2b). Aplicado ao vivo (o handler lê no próximo play). ⚠ com ON,
-	// o seletor de áudio in-app regride no hls.js (Chrome/Firefox) até o front
-	// migrar pra hls.audioTrack — Safari nativo usa o menu próprio.
+	// HLSMediaRenditions wires the EXT-X-MEDIA renditions (audio/subtitle) into the
+	// HLS master (Phase 2 M2b). Applied live (the handler reads it on the next play). ⚠ with ON,
+	// the in-app audio selector regresses on hls.js (Chrome/Firefox) until the front
+	// migrates to hls.audioTrack — native Safari uses its own menu.
 	HLSMediaRenditions bool `json:"hlsMediaRenditions"`
 }
 
@@ -57,8 +57,8 @@ type streamSettingsResponse struct {
 func currentStreamSettings(cfg *config.Config, s *streamer.Streamer) streamSettingsBody {
 	st := cfg.Stream
 	down, up := st.MaxDownloadRate, st.MaxUploadRate
-	// Rate limits ao vivo são a fonte da verdade (podem ter sido mudados via o
-	// endpoint legado /stream/limits sem passar pela config).
+	// Live rate limits are the source of truth (they may have been changed via the
+	// legacy /stream/limits endpoint without going through the config).
 	if s != nil {
 		down, up = s.RateLimits()
 	}
@@ -87,7 +87,7 @@ func defaultStreamSettings() streamSettingsDefaults {
 	}
 }
 
-// StreamGetSettings handles GET /api/stream/settings — valores atuais + defaults.
+// StreamGetSettings handles GET /api/stream/settings — current values + defaults.
 func StreamGetSettings(cfg *config.Config, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, streamSettingsResponse{
@@ -97,19 +97,19 @@ func StreamGetSettings(cfg *config.Config, s *streamer.Streamer) gin.HandlerFunc
 	}
 }
 
-// validateStreamSettings devolve uma mensagem de erro (vazia = ok). Rejeita
-// negativos e backend fora de {file,mmap}.
+// validateStreamSettings returns an error message (empty = ok). Rejects
+// negatives and a backend outside {file,mmap}.
 func validateStreamSettings(b *streamSettingsBody) string {
 	if b.MaxDownloadRate < 0 || b.MaxUploadRate < 0 {
-		return "rate limits devem ser >= 0 (0 = ilimitado)"
+		return "rate limits must be >= 0 (0 = unlimited)"
 	}
 	negInt := b.ReadaheadMB < 0 || b.MaxConnsPerTorrent < 0 || b.HalfOpenConns < 0 ||
 		b.PeersHighWater < 0 || b.PieceHashers < 0 || b.MaxCacheGB < 0
 	if negInt {
-		return "valores numéricos devem ser >= 0"
+		return "numeric values must be >= 0"
 	}
 	if b.StorageBackend != config.StorageBackendFile && b.StorageBackend != config.StorageBackendMmap {
-		return "storageBackend inválido (use \"file\" ou \"mmap\")"
+		return "invalid storageBackend (use \"file\" or \"mmap\")"
 	}
 	return ""
 }
@@ -126,9 +126,9 @@ func cleanSeedTrackers(in []string) []string {
 	return out
 }
 
-// streamRestartRequired diz se a mudança exige reiniciar o processo: campos lidos
-// só na construção do client anacrolix (storage/conns/peers/hashers) ou o cache
-// cap (s.cfg é copiado no boot). Compara o pedido com a config corrente.
+// streamRestartRequired tells whether the change requires a process restart: fields
+// read only at anacrolix client construction (storage/conns/peers/hashers) or the cache
+// cap (s.cfg is copied at boot). Compares the request against the current config.
 func streamRestartRequired(old config.StreamConfig, b *streamSettingsBody) bool {
 	return b.StorageBackend != old.StorageBackend ||
 		b.MaxConnsPerTorrent != old.MaxConnsPerTorrent ||
@@ -138,9 +138,9 @@ func streamRestartRequired(old config.StreamConfig, b *streamSettingsBody) bool 
 		b.MaxCacheGB != old.MaxCacheGB
 }
 
-// StreamUpdateSettings handles PUT /api/stream/settings (AdminOnly). Valida,
-// persiste na config.yaml, aplica AO VIVO o que dá (rate limits + readahead) e
-// devolve {restartRequired} para o que só vale após reiniciar.
+// StreamUpdateSettings handles PUT /api/stream/settings (AdminOnly). Validates,
+// persists to config.yaml, applies live whatever it can (rate limits + readahead) and
+// returns {restartRequired} for what only takes effect after a restart.
 func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b streamSettingsBody
@@ -172,7 +172,7 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 			return
 		}
 
-		// Aplica ao vivo o que não exige reinício.
+		// Applies live whatever does not require a restart.
 		if s != nil {
 			s.SetRateLimits(b.MaxDownloadRate, b.MaxUploadRate)
 			s.SetStreamReadahead(b.ReadaheadMB)

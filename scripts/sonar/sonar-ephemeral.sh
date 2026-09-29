@@ -446,7 +446,7 @@ if apply_floors:
     fail_max("security_rating", max_sec, "GATE_MAX_SECURITY_RATING")
     fail_max("sqale_rating", max_sqale, "GATE_MAX_SQALE_RATING")
 
-    # Any open apontamento breaks the build. Prefer measures (bugs+vulns+smells+
+    # Any open issue breaks the build. Prefer measures (bugs+vulns+smells+
     # hotspots) — they match the post-analysis truth. issues/search on permanent
     # CE projects can still list line-less ghosts after a refactor (md-converter
     # main: code_smells=0 but issues_total=1 on pdf_converter.py:-).

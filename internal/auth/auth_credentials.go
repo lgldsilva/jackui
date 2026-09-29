@@ -51,16 +51,16 @@ func (s *Store) ConsumeToken(plain, purpose string) (*TokenInfo, error) {
 		hash, purpose,
 	).Scan(&uid, &email, &exp, &used)
 	if err == sql.ErrNoRows {
-		return nil, errors.New("token inválido")
+		return nil, errors.New("invalid token")
 	}
 	if err != nil {
 		return nil, err
 	}
 	if used.Valid {
-		return nil, errors.New("token já utilizado")
+		return nil, errors.New("token already used")
 	}
 	if time.Now().After(exp) {
-		return nil, errors.New("token expirado")
+		return nil, errors.New("token expired")
 	}
 	if _, err := s.db.Exec(`UPDATE auth_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ?`, hash); err != nil {
 		return nil, err

@@ -55,7 +55,7 @@ func postScheduleParse(t *testing.T, client *ai.Client, body string) *httptest.R
 }
 
 func TestWatchlistScheduleParse_AIDisabled(t *testing.T) {
-	w := postScheduleParse(t, nil, `{"text":"toda segunda às 9h"}`)
+	w := postScheduleParse(t, nil, `{"text":"every monday at 9am"}`)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503; body: %s", w.Code, w.Body.String())
 	}
@@ -73,7 +73,7 @@ func TestWatchlistScheduleParse_EmptyText(t *testing.T) {
 
 func TestWatchlistScheduleParse_InvalidPhrase(t *testing.T) {
 	srv := aiChatStub(t, `{"kind":"invalid","minutes":0,"weekday":0,"hour":0,"minute":0}`, http.StatusOK)
-	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"banana azul"}`)
+	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"blue banana"}`)
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422; body: %s", w.Code, w.Body.String())
 	}
@@ -81,7 +81,7 @@ func TestWatchlistScheduleParse_InvalidPhrase(t *testing.T) {
 
 func TestWatchlistScheduleParse_GarbageReply(t *testing.T) {
 	srv := aiChatStub(t, "no json whatsoever", http.StatusOK)
-	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"a cada 3 horas"}`)
+	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"every 3 hours"}`)
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422; body: %s", w.Code, w.Body.String())
 	}
@@ -89,7 +89,7 @@ func TestWatchlistScheduleParse_GarbageReply(t *testing.T) {
 
 func TestWatchlistScheduleParse_ChainDown(t *testing.T) {
 	srv := aiChatStub(t, "", http.StatusInternalServerError)
-	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"toda segunda às 9h"}`)
+	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"every monday at 9am"}`)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503; body: %s", w.Code, w.Body.String())
 	}
@@ -97,7 +97,7 @@ func TestWatchlistScheduleParse_ChainDown(t *testing.T) {
 
 func TestWatchlistScheduleParse_Success(t *testing.T) {
 	srv := aiChatStub(t, `{"kind":"weekly","minutes":0,"weekday":1,"hour":9,"minute":0}`, http.StatusOK)
-	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"toda segunda às 9h"}`)
+	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"every monday at 9am"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
@@ -114,7 +114,7 @@ func TestWatchlistScheduleParse_ClampsViaNormalized(t *testing.T) {
 	// A hallucinated hour 30 / weekday 9 must come back clamped (the same
 	// Normalized() path the store uses), never leak raw model output.
 	srv := aiChatStub(t, `{"kind":"weekly","minutes":0,"weekday":9,"hour":30,"minute":99}`, http.StatusOK)
-	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"dia 32 às 30h"}`)
+	w := postScheduleParse(t, aiClientFor(t, srv.URL), `{"text":"day 32 at 30h"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
@@ -141,7 +141,7 @@ func TestWatchlistScheduleParse_TextTooLong(t *testing.T) {
 func TestWatchlistScheduleParse_DisabledCodeInBody(t *testing.T) {
 	// The frontend hides the AI field only on code=ai_disabled; transient chain
 	// failures keep it visible — the codes must stay distinguishable.
-	w := postScheduleParse(t, nil, `{"text":"toda segunda"}`)
+	w := postScheduleParse(t, nil, `{"text":"every monday"}`)
 	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "ai_disabled") {
 		t.Fatalf("want 503 with code ai_disabled, got %d: %s", w.Code, w.Body.String())
 	}

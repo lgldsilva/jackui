@@ -145,9 +145,9 @@ func TestSetSeedTrackersLive(t *testing.T) {
 	}
 }
 
-// DropSeed (ação explícita do usuário) remove o registro PERSISTENTE de
-// auto-seed, ao contrário do Drop genérico — senão o torrent voltaria a seedar
-// no próximo boot. Regressão do "streamings ativos que reaparecem".
+// DropSeed (an explicit user action) removes the PERSISTENT auto-seed record,
+// unlike the generic Drop — otherwise the torrent would start seeding again on
+// the next boot. Regression for "active streamings that reappear".
 func TestDropSeedRemovesPersisted(t *testing.T) {
 	s := NewForTesting()
 	seeds := newSeedsForTest(t)
@@ -161,10 +161,10 @@ func TestDropSeedRemovesPersisted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !seeds.Has(h.HexString()) {
-		t.Fatal("seed deveria existir antes do DropSeed")
+		t.Fatal("seed should exist before DropSeed")
 	}
-	s.DropSeed(h) // não está ativo no client → Drop é no-op; o que importa é limpar o persistido
+	s.DropSeed(h) // not active in the client → Drop is a no-op; what matters is clearing the persisted record
 	if seeds.Has(h.HexString()) {
-		t.Error("DropSeed deveria remover o seed persistido (.seeds.db)")
+		t.Error("DropSeed should remove the persisted seed (.seeds.db)")
 	}
 }

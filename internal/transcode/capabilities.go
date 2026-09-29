@@ -208,18 +208,18 @@ func Probe(ctx context.Context, force bool) (*Capabilities, error) {
 	return &c, nil
 }
 
-// ResetCachedForTesting zera o cache de capabilities. Só para testes que
-// precisam exercitar o caminho "caps ainda não probadas".
+// ResetCachedForTesting zeroes the capabilities cache. Only for tests that
+// need to exercise the "caps not yet probed" path.
 func ResetCachedForTesting() {
 	cacheMu.Lock()
 	cached = nil
 	cacheMu.Unlock()
 }
 
-// SetCachedForTesting injeta uma matriz de capabilities fake (ex.: um script
-// stub no lugar do ffmpeg) para testes — inclusive de OUTROS pacotes — que
-// precisam iniciar sessões HLS sem probar o host. Parear com
-// ResetCachedForTesting no cleanup.
+// SetCachedForTesting injects a fake capabilities matrix (e.g. a stub script
+// in place of ffmpeg) for tests — including tests in OTHER packages — that
+// need to start HLS sessions without probing the host. Pair with
+// ResetCachedForTesting in cleanup.
 func SetCachedForTesting(c *Capabilities) {
 	cacheMu.Lock()
 	cached = c

@@ -1,14 +1,14 @@
-// HTTP core (axios instance, auth/incognito interceptors, token helpers) vive em
-// ./http. client.ts re-exporta tudo num barrel pra que os ~40 call-sites
-// (`import { api, withToken, ... } from '../api/client'`) sigam funcionando
-// enquanto o módulo é dividido por domínio. Ver [[feedback-no-god-files]].
+// HTTP core (axios instance, auth/incognito interceptors, token helpers) lives in
+// ./http. client.ts re-exports everything in a barrel so the ~40 call-sites
+// (`import { api, withToken, ... } from '../api/client'`) keep working
+// while the module is split by domain. See [[feedback-no-god-files]].
 import { api } from './http'
 export { api }
-// Re-export puro (símbolos não usados internamente aqui) — `export…from` evita o
-// smell S7763 do Sonar (importar só pra re-exportar).
+// Pure re-export (symbols not used internally here) — `export…from` avoids the
+// Sonar S7763 smell (importing just to re-export).
 export { withToken, fetchMediaToken, clearMediaToken, MAGNET_PREFIX, sessionLifecycle } from './http'
 
-// Domínios extraídos (re-exportados pra manter os call-sites em '../api/client').
+// Extracted domains (re-exported to keep call-sites on '../api/client').
 export * from './auth'
 export * from './downloads'
 export * from './tmdb'
@@ -58,10 +58,10 @@ export type SearchResult = {
   publishDate: string
   cached?: boolean
   quality?: Quality
-  // Backend-computed enrichments (onda 2). Opcionais porque endpoints legados
-  // ainda podem montar SearchResult sem eles (ex.: syntheticResult em deep
-  // links). UI deve preferir esses campos quando presentes; heurística
-  // client-side fica como fallback temporário até a onda 3.
+  // Backend-computed enrichments (wave 2). Optional because legacy endpoints
+  // may still build SearchResult without them (e.g. syntheticResult in deep
+  // links). The UI must prefer these fields when present; the client-side
+  // heuristic stays as a temporary fallback until wave 3.
   playable?: boolean
   mediaKind?: 'audio' | 'video' | 'other'
   isFavorited?: boolean
@@ -268,7 +268,7 @@ export type AISlotScore = {
   samples: number
   costPer1M?: number     // blended USD per 1M tokens (0 = free); factored into the score
   failureReason?: string
-  incomplete?: boolean   // some cases skipped (rate limit) → re-run via "Rodar faltantes"
+  incomplete?: boolean   // some cases skipped (rate limit) → re-run via "Run missing"
   tasks?: Record<string, AITaskScore> // optional per-task breakdown (multi-task benchmark)
   // Durable run history (backend benchmark_history): whether the LAST run succeeded
   // or errored, whether the error persisted, and when it last succeeded. All
@@ -284,9 +284,9 @@ export type AISlotScore = {
 // or "schedule". Optional for retrocompat: a case without it is the rename task.
 export type AIBenchmarkCase = { raw: string; expect: string; task?: string }
 export type AICostConfig = {
-  maxCostPer1M: number // teto p/ incluir pagos no benchmark ($/1M); 0 = só grátis
-  kwhPrice: number     // tarifa de energia (USD/kWh); 0 = local fica grátis
-  localWatts: number   // potência da GPU sob carga (W)
+  maxCostPer1M: number // ceiling to include paid models in the benchmark ($/1M); 0 = free only
+  kwhPrice: number     // energy tariff (USD/kWh); 0 = local becomes free
+  localWatts: number   // GPU power draw under load (W)
 }
 export type AIStatus = {
   enabled: boolean
@@ -372,7 +372,7 @@ export const transcodeCapabilities = async (refresh = false): Promise<TranscodeC
   return data
 }
 
-// Converte uma URL de arquivo .torrent para link magnet no backend.
+// Converts a .torrent file URL to a magnet link on the backend.
 export const convertTorrentToMagnet = async (
   url: string,
 ): Promise<{ magnet: string; infoHash: string; name: string }> => {
@@ -382,10 +382,10 @@ export const convertTorrentToMagnet = async (
   return data
 }
 
-// Baixa um arquivo pela camada autenticada (axios injeta Authorization e faz
-// refresh) e dispara o save via blob. Navegação direta (location.href) não
-// envia o header, e as rotas de .torrent não estão na whitelist de ?token= —
-// com auth ligada o usuário recebia um JSON 401 no lugar do arquivo.
+// Downloads a file through the authenticated layer (axios injects Authorization
+// and does refresh) and triggers the save via blob. Direct navigation
+// (location.href) doesn't send the header, and the .torrent routes aren't in
+// the ?token= whitelist — with auth on, the user got a 401 JSON instead of the file.
 export const downloadFileAuthenticated = async (path: string, filename: string): Promise<void> => {
   const { data } = await api.get<Blob>(path, { responseType: 'blob' })
   const blobUrl = URL.createObjectURL(data)
@@ -398,8 +398,8 @@ export const downloadFileAuthenticated = async (path: string, filename: string):
   setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
 }
 
-// Baixa o .torrent de um resultado: via link do indexer (proxy) ou convertendo
-// o magnet. O nome vem do título do resultado.
+// Downloads a result's .torrent: via the indexer link (proxy) or by converting
+// the magnet. The name comes from the result title.
 export const downloadTorrentForResult = async (r: { title: string; link?: string; magnetUri?: string }): Promise<void> => {
   const filename = `${r.title || 'download'}.torrent`
   if (r.link) {

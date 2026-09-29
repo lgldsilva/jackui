@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Gera um changelog em markdown a partir dos Conventional Commits desde a última
-# tag semver até HEAD, agrupado por tipo. Alimenta o corpo do GitHub Release.
+# Generates a markdown changelog from the Conventional Commits since the last
+# semver tag up to HEAD, grouped by type. Feeds the GitHub Release body.
 #
-# Uso:  scripts/changelog.sh [<nova-versão>]   → imprime markdown no stdout.
-# Env (opcional):
-#   REPO_URL   base do repo (ex. https://github.com/lgldsilva/jackui)
-#              → adiciona rodapé "Full changelog: <last>...<nova-versão>".
+# Usage:  scripts/changelog.sh [<new-version>]   → prints markdown to stdout.
+# Env (optional):
+#   REPO_URL   repo base URL (e.g. https://github.com/lgldsilva/jackui)
+#              → adds a "Full changelog: <last>...<new-version>" footer.
 #
-# A nova-versão AINDA NÃO existe como tag quando isto roda (o Release a cria), então
-# o range vai da última tag EXISTENTE até HEAD.
+# The new-version does NOT exist as a tag yet when this runs (the Release creates
+# it), so the range goes from the last EXISTING tag to HEAD.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -23,10 +23,10 @@ else
   range="HEAD"
 fi
 
-# Assuntos dos commits reais (sem os merges "Merge pull request ..." que só ruído).
+# Subjects of the real commits (skipping the "Merge pull request ..." merges, which are noise).
 subjects=$(git log "$range" --no-merges --format='%s|%h' 2>/dev/null || true)
 
-# section <título> <alternação-de-tipos> → imprime "### título" + itens, se houver.
+# section <title> <type-alternation> → prints "### title" + items, if any.
 section() {
   local title="$1" types="$2" lines
   lines=$(printf '%s\n' "$subjects" \
@@ -37,9 +37,9 @@ section() {
   fi
 }
 
-# BREAKING CHANGES em destaque — só o FOOTER real "BREAKING CHANGE:" (início de
-# linha + ":", maiúsculas), não a frase citada em prosa (senão um commit que só
-# menciona "BREAKING CHANGE" numa explicação vira uma seção falsa no changelog).
+# Highlight BREAKING CHANGES — only the real "BREAKING CHANGE:" FOOTER (start of
+# line + ":", uppercase), not the phrase quoted in prose (otherwise a commit that
+# merely mentions "BREAKING CHANGE" in an explanation becomes a fake changelog section).
 breaking=$(git log "$range" --no-merges --format='%B' 2>/dev/null \
   | grep -E '^BREAKING[ -]CHANGE:' | sed -E 's/^BREAKING[ -]CHANGE: */- /' || true)
 if [ -n "$breaking" ]; then
@@ -53,18 +53,18 @@ section '⚡ Performance'    'perf'
 section '♻️ Refactor'      'refactor'
 section '🔧 Chore / CI / Docs' 'chore|ci|docs|build|test|style'
 
-# "Outros": commits sem tipo convencional reconhecido (não caem em nenhuma seção).
-# O primeiro grep exige o separador "|<hash>", descartando a linha vazia que o
-# printf gera quando não há commit no range.
+# "Other": commits without a recognized conventional type (they fall in no section).
+# The first grep requires the "|<hash>" separator, discarding the empty line that the
+# printf emits when there is no commit in the range.
 others=$(printf '%s\n' "$subjects" \
   | grep -E '\|[0-9a-f]+$' \
   | grep -viE "^(feat|fix|perf|security|refactor|chore|ci|docs|build|test|style)(\([^)]*\))?!?:" \
   | sed -E 's/^(.*)\|([0-9a-f]+)$/- \1 (\2)/' || true)
 if [ -n "$others" ]; then
-  printf '### 📦 Outros\n%s\n\n' "$others"
+  printf '### 📦 Other\n%s\n\n' "$others"
 fi
 
-# Rodapé com link de comparação, quando o REPO_URL é conhecido.
+# Footer with the compare link, when REPO_URL is known.
 if [ -n "${REPO_URL:-}" ] && [ -n "$last" ] && [ -n "$newver" ]; then
   printf '**Full changelog:** [%s...%s](%s/compare/%s...%s)\n' \
     "$last" "$newver" "${REPO_URL%/}" "$last" "$newver"

@@ -37,12 +37,12 @@ func SetUserStatus(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		if req.Status != auth.StatusActive && req.Status != auth.StatusPending && req.Status != auth.StatusDisabled {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "status inválido")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid status")
 			return
 		}
 		claims, _ := auth.ClaimsFromCtx(c)
 		if claims != nil && claims.UserID == id && req.Status != auth.StatusActive {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "não pode desabilitar a si mesmo")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "cannot disable yourself")
 			return
 		}
 		if err := store.SetStatus(id, req.Status); err != nil {
@@ -54,7 +54,7 @@ func SetUserStatus(store *auth.Store) gin.HandlerFunc {
 		if req.Status == auth.StatusDisabled {
 			_ = store.RevokeAllSessions(id)
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "status atualizado"})
+		c.JSON(http.StatusOK, gin.H{"message": "status updated"})
 	}
 }
 
@@ -106,7 +106,7 @@ func SetNtfyTopic(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "tópico atualizado"})
+		c.JSON(http.StatusOK, gin.H{"message": "topic updated"})
 	}
 }
 
@@ -118,13 +118,13 @@ func NotifyTest(cfg *config.Config, store *auth.Store) gin.HandlerFunc {
 		baseURL := ntfyBaseURL(cfg)
 		topic := resolveNtfyTopic(cfg, store, c)
 		if topic == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "nenhum tópico ntfy configurado")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "no ntfy topic configured")
 			return
 		}
 		if !postNtfyNotification(c, baseURL, topic) {
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "notificação de teste enviada"})
+		c.JSON(http.StatusOK, gin.H{"message": "test notification sent"})
 	}
 }
 
@@ -154,13 +154,13 @@ func resolveNtfyTopic(cfg *config.Config, store *auth.Store, c *gin.Context) str
 func postNtfyNotification(c *gin.Context, baseURL, topic string) bool {
 	url := fmt.Sprintf("%s/%s", strings.TrimRight(baseURL, "/"), topic)
 	host, _ := os.Hostname()
-	body := fmt.Sprintf("Notificação de teste do JackUI (%s)", host)
+	body := fmt.Sprintf("JackUI test notification (%s)", host)
 	req, err := http.NewRequestWithContext(c.Request.Context(), "POST", url, bytes.NewBufferString(body))
 	if err != nil {
 		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return false
 	}
-	req.Header.Set("Title", "JackUI — Teste de Notificação")
+	req.Header.Set("Title", "JackUI — Notification Test")
 	req.Header.Set("Tags", "test,rocket")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -169,7 +169,7 @@ func postNtfyNotification(c *gin.Context, baseURL, topic string) bool {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
-		httpshared.RespondErrorMessage(c, http.StatusBadGateway, fmt.Sprintf("ntfy retornou %d", resp.StatusCode))
+		httpshared.RespondErrorMessage(c, http.StatusBadGateway, fmt.Sprintf("ntfy returned %d", resp.StatusCode))
 		return false
 	}
 	return true
@@ -185,7 +185,7 @@ func DeleteUser(store *auth.Store) gin.HandlerFunc {
 		}
 		claims, _ := auth.ClaimsFromCtx(c)
 		if claims != nil && claims.UserID == id {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "não pode deletar a si mesmo")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "cannot delete yourself")
 			return
 		}
 		if err := store.DeleteUser(id); err != nil {

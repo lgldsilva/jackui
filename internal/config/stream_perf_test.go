@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Round-trip: campos de performance gravados sobrevivem ao Save→Load.
+// Round-trip: saved performance fields survive Save→Load.
 func TestStreamPerfConfigRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	cfg := defaultConfig()
@@ -28,18 +28,18 @@ func TestStreamPerfConfigRoundTrip(t *testing.T) {
 	}
 	s := got.Stream
 	if s.MaxDownloadRate != 5*1024*1024 || s.MaxUploadRate != 1*1024*1024 {
-		t.Errorf("rate limits não sobreviveram: down=%d up=%d", s.MaxDownloadRate, s.MaxUploadRate)
+		t.Errorf("rate limits did not survive: down=%d up=%d", s.MaxDownloadRate, s.MaxUploadRate)
 	}
 	if s.ReadaheadMB != 64 || s.MaxConnsPerTorrent != 120 || s.HalfOpenConns != 40 ||
 		s.PeersHighWater != 800 || s.PieceHashers != 4 || s.MaxCacheGB != 250 {
-		t.Errorf("ints não sobreviveram: %+v", s)
+		t.Errorf("ints did not survive: %+v", s)
 	}
 	if s.StorageBackend != StorageBackendMmap {
-		t.Errorf("StorageBackend = %q, queria mmap", s.StorageBackend)
+		t.Errorf("StorageBackend = %q, want mmap", s.StorageBackend)
 	}
 }
 
-// Env overrides: MB/s vira bytes; ints aplicados; storage sanitizado.
+// Env overrides: MB/s becomes bytes; ints applied; storage sanitized.
 func TestStreamPerfEnvOverrides(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := defaultConfig().Save(path); err != nil {
@@ -57,7 +57,7 @@ func TestStreamPerfEnvOverrides(t *testing.T) {
 	}
 	s := cfg.Stream
 	if s.MaxDownloadRate != 10*1024*1024 {
-		t.Errorf("down = %d, queria %d", s.MaxDownloadRate, 10*1024*1024)
+		t.Errorf("down = %d, want %d", s.MaxDownloadRate, 10*1024*1024)
 	}
 	if s.MaxUploadRate != 2*1024*1024 {
 		t.Errorf("up = %d", s.MaxUploadRate)
@@ -66,11 +66,11 @@ func TestStreamPerfEnvOverrides(t *testing.T) {
 		t.Errorf("ints env: readahead=%d conns=%d", s.ReadaheadMB, s.MaxConnsPerTorrent)
 	}
 	if s.StorageBackend != StorageBackendMmap {
-		t.Errorf("StorageBackend = %q, queria mmap", s.StorageBackend)
+		t.Errorf("StorageBackend = %q, want mmap", s.StorageBackend)
 	}
 }
 
-// JACKUI_SEED_TRACKERS (CSV) vira []string, com trim e drop de vazios.
+// JACKUI_SEED_TRACKERS (CSV) becomes []string, with trim and drop of empties.
 func TestSeedTrackersEnv(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := defaultConfig().Save(path); err != nil {
@@ -83,7 +83,7 @@ func TestSeedTrackersEnv(t *testing.T) {
 	}
 	got := cfg.Stream.SeedTrackers
 	if len(got) != 2 || got[0] != "amigos-share" || got[1] != "outro" {
-		t.Errorf("seed_trackers env = %#v, queria [amigos-share outro]", got)
+		t.Errorf("seed_trackers env = %#v, want [amigos-share outro]", got)
 	}
 }
 
@@ -96,7 +96,7 @@ func TestSplitCSV(t *testing.T) {
 	}
 }
 
-// Sanitização: backend inválido (ou vazio) cai pra "file".
+// Sanitization: invalid (or empty) backend falls back to "file".
 func TestStreamStorageBackendSanitized(t *testing.T) {
 	for _, in := range []string{"", "bogus", "FILE", "MMAP"} {
 		path := filepath.Join(t.TempDir(), "config.yaml")
@@ -110,7 +110,7 @@ func TestStreamStorageBackendSanitized(t *testing.T) {
 			t.Fatalf("Load: %v", err)
 		}
 		if got.Stream.StorageBackend != StorageBackendFile {
-			t.Errorf("backend %q deveria sanitizar p/ file, virou %q", in, got.Stream.StorageBackend)
+			t.Errorf("backend %q should sanitize to file, got %q", in, got.Stream.StorageBackend)
 		}
 	}
 }
@@ -118,13 +118,13 @@ func TestStreamStorageBackendSanitized(t *testing.T) {
 func TestEnvIntInvalid(t *testing.T) {
 	t.Setenv("JACKUI_TEST_INT", "notanumber")
 	if _, ok := envInt("JACKUI_TEST_INT"); ok {
-		t.Error("envInt deveria retornar ok=false para valor não-numérico")
+		t.Error("envInt should return ok=false for a non-numeric value")
 	}
 	if _, ok := envInt("JACKUI_TEST_INT_UNSET"); ok {
-		t.Error("envInt deveria retornar ok=false para var ausente")
+		t.Error("envInt should return ok=false for a missing var")
 	}
 	t.Setenv("JACKUI_TEST_INT", "42")
 	if n, ok := envInt("JACKUI_TEST_INT"); !ok || n != 42 {
-		t.Errorf("envInt = (%d,%v), queria (42,true)", n, ok)
+		t.Errorf("envInt = (%d,%v), want (42,true)", n, ok)
 	}
 }

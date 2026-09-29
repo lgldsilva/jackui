@@ -74,7 +74,7 @@ func ValidateTOTP(secret, code string) bool {
 	if len(code) != 6 || secret == "" {
 		return false
 	}
-	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
+	// #nosec G115 -- bounded conversion (statfs/Unix time/id/ASCII rune/fs magic); no real overflow
 	now := uint64(time.Now().Unix() / int64(totpStep.Seconds()))
 	for _, c := range []uint64{now - 1, now, now + 1} {
 		if hmac.Equal([]byte(totpAt(secret, c)), []byte(code)) {

@@ -4,15 +4,16 @@ import (
 	"testing"
 )
 
-// Pausar um download JÁ CONCLUÍDO deixava a linha órfã: o status virava
-// `paused`, mas Requeue (store_groups.go) recusa sair de `completed`, então o
-// resume era no-op e a row ficava presa em `paused` para sempre. Na UI o item
-// perdia as ações de concluído (Promover / Parar e remover / Abrir no local),
-// que são condicionadas a status==='completed' — daí o relato "não sai da lista
-// e não aparece a opção de excluir o torrent mantendo os arquivos".
+// Pausing an ALREADY COMPLETED download used to orphan the row: the status
+// became `paused`, but Requeue (store_groups.go) refuses to leave `completed`,
+// so the resume was a no-op and the row stayed stuck in `paused` forever. In
+// the UI the item lost its completed-only actions (Promote / Stop and remove /
+// Open in folder), which are conditioned on status==='completed' — hence the
+// report "it won't leave the list and the option to delete the torrent keeping
+// the files never shows up".
 //
-// SetStatusForUser (pause-all) SEMPRE excluiu os terminais; o caminho single/
-// batch é que não tinha a guarda. Aqui ela vira regra do store.
+// SetStatusForUser (pause-all) ALWAYS excluded terminals; the single/batch
+// path was the one missing the guard. Here it becomes a store rule.
 func TestSetStatusPausedIgnoresCompleted(t *testing.T) {
 	s := newTestStore(t)
 	d := mustCreate(t, s, 1, "aaa", 0)
@@ -29,12 +30,12 @@ func TestSetStatusPausedIgnoresCompleted(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.Status != StatusCompleted {
-		t.Errorf("status=%q, want %q — pausar um concluído deve ser no-op", got.Status, StatusCompleted)
+		t.Errorf("status=%q, want %q — pausing a completed row must be a no-op", got.Status, StatusCompleted)
 	}
 }
 
-// Mesma guarda para `failed`: o card oferece "Tentar novamente" (resume), não
-// pausar. Pausar um failed só o esconderia da aba de erros.
+// Same guard for `failed`: the card offers "Try again" (resume), not pause.
+// Pausing a failed row would only hide it from the errors tab.
 func TestSetStatusPausedIgnoresFailed(t *testing.T) {
 	s := newTestStore(t)
 	d := mustCreate(t, s, 1, "bbb", 0)
@@ -48,13 +49,13 @@ func TestSetStatusPausedIgnoresFailed(t *testing.T) {
 
 	got, _ := s.Get(1, d.ID)
 	if got.Status != StatusFailed {
-		t.Errorf("status=%q, want %q — pausar um falho deve ser no-op", got.Status, StatusFailed)
+		t.Errorf("status=%q, want %q — pausing a failed row must be a no-op", got.Status, StatusFailed)
 	}
 }
 
-// A guarda vale só para o pause: completed→downloading continua livre (é o
-// caminho de re-download / re-enqueue, e SetStatus(completed) reabilita o
-// auto-seed limpando seed_stopped_at).
+// The guard only applies to pause: completed→downloading remains free (that's
+// the re-download / re-enqueue path, and SetStatus(completed) re-enables
+// auto-seed by clearing seed_stopped_at).
 func TestSetStatusCompletedToDownloadingStillAllowed(t *testing.T) {
 	s := newTestStore(t)
 	d := mustCreate(t, s, 1, "ccc", 0)
@@ -68,13 +69,13 @@ func TestSetStatusCompletedToDownloadingStillAllowed(t *testing.T) {
 
 	got, _ := s.Get(1, d.ID)
 	if got.Status != StatusDownloading {
-		t.Errorf("status=%q, want %q — re-download não pode ser bloqueado", got.Status, StatusDownloading)
+		t.Errorf("status=%q, want %q — re-download must not be blocked", got.Status, StatusDownloading)
 	}
 }
 
-// O batch (PATCH /downloads/batch/pause) usa SetStatusByIDs — mesma guarda, e
-// `affected` precisa refletir só as linhas realmente pausadas para o frontend
-// não anunciar sucesso sobre um no-op.
+// The batch (PATCH /downloads/batch/pause) uses SetStatusByIDs — same guard, and
+// `affected` must reflect only the rows actually paused so the frontend doesn't
+// announce success over a no-op.
 func TestSetStatusByIDsPausedSkipsTerminalRows(t *testing.T) {
 	s := newTestStore(t)
 	active := mustCreate(t, s, 1, "ddd", 0)
@@ -95,25 +96,25 @@ func TestSetStatusByIDsPausedSkipsTerminalRows(t *testing.T) {
 		t.Fatalf("SetStatusByIDs: %v", err)
 	}
 	if n != 1 {
-		t.Errorf("affected=%d, want 1 — só a linha ativa pode ser pausada", n)
+		t.Errorf("affected=%d, want 1 — only the active row can be paused", n)
 	}
 
 	gotCompleted, _ := s.Get(1, completed.ID)
 	if gotCompleted.Status != StatusCompleted {
-		t.Errorf("completed virou %q no batch pause", gotCompleted.Status)
+		t.Errorf("completed became %q on batch pause", gotCompleted.Status)
 	}
 	gotFailed, _ := s.Get(1, failed.ID)
 	if gotFailed.Status != StatusFailed {
-		t.Errorf("failed virou %q no batch pause", gotFailed.Status)
+		t.Errorf("failed became %q on batch pause", gotFailed.Status)
 	}
 	gotActive, _ := s.Get(1, active.ID)
 	if gotActive.Status != StatusPaused {
-		t.Errorf("linha ativa não foi pausada: %q", gotActive.Status)
+		t.Errorf("active row was not paused: %q", gotActive.Status)
 	}
 }
 
-// SetStatusByIDs com outros status (ex.: o worker demovendo para queued) não
-// herda a guarda — ela é específica do pause.
+// SetStatusByIDs with other statuses (e.g. the worker demoting to queued) does
+// not inherit the guard — it is pause-specific.
 func TestSetStatusByIDsNonPausedUnaffectedByGuard(t *testing.T) {
 	s := newTestStore(t)
 	completed := mustCreate(t, s, 1, "eee", 0)
@@ -126,7 +127,7 @@ func TestSetStatusByIDsNonPausedUnaffectedByGuard(t *testing.T) {
 		t.Fatalf("SetStatusByIDs: %v", err)
 	}
 	if n != 1 {
-		t.Errorf("affected=%d, want 1 — re-enfileirar um concluído continua permitido", n)
+		t.Errorf("affected=%d, want 1 — re-queueing a completed row stays allowed", n)
 	}
 }
 

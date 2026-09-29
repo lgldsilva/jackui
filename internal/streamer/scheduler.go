@@ -11,8 +11,8 @@ import (
 	"github.com/lgldsilva/jackui/internal/config"
 )
 
-// InTimeRange verifica se a hora atual cai dentro de um time_range como "08:00-18:00".
-// Suporta faixas que viram a noite, ex: "22:00-06:00".
+// InTimeRange checks whether the current time falls inside a time_range like "08:00-18:00".
+// Supports ranges that wrap around midnight, e.g. "22:00-06:00".
 func InTimeRange(now time.Time, rangeStr string) bool {
 	parts := strings.Split(rangeStr, "-")
 	if len(parts) != 2 {
@@ -26,7 +26,7 @@ func InTimeRange(now time.Time, rangeStr string) bool {
 		return false
 	}
 
-	// Hora do dia em minutos
+	// Time of day in minutes
 	currentMinutes := now.Hour()*60 + now.Minute()
 	startMinutes := sh*60 + sm
 	endMinutes := eh*60 + em
@@ -34,7 +34,7 @@ func InTimeRange(now time.Time, rangeStr string) bool {
 	if startMinutes <= endMinutes {
 		return currentMinutes >= startMinutes && currentMinutes <= endMinutes
 	} else {
-		// Intervalo cruza a meia-noite (ex: 22:00-06:00)
+		// Range crosses midnight (e.g. 22:00-06:00)
 		return currentMinutes >= startMinutes || currentMinutes <= endMinutes
 	}
 }
@@ -55,7 +55,7 @@ func parseHourMin(s string) (int, int, error) {
 	return h, m, nil
 }
 
-// StartBandwidthScheduler inicia o loop periódico em background que aplica as regras de limites de banda baseadas no horário.
+// StartBandwidthScheduler starts the background periodic loop that applies the time-based bandwidth limit rules.
 func StartBandwidthScheduler(ctx context.Context, s *Streamer, cfg *config.Config) {
 	if s == nil || len(cfg.Stream.BandwidthSchedules) == 0 {
 		return
@@ -67,7 +67,7 @@ func runBandwidthScheduler(ctx context.Context, s *Streamer, cfg *config.Config)
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	lastDown, lastUp := int64(-2), int64(-2) // Valores dummy iniciais
+	lastDown, lastUp := int64(-2), int64(-2) // Initial dummy values
 	for {
 		select {
 		case <-ctx.Done():
@@ -86,7 +86,7 @@ func applyBandwidthSchedule(s *Streamer, cfg *config.Config, now time.Time, last
 		return lastDown, lastUp
 	}
 	s.SetRateLimits(targetDown, targetUp)
-	log.Printf("[BandwidthScheduler] Limites de banda atualizados para download=%d B/s, upload=%d B/s (horário atual: %02d:%02d)", targetDown, targetUp, now.Hour(), now.Minute())
+	log.Printf("[BandwidthScheduler] Bandwidth limits updated to download=%d B/s, upload=%d B/s (current time: %02d:%02d)", targetDown, targetUp, now.Hour(), now.Minute())
 	return targetDown, targetUp
 }
 

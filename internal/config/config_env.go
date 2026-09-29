@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// Overrides por variável de ambiente (apply*Env) — extraído de config.go.
-// applyEnvOverrides sobrescreve valores do YAML com variáveis de ambiente quando definidas.
-// JACKUI_PORT, JACKETT_URL, JACKETT_API_KEY são os mais comuns em Docker.
+// Environment-variable overrides (apply*Env) — extracted from config.go.
+// applyEnvOverrides overrides YAML values with environment variables when set.
+// JACKUI_PORT, JACKETT_URL, JACKETT_API_KEY are the most common in Docker.
 func applyEnvOverrides(cfg *Config) {
 	applyDatabaseEnv(cfg)
 	applyJackettEnv(cfg)
@@ -214,9 +214,9 @@ func applyStreamEnv(cfg *Config) {
 	applyStreamPerfEnv(cfg)
 }
 
-// applyStreamPerfEnv lê os knobs de performance/hardware do ambiente e sanitiza
-// o backend de storage. Rates vêm em MB/s no env (mais legível) e são convertidos
-// para bytes/seg na config.
+// applyStreamPerfEnv reads the performance/hardware knobs from the environment and sanitizes
+// the storage backend. Rates come in MB/s in the env (more readable) and are converted
+// to bytes/sec in the config.
 func applyStreamPerfEnv(cfg *Config) {
 	applyEnvInt64MB(&cfg.Stream.MaxDownloadRate, "JACKUI_STREAM_DOWN_MBPS")
 	applyEnvInt64MB(&cfg.Stream.MaxUploadRate, "JACKUI_STREAM_UP_MBPS")
@@ -232,7 +232,7 @@ func applyStreamPerfEnv(cfg *Config) {
 		cfg.Stream.SeedTrackers = splitCSV(v)
 	}
 
-	// Sanitiza: qualquer valor fora de {file,mmap} (incl. vazio) vira "file".
+	// Sanitize: any value outside {file,mmap} (including empty) becomes "file".
 	if cfg.Stream.StorageBackend != StorageBackendMmap {
 		cfg.Stream.StorageBackend = StorageBackendFile
 	}
@@ -258,8 +258,8 @@ func applyEnvInt64MB(target *int64, name string) {
 	}
 }
 
-// splitCSV divide uma lista separada por vírgula, ignorando espaços e entradas
-// vazias. Devolve nil quando não sobra nenhum item.
+// splitCSV splits a comma-separated list, ignoring spaces and empty
+// entries. Returns nil when no items remain.
 func splitCSV(v string) []string {
 	var out []string
 	for _, part := range strings.Split(v, ",") {
@@ -270,7 +270,7 @@ func splitCSV(v string) []string {
 	return out
 }
 
-// envInt lê uma env var inteira. Retorna (0,false) se ausente ou inválida.
+// envInt reads an integer env var. Returns (0,false) when absent or invalid.
 func envInt(name string) (int, bool) {
 	v := os.Getenv(name)
 	if v == "" {
@@ -353,7 +353,7 @@ func applyTMDBEnv(cfg *Config) {
 // trimmed) so the env can never spawn a twin of an admin-saved mount — e.g.
 // env "Downloads:/downloads/" vs saved "/downloads" with allowed_users. A twin
 // would show up unrestricted to everyone and break the next PUT /api/mounts
-// with "nome de mount duplicado". The saved (possibly restricted) entry wins.
+// with "nome de mount duplicado" (duplicate mount name). The saved (possibly restricted) entry wins.
 func applyExternalMountsEnv(cfg *Config) {
 	v := os.Getenv("JACKUI_EXTERNAL_MOUNTS")
 	if v == "" {
@@ -423,7 +423,7 @@ func parseMountSpec(spec string) (ExternalMount, bool) {
 // to warn early that Settings/Mounts changes won't persist (typical cause: the
 // host file is owned by root while the container runs as uid 1000).
 func CheckWritable(path string) error {
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from hash/internal config
 	f, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		return err

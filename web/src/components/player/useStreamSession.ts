@@ -20,7 +20,7 @@ import type { TFn } from './playerTypes'
 type Setter<T> = React.Dispatch<React.SetStateAction<T>>
 
 // Owns the streaming session lifecycle: media-token fetch, the authoritative
-// streamAdd (+ metadata-cache preview) on open, the Cinema↔Música re-send, the
+// streamAdd (+ metadata-cache preview) on open, the Cinema↔Music re-send, the
 // 2s progress poll, and the viewer lease. Cross-cutting state resets for a new
 // result live in `resetForNewResult` (called with the warm-hold flag) so this
 // hook doesn't need to thread every setter the reset touches.
@@ -50,27 +50,27 @@ export function useStreamSession(deps: {
     setSubEnabled, setCaps, setBlessed, resetForNewResult,
   } = deps
 
-  // streamAddDoneRef: o streamAdd (autoritativo) já resolveu? Evita que o
-  // preview do cache de metadados sobrescreva o resultado autoritativo na corrida.
+  // streamAddDoneRef: has the (authoritative) streamAdd already resolved? Prevents the
+  // metadata-cache preview from overwriting the authoritative result in the race.
   const streamAddDoneRef = useRef(false)
-  // everReadyRef: vira true assim que o player já mostrou conteúdo (info +
-  // arquivo) ao menos uma vez nesta instância. Habilita o "warm hold" na troca
-  // de faixa de música (ver o efeito [result]) e suprime o overlay de start.
+  // everReadyRef: flips true as soon as the player has shown content (info +
+  // file) at least once in this instance. Enables the "warm hold" on music track
+  // switch (see the [result] effect) and suppresses the start overlay.
   const everReadyRef = useRef(false)
   const prevAudioModeRef = useRef(audioMode)
   const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null)
 
-  // Pede um media token (JWT TTL longo, scope="media") ao abrir o player.
-  // Necessário ANTES de montar o <video src> pra que a URL não troque depois
-  // (o que faria o browser interpretar como mídia nova e resetar pra 0).
-  // Refresh do access token regular em background não afeta este — só vai
-  // expirar depois da sessão de playback inteira (6h default).
+  // Asks for a media token (long-TTL JWT, scope="media") when the player opens.
+  // Required BEFORE mounting <video src> so the URL doesn't change afterwards
+  // (which would make the browser treat it as new media and reset to 0).
+  // A background refresh of the regular access token doesn't affect this one — it
+  // only expires after the whole playback session (6h default).
   useEffect(() => {
     if (!result) return
     let cancelled = false
     fetchMediaToken()
       .then(t => { if (!cancelled) setMediaToken(t) })
-      .catch(() => {}) // fallback: streamURL fica vazio, UI mostra "carregando"
+      .catch(() => {}) // fallback: streamURL stays empty, UI shows "loading"
     return () => { cancelled = true }
   }, [result?.infoHash])
 
@@ -83,13 +83,13 @@ export function useStreamSession(deps: {
     // thumbnails clobber the new video. Flipped by the cleanup below.
     let cancelled = false
 
-    // warmHold: numa troca de faixa de MÚSICA com o player já populado, NÃO
-    // desmonta a UI (capa/seekbar/transport) nem corta o áudio atual — segura o
-    // `info`/`selectedFile`/`serverReady` antigos (streamURL deriva de `info`, então
-    // o <video> continua na faixa atual) até o streamMetadata/streamAdd da nova
-    // resolver; aí a troca é atômica. Sem isso a tela "piscava" (overlay
-    // "Conectando ao swarm") a cada faixa. Escopo só ÁUDIO (vídeo mantém o reset
-    // completo, sem regressão); cold start (1ª faixa) também reseta normal.
+    // warmHold: on a MUSIC track switch with the player already populated, do NOT
+    // unmount the UI (cover/seekbar/transport) nor cut the current audio — hold the
+    // old `info`/`selectedFile`/`serverReady` (streamURL derives from `info`, so
+    // the <video> stays on the current track) until the new one's streamMetadata/streamAdd
+    // resolves; then the switch is atomic. Without this the screen "flashed" (the
+    // "Connecting to swarm" overlay) on every track. AUDIO-only scope (video keeps the full
+    // reset, no regression); cold start (1st track) also resets normally.
     const warmHold = everReadyRef.current && audioMode
     streamAddDoneRef.current = false
 
@@ -100,9 +100,9 @@ export function useStreamSession(deps: {
     // parallel to actually load the torrent client (required for playback).
     if (result.infoHash) {
       streamMetadata(result.infoHash).then(cached => {
-        // streamAddDoneRef (não `info`): no warm hold o `info` antigo ainda está
-        // setado, então o preview do cache PRECISA poder sobrescrevê-lo; só não
-        // pode passar por cima do streamAdd autoritativo se este já resolveu.
+        // streamAddDoneRef (not `info`): under warm hold the old `info` is still
+        // set, so the cache preview MUST be able to overwrite it; it just can't
+        // stomp on the authoritative streamAdd if that one already resolved.
         if (cancelled || !cached || streamAddDoneRef.current) return
         setInfo(cached)
         setSelectedFile(chooseInitialFile(cached, initialFileIndex))
@@ -132,8 +132,8 @@ export function useStreamSession(deps: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.infoHash])
 
-  // Cinema ↔ Música com o mesmo torrent: re-envia kind ao backend sem reiniciar
-  // o player inteiro (o efeito acima omite audioMode de propósito).
+  // Cinema ↔ Music on the same torrent: re-sends kind to the backend without restarting
+  // the whole player (the effect above omits audioMode on purpose).
   useEffect(() => {
     if (!result?.infoHash || !everReadyRef.current) {
       prevAudioModeRef.current = audioMode
@@ -155,8 +155,8 @@ export function useStreamSession(deps: {
     return () => { cancelled = true }
   }, [audioMode, result?.infoHash, initialFileIndex, result, t])
 
-  // Marca que o player já renderizou uma faixa nesta instância → habilita o warm
-  // hold (troca de faixa sem desmontar a UI) nas próximas trocas.
+  // Marks that the player already rendered a track in this instance → enables the warm
+  // hold (track switch without unmounting the UI) on subsequent switches.
   useEffect(() => {
     if (info && selectedFile >= 0) everReadyRef.current = true
   }, [info, selectedFile])
@@ -165,9 +165,9 @@ export function useStreamSession(deps: {
   useEffect(() => {
     if (!info?.infoHash) return
     const tick = () => {
-      // Skip while the tab is hidden (áudio em background é o caso comum): cada
-      // streamInfo reconstrói o buildInfo do torrent (dezenas de BytesCompleted
-      // num pacote multi-arquivo). Volta a atualizar sozinho ao focar a aba.
+      // Skip while the tab is hidden (background audio is the common case): each
+      // streamInfo rebuilds the torrent's buildInfo (dozens of BytesCompleted
+      // on a multi-file pack). Resumes updating on its own when the tab regains focus.
       if (document.hidden) return
       streamInfo(info.infoHash).then(setInfo).catch(() => {})
     }
@@ -190,14 +190,14 @@ export function useStreamSession(deps: {
     return () => { streamViewerClose(hash).catch(() => {}) }
   }, [info?.infoHash])
 
-  // onPlaying do <video>: marca o `blessed` (1ª reprodução iniciada por gesto no
-  // iOS) UMA vez e loga. A partir daí o auto-avanço pode tocar programaticamente —
-  // o grant per-element da Apple persiste no src-swap ("Auto-play restrictions are
+  // <video> onPlaying: marks `blessed` (1st gesture-started playback on
+  // iOS) ONCE and logs it. From then on auto-advance may play programmatically —
+  // Apple's per-element grant survives the src-swap ("Auto-play restrictions are
   // granted on a per-element basis" + "change the source... instead of creating
-  // multiple media elements"). Idempotente: onPlaying dispara a cada retomada.
+  // multiple media elements"). Idempotent: onPlaying fires on every resume.
   const handlePlaybackStarted = () => {
     if (blessed) return
-    clientLog('info', 'player', 'blessed: 1ª reprodução iniciada (auto-avanço liberado)', {})
+    clientLog('info', 'player', 'blessed: 1st playback started (auto-advance unlocked)', {})
     setBlessed(true)
   }
 

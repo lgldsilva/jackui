@@ -41,7 +41,7 @@ function AlbumCard({ a, onClick }: { readonly a: MusicAlbum; readonly onClick: (
   )
 }
 
-// MusicDiscoverView replaces the TMDB trending grid when Música mode is on (TMDB
+// MusicDiscoverView replaces the TMDB trending grid when Music mode is on (TMDB
 // has no music). It shows Apple's keyless top-albums feed; clicking an album
 // seeds the search ("Artist Album"), reusing the exact same ?q= pipeline as the
 // film discover. Lives in its own file so DiscoverPage just early-returns into it.

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
 /**
- * Reactive matchMedia hook. Centraliza o matchMedia ad-hoc espalhado pela app
- * (ex: PlayerModal landscape, NavHeader md). SSR-safe: assume `false` antes do
- * primeiro efeito (sem `window` durante render no servidor/embed).
+ * Reactive matchMedia hook. Centralizes the ad-hoc matchMedia scattered around the app
+ * (e.g. PlayerModal landscape, NavHeader md). SSR-safe: assumes `false` before the
+ * first effect (no `window` during render on the server/embed).
  */
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => {

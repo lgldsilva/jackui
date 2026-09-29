@@ -31,7 +31,7 @@ func baseURL(_ *gin.Context, configured string) string {
 // local dev) can relay/copy it. Always best-effort; never blocks the response.
 func notify(mlr *mailer.Mailer, to, subject, intro, link string) {
 	body := fmt.Sprintf(
-		`<p>%s</p><p><a href="%s">%s</a></p><p style="color:#888;font-size:12px">Se você não solicitou, ignore este e-mail.</p>`,
+		`<p>%s</p><p><a href="%s">%s</a></p><p style="color:#888;font-size:12px">If you did not request this, ignore this email.</p>`,
 		html.EscapeString(intro), html.EscapeString(link), html.EscapeString(link),
 	)
 	if mlr != nil && mlr.Enabled() && to != "" {
@@ -69,7 +69,7 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 	req.Username = strings.TrimSpace(req.Username)
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 	if req.Username == "" || req.Email == "" || len(req.Password) < 6 {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "usuário, e-mail e senha (≥6) são obrigatórios")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username, email and password (≥6) are required")
 		return
 	}
 	taken, err := store.Exists(req.Username, req.Email)
@@ -78,7 +78,7 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 		return
 	}
 	if taken {
-		httpshared.RespondErrorMessage(c, http.StatusConflict, "usuário ou e-mail já cadastrado")
+		httpshared.RespondErrorMessage(c, http.StatusConflict, "username or email already registered")
 		return
 	}
 
@@ -96,9 +96,9 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 
 	sendVerifyEmail(store, mlr, c, cfgBaseURL, uid, req.Email)
 
-	msg := "Cadastro criado. Confirme seu e-mail e aguarde a aprovação de um admin."
+	msg := "Account created. Confirm your email and wait for an admin's approval."
 	if invited {
-		msg = "Cadastro criado. Confirme seu e-mail — você já pode entrar."
+		msg = "Account created. Confirm your email — you can sign in right away."
 	}
 	c.JSON(http.StatusOK, gin.H{"status": string(status), "invited": invited, "message": msg})
 }
@@ -108,7 +108,7 @@ func resolveInviteStatus(store *auth.Store, inviteToken string) (auth.Status, bo
 		return auth.StatusPending, false, nil
 	}
 	if _, terr := store.ConsumeToken(inviteToken, auth.TokenInvite); terr != nil {
-		return auth.StatusPending, false, fmt.Errorf("convite inválido ou expirado")
+		return auth.StatusPending, false, fmt.Errorf("invalid or expired invite")
 	}
 	return auth.StatusActive, true, nil
 }
@@ -120,7 +120,7 @@ func sendVerifyEmail(store *auth.Store, mlr *mailer.Mailer, c *gin.Context, cfgB
 	}
 	if tok, terr := store.CreateToken(auth.TokenVerifyEmail, id, email, verifyTTL); terr == nil {
 		link := base + "/verify-email?token=" + tok
-		notify(mlr, email, "JackUI — confirme seu e-mail", "Confirme seu e-mail para concluir o cadastro:", link)
+		notify(mlr, email, "JackUI — confirm your email", "Confirm your email to finish signing up:", link)
 	}
 }
 
@@ -136,7 +136,7 @@ func Invite(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 		base := baseURL(c, cfgBaseURL)
 		if base == "" {
-			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "base URL pública não configurada")
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "public base URL not configured")
 			return
 		}
 		tok, err := store.CreateToken(auth.TokenInvite, 0, req.Email, inviteTTL)
@@ -146,7 +146,7 @@ func Invite(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		}
 		link := base + "/register?invite=" + tok
 		if req.Email != "" {
-			notify(mlr, req.Email, "JackUI — convite", "Você foi convidado para o JackUI. Crie sua conta:", link)
+			notify(mlr, req.Email, "JackUI — invite", "You have been invited to JackUI. Create your account:", link)
 		}
 		c.JSON(http.StatusOK, gin.H{"link": link})
 	}
@@ -159,7 +159,7 @@ func VerifyEmail(store *auth.Store) gin.HandlerFunc {
 			Token string `json:"token"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Token == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token obrigatório")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token required")
 			return
 		}
 		ti, err := store.ConsumeToken(req.Token, auth.TokenVerifyEmail)
@@ -171,7 +171,7 @@ func VerifyEmail(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "e-mail confirmado"})
+		c.JSON(http.StatusOK, gin.H{"message": "email confirmed"})
 	}
 }
 
@@ -190,11 +190,11 @@ func Forgot(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 			if base != "" {
 				if tok, terr := store.CreateToken(auth.TokenResetPassword, u.ID, email, resetTTL); terr == nil {
 					link := base + "/reset-password?token=" + tok
-					notify(mlr, email, "JackUI — recuperar senha", "Para redefinir sua senha, acesse:", link)
+					notify(mlr, email, "JackUI — password recovery", "To reset your password, go to:", link)
 				}
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "Se o e-mail estiver cadastrado, enviamos um link de recuperação."})
+		c.JSON(http.StatusOK, gin.H{"message": "If the email is registered, we have sent a recovery link."})
 	}
 }
 
@@ -207,7 +207,7 @@ func Reset(store *auth.Store) gin.HandlerFunc {
 			Password string `json:"password"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Token == "" || len(req.Password) < 6 {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token e nova senha (≥6) obrigatórios")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token and new password (≥6) are required")
 			return
 		}
 		ti, err := store.ConsumeToken(req.Token, auth.TokenResetPassword)
@@ -219,6 +219,6 @@ func Reset(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "senha redefinida"})
+		c.JSON(http.StatusOK, gin.H{"message": "password reset"})
 	}
 }

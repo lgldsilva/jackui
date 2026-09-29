@@ -1,4 +1,4 @@
-// Favoritos, pastas e import de torrent. Extraído de stream.ts (R3 follow-up).
+// Favorites, folders and torrent import. Extracted from stream.ts (R3 follow-up).
 import { api } from './http'
 import { BATCH_CAPS, runChunked } from '../lib/batchChunk'
 import type { FavoriteFolder, ImportResult, StreamFavorite } from './stream-types'

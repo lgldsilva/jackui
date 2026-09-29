@@ -17,8 +17,8 @@ const AUTO_EXPAND_MAX = 25
 const isReady = (g: PlaylistGroup): boolean => g.status === 'ready'
 
 type Props = {
-  // Agregado resolvido pelo PAI (usePlaylistTracks levantado pro PlayerModal, pra
-  // o motor gapless cross-item também enxergar). Antes a sidebar chamava o hook.
+  // Resolved by the PARENT (usePlaylistTracks lifted into PlayerModal, so the
+  // cross-item gapless engine can see it too). The sidebar used to call the hook.
   readonly groups: PlaylistGroup[]
   readonly ensureLoaded: (itemIndex: number) => void
   readonly currentItemIndex: number

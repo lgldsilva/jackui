@@ -43,11 +43,11 @@ export type EntryRowProps = {
   readonly onToggleHidden: (e: LocalEntry) => void
 }
 
-// Ações por-item (promover/reclassificar/mover/apagar). No desktop aparecem no
-// hover; no mobile viram um único alvo ⋮ (>=44px) que abre um Sheet — botões
-// opacity-0, mesmo invisíveis, capturavam o toque na faixa direita da row e o
-// play não disparava (sensação de "tocar duas vezes"). Lista via map pra manter
-// a complexidade baixa e não repetir desktop/mobile.
+// Per-item actions (promote/reclassify/move/delete). On desktop they appear on
+// hover; on mobile they become a single ⋮ target (>=44px) that opens a Sheet —
+// opacity-0 buttons, even while invisible, captured the touch on the row's right strip and the
+// play didn't fire ("double tap" feel). Listed via map to keep
+// complexity low and not repeat desktop/mobile.
 const ACTION_COLOR: Record<string, string> = {
   cyan: 'text-cyan-400 hover:bg-cyan-500/10',
   purple: 'text-purple-400 hover:bg-purple-500/10',
@@ -76,7 +76,7 @@ function EntryActions({ entry: e, isAdmin, canAct, hidden, onRename, onPromote, 
     canAct && !e.isDir && { key: 'promote', icon: ArrowUpCircle, label: t('local.actions.promote'), color: 'cyan', run: () => onPromote(e) },
     isAdmin && { key: 'reclassify', icon: FolderSync, label: e.isDir ? t('local.actions.reclassifyFolder') : t('local.actions.classifyMove'), color: 'purple', run: () => onReclassify(e) },
     isAdmin && { key: 'move', icon: FolderInput, label: t('local.actions.moveMount'), color: 'amber', run: () => onMove(e) },
-    // Lock/unlock só faz sentido em pasta: fixa-a (.keep) contra o "limpar vazias".
+    // Lock/unlock only makes sense on a folder: pins it (.keep) against "clean empty".
     canAct && e.isDir && { key: 'lock', icon: e.locked ? Unlock : Lock, label: e.locked ? t('local.actions.unkeep') : t('local.actions.keep'), color: 'amber', run: () => onLock(e) },
     // Hide/unhide is per-user and harmless on any mount, so it's always offered.
     { key: 'hide', icon: hidden ? Eye : EyeOff, label: hidden ? t('local.actions.unhide') : t('local.actions.hide'), color: 'amber', run: () => onToggleHidden(e) },
@@ -132,19 +132,19 @@ function EntryActions({ entry: e, isAdmin, canAct, hidden, onRename, onPromote, 
   )
 }
 
-// Deep-link "tela toda" de uma row: pasta → o browser daquela pasta; arquivo
-// reproduzível → o player via ?play=local-hash. Viewables não têm rota → ''.
+// "Full screen" deep-link for a row: folder → that folder's browser; playable
+// file → the player via ?play=local-hash. Viewables have no route → ''.
 function localEntryHref(e: LocalEntry, mount: string): string {
   if (e.isDir) return `/local?mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(e.path)}`
   if (e.isPlayable) return playHref(buildLocalHash(mount, e.path))
   return ''
 }
 
-// Handlers de clique/contexto da row. Com href: middle/ctrl/cmd-click e o
-// right-click puro abrem nova aba (clique normal roda onActivate); o
-// onContextMenu ignora ctrl/cmd pra não abrir DUAS abas no macOS (lá o Ctrl+Click
-// dispara contextmenu E click, e o ctrl já cai no newTabProps.onClick). Sem href
-// (viewable/seleção): clique normal só.
+// Row click/context handlers. With href: middle/ctrl/cmd-click and plain
+// right-click open a new tab (normal click runs onActivate); the
+// onContextMenu ignores ctrl/cmd so macOS doesn't open TWO tabs (there, Ctrl+Click
+// fires contextmenu AND click, and ctrl already lands in newTabProps.onClick). Without href
+// (viewable/selection): normal click only.
 function localRowNavProps(href: string, onActivate: () => void) {
   if (!href) return { onClick: onActivate }
   return {
@@ -157,27 +157,27 @@ function localRowNavProps(href: string, onActivate: () => void) {
   }
 }
 
-// Uma linha da lista. Extraída pra poder usar useLongPress por item (hooks não
-// podem ser chamados dentro de um .map). Long-press entra no modo seleção.
-// React.memo evita re-render de todas as linhas quando só muda estado não-relacionado
-// da página (upload em andamento, notice, seleção de OUTRA row) — os handlers do pai
-// são estáveis (useCallback), então a comparação shallow padrão basta.
+// One list row. Extracted so useLongPress can be used per item (hooks can't
+// be called inside a .map). Long-press enters selection mode.
+// React.memo avoids re-rendering every row when only unrelated page state changes
+// (upload in progress, notice, selection of ANOTHER row) — the parent's handlers
+// are stable (useCallback), so the default shallow comparison suffices.
 function EntryRowInner(props: EntryRowProps) {
   const { t } = useTranslation()
   const { entry: e, mount, selectMode, selected, canManipulate, isAdmin } = props
-  // Viewable = não-reproduzível mas com viewer universal (NFO/imagem/PDF/
-  // quadrinhos/zip/EPUB). A linha deixa de ser "morta": clique abre o preview.
+  // Viewable = non-playable but with a universal viewer (NFO/image/PDF/
+  // comics/zip/EPUB). The row stops being "dead": clicking opens the preview.
   const viewable = !e.isDir && !e.isPlayable && isViewable(e.name)
   const clickable = e.isDir || e.isPlayable || viewable
   const canAct = canManipulate || isAdmin
   // contextMenu:false: right-click here opens a new tab (handled below), so the
   // hook must NOT map onContextMenu to "enter select mode" — otherwise the
   // {...pressHandlers} spread would shadow the new-tab handler. Touch long-press
-  // (onTouchStart) still enters select; desktop has the toolbar "Selecionar".
+  // (onTouchStart) still enters select; desktop has the toolbar "Select".
   const lp = useLongPress(() => props.onEnterSelect(e), { enabled: !selectMode && canAct, contextMenu: false })
   const pressHandlers = selectMode || !canAct ? {} : lp
 
-  // Modo seleção não navega; senão deriva o deep-link + handlers (ver helpers).
+  // Selection mode doesn't navigate; otherwise derive the deep-link + handlers (see helpers).
   const newTabHref = selectMode ? '' : localEntryHref(e, mount)
   const onActivate = () => (selectMode ? props.onToggleSelect(e) : props.onOpen(e))
   const navProps = localRowNavProps(newTabHref, onActivate)
@@ -215,9 +215,9 @@ function EntryRowInner(props: EntryRowProps) {
             )}
             {e.name}
           </span>
-          {/* Metadados compactos só no mobile — no desktop ficam nas colunas à
-              direita (hidden sm:block). Sem isso a row no celular mostrava só
-              ícone + nome. */}
+          {/* Compact metadata on mobile only — on desktop it lives in the columns on
+              the right (hidden sm:block). Without this the phone row showed only
+              icon + name. */}
           <span className="sm:hidden text-[11px] text-text-muted flex items-center gap-1.5">
             {e.isDir
               ? <>{formatCount(e.childCount ?? 0, t)}<span className="text-text-muted">·</span></>
@@ -225,14 +225,14 @@ function EntryRowInner(props: EntryRowProps) {
             {formatDateTime(e.modTime)}
           </span>
         </span>
-        {/* Tamanho (arquivo) ou quantidade de itens (pasta). */}
+        {/* Size (file) or item count (folder). */}
         <span className="text-xs text-text-muted text-right flex-shrink-0 hidden sm:block w-24">
           {e.isDir ? formatCount(e.childCount ?? 0, t) : formatBytes(e.size)}
         </span>
         <span className="text-xs text-text-muted w-32 text-right hidden sm:block flex-shrink-0">{formatDateTime(e.modTime)}</span>
       </button>
 
-      {/* Ações por-item: desktop = botões no hover; mobile = ⋮ → Sheet. */}
+      {/* Per-item actions: desktop = hover buttons; mobile = ⋮ → Sheet. */}
       {!selectMode && (
         <EntryActions
           entry={e}

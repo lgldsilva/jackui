@@ -161,8 +161,8 @@ func TestLocalSubVTTPath_NilCache(t *testing.T) {
 	}
 }
 
-// sanitizeSidecarName é a barreira de path-injection do Join com o diretório
-// do vídeo: nada além de nome de arquivo puro passa.
+// sanitizeSidecarName is the path-injection barrier of the Join with the video's
+// directory: nothing but a pure file name gets through.
 func TestSanitizeSidecarName(t *testing.T) {
 	for _, bad := range []string{"", ".", "..", "a/b", `a\b`, "/etc/passwd", `C:\win`} {
 		if _, err := sanitizeSidecarName(bad); err == nil {
@@ -177,8 +177,8 @@ func TestSanitizeSidecarName(t *testing.T) {
 	}
 }
 
-// ".." exato não carrega separador: antes só era bloqueado a montante pela
-// whitelist de extensão. Agora o próprio nome é rejeitado.
+// An exact ".." carries no separator: it used to be blocked only upstream by the
+// extension whitelist. Now the name itself is rejected.
 func TestLocalSidecarRead_TraversalDotDot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	b := lb.NewBrowser([]config.ExternalMount{{Name: "M", Path: t.TempDir()}})

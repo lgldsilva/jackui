@@ -1,5 +1,5 @@
-// Árvore de pastas + import de favoritos — extraído do FavoritesPage.tsx (móvel
-// puro: types + funções puras/de I/O, sem JSX nem estado de componente).
+// Folder tree + favorites import — extracted from FavoritesPage.tsx (pure
+// module: types + pure/I-O functions, no JSX and no component state).
 import type { TFunction } from 'i18next'
 import { FavoriteFolder, streamImport, ImportResult } from '../api/client'
 import { errMessage } from './errMessage'
@@ -27,8 +27,8 @@ export function buildTree(folders: FavoriteFolder[]): FolderNode[] {
   return roots
 }
 
-// Achata a árvore em uma lista ordenada (DFS) com a profundidade de cada nó —
-// usada pelo dropdown de pasta no mobile pra indentar visualmente as subpastas.
+// Flattens the tree into an ordered list (DFS) with each node's depth —
+// used by the mobile folder dropdown to visually indent subfolders.
 export function flattenTree(nodes: FolderNode[], depth = 0): { folder: FavoriteFolder; depth: number }[] {
   return nodes.flatMap(node => [
     { folder: node.folder, depth },

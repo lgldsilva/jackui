@@ -1,30 +1,30 @@
-// Regression: depois de um deploy o browser pode guardar refresh tokens que o
-// backend não aceita mais. O bootstrap (restore) faz GET /auth/me → 401 →
+// Regression: after a deploy the browser may hold refresh tokens the
+// backend no longer accepts. The bootstrap (restore) does GET /auth/me → 401 →
 // interceptor → POST /auth/refresh → 401 → logout() → DELETE /user/incognito
-// → 401 → (código antigo) o interceptor refreshes de novo → logout() → …
-// RECURSÃO MÚTUA INFINITA — a UI nunca chegava na tela de login (observado ao
-// vivo como storm de DELETE incognito + POST refresh a cada ~100ms nos logs do
-// proxy). As chamadas de cleanup são marcadas com sessionLifecycle()
-// (skipAuthRefresh): seus 401 falham direto pro try/catch do chamador e o
-// fluxo completa com exatamente uma requisição de cada etapa.
+// → 401 → (old code) the interceptor refreshes again → logout() → …
+// INFINITE MUTUAL RECURSION — the UI never reached the login screen (observed
+// live as a storm of DELETE incognito + POST refresh every ~100ms in the
+// proxy logs). The cleanup calls are marked with sessionLifecycle()
+// (skipAuthRefresh): their 401s fail straight into the caller's try/catch and the
+// flow completes with exactly one request per step.
 //
-// O mock segue o padrão do projeto (vi.mock de ../api/client — ver
-// useJackettSetup.test.tsx): a lógica sob teste — interceptor de 401→refresh,
-// logout, restore, shouldAttemptRefresh/sessionLifecycle — é o código REAL do
-// AuthContext/incognito; só a camada de rede é simulada por um mini-axios que
-// despacha 401 pelo handler de rejeição, como o axios real faz.
+// The mock follows the project pattern (vi.mock of ../api/client — see
+// useJackettSetup.test.tsx): the logic under test — 401→refresh interceptor,
+// logout, restore, shouldAttemptRefresh/sessionLifecycle — is the REAL
+// AuthContext/incognito code; only the network layer is simulated by a mini-axios that
+// dispatches 401 through the rejection handler, like real axios does.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, cleanup } from '@testing-library/react'
 import { AuthProvider, useAuth } from './AuthContext'
 
-// ─── Mock do cliente HTTP ───────────────────────────────────────────────────
+// ─── HTTP client mock ───────────────────────────────────────────────────────
 const mocks = vi.hoisted(() => {
   const calls = new Map<string, number>()
   let requestInterceptor: ((config: unknown) => unknown) | undefined
   let responseInterceptor: ((err: unknown) => unknown) | undefined
   let route: (url: string, config: Record<string, unknown>) => { status: number; data: unknown } = () => ({ status: 404, data: {} })
 
-  // Mesma semântica do sessionLifecycle real (http.ts): marca skipAuthRefresh.
+  // Same semantics as the real sessionLifecycle (http.ts): marks skipAuthRefresh.
   const sessionLifecycle = (config: Record<string, unknown> = {}) => ({ ...config, skipAuthRefresh: true })
 
   function dispatch(url: string, method: string, config?: Record<string, unknown>, data?: unknown): Promise<unknown> {
@@ -47,7 +47,7 @@ const mocks = vi.hoisted(() => {
     return Promise.reject(err)
   }
 
-  // api é callable (AuthContext faz `api(original)` no retry pós-refresh).
+  // api is callable (AuthContext does `api(original)` on the post-refresh retry).
   const apiMock = Object.assign(
     (config: Record<string, unknown>) => dispatch(String(config.url ?? ''), String(config.method ?? 'get'), config),
     {
@@ -97,14 +97,14 @@ describe('stale session bootstrap (no refresh-token recursion)', () => {
   })
 
   it('completes with a bounded number of requests and lands on the login state', async () => {
-    // Browser segura tokens de antes do deploy + incognito ligado (pra logout()
-    // exercitar o cleanup server-side — o caminho da recursão).
+    // Browser holds pre-deploy tokens + incognito on (so logout()
+    // exercises the server-side cleanup — the recursion path).
     localStorage.setItem('jackui:auth.access', JSON.stringify('stale-access'))
     localStorage.setItem('jackui:auth.refresh', JSON.stringify('stale-refresh'))
     localStorage.setItem('jackui:incognito', JSON.stringify(true))
 
-    // /auth/config responde 200 (auth habilitada); TODO o resto 401 (sessão
-    // morta — o cenário pós-deploy que disparava o bug).
+    // /auth/config answers 200 (auth enabled); EVERYTHING else 401 (dead
+    // session — the post-deploy scenario that triggered the bug).
     mocks.setRoute((url) =>
       url === '/auth/config'
         ? { status: 200, data: { enabled: true } }
@@ -119,18 +119,18 @@ describe('stale session bootstrap (no refresh-token recursion)', () => {
 
     await waitFor(() => expect(screen.getByText('anon')).toBeInTheDocument())
 
-    // Sem storm: exatamente uma chamada de cada etapa do fluxo.
+    // No storm: exactly one call per flow step.
     expect(mocks.calls.get('/auth/config')).toBe(1)
     expect(mocks.calls.get('/auth/me')).toBe(1)
     expect(mocks.calls.get('/auth/refresh')).toBe(1)
     expect(mocks.calls.get('/user/incognito')).toBe(1)
     expect(mocks.calls.get('/auth/logout')).toBe(1)
 
-    // Tokens velhos limpos — estado pronto pra tela de login.
+    // Old tokens cleaned — state ready for the login screen.
     expect(localStorage.getItem('jackui:auth.access')).toBeNull()
     expect(localStorage.getItem('jackui:auth.refresh')).toBeNull()
 
-    // Sanidade: total de requisições minúsculo (o loop teria explodido isso).
+    // Sanity: tiny total request count (the loop would have exploded this).
     const total = [...mocks.calls.values()].reduce((a, b) => a + b, 0)
     expect(total).toBeLessThanOrEqual(6)
   })
@@ -138,7 +138,7 @@ describe('stale session bootstrap (no refresh-token recursion)', () => {
   it('skips server cleanup when incognito is off but still lands on login', async () => {
     localStorage.setItem('jackui:auth.access', JSON.stringify('stale-access'))
     localStorage.setItem('jackui:auth.refresh', JSON.stringify('stale-refresh'))
-    // Sem flag de incognito → logout() não chama DELETE /user/incognito.
+    // Without the incognito flag → logout() doesn't call DELETE /user/incognito.
 
     mocks.setRoute((url) =>
       url === '/auth/config'

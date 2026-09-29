@@ -56,7 +56,7 @@ func TestLocalCacheFolder_EnqueuesPlayableRecursive(t *testing.T) {
 		t.Fatalf("queued=%d want 2 (the two media files, txt skipped)", resp.Queued)
 	}
 
-	// Espera que as cópias em background terminem para liberar o TempDir
+	// Waits for the background copies to finish before releasing the TempDir
 	ready := false
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
@@ -65,10 +65,10 @@ func TestLocalCacheFolder_EnqueuesPlayableRecursive(t *testing.T) {
 			ready = true
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU ao worker de cópia
+		<-time.After(2 * time.Millisecond) // yields the CPU to the copy worker
 	}
 	if !ready {
-		t.Fatal("arquivos do folder não terminaram de ser copiados para o cache")
+		t.Fatal("folder files did not finish being copied to the cache")
 	}
 }
 

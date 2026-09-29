@@ -21,6 +21,6 @@ const (
 
 	ErrFileNotFound       = "file not found"
 	ErrPathIsDir          = "path is a directory"
-	ErrInvalidData        = "dados inválidos"
-	ErrSharedDirNotConfig = "JACKUI_SHARED_DIR não configurado"
+	ErrInvalidData        = "invalid data"
+	ErrSharedDirNotConfig = "JACKUI_SHARED_DIR not configured"
 )

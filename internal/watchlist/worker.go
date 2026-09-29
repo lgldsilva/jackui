@@ -297,7 +297,7 @@ func aggregateHits(wl *Watchlist, hits []newHit) (title, body, magnet string) {
 		h := hits[0]
 		body = fmt.Sprintf("%d seeders · %s", h.seeders, humanSize(h.size))
 		if h.auto {
-			body = "⬇ na fila de downloads · " + body
+			body = "⬇ in download queue · " + body
 		}
 		return h.title, body, h.magnet
 	}
@@ -310,16 +310,16 @@ func aggregateHits(wl *Watchlist, hits []newHit) (title, body, magnet string) {
 	lines := make([]string, 0, maxHitList+1)
 	for i, h := range hits {
 		if i >= maxHitList {
-			lines = append(lines, fmt.Sprintf("… e mais %d", len(hits)-maxHitList))
+			lines = append(lines, fmt.Sprintf("… and %d more", len(hits)-maxHitList))
 			break
 		}
 		lines = append(lines, "• "+h.title)
 	}
 	body = strings.Join(lines, "\n")
 	if autoCount > 0 {
-		body = fmt.Sprintf("⬇ %d na fila de downloads\n", autoCount) + body
+		body = fmt.Sprintf("⬇ %d in download queue\n", autoCount) + body
 	}
-	return fmt.Sprintf("%s: %d novos resultados", wl.Query, len(hits)), body, ""
+	return fmt.Sprintf("%s: %d new results", wl.Query, len(hits)), body, ""
 }
 
 // maybeAutoDownload enqueues the hit when the watchlist opted in and the
@@ -396,7 +396,7 @@ func (n *NtfyPoster) Notify(ctx context.Context, topic, title, body, magnet stri
 		req.Header.Set("Authorization", "Bearer "+n.Token)
 	}
 	if magnet != "" {
-		req.Header.Set("Actions", fmt.Sprintf("view, Abrir magnet, %s", magnet))
+		req.Header.Set("Actions", fmt.Sprintf("view, Open magnet, %s", magnet))
 	}
 	resp, err := client.Do(req)
 	if err != nil {

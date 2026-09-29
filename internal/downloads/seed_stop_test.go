@@ -44,10 +44,10 @@ func TestStopSeedMarksRowAndResumeSeedClears(t *testing.T) {
 	}
 }
 
-// Qualquer status é marcado: o guard antigo de status='completed' deixava o
-// fluxo pausar→parar sem efeito (a row pausada voltava a seedar no próximo
-// boot). Siblings do mesmo info_hash são marcados juntos — é um "remover
-// torrent" do streaming, não uma ação por arquivo.
+// Any status gets marked: the old status='completed' guard made the
+// pause→stop flow a no-op (the paused row went back to seeding on the next
+// boot). Siblings of the same info_hash are marked together — this is the
+// streaming "remove torrent" action, not a per-file action.
 func TestStopSeedByInfoHashMarksAllStatuses(t *testing.T) {
 	s := newTestStore(t)
 	completed, err := s.Create(Download{

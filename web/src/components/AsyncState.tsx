@@ -21,8 +21,8 @@ type AsyncStateProps = {
 }
 
 /**
- * Modelo único de estado assíncrono (UX-2.1): loading → error → empty → conteúdo.
- * Erros recuperáveis exibem retry; vazio distingue lista bem-sucedida sem itens.
+ * Single async-state model (UX-2.1): loading → error → empty → content.
+ * Recoverable errors show retry; empty distinguishes a successful list with no items.
  */
 export function AsyncState({
   loading = false,

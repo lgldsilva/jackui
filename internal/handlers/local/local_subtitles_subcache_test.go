@@ -148,14 +148,14 @@ func TestLocalSubtitleExtract_BackgroundExtracting(t *testing.T) {
 		t.Errorf("503 body should carry code=extracting, got %s", w.Body.String())
 	}
 
-	// Aguarda o job de extração em background terminar para liberar o arquivo no TempDir
+	// Waits for the background extraction job to finish before releasing the TempDir file
 	vttPath := localSubVTTPath(cache, abs, st, 3)
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, extracting := subExtractJobs.Load(vttPath); !extracting {
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU ao job de extração
+		<-time.After(2 * time.Millisecond) // yields the CPU to the extraction job
 	}
 }
 

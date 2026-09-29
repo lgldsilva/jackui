@@ -4,9 +4,9 @@ import { createRef } from 'react'
 import { usePersistedVolume, clampVolume, readPersistedAudio, MUTED_KEY, VOLUME_KEY } from './usePersistedVolume'
 import { save, remove } from '../../lib/storage'
 
-// jsdom implementa volume/muted como propriedades comuns, mas não emite
-// `volumechange` sozinho — o browser emite. Disparamos manualmente, que é
-// exatamente o que os controles nativos e o atalho M provocam.
+// jsdom implements volume/muted as plain properties, but doesn't emit
+// `volumechange` by itself — the browser does. We fire it manually, which is
+// exactly what the native controls and the M shortcut trigger.
 function mediaEl(): HTMLMediaElement {
   const el = document.createElement('video')
   return el
@@ -23,12 +23,12 @@ beforeEach(() => {
 })
 
 describe('clampVolume', () => {
-  it('mantém valores válidos e corta fora da faixa', () => {
+  it('keeps valid values and clamps out-of-range ones', () => {
     expect(clampVolume(0.4)).toBe(0.4)
     expect(clampVolume(1.7)).toBe(1)
     expect(clampVolume(-2)).toBe(0)
   })
-  it('cai no default com valor corrompido', () => {
+  it('falls back to the default on a corrupted value', () => {
     expect(clampVolume('abc')).toBe(1)
     expect(clampVolume(null)).toBe(1)
     expect(clampVolume(undefined)).toBe(1)
@@ -36,7 +36,7 @@ describe('clampVolume', () => {
 })
 
 describe('usePersistedVolume', () => {
-  it('grava o mudo quando o usuário muta', () => {
+  it('persists muted when the user mutes', () => {
     const el = mediaEl()
     const ref = createRef<HTMLMediaElement>() as { current: HTMLMediaElement | null }
     ref.current = el
@@ -47,10 +47,10 @@ describe('usePersistedVolume', () => {
     expect(readPersistedAudio().muted).toBe(true)
   })
 
-  // O sintoma relatado: deixei mudo, o próximo play voltou com som. Cada play
-  // monta um <video> NOVO (key = audioElementKey), então o estado tem que ser
-  // restaurado no elemento novo.
-  it('restaura o mudo num elemento recém-montado', () => {
+  // The reported symptom: muted it, the next play came back with sound. Each play
+  // mounts a NEW <video> (key = audioElementKey), so the state has to be
+  // restored on the new element.
+  it('restores muted on a freshly mounted element', () => {
     save(MUTED_KEY, true)
     save(VOLUME_KEY, 0.3)
     const fresh = mediaEl()
@@ -62,7 +62,7 @@ describe('usePersistedVolume', () => {
     expect(fresh.volume).toBe(0.3)
   })
 
-  it('restaura o volume mesmo sem mudo', () => {
+  it('restores volume even without mute', () => {
     save(VOLUME_KEY, 0.55)
     const el = mediaEl()
     const ref = { current: el as HTMLMediaElement | null }
@@ -73,8 +73,8 @@ describe('usePersistedVolume', () => {
     expect(el.muted).toBe(false)
   })
 
-  // Sem preferência salva o player continua como sempre foi: com som, volume máximo.
-  it('usa o default quando não há nada salvo', () => {
+  // Without a saved preference the player stays as it always was: with sound, max volume.
+  it('uses the default when nothing is saved', () => {
     const el = mediaEl()
     const ref = { current: el as HTMLMediaElement | null }
 
@@ -84,10 +84,10 @@ describe('usePersistedVolume', () => {
     expect(el.volume).toBe(1)
   })
 
-  // O motor gapless toca o áudio pelo próprio <audio>; o <video> fica mudo por
-  // imposição do motor. Isso não pode ser confundido com "o usuário mutou",
-  // senão o silêncio vaza para os próximos plays sem gapless.
-  it('não persiste o mudo imposto pelo motor gapless', () => {
+  // The gapless engine plays the audio through its own <audio>; the <video> is muted by
+  // engine imposition. That must not be confused with "the user muted",
+  // otherwise the silence leaks into the next plays without gapless.
+  it('does not persist the mute imposed by the gapless engine', () => {
     const el = mediaEl()
     const ref = { current: el as HTMLMediaElement | null }
     renderHook(() => usePersistedVolume({ mediaRef: ref, forceMuted: true }))
@@ -98,7 +98,7 @@ describe('usePersistedVolume', () => {
     expect(readPersistedAudio().muted).toBe(false)
   })
 
-  it('mantém o <video> mudo com o motor ativo mesmo sem preferência de mudo', () => {
+  it('keeps the <video> muted with the engine active even without a mute preference', () => {
     save(MUTED_KEY, false)
     const el = mediaEl()
     const ref = { current: el as HTMLMediaElement | null }
@@ -108,9 +108,9 @@ describe('usePersistedVolume', () => {
     expect(el.muted).toBe(true)
   })
 
-  // Quando o motor gapless desliga (forceMuted vira false), o elemento volta a
-  // respeitar a preferência do usuário em vez de ficar mudo para sempre.
-  it('reaplica a preferência quando o motor gapless desliga', () => {
+  // When the gapless engine turns off (forceMuted becomes false), the element goes back to
+  // respecting the user's preference instead of staying muted forever.
+  it('reapplies the preference when the gapless engine turns off', () => {
     const el = mediaEl()
     const ref = { current: el as HTMLMediaElement | null }
     const { rerender } = renderHook(
@@ -124,7 +124,7 @@ describe('usePersistedVolume', () => {
     expect(el.muted).toBe(false)
   })
 
-  it('reaplica no loadstart (troca de src sem remontar)', () => {
+  it('reapplies on loadstart (src swap without remount)', () => {
     const el = mediaEl()
     const ref = { current: el as HTMLMediaElement | null }
     renderHook(() => usePersistedVolume({ mediaRef: ref }))

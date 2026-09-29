@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { parseLocalHash, localCacheStart, localCacheStatus, LocalCacheStatus } from '../../api/client'
 
 // LocalCacheButton is the "cache mark" + trigger for a local/rclone file in the
-// player. For LOCAL files the old "Baixar no Servidor" (torrent) button makes no
+// player. For LOCAL files the old "Download to Server" (torrent) button makes no
 // sense — there's no magnet — so this replaces it: it pre-fetches the whole file
 // to local disk (queued, with progress) for instant, seekable, EIO-proof
-// playback. Idle → "Cachear"; copying → "Cacheando 42%"; ready → "Cacheado".
+// playback. Idle → "Cache"; copying → "Caching 42%"; ready → "Cached".
 export function LocalCacheButton({ hash }: { readonly hash: string }) {
   const { t } = useTranslation()
   const loc = parseLocalHash(hash)

@@ -21,25 +21,25 @@ export function usePlayerDownloads(deps: {
 }) {
   const { info, result, selectedFile, notifyError } = deps
 
-  // Server-side background download state. Loading/success ficam falsos agora
-  // que o botão abre o modal unificado (em vez de baixar direto) — mantidos pra
-  // não mexer na interface do PlayerControlsPanel.
+  // Server-side background download state. Loading/success stay false now
+  // that the button opens the unified modal (instead of downloading directly) — kept so
+  // PlayerControlsPanel's interface isn't touched.
   const [serverDownloadLoading] = useState(false)
   const [serverDownloadSuccess] = useState(false)
-  // Alvo do modal de download aninhado (destino + seleção); indices pré-seleciona.
+  // Nested download modal target (destination + selection); indices pre-selects.
   const [playerDownload, setPlayerDownload] = useState<{ result: SearchResult; indices?: number[] } | null>(null)
   // Local (Electron) download with automatic categorization
   const [localDownloadLoading, setLocalDownloadLoading] = useState(false)
   const [overrideCategory, setOverrideCategory] = useState<string | null>(null)
   const [classifyingCat, setClassifyingCat] = useState(false)
 
-  // Callback ref para o auto-download do próximo arquivo: a função acessa
-  // buildDownloadResult+info (muda a cada render), então espelhamos pra um ref
-  // pra o efeito keyeado por info não precisar do callback como dep.
+  // Callback ref for the next file's auto-download: the function reads
+  // buildDownloadResult+info (changes every render), so we mirror them into a ref
+  // so the effect keyed by info doesn't need the callback as a dep.
   const enqueueNextDownloadRef = useRef<(fileIndex: number) => void>(() => {})
 
-  // Constrói o SearchResult pro modal a partir do info/result atuais. null pra
-  // arquivos locais (sem magnet — o torrent client não os aceita; usam LocalCacheButton).
+  // Builds the SearchResult for the modal from the current info/result. null for
+  // local files (no magnet — the torrent client won't take them; they use LocalCacheButton).
   const buildDownloadResult = useCallback((): SearchResult | null => {
     if (!info || isLocalHash(info.infoHash)) return null
     const magnet = result?.magnetUri || `magnet:?xt=urn:btih:${info.infoHash}`
@@ -50,15 +50,15 @@ export function usePlayerDownloads(deps: {
     }
   }, [info, result])
 
-  // "Cache no servidor": abre o modal pré-selecionando o arquivo em reprodução.
+  // "Cache on server": opens the modal pre-selecting the playing file.
   const handleServerDownload = () => {
     const r = buildDownloadResult()
     if (!r) return
     setPlayerDownload({ result: r, indices: selectedFile >= 0 ? [selectedFile] : undefined })
   }
 
-  // 📁↓ por arquivo: baixar a pasta inteira (recursiva) daquele arquivo. Abre o
-  // modal com todos os arquivos da pasta pré-selecionados.
+  // 📁↓ per file: download that file's whole folder (recursive). Opens the
+  // modal with all of the folder's files pre-selected.
   const downloadFolderFromPlayer = useCallback((file: TorrentInfo['files'][number]) => {
     const r = buildDownloadResult()
     if (!r || !info) return
@@ -88,12 +88,12 @@ export function usePlayerDownloads(deps: {
       // downloadCreate is idempotent — safe to retry on next poll.
     })
   }, [buildDownloadResult, info])
-  // Espelha o callback num ref pra evitar stale closure no efeito keyeado por info.
+  // Mirrors the callback into a ref to avoid a stale closure in the effect keyed by info.
   enqueueNextDownloadRef.current = enqueueNextDownload
 
-  // 📁↓ na linha da pasta (árvore): baixa a pasta inteira, recursivamente. O
-  // node.path é o caminho real (mesmo em folders single-child colapsados), então
-  // filesUnderDir casa tudo sob ele. Abre o modal com esses arquivos pré-marcados.
+  // 📁↓ on the folder row (tree): downloads the whole folder, recursively. The
+  // node.path is the real path (even in collapsed single-child folders), so
+  // filesUnderDir matches everything under it. Opens the modal with those files pre-checked.
   const downloadDirFromPlayer = useCallback((dirPath: string) => {
     const r = buildDownloadResult()
     if (!r || !info) return
@@ -102,10 +102,10 @@ export function usePlayerDownloads(deps: {
     setPlayerDownload({ result: r, indices })
   }, [buildDownloadResult, info])
 
-  // 'default' = não forçar categoria (deixa o backend categorizar). O <select>
-  // tem uma <option value="default">; mapear o estado nela evita o value órfão
-  // (a string crua do Jackett, ex. "Movies/HD", não casa com nenhuma option →
-  // warning do React + categoria errada no download).
+  // 'default' = don't force a category (let the backend categorize). The <select>
+  // has a <option value="default">; mapping the state onto it avoids the orphan value
+  // (Jackett's raw string, e.g. "Movies/HD", matches no option →
+  // React warning + wrong category on the download).
   const effectiveCategory = overrideCategory ?? 'default'
 
   const handleLocalDownload = async () => {

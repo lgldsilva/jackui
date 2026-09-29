@@ -36,7 +36,7 @@ import { DownloadsTabContent } from '../components/downloads/DownloadsTabContent
 import { BulkActionsSheet } from '../components/downloads/BulkActionsSheet'
 import { BulkActionBar } from '../components/downloads/BulkActionBar'
 
-// Re-exported para os testes unitários co-localizados que importam de './DownloadsPage'.
+// Re-exported for the co-located unit tests that import from './DownloadsPage'.
 export { countTorrents, groupByHash, completedViewCounts } from '../lib/downloadGroups'
 
 
@@ -46,21 +46,21 @@ export { countTorrents, groupByHash, completedViewCounts } from '../lib/download
 
 export default function DownloadsPage() {
   const [items, setItems] = useState<DownloadEntry[]>([])
-  // Multi-select de downloads concluídos pra batch promote. Set of IDs.
+  // Multi-select of completed downloads for batch promote. Set of IDs.
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  // Items passados ao modal de promove (null = fechado). Single = [d], batch = [d1, d2, ...]
+  // Items passed to the promote modal (null = closed). Single = [d], batch = [d1, d2, ...]
   const [promoteTargets, setPromoteTargets] = useState<DownloadEntry[] | null>(null)
-  // Download sendo inspecionado: o ID vive na URL (?inspect=) para sobreviver a
-  // reload/back; o alvo é resolvido a partir de `items` (push p/ Back fechar). Se o
-  // item ainda não carregou (poll) ou sumiu, fica null e o modal espera/fecha.
+  // Download being inspected: the ID lives in the URL (?inspect=) to survive
+  // reload/back; the target is resolved from `items` (push so Back closes it). If the
+  // item hasn't loaded yet (poll) or is gone, it stays null and the modal waits/closes.
   const [inspectId, setInspectId] = useQueryParam('inspect', '', { replace: false })
   const inspectTarget = useMemo(
     () => (inspectId ? items.find(d => String(d.id) === inspectId) ?? null : null),
     [inspectId, items],
   )
-  // Mounts navegáveis — usados pra decidir se Play vai pelo player local
-  // (arquivo em mount como /mnt/downloads) ou pelo torrent (em /data/streams).
-  // Carregado uma vez; mounts não mudam durante uma sessão.
+  // Browsable mounts — used to decide whether Play goes through the local player
+  // (file on a mount like /mnt/downloads) or the torrent one (in /data/streams).
+  // Loaded once; mounts don't change during a session.
   const [mounts, setMounts] = useState<LocalMount[]>([])
   const [loading, setLoading] = useState(true)
   const [busyID, setBusyID] = useState<number | null>(null)
@@ -100,10 +100,10 @@ export default function DownloadsPage() {
   const [limitsSaving, setLimitsSaving] = useState(false)
   const [limitsMsg, setLimitsMsg] = useState<string>('')
 
-  // ─── Filter & Sort state (na URL: sobrevive a navegação/reload/reabrir) ──────
-  // Todos via useQueryParam (mesma assinatura [v,set] do useState) → o efeito de
-  // reload abaixo não muda. Multi-set num único handler (botão "Limpar") usa o
-  // setQuery atômico, senão cada setter leria um location.search defasado.
+  // ─── Filter & Sort state (in the URL: survives navigation/reload/reopen) ──────
+  // All via useQueryParam (same [v,set] signature as useState) → the reload effect
+  // below doesn't change. Multi-set in a single handler ("Clear" button) uses the
+  // atomic setQuery, otherwise each setter would read a stale location.search.
   const [filterSearch, setFilterSearch] = useQueryParam('q')
   const [filterStatus, setFilterStatus] = useQueryParam('status')
   const [filterTracker, setFilterTracker] = useQueryParam('tracker')
@@ -125,7 +125,7 @@ export default function DownloadsPage() {
   // Global hidden curtain: downloads tied to a hidden favourite folder drop out
   // unless it's open (re-fetch on flip; backend filters by the header).
   const [revealHidden] = useRevealHidden()
-  // Restaura a posição de scroll ao voltar/recarregar, assim que a lista carrega.
+  // Restores the scroll position when coming back/reloading, as soon as the list loads.
   useScrollRestoration(!loading)
 
   // Add Torrent & Magnet Modals State
@@ -133,7 +133,7 @@ export default function DownloadsPage() {
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   const [preloadFiles, setPreloadFiles] = useState<File[] | null>(null)
 
-  // Drag & drop de magnet/.torrent na página inteira (overlay + handlers).
+  // Drag & drop of magnet/.torrent onto the whole page (overlay + handlers).
   const drag = useDownloadDragDrop({ setLoading, setDownloadTarget, setPreloadFiles, setShowAddModal })
 
   // ─── Data loading ─────────────────────────────────────────────────────────
@@ -223,8 +223,8 @@ export default function DownloadsPage() {
     reloadDownloadsRef.current().catch(() => {}); loadTorrents(); loadLimits(); loadFilterOptions()
     localMounts().then(setMounts).catch(() => {})
     getDownloadsQueueSettings().then(s => setMaxActive(s.maxActive)).catch(() => {})
-    // Pula o poll com a aba oculta — cada ciclo refaz streamActive→buildInfo de
-    // todos os torrents ativos (caro num pacote multi-arquivo). Retoma ao focar.
+    // Skip the poll while the tab is hidden — each cycle redoes streamActive→buildInfo
+    // for every active torrent (expensive on a multi-file pack). Resumes on focus.
     const t = setInterval(() => {
       if (document.hidden) return
       reloadDownloadsRef.current().catch(() => {})
@@ -418,7 +418,7 @@ export default function DownloadsPage() {
         onPromoted={onPromoted}
       />
 
-      {/* Modal de inspeção detalhada de download (com recheck, files list e stop seed) */}
+      {/* Detailed download inspection modal (with recheck, files list and stop seed) */}
       <DownloadInspectModal
         download={inspectTarget}
         onClose={() => setQuery({ inspect: null }, { replace: true })}
@@ -435,7 +435,7 @@ export default function DownloadsPage() {
         onPlay={onPlay}
       />
 
-      {/* Modal para adicionar torrents por arquivo drag & drop ou link magnet */}
+      {/* Add torrents via drag & dropped files or magnet link */}
       <AddTorrentModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
@@ -445,7 +445,7 @@ export default function DownloadsPage() {
         }}
       />
 
-      {/* Modal para configurar download de um único torrent resolvido da busca ou arrastado */}
+      {/* Modal to configure the download of a single torrent resolved from search or dragged in */}
       <DownloadModal
         result={downloadTarget}
         onClose={() => {
@@ -455,7 +455,7 @@ export default function DownloadsPage() {
         }}
       />
 
-      {/* Ações globais (mobile) */}
+      {/* Global actions (mobile) */}
       <BulkActionsSheet
         open={bulkSheetOpen}
         onClose={() => setBulkSheetOpen(false)}
@@ -470,7 +470,7 @@ export default function DownloadsPage() {
         onClearQueued={doClearQueued}
       />
 
-      {/* Barra flutuante de bulk actions, só aparece com seleção ativa. */}
+      {/* Floating bulk-actions bar, only shows with an active selection. */}
       {selected.size > 0 && (
         <BulkActionBar
           selectedCount={selected.size}

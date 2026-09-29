@@ -19,27 +19,27 @@ function EnvBadge({ envVar }: { readonly envVar: string }) {
 function VersionInfo() {
   const { t } = useTranslation()
   const [ver, setVer] = useState<{ version: string; commit: string; date: string; goVersion?: string } | null>(null)
-  // Plataforma vem do Electron (getPlatform) — navigator.platform é deprecado (S1874).
+  // Platform comes from Electron (getPlatform) — navigator.platform is deprecated (S1874).
   const [platform, setPlatform] = useState('')
   useEffect(() => {
     if (globalThis.electronAPI?.getAppVersion) {
-      // App desktop: metadados vêm do main process do Electron.
+      // Desktop app: metadata comes from Electron's main process.
       globalThis.electronAPI.getAppVersion().then(setVer).catch(() => {})
       globalThis.electronAPI.getPlatform?.().then(setPlatform).catch(() => {})
     } else {
-      // Navegador: metadados de build vêm do endpoint público /status (sem
-      // Electron, o getAppVersion não existe e o card ficava em "Carregando…").
+      // Browser: build metadata comes from the public /status endpoint (without
+      // Electron, getAppVersion doesn't exist and the card stayed on "Loading…").
       getStatus()
         .then(s => setVer({ version: s.version, commit: s.commit, date: s.buildTime, goVersion: s.goVersion }))
         .catch(() => {})
     }
   }, [])
   if (!ver) return <p className="animate-pulse">{t('settings.loading')}</p>
-  // Sem ldflags (dev / `go run`) os metadados vêm como "dev"/"unknown" — evita
-  // "Invalid Date" e o slice de string vazia.
+  // Without ldflags (dev / `go run`) the metadata comes as "dev"/"unknown" — avoids
+  // "Invalid Date" and slicing an empty string.
   const parsed = ver.date ? new Date(ver.date) : null
   const buildLabel = parsed && !Number.isNaN(parsed.getTime())
-    ? parsed.toLocaleString('pt-BR')
+    ? parsed.toLocaleString()
     : (ver.date || '—')
   return (
     <>
@@ -161,9 +161,9 @@ export default function GeneralTab({ config, setConfig, isAdmin, testing, testRe
       <section className="card flex flex-col gap-3">
         <h2 className="text-base font-semibold text-text-primary">{t('settings.about')}</h2>
         <div className="space-y-1.5 text-xs text-text-secondary">
-          {/* VersionInfo lida com ambos: Electron (getAppVersion) e
-              navegador (GET /status). Antes só renderizava no Electron,
-              então o navegador nunca via os metadados de build. */}
+          {/* VersionInfo handles both: Electron (getAppVersion) and
+              browser (GET /status). It used to render only on Electron,
+              so the browser never saw the build metadata. */}
           <VersionInfo />
         </div>
       </section>

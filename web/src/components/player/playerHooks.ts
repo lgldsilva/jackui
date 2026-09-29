@@ -29,8 +29,8 @@ type SubChoiceLite = {
 // Behavior is unchanged — same effect bodies, same dependency arrays.
 
 type KeyboardShortcutsOpts = {
-  // HTMLMediaElement (não HTMLVideoElement) pra aceitar tanto o <video> quanto o
-  // <audio> do motor gapless — só mexe em play/pause/seek/volume (membros comuns).
+  // HTMLMediaElement (not HTMLVideoElement) to accept both the <video> and the
+  // gapless engine's <audio> — only touches play/pause/seek/volume (common members).
   readonly videoRef: RefObject<HTMLMediaElement | null>
   readonly minimized: boolean
   readonly requestFullscreen: () => void
@@ -150,8 +150,8 @@ export function useAirPlay(videoRef: RefObject<HTMLVideoElement | null>, srcKey:
   const [active, setActive] = useState(false)
 
   useEffect(() => {
-    // NOSONAR: a assertion carrega os métodos webkit* (WebKitAirPlayVideo é interface
-    // standalone, não merge em HTMLVideoElement) — o tsc precisa dela; S4325 é falso-positivo.
+    // NOSONAR: the assertion carries the webkit* methods (WebKitAirPlayVideo is a
+    // standalone interface, not merged into HTMLVideoElement) — tsc needs it; S4325 is a false positive.
     const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null // NOSONAR
     if (!el || typeof el.webkitShowPlaybackTargetPicker !== 'function') return
     const onAvail = (e: Event) => setAvailable((e as WebKitAvailabilityEvent).availability === 'available')
@@ -165,7 +165,7 @@ export function useAirPlay(videoRef: RefObject<HTMLVideoElement | null>, srcKey:
   }, [videoRef, srcKey])
 
   const show = () => {
-    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null // NOSONAR: idem :92 (métodos webkit*, S4325 falso-positivo)
+    const el = videoRef.current as (HTMLVideoElement & WebKitAirPlayVideo) | null // NOSONAR: same as :92 (webkit* methods, S4325 false positive)
     el?.webkitShowPlaybackTargetPicker?.()
   }
 
@@ -212,14 +212,14 @@ export function useMediaQueue(info: TorrentInfo | null, selectedFile: number, or
 }
 
 type MediaSessionOpts = {
-  // HTMLMediaElement: aceita o <video> ou o <audio> ativo do motor gapless.
+  // HTMLMediaElement: accepts the <video> or the gapless engine's active <audio>.
   readonly videoRef: RefObject<HTMLMediaElement | null>
   readonly info: TorrentInfo | null
   readonly selectedFile: number
   readonly playlistName?: string
   readonly onNext?: () => void
   readonly onPrev?: () => void
-  // URL ABSOLUTA da capa (o iOS busca a imagem no nível do SO). Vazia = sem artwork.
+  // ABSOLUTE artwork URL (iOS fetches the image at OS level). Empty = no artwork.
   readonly artworkURL?: string
 }
 
@@ -227,18 +227,18 @@ type MediaSessionOpts = {
 // to the OS. Without it, iOS shows "JackUI" with no metadata and AirPods/
 // bluetooth controls don't fire next/previous on the playlist.
 export function useMediaSession({ videoRef, info, selectedFile, playlistName, onNext, onPrev, artworkURL }: MediaSessionOpts) {
-  // Metadata (título + capa) só muda com a FAIXA/capa — mantida num effect SÓ
-  // com deps estáveis. Antes os action handlers (onNext/onPrev, recriados a cada
-  // render por não serem memoizados) estavam no mesmo effect, então a metadata
-  // era re-emitida a cada onTimeUpdate (~4×/s) e o SO re-baixava a capa toda vez
-  // (visto nos logs: milhares de GET /api/local/audio/cover numa única sessão).
+  // Metadata (title + artwork) only changes with the TRACK/artwork — kept in an effect
+  // with STABLE deps only. The action handlers (onNext/onPrev, recreated every
+  // render since they aren't memoized) used to be in the same effect, so metadata
+  // was re-emitted on every onTimeUpdate (~4x/s) and the OS re-downloaded the artwork each time
+  // (seen in the logs: thousands of GET /api/local/audio/cover in a single session).
   useEffect(() => {
     if (!info || selectedFile < 0) return
     if (!('mediaSession' in navigator)) return
     const file = info.files[selectedFile]
     const title = file?.path?.split('/').pop() || info.name
-    // artwork: 96 (player compacto) + 512 (expandido) apontando pra mesma capa —
-    // a rota serve uma imagem só; o iOS escolhe (ver MDN/dbushell). type é só dica.
+    // artwork: 96 (compact player) + 512 (expanded) pointing to the same artwork —
+    // the route serves a single image; iOS picks (see MDN/dbushell). type is a hint only.
     const artwork = artworkURL
       ? [
           { src: artworkURL, sizes: '96x96', type: 'image/jpeg' },
@@ -253,8 +253,8 @@ export function useMediaSession({ videoRef, info, selectedFile, playlistName, on
     })
   }, [info?.infoHash, selectedFile, playlistName, artworkURL])
 
-  // Action handlers (media keys / lock-screen). Re-registrar é barato (sem rede),
-  // então este effect pode re-rodar livremente quando os callbacks de faixa mudam.
+  // Action handlers (media keys / lock-screen). Re-registering is cheap (no network),
+  // so this effect may freely re-run when the track callbacks change.
   useEffect(() => {
     if (!('mediaSession' in navigator)) return
     const v = () => videoRef.current
@@ -288,17 +288,17 @@ type SubtitleOffsetOpts = {
   readonly origCuesRef: MutableRefObject<{ start: number; end: number }[]>
 }
 
-// useSubtitleOffset força o text track a aparecer e aplica o offset de sync do
-// usuário a cada cue, fazendo o snapshot dos tempos originais uma vez por sub
-// carregado pra mudanças repetidas de offset ficarem relativas à fonte.
+// useSubtitleOffset forces the text track to show and applies the user's sync
+// offset to every cue, snapshotting the original timings once per loaded sub
+// so repeated offset changes stay relative to the source.
 //
-// Ativa pra QUALQUER legenda que vire <track>: externa (subActive), embutida
-// (embeddedSub) ou sidecar (sidecarIdx). Antes só rodava pra externa, então
-// embutida/sidecar nunca recebiam `track.mode = 'showing'` — no Safari com HLS
-// nativo o atributo `default` do <track> NÃO basta quando o src chega depois
-// (blob da legenda embedded extraída sob demanda), e a faixa carregava invisível.
-// `localEmbeddedVttURL` entra nas deps porque o blob local é assíncrono: quando
-// ele finalmente chega, o effect re-roda e ativa o track já com src.
+// Activates for ANY subtitle that becomes a <track>: external (subActive), embedded
+// (embeddedSub) or sidecar (sidecarIdx). It used to run for external only, so
+// embedded/sidecar never got `track.mode = 'showing'` — on Safari with native HLS
+// the <track>'s `default` attribute is NOT enough when the src arrives later
+// (blob of the on-demand extracted embedded subtitle), and the track loaded invisible.
+// `localEmbeddedVttURL` joins the deps because the local blob is async: when
+// it finally arrives, the effect re-runs and activates the track already with src.
 export function useSubtitleOffset({ videoRef, subActive, embeddedSub, sidecarIdx, localEmbeddedVttURL, subOffset, origCuesRef }: SubtitleOffsetOpts) {
   useEffect(() => {
     const v = videoRef.current
@@ -308,8 +308,8 @@ export function useSubtitleOffset({ videoRef, subActive, embeddedSub, sidecarIdx
     const applyOffset = () => {
       const track = v.textTracks?.[0]
       if (!track) return
-      // Ativa SEMPRE primeiro: sem isso o Safari não exibe um <track> cujo src
-      // chegou dinamicamente, mesmo com `default`.
+      // Activate FIRST, always: without this Safari doesn't display a <track> whose src
+      // arrived dynamically, even with `default`.
       track.mode = 'showing'
       if (!track.cues?.length) return
       // Save originals once per loaded sub
@@ -467,8 +467,8 @@ type HevcBackstopOpts = {
   readonly videoError: boolean
   readonly bufferedEnd: number
   // From the ffprobe (#16): true=codec needs transcode, false=browser-safe,
-  // undefined=probe ainda não chegou. Trava o backstop quando já se sabe que o
-  // codec é browser-safe — aí um stall é rede/moov, não rejeição de codec.
+  // undefined=probe hasn't arrived yet. Locks the backstop when it's already known that the
+  // codec is browser-safe — then a stall is network/moov, not codec rejection.
   readonly needsTranscode?: boolean
   readonly caps: TranscodeCapabilities | null
   readonly videoDiagnostic: () => Record<string, unknown> | { reason: string }
@@ -476,47 +476,47 @@ type HevcBackstopOpts = {
   readonly setForceH264: Dispatch<SetStateAction<boolean>>
 }
 
-// backstopStuck: depois de 20s, readyState < 2 (nada tocável) + currentTime < 0.1
-// (não andou um frame) + buffered ~0. Cada condição sozinha é benigna durante
-// buffering normal; as três juntas por 20s cheiram a problema.
+// backstopStuck: after 20s, readyState < 2 (nothing playable) + currentTime < 0.1
+// (hasn't moved a frame) + buffered ~0. Each condition alone is benign during
+// normal buffering; the three together for 20s smell like a problem.
 export function backstopStuck(readyState: number, currentTime: number, bufferedEnd: number): boolean {
   return readyState < 2 && currentTime < 0.1 && bufferedEnd < 0.5
 }
 
-// startGapNudgeTarget: o Safari (HLS nativo, caminho EVENT/live dos arquivos
-// locais transcodados) às vezes bufferiza o primeiro segmento começando um fio
-// DEPOIS de 0 (resíduo sub-tick de PTS que o muxer MPEG-TS deixa mesmo com
-// -muxdelay 0; observado: buffered.start = 0.000002). O currentTime fica
-// EXATAMENTE em 0 — logo ANTES de buffered.start(0) — então o Safari nunca
-// chega a readyState 3, o `canplay` não dispara, o autoplay não roda e o vídeo
-// trava no t=0 com segundos já bufferizados (sintoma: "pulou pro live mas não
-// tocou"). Detecta exatamente essa forma (parado em ~0, com o 1º range
-// começando em (currentTime, gapMax]) e devolve o alvo do nudge; o caller
-// avança o currentTime pra dentro do buffer. gapMax (1,5s) cobre desde o
-// resíduo de µs até o histórico initial_offset de 1,4s do muxer.
+// startGapNudgeTarget: Safari (native HLS, EVENT/live path of transcoded local
+// files) sometimes buffers the first segment starting a hair
+// AFTER 0 (sub-tick PTS residue the MPEG-TS muxer leaves even with
+// -muxdelay 0; observed: buffered.start = 0.000002). currentTime sits
+// EXACTLY at 0 — right BEFORE buffered.start(0) — so Safari never
+// reaches readyState 3, `canplay` doesn't fire, autoplay doesn't run and the video
+// stalls at t=0 with seconds already buffered (symptom: "jumped to live but didn't
+// play"). Detects exactly that shape (stuck at ~0, with the 1st range
+// starting in (currentTime, gapMax]) and returns the nudge target; the caller
+// advances currentTime into the buffer. gapMax (1.5s) covers everything from the
+// µs residue up to the muxer's historical 1.4s initial_offset.
 export function startGapNudgeTarget(currentTime: number, bufferedStart: number | null): number | null {
-  if (currentTime > 0.25) return null        // já andou / passou do buraco inicial
+  if (currentTime > 0.25) return null        // already moved / past the initial hole
   if (bufferedStart === null) return null
   const gap = bufferedStart - currentTime
-  if (gap <= 0 || gap > 1.5) return null      // sem buraco, ou grande demais p/ ser o resíduo de PTS
-  return bufferedStart + 0.05                 // pousa 50ms dentro do range bufferizado
+  if (gap <= 0 || gap > 1.5) return null      // no hole, or too large to be the PTS residue
+  return bufferedStart + 0.05                 // lands 50ms inside the buffered range
 }
 
-// backstopShouldFire decide se o backstop deve FORÇAR transcode (h264) num stall.
-// Regra (#16): se o probe já confirmou codec browser-safe (needsTranscode===false),
-// o stall é de rede/moov — transcodar H264→H264 da mesma fonte fria não ajuda →
-// NÃO dispara. Se o codec precisa de transcode (true) ou é desconhecido
-// (undefined, probe ainda não chegou), dispara — desde que haja encoder de GPU.
+// backstopShouldFire decides whether the backstop should FORCE transcode (h264) on a stall.
+// Rule (#16): if the probe already confirmed a browser-safe codec (needsTranscode===false),
+// the stall is network/moov — transcoding H264→H264 from the same cold source doesn't help →
+// do NOT fire. If the codec needs transcode (true) or is unknown
+// (undefined, probe hasn't arrived yet), fire — as long as there's a GPU encoder.
 export function backstopShouldFire(stuck: boolean, needsTranscode: boolean | undefined, hasEncoder: boolean): boolean {
   if (!stuck) return false
   if (needsTranscode === false) return false
   return hasEncoder
 }
 
-// hlsFatalAction decide, sem tocar no objeto Hls, qual recuperação aplicar a um
-// erro FATAL do hls.js: NETWORK_ERROR → recarrega (startLoad), MEDIA_ERROR →
-// recoverMediaError, qualquer outro → destrói. `types` é o enum Hls.ErrorTypes
-// (passado pra evitar acoplar este módulo puro/testável ao import de hls.js).
+// hlsFatalAction decides, without touching the Hls object, which recovery to apply to an
+// hls.js FATAL error: NETWORK_ERROR → reload (startLoad), MEDIA_ERROR →
+// recoverMediaError, anything else → destroy. `types` is the Hls.ErrorTypes enum
+// (passed in to avoid coupling this pure/testable module to the hls.js import).
 export function hlsFatalAction(
   type: string,
   types: { NETWORK_ERROR: string; MEDIA_ERROR: string },
@@ -545,13 +545,13 @@ export function useHevcBackstop(opts: HevcBackstopOpts) {
       const hasEncoder = !!(caps && (caps.hasNvidia || caps.hasVaapi || caps.hasQsv))
       clientLog('info', 'player', '20s backstop tick', { stuck, readyState: v.readyState, currentTime: v.currentTime, bufferedEnd, needsTranscode, src: v.currentSrc })
       if (stuck) {
-        // O probe (#16) já confirmou codec browser-safe (H264/AAC/MP4)? Então
-        // este stall (readyState 0, buffered ~0) é problema de rede/moov — ex:
-        // moov do MP4 ainda não baixou —, NÃO a falha silenciosa de HEVC do
-        // Safari. Transcodar H264→H264 lendo a MESMA fonte fria não acelera
-        // nada e só adiciona latência. Não dispara o fallback.
+        // Did the probe (#16) already confirm a browser-safe codec (H264/AAC/MP4)? Then
+        // this stall (readyState 0, buffered ~0) is a network/moov problem — e.g.:
+        // the MP4 moov hasn't downloaded yet — NOT Safari's silent HEVC
+        // failure. Transcoding H264→H264 reading the SAME cold source doesn't speed
+        // anything up and only adds latency. Don't fire the fallback.
         if (needsTranscode === false) {
-          clientLog('info', 'player', 'backstop skipped — codec browser-safe (probe); stall é rede/moov, não codec', { needsTranscode, readyState: v.readyState, bufferedEnd })
+          clientLog('info', 'player', 'backstop skipped — codec browser-safe (probe); stall is network/moov, not codec', { needsTranscode, readyState: v.readyState, bufferedEnd })
           return
         }
         if (backstopShouldFire(stuck, needsTranscode, hasEncoder)) {

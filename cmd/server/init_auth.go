@@ -15,7 +15,7 @@ import (
 // stores receive this pool. Fatal if DATABASE_URL is unset or unreachable.
 func initDB(deps *appDeps) {
 	if deps.cfg.DatabaseURL == "" {
-		log.Fatalf("DATABASE_URL ausente — defina JACKUI_DATABASE_URL (ou DATABASE_URL / JACKUI_PG_*) com o DSN do PostgreSQL")
+		log.Fatalf("DATABASE_URL missing — set JACKUI_DATABASE_URL (or DATABASE_URL / JACKUI_PG_*) with the PostgreSQL DSN")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -49,7 +49,7 @@ func initAuth(deps *appDeps) {
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)
-			// #nosec G104 -- limpeza periodica best-effort em background
+			// #nosec G104 -- best-effort periodic cleanup in background
 			deps.authStore.CleanupExpired()
 		}
 	}()
@@ -71,7 +71,7 @@ func initJWTSecret(deps *appDeps) {
 	// invalidated every session on each restart (refresh tokens, MFA flows). Fail
 	// fast and demand a persistent secret instead of degrading auth silently.
 	if len(secret) < 32 {
-		log.Fatalf("Auth: jwt_secret ausente ou curto (%d bytes) — defina jwt_secret no config ou JACKUI_JWT_SECRET com pelo menos 32 bytes; um secret efêmero desloga todas as sessões a cada restart", len(secret))
+		log.Fatalf("Auth: jwt_secret missing or too short (%d bytes) — set jwt_secret in the config or JACKUI_JWT_SECRET with at least 32 bytes; an ephemeral secret logs out every session on each restart", len(secret))
 	}
 	deps.tokenMgr = auth.NewTokenManager(secret, 15*time.Minute)
 }

@@ -47,7 +47,7 @@ const TABS: { id: TabId; labelKey: string; icon: React.ReactNode }[] = [
   { id: 'ia', labelKey: 'nav.ia_tab', icon: <BrainCircuit className="w-4 h-4" /> },
 ]
 
-// TabButton — fora do componente pai (evita recriar a cada render; S6478).
+// TabButton — outside the parent component (avoids recreating on every render; S6478).
 function TabButton({ tab, active, onClick }: {
   readonly tab: typeof TABS[number]
   readonly active: boolean
@@ -86,8 +86,8 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [editingClient, setEditingClient] = useState<DownloadClientFull | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
-  // Aba ativa na URL (?tab=) → sobrevive a back/forward/reload/reabrir. A guarda
-  // abaixo ainda reverte uma aba inacessível quando o papel resolve.
+  // Active tab in the URL (?tab=) → survives back/forward/reload/reopen. The guard
+  // below still reverts an inaccessible tab when the role resolves.
   const [activeTab, setActiveTab] = useEnumQueryParam<TabId>('tab', ALL_TAB_IDS, isAdmin ? 'geral' : 'conta')
   useScrollRestoration(!loading)
 
@@ -292,7 +292,7 @@ export default function SettingsPage() {
                   className="input-field w-32" min={1} max={65535} />
               </div>
             </section>
-            {/* Performance do streamer (banda/memória/storage/peers) — feature #43. */}
+            {/* Streamer performance (bandwidth/memory/storage/peers) — feature #43. */}
             <ErrorBoundary title={t('settings.error_perf_card')}><StreamSettingsCard /></ErrorBoundary>
             <TranscodeCapabilitiesCard />
             <ErrorBoundary title={t('settings.error_transcode_card')}><ActiveTranscodesCard /></ErrorBoundary>

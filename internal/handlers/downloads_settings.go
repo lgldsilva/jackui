@@ -43,8 +43,8 @@ func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
 	}
 }
 
-// transferModeOrAuto normaliza o valor vazio (default) para "auto" na resposta,
-// pra UI sempre mostrar uma opção selecionada.
+// transferModeOrAuto normalizes the empty value (default) to "auto" in the
+// response, so the UI always shows a selected option.
 func transferModeOrAuto(m string) string {
 	if m == "" {
 		return transferModeAuto
@@ -61,27 +61,27 @@ func DownloadsGetSettings(cfg *config.Config) gin.HandlerFunc {
 
 func validateDownloadsQueue(b *downloadsQueueBody) string {
 	if b.MaxActive < 1 {
-		return "maxActive deve ser >= 1"
+		return "maxActive must be >= 1"
 	}
 	if b.PerUserMaxActive < 0 {
-		return "perUserMaxActive deve ser >= 0 (0 = sem limite por usuário)"
+		return "perUserMaxActive must be >= 0 (0 = no per-user limit)"
 	}
 	if b.MaxConcurrentVerify < 1 {
-		return "maxConcurrentVerify deve ser >= 1"
+		return "maxConcurrentVerify must be >= 1"
 	}
 	if b.StallThresholdMin < 1 {
-		return "stallThresholdMin deve ser >= 1"
+		return "stallThresholdMin must be >= 1"
 	}
 	if b.MaxStalls < 1 {
-		return "maxStalls deve ser >= 1"
+		return "maxStalls must be >= 1"
 	}
 	if b.AgingStepMin < 0 || b.AgingCap < 0 {
-		return "valores de aging devem ser >= 0"
+		return "aging values must be >= 0"
 	}
 	switch b.TransferConcurrencyMode {
 	case "", transferModeAuto, transferModeSerial, transferModeParallel:
 	default:
-		return "transferConcurrencyMode deve ser auto, serial ou parallel"
+		return "transferConcurrencyMode must be auto, serial or parallel"
 	}
 	return ""
 }
@@ -113,7 +113,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string, setVerifyCon
 		cfg.DownloadsQueue.AgingCap = b.AgingCap
 		cfg.DownloadsQueue.RotationEnabled = b.RotationEnabled
 		cfg.DownloadsQueue.AutoPromoteArr = b.AutoPromoteArr
-		// "auto" é o default; persiste vazio pra manter o yaml limpo.
+		// "auto" is the default; persist empty to keep the yaml clean.
 		if b.TransferConcurrencyMode == transferModeAuto {
 			cfg.Stream.TransferConcurrencyMode = ""
 		} else {

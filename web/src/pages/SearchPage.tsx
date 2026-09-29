@@ -40,12 +40,12 @@ export default function SearchPage() {
   const [initial] = useState(() => hydrateTabs())
   const [tabs, setTabs] = useState<TabState[]>(initial.tabs)
   const [activeId, setActiveId] = useState<string>(initial.activeId)
-  // Restaura o scroll da aba ativa quando ela já tem resultados (best-effort: em
-  // re-busca os resultados chegam por SSE, então pode restaurar parcialmente).
+  // Restores the active tab's scroll when it already has results (best-effort: on
+  // re-search the results arrive via SSE, so it may restore partially).
   useScrollRestoration((tabs.find(t => t.id === activeId)?.results.length ?? 0) > 0)
   const [indexers, setIndexers] = useState<Indexer[]>([])
 
-  // Indexadores configurados + autodescobertos (coleta/persistência no hook)
+  // Configured + auto-discovered indexers (collection/persistence in the hook)
   const allIndexers = useDiscoveredIndexers(tabs, indexers)
 
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
@@ -264,8 +264,8 @@ export default function SearchPage() {
     return ['all', ...Array.from(set).sort((a, b) => a.localeCompare(b))]
   }, [activeTab.results])
 
-  // Modo Música (NavHeader): a busca filtra pra áudio. `showAll` é um escape
-  // EFÊMERO (não persiste em TabState) — some ao trocar de modo ou de aba.
+  // Music mode (NavHeader): the search filters to audio. `showAll` is an EPHEMERAL
+  // escape (doesn't persist in TabState) — goes away when switching mode or tab.
   const [mediaMode] = useMediaMode()
   const [showAll, setShowAll] = useState(false)
   useEffect(() => { setShowAll(false) }, [mediaMode, activeTab.id])
@@ -287,16 +287,16 @@ export default function SearchPage() {
   })
 
   const hasResults = activeTab.results.length > 0
-  // `isFiltered` agora reflete só REDUÇÃO POR FILTRO do usuário, NÃO por
-  // deduplicação. groupedCount é o universo já agrupado (mesmo torrent em
-  // múltiplos trackers vira 1) — a contagem que faz sentido pro usuário.
+  // `isFiltered` now reflects only the user's FILTER-caused reduction, NOT the
+  // dedup one. groupedCount is the already-grouped universe (the same torrent on
+  // multiple trackers becomes 1) — the count that makes sense to the user.
   const isFiltered = filteredResults.length !== groupedCount
   const hasDuplicates = groupedCount !== activeTab.results.length
 
   const activeFilterCount = [
     activeTab.titleFilter,
     activeTab.trackerFilter !== 'all',
-    activeTab.minSeeders > 1, // 0 ou 1 = permissivo/default; só conta se o user subiu
+    activeTab.minSeeders > 1, // 0 or 1 = permissive/default; only counts if the user raised it
     activeTab.minLeechers > 0,
     activeTab.maxSizeGb,
     activeTab.onlyPlayable,
@@ -305,15 +305,15 @@ export default function SearchPage() {
     activeTab.codecGroup,
   ].filter(Boolean).length
 
-  // clearFilters zera TODOS os filtros que podem esconder resultados, do jeito MAIS
-  // permissivo possível — inclusive minSeeders=0 (revela torrents com 0 seeders, que
-  // o default minSeeders=1 escondia) e os de qualidade (resolução/codec/HDR, que
-  // descartam silenciosamente o que não tem aquela metadata, ex.: software/ISO sem
-  // resolução) — e levanta a restrição de modo áudio/vídeo (showAll). É o "mostrar
-  // tudo" do banner de ocultos: depois dele, filteredResults == groupedCount.
+  // clearFilters zeroes EVERY filter that could hide results, in the MOST
+  // permissive way possible — including minSeeders=0 (reveals torrents with 0 seeders, which
+  // the default minSeeders=1 hid) and the quality ones (resolution/codec/HDR, which
+  // silently discard what lacks that metadata, e.g. software/ISO without
+  // resolution) — and lifts the audio/video mode restriction (showAll). It's the hidden
+  // banner's "show everything": after it, filteredResults == groupedCount.
   const clearFilters = () => {
     setShowAll(true)
-    // groupSeries é um controle da barra de filtros que o reset não tocava — reseta tb.
+    // groupSeries is a filter-bar control the reset didn't touch — reset it too.
     if (groupSeries) { setGroupSeries(false); save('searchGroupSeries', false) }
     updateTab(activeTab.id, {
       titleFilter: '', trackerFilter: 'all',
@@ -393,10 +393,10 @@ export default function SearchPage() {
           suggestions={historyQueries}
         />
 
-        {/* Status bar — no mobile a contagem e o controle de ordenação NÃO
-            dividem a mesma linha (encavalavam com o `ml-auto`): empilham, com a
-            ordenação numa linha própria full-width (scroll horizontal). No
-            sm:+ voltam pra mesma linha, com o sort empurrado pra direita. */}
+        {/* Status bar — on mobile the count and the sort control do NOT
+            share the same line (they piled up over the `ml-auto`): they stack, with
+            sorting on its own full-width line (horizontal scroll). On
+            sm:+ they return to the same line, with the sort pushed right. */}
         {activeTab.phase !== 'idle' && (
           <SearchStatusBar
             tab={activeTab}
@@ -410,11 +410,11 @@ export default function SearchPage() {
           />
         )}
 
-        {/* Filter toolbar — shown once results start arriving. A ordenação NÃO
-            vive mais aqui: foi pro cabeçalho dos resultados (junto da contagem),
-            então a barra é só filtros e não tem mais o grupo de sort com
-            `ml-auto` quebrando pra uma 2ª linha colada à direita. Inline no XL+;
-            abaixo disso (telefone E TABLET) usa o botão que abre o Sheet. */}
+        {/* Filter toolbar — shown once results start arriving. Sorting does NOT
+            live here anymore: it moved to the results header (with the count),
+            so the bar is filters only and no longer has the sort group with
+            `ml-auto` wrapping onto a 2nd line glued to the right. Inline on XL+;
+            below that (phone AND TABLET) it uses the button that opens the Sheet. */}
         {hasResults && (
           <>
             <div className="hidden xl:flex flex-wrap items-center gap-2 p-3 bg-surface-secondary/60 rounded-xl border border-default">
@@ -446,9 +446,9 @@ export default function SearchPage() {
           </>
         )}
 
-        {/* Aviso proeminente quando os filtros estão ESCONDENDO resultados — o caso
-            do Windows/ISO (sem resolução) sumindo por um filtro de qualidade
-            persistido. Sem isso o usuário não percebe e acha que "não retornou". */}
+        {/* Prominent notice when the filters are HIDING results — the case of
+            Windows/ISO (no resolution) vanishing due to a persisted quality
+            filter. Without this the user doesn't notice and thinks "nothing returned". */}
         {hasResults && isFiltered && groupedCount - filteredResults.length > 0 && (
           <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 rounded-xl px-4 py-2.5 text-sm">
             <Filter className="w-4 h-4 flex-shrink-0" />

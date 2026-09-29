@@ -162,7 +162,7 @@ func TranscodeActive(hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
 func TranscodeKill(hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if hlsMgr == nil {
-			httpshared.RespondErrorMessage(c, http.StatusNotFound, "HLS manager não ativo")
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "HLS manager not active")
 			return
 		}
 		key := c.Param("key")

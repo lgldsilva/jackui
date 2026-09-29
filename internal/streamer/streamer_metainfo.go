@@ -34,7 +34,7 @@ func (s *Streamer) ParseMagnet(magnet string) (hash, name string, err error) {
 	}
 	mi, err := metainfo.ParseMagnetUri(magnet)
 	if err != nil {
-		return "", "", fmt.Errorf("magnet inválido: %w", err)
+		return "", "", fmt.Errorf("invalid magnet: %w", err)
 	}
 	name = mi.DisplayName
 	if name == "" {
@@ -50,11 +50,11 @@ func (s *Streamer) ParseMagnet(magnet string) (hash, name string, err error) {
 func (s *Streamer) ImportTorrentBytes(data []byte) (hash, name string, err error) {
 	mi, err := metainfo.Load(bytes.NewReader(data))
 	if err != nil {
-		return "", "", fmt.Errorf(".torrent inválido: %w", err)
+		return "", "", fmt.Errorf("invalid .torrent: %w", err)
 	}
 	info, err := mi.UnmarshalInfo()
 	if err != nil {
-		return "", "", fmt.Errorf("metadados do .torrent ilegíveis: %w", err)
+		return "", "", fmt.Errorf("unreadable .torrent metadata: %w", err)
 	}
 	h := mi.HashInfoBytes()
 	// Persist so playback is instant (no DHT). Best-effort.

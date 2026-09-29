@@ -61,7 +61,7 @@ func TestJobLifecycleAndProgress(t *testing.T) {
 
 	j := tr.Start("move X", "local-move", 2, 1000)
 	if s := j.Snapshot(); s.Status != StatusRunning || s.FilesTotal != 2 || s.BytesTotal != 1000 {
-		t.Fatalf("inicial: %+v", s)
+		t.Fatalf("initial: %+v", s)
 	}
 
 	j.AddBytes(500)
@@ -78,7 +78,7 @@ func TestJobLifecycleAndProgress(t *testing.T) {
 		t.Fatalf("progress = %v, want 1.0", s.Progress)
 	}
 	if s.RatePerSec <= 0 {
-		t.Fatalf("rate = %d, want > 0 (janela ativa)", s.RatePerSec)
+		t.Fatalf("rate = %d, want > 0 (window active)", s.RatePerSec)
 	}
 
 	j.Done()
@@ -86,16 +86,16 @@ func TestJobLifecycleAndProgress(t *testing.T) {
 		t.Fatalf("status = %q, want done", got)
 	}
 	if got := j.Snapshot().RatePerSec; got != 0 {
-		t.Fatalf("rate após done = %d, want 0", got)
+		t.Fatalf("rate after done = %d, want 0", got)
 	}
 
 	if n := len(tr.List(0, true)); n != 1 {
 		t.Fatalf("List = %d jobs, want 1", n)
 	}
-	// Passada a retenção, o job concluído some.
+	// Past the retention window, the finished job disappears.
 	clk.advance(doneRetentionTTL + time.Second)
 	if n := len(tr.List(0, true)); n != 0 {
-		t.Fatalf("List após retenção = %d, want 0", n)
+		t.Fatalf("List after retention = %d, want 0", n)
 	}
 }
 
@@ -116,9 +116,9 @@ func TestProgressReader(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != 11 {
-		t.Fatalf("reportou %d bytes, want 11", got)
+		t.Fatalf("reported %d bytes, want 11", got)
 	}
-	// nil callback → passa o reader cru, sem panic.
+	// nil callback → passes the raw reader through, no panic.
 	if _, err := io.Copy(io.Discard, ProgressReader(strings.NewReader("hi"), nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -130,12 +130,12 @@ func TestNilJobSafe(t *testing.T) {
 	j.AddSkipped(10)
 	j.FileDone()
 	j.Done()
-	j.AddBytesFunc()(5) // não deve dar panic
+	j.AddBytesFunc()(5) // must not panic
 }
 
-// AddSkipped avança o progresso (bytes já presentes no destino, resume) SEM
-// entrar na janela de taxa — senão pular um arquivo grande dispararia um rate
-// absurdo. Conferimos: bytesDone sobe, RatePerSec permanece 0.
+// AddSkipped advances progress (bytes already present at the destination,
+// resume) WITHOUT entering the rate window — otherwise skipping a large file
+// would spike an absurd rate. We verify: bytesDone goes up, RatePerSec stays 0.
 func TestAddSkippedAdvancesProgressNotRate(t *testing.T) {
 	tr := New()
 	j := tr.Start("resume", "promote", 2, 1000)
@@ -145,11 +145,11 @@ func TestAddSkippedAdvancesProgressNotRate(t *testing.T) {
 		t.Fatalf("BytesDone = %d, want 600", s.BytesDone)
 	}
 	if s.RatePerSec != 0 {
-		t.Fatalf("RatePerSec = %d, want 0 (skip não conta na taxa)", s.RatePerSec)
+		t.Fatalf("RatePerSec = %d, want 0 (skip does not count toward the rate)", s.RatePerSec)
 	}
-	j.AddSkipped(-1) // guard: ignorado
+	j.AddSkipped(-1) // guard: ignored
 	if j.Snapshot().BytesDone != 600 {
-		t.Fatal("AddSkipped(<=0) deveria ser no-op")
+		t.Fatal("AddSkipped(<=0) should be a no-op")
 	}
 }
 
@@ -190,11 +190,11 @@ func TestRateWindowPrunesStaleSamples(t *testing.T) {
 
 func TestProgressByFilesWhenNoBytesTotal(t *testing.T) {
 	tr := New()
-	j := tr.Start("dir move", "local-move", 4, 0) // bytesTotal desconhecido
+	j := tr.Start("dir move", "local-move", 4, 0) // bytesTotal unknown
 	j.FileDone()
 	j.FileDone()
 	if p := j.Snapshot().Progress; p != 0.5 {
-		t.Fatalf("progress por arquivos = %v, want 0.5", p)
+		t.Fatalf("progress by files = %v, want 0.5", p)
 	}
 }
 
@@ -230,7 +230,7 @@ func TestSubmitBoundsConcurrencyAndQueues(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if !tr.WaitIdle(ctx) {
-		t.Fatal("nem todos os 3 jobs concluíram após liberar a fila")
+		t.Fatal("not all 3 jobs finished after releasing the queue")
 	}
 	done := 0
 	for _, s := range tr.List(0, true) {
@@ -239,7 +239,7 @@ func TestSubmitBoundsConcurrencyAndQueues(t *testing.T) {
 		}
 	}
 	if done != 3 {
-		t.Fatalf("done=%d após liberar a fila, want 3", done)
+		t.Fatalf("done=%d after releasing the queue, want 3", done)
 	}
 }
 
@@ -249,14 +249,14 @@ func TestSubmitNilTrackerRunsFn(t *testing.T) {
 	done := make(chan struct{})
 	tr.Submit("x", "local-move", 1, 0, func(j *Job) {
 		if j != nil {
-			t.Errorf("esperava Job nil no tracker nil")
+			t.Errorf("expected nil Job on nil tracker")
 		}
 		close(done)
 	})
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("fn não rodou no tracker nil")
+		t.Fatal("fn did not run on nil tracker")
 	}
 }
 
@@ -265,7 +265,7 @@ func TestActiveCountAndWaitIdle(t *testing.T) {
 	tr := New(2)
 
 	if n := tr.ActiveCount(); n != 0 {
-		t.Fatalf("ActiveCount em tracker vazio = %d, want 0", n)
+		t.Fatalf("ActiveCount on empty tracker = %d, want 0", n)
 	}
 
 	release := make(chan struct{})
@@ -281,32 +281,32 @@ func TestActiveCountAndWaitIdle(t *testing.T) {
 	started.Wait()
 
 	if n := tr.ActiveCount(); n != 2 {
-		t.Fatalf("ActiveCount com 2 rodando = %d, want 2", n)
+		t.Fatalf("ActiveCount with 2 running = %d, want 2", n)
 	}
 
-	// WaitIdle deve estourar o timeout enquanto os jobs seguem ativos.
+	// WaitIdle should time out while the jobs are still active.
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	if tr.WaitIdle(ctx) {
-		t.Error("WaitIdle retornou true com jobs ainda ativos")
+		t.Error("WaitIdle returned true with jobs still active")
 	}
 	cancel()
 
-	// Libera os jobs → WaitIdle deve drenar dentro do timeout.
+	// Release the jobs → WaitIdle should drain within the timeout.
 	close(release)
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel2()
 	if !tr.WaitIdle(ctx2) {
-		t.Errorf("WaitIdle não drenou após concluir os jobs (ativos=%d)", tr.ActiveCount())
+		t.Errorf("WaitIdle did not drain after finishing the jobs (active=%d)", tr.ActiveCount())
 	}
 }
 
-// WaitIdle/ActiveCount em *Tracker nil são no-ops seguros (tracking desabilitado).
+// WaitIdle/ActiveCount on a nil *Tracker are safe no-ops (tracking disabled).
 func TestWaitIdleNilTracker(t *testing.T) {
 	var tr *Tracker
 	if tr.ActiveCount() != 0 {
 		t.Error("ActiveCount nil != 0")
 	}
 	if !tr.WaitIdle(context.Background()) {
-		t.Error("WaitIdle nil deve retornar true")
+		t.Error("WaitIdle on nil should return true")
 	}
 }

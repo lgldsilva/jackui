@@ -41,8 +41,8 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended,security-and-quality
-          # Barreiras de data-flow ficam em .github/codeql/extensions/ —
-          # local de auto-descoberta de data extensions, sem pack/config.
+          # Data-flow barriers live in .github/codeql/extensions/ —
+          # the auto-discovery location for data extensions, no pack/config needed.
 
       - name: Build Go manually with a minimal embedded UI
         if: matrix.language == 'go'

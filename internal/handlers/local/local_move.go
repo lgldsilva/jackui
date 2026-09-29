@@ -17,7 +17,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
-// Move / rename / primitivas de cópia-e-remoção — extraído de local.go.
+// Move / rename / copy-and-remove primitives — extracted from local.go.
 // LocalMoveEntry handles POST /api/local/move — moves a file or directory
 // from one mount to another (or within the same mount). Admin only.
 // Body: { srcMount, srcPath, dstMount, dstPath (target directory) }
@@ -53,7 +53,7 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 	}
 
 	if isSelfMove(srcStat, srcAbs, dstAbs) {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "não é possível mover uma pasta para dentro de si mesma")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "cannot move a folder into itself")
 		return
 	}
 
@@ -62,13 +62,13 @@ func localMoveHandler(c *gin.Context, b *lb.Browser, dls *downloads.Store, s *st
 	// destination — data loss while the UI reports success. Make the caller
 	// rename or pick another folder.
 	if _, err := os.Stat(dstAbs); err == nil {
-		httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um item com esse nome no destino")
+		httpshared.RespondErrorMessage(c, http.StatusConflict, "an item with this name already exists at the destination")
 		return
 	}
 
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(filepath.Dir(dstAbs), 0o755); err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "criar diretório destino: "+err.Error())
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "create destination directory: "+err.Error())
 		return
 	}
 
@@ -122,7 +122,7 @@ func resolveMoveEndpoints(b *lb.Browser, c *gin.Context, req *moveEntryReq) (str
 func isAdminMove(c *gin.Context) bool {
 	claims, _ := auth.ClaimsFromCtx(c)
 	if claims == nil || claims.Role != auth.RoleAdmin {
-		httpshared.RespondErrorMessage(c, http.StatusForbidden, "apenas admins podem mover entre mounts")
+		httpshared.RespondErrorMessage(c, http.StatusForbidden, "only admins can move between mounts")
 		return false
 	}
 	return true
@@ -135,11 +135,11 @@ func resolveSource(b *lb.Browser, c *gin.Context, req *moveEntryReq) (string, os
 	scopedSrc := b.UserScopedPath(req.SrcMount, req.SrcPath, scopeUser(c))
 	srcAbs, err := b.ResolvePath(req.SrcMount, scopedSrc)
 	if err != nil {
-		return "", nil, fmt.Errorf("origem: %w", err)
+		return "", nil, fmt.Errorf("source: %w", err)
 	}
 	srcStat, err := os.Stat(srcAbs)
 	if err != nil {
-		return "", nil, fmt.Errorf("origem não encontrada")
+		return "", nil, fmt.Errorf("source not found")
 	}
 	return srcAbs, srcStat, nil
 }
@@ -153,7 +153,7 @@ func resolveDest(b *lb.Browser, c *gin.Context, req *moveEntryReq, srcAbs string
 	scopedDst := b.UserScopedPath(req.DstMount, dstDirRel, scopeUser(c))
 	dstDirAbs, err := b.ResolvePath(req.DstMount, scopedDst)
 	if err != nil {
-		return "", fmt.Errorf("destino: %w", err)
+		return "", fmt.Errorf("destination: %w", err)
 	}
 	return filepath.Join(dstDirAbs, filepath.Base(srcAbs)), nil
 }
@@ -248,7 +248,7 @@ func bindRenameReq(c *gin.Context) (renameEntryReq, bool) {
 		return req, false
 	}
 	if !isValidRenameName(req.NewName) {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "nome inválido: não pode conter barras nem '..'")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid name: must not contain slashes or '..'")
 		return req, false
 	}
 	return req, true
@@ -277,19 +277,19 @@ func resolveRenameSource(b *lb.Browser, c *gin.Context, req renameEntryReq) (str
 // resolveRenameDest builds the destination path (same parent dir, new bare
 // name) and refuses a no-op or a clobber. ok=false on failure (response sent).
 func resolveRenameDest(c *gin.Context, srcAbs, newName string) (string, bool) {
-	// Barreira de path-injection: só o nome validado chega ao Join.
+	// Path-injection barrier: only the validated name reaches the Join.
 	clean, ok := sanitizeRenameName(newName)
 	if !ok {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "nome inválido: não pode conter barras nem '..'")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid name: must not contain slashes or '..'")
 		return "", false
 	}
 	dstAbs := filepath.Join(filepath.Dir(srcAbs), clean)
 	if dstAbs == srcAbs {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "o novo nome é igual ao atual")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "new name is the same as the current one")
 		return "", false
 	}
 	if _, err := os.Stat(dstAbs); err == nil {
-		httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um item com esse nome")
+		httpshared.RespondErrorMessage(c, http.StatusConflict, "an item with this name already exists")
 		return "", false
 	}
 	return dstAbs, true
@@ -310,8 +310,8 @@ func isValidRenameName(name string) bool {
 	return filepath.Base(name) == name
 }
 
-// sanitizeRenameName é a forma transform do isValidRenameName: devolve o nome
-// validado que pode chegar ao filepath.Join (barreira de path-injection).
+// sanitizeRenameName is the transform form of isValidRenameName: returns the
+// validated name that may reach filepath.Join (path-injection barrier).
 func sanitizeRenameName(name string) (string, bool) {
 	if !isValidRenameName(name) {
 		return "", false
@@ -344,23 +344,24 @@ func copyFileAndRemove(src, dst string, stat os.FileInfo) error {
 }
 
 func copyFileAndRemoveJob(src, dst string, stat os.FileInfo, job *transfer.Job) error {
-	// Resume: se o destino já tem este arquivo com o MESMO tamanho, uma
-	// transferência anterior já o copiou (foi interrompida depois, no meio do
-	// lote). Pula a cópia — contabiliza no progresso (sem inflar a taxa) e remove
-	// a origem. É o que torna o move/promote retomável sem recopiar o que já foi.
+	// Resume: if the destination already has this file with the SAME size, a
+	// previous transfer already copied it (it was interrupted later, midway
+	// through the batch). Skip the copy — count it in the progress (without
+	// inflating the rate) and remove the source. This is what makes move/promote
+	// resumable without re-copying what is already done.
 	if di, err := os.Stat(dst); err == nil && !di.IsDir() && di.Size() == stat.Size() {
 		job.AddSkipped(stat.Size())
 		job.FileDone()
 		return os.Remove(src)
 	}
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
 	if err != nil {
 		return err

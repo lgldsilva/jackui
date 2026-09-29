@@ -404,7 +404,7 @@ exit 0
 		if sw {
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU à recuperação de OOM
+		<-time.After(2 * time.Millisecond) // yield CPU to the OOM recovery
 	}
 	sess.mu.Lock()
 	sw := sess.spec.swDecode

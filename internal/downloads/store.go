@@ -334,11 +334,11 @@ const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_siz
 	seed_stopped_at FROM downloads `
 
 // HashSetForUser returns all info_hashes the user has in the downloads table
-// as a set. Usado pelo handler de busca pra enriquecer SearchResult com
-// isDownloaded em uma única query. includeAll=true devolve hashes de todos
-// os usuários (admin "all=1"). Inclui qualquer status (queued/downloading/
-// completed/failed) — uma vez que o user iniciou, "já baixei isso" continua
-// valendo pro filtro de UI.
+// as a set. Used by the search handler to enrich SearchResult with isDownloaded
+// in a single query. includeAll=true returns hashes from all users
+// (admin "all=1"). Includes any status (queued/downloading/completed/failed) —
+// once the user started it, "already downloaded this" keeps applying to the UI
+// filter.
 func (s *Store) HashSetForUser(userID int, includeAll bool) (map[string]bool, error) {
 	if s == nil {
 		return map[string]bool{}, nil

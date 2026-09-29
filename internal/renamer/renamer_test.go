@@ -45,7 +45,7 @@ func TestSanitizeFilename(t *testing.T) {
 // ── buildTargetPath ──────────────────────────────────────────────────────────
 
 func TestBuildTargetPath_Movie(t *testing.T) {
-	// Filme com ano → "Título - Ano".
+	// Movie with year → "Title - Year".
 	got := buildTargetPath(targetPathInput{Kind: "movie", CleanTitle: "Inception", Year: 2010, Ext: ".mkv", RawName: "Inception.2010.1080p.BluRay-GROUP.mkv"})
 	want := filepath.Join("Filmes", "Inception - 2010", "Inception - 2010.mkv")
 	if got != want {
@@ -54,13 +54,13 @@ func TestBuildTargetPath_Movie(t *testing.T) {
 }
 
 func TestBuildTargetPath_MovieSequel(t *testing.T) {
-	// Sequência (número no título) → "Título - N" (não o ano).
+	// Sequel (number in title) → "Title - N" (not the year).
 	got := buildTargetPath(targetPathInput{Kind: "movie", CleanTitle: "Toy Story 3", Year: 2010, Ext: ".mkv"})
 	want := filepath.Join("Filmes", "Toy Story - 3", "Toy Story - 3.mkv")
 	if got != want {
 		t.Errorf("sequel: got %q; want %q", got, want)
 	}
-	// Número grande no título (ano/parte do nome) NÃO é tratado como sequência.
+	// A large number in the title (year/part of the name) is NOT treated as a sequel.
 	got2 := buildTargetPath(targetPathInput{Kind: "movie", CleanTitle: "Blade Runner 2049", Year: 0, Ext: ".mkv"})
 	want2 := filepath.Join("Filmes", "Blade Runner 2049", "Blade Runner 2049.mkv")
 	if got2 != want2 {
@@ -77,7 +77,7 @@ func TestBuildTargetPath_MovieNoYear(t *testing.T) {
 }
 
 func TestBuildTargetPath_TVBasic(t *testing.T) {
-	// Série S01E01 sem nome de episódio.
+	// Series S01E01 without an episode name.
 	got := buildTargetPath(targetPathInput{Kind: "tv", CleanTitle: "Breaking Bad", Season: 1, Episode: 1, Ext: ".mkv", RawName: "raw.mkv"})
 	want := filepath.Join("Series", "Breaking Bad", "Season 01", "Breaking Bad - S01E01.mkv")
 	if got != want {
@@ -94,7 +94,7 @@ func TestBuildTargetPath_TVWithEpisodeName(t *testing.T) {
 }
 
 func TestBuildTargetPath_TVSeasonZeroDefaultsToOne(t *testing.T) {
-	// Season 0 da IA deve cair em Season 01.
+	// Season 0 from the AI must fall back to Season 01.
 	got := buildTargetPath(targetPathInput{Kind: "tv", CleanTitle: "Show", Episode: 5, Ext: ".mp4", RawName: "raw.mp4"})
 	want := filepath.Join("Series", "Show", "Season 01", "Show - S01E05.mp4")
 	if got != want {
@@ -103,7 +103,7 @@ func TestBuildTargetPath_TVSeasonZeroDefaultsToOne(t *testing.T) {
 }
 
 func TestBuildTargetPath_TVNoEpisodeFallsBackToRawName(t *testing.T) {
-	// Sem número de episódio → usa rawName na pasta da temporada.
+	// No episode number → uses rawName inside the season folder.
 	got := buildTargetPath(targetPathInput{Kind: "tv", CleanTitle: "Show", Season: 2, Ext: ".mkv", RawName: "original.raw.file.mkv"})
 	want := filepath.Join("Series", "Show", "Season 02", "original.raw.file.mkv")
 	if got != want {
@@ -112,8 +112,8 @@ func TestBuildTargetPath_TVNoEpisodeFallsBackToRawName(t *testing.T) {
 }
 
 func TestBuildTargetPath_TVGroupInTitle(t *testing.T) {
-	// "Group" no nome já foi removido pela IA antes; o cleanTitle chega limpo.
-	// Este teste garante que o path resultante não tem artefatos do grupo.
+	// The "Group" in the name was already stripped by the AI earlier; cleanTitle
+	// arrives clean. This test ensures the resulting path has no group artifacts.
 	got := buildTargetPath(targetPathInput{Kind: "tv", CleanTitle: "Dark", Season: 1, Episode: 3, Ext: ".mkv", RawName: "Dark.S01E03.1080p.x265-YIFY.mkv"})
 	want := filepath.Join("Series", "Dark", "Season 01", "Dark - S01E03.mkv")
 	if got != want {
@@ -122,8 +122,8 @@ func TestBuildTargetPath_TVGroupInTitle(t *testing.T) {
 }
 
 func TestBuildTargetPath_TVDualEpisode(t *testing.T) {
-	// Episódio duplo (S01E01E02): a IA retorna episode=1 — o segundo episódio
-	// não está modelado ainda. O path gerado reflete somente E01.
+	// Dual episode (S01E01E02): the AI returns episode=1 — the second episode
+	// is not modeled yet. The generated path reflects only E01.
 	// NOSONAR: multi-ep support blocked until AI returns Episode2
 	got := buildTargetPath(targetPathInput{Kind: "tv", CleanTitle: "The Wire", Season: 1, Episode: 1, Ext: ".mkv", RawName: "The.Wire.S01E01E02.mkv"})
 	want := filepath.Join("Series", "The Wire", "Season 01", "The Wire - S01E01.mkv")
@@ -147,7 +147,7 @@ func TestResolveTargetConflict_OneConflict(t *testing.T) {
 	base := t.TempDir()
 	rel := filepath.Join("Filmes", "Movie (2010)", "Movie (2010).mkv")
 
-	// Cria o arquivo no destino para forçar conflito.
+	// Create the file at the destination to force a conflict.
 	full := filepath.Join(base, rel)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		t.Fatal(err)

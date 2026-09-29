@@ -2,7 +2,7 @@ package local
 
 import (
 	"context"
-	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
+	// #nosec G505 -- sha1 import is for content hashing (dedup/oshash), not security crypto
 	"crypto/sha1"
 	"fmt"
 	"net/http"
@@ -126,7 +126,7 @@ func SetLocalThumbCacheDir(dir string) {
 
 func thumbCachePath(cacheDir, abs string, at int) string {
 	stat, _ := os.Stat(abs)
-	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
+	// #nosec G401 -- sha1/md5 for content hashing (dedup/oshash), not a security-cryptographic use
 	key := fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprintf("%s|%d|%d", abs, stat.ModTime().UnixNano(), at))))
 	return filepath.Join(cacheDir, key+".jpg")
 }
@@ -173,7 +173,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	}
 	var out []byte
 	for _, s := range seeks {
-		// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
+		// #nosec G204 -- binary fixed/from config; user values are operands of -i or integers; exec without shell
 		cmd := exec.CommandContext(ctx, ffBinary,
 			ffHideBanner, ffLogLevel, "error",
 			"-ss", strconv.Itoa(s),
@@ -189,12 +189,12 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 			break
 		}
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if os.MkdirAll(cacheDir, 0o755) != nil {
 		return out
 	}
 	if len(out) > 0 {
-		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+		// #nosec G306 -- media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(cachePath, out, 0o644)
 		_ = os.Remove(negativeMarkerPath(cachePath)) // a success clears any stale failure
 		return out
@@ -203,7 +203,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	// frame ffmpeg can't produce — but only on a real ffmpeg error/timeout, not
 	// when the client cancelled (navigated away) before we finished.
 	if ctx.Err() != context.Canceled {
-		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+		// #nosec G306 -- media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(negativeMarkerPath(cachePath), nil, 0o644)
 	}
 	return out

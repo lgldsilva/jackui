@@ -81,7 +81,7 @@ export default function FileProgressBar(props: FileProgressBarProps) {
           <span className="text-[10px] text-text-muted tabular-nums flex-shrink-0">{filesDone}/{filesTotal}</span>
         )}
         {onCancel && (status === 'running' || status === 'queued') && (
-          <button onClick={onCancel} title="Cancelar" className="text-text-muted hover:text-red-400 transition-colors flex-shrink-0">
+          <button onClick={onCancel} title="Cancel" className="text-text-muted hover:text-red-400 transition-colors flex-shrink-0">
             <X className="w-3.5 h-3.5" />
           </button>
         )}

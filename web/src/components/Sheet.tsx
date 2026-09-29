@@ -27,20 +27,20 @@ export type SheetProps = {
   readonly children: ReactNode
   readonly footer?: ReactNode
   readonly size?: SheetSize
-  /** z-index do backdrop. Default 'z-50'. O info-modal do player passa 'z-[60]'. */
+  /** z-index of the backdrop. Default 'z-50'. The player's info-modal passes 'z-[60]'. */
   readonly zClass?: string
   readonly hideHeader?: boolean
-  /** Quando false, NÃO bloqueia o scroll do body (ex: já bloqueado pelo player). Default true. */
+  /** When false, does NOT lock body scroll (e.g. already locked by the player). Default true. */
   readonly lockScroll?: boolean
 }
 
 /**
- * Modal responsivo: no mobile (<sm) vira um bottom-sheet full-height que sobe de
- * baixo (com safe-area e drag-to-close pelo cabeçalho); no desktop (sm+) é o card
- * centralizado de sempre. O layout é 100% CSS por breakpoint (`items-end
- * sm:items-center`, `rounded-t-2xl sm:rounded-2xl`) — o único JS é armar o
- * swipe-to-close só no mobile. Usa <div role="dialog"> em vez de <dialog> pra
- * evitar a quirk de `width: fit-content` do user-agent.
+ * Responsive modal: on mobile (<sm) it becomes a full-height bottom-sheet rising from
+ * the bottom (with safe-area and drag-to-close via the header); on desktop (sm+) it's the usual
+ * centered card. The layout is 100% CSS per breakpoint (`items-end
+ * sm:items-center`, `rounded-t-2xl sm:rounded-2xl`) — the only JS arms the
+ * swipe-to-close on mobile only. Uses <div role="dialog"> instead of <dialog> to
+ * avoid the user-agent's `width: fit-content` quirk.
  */
 export function Sheet({
   id,
@@ -64,8 +64,8 @@ export function Sheet({
   const titleId = !hideHeader && title != null ? `${baseId}-title` : undefined
 
   useScrollLock(open && lockScroll)
-  // Swipe-to-close: só pelo header/grabber (não pelo corpo, pra não brigar com
-  // o scroll interno). Restraint alto = aceita um arraste vertical "puro".
+  // Swipe-to-close: only via the header/grabber (not the body, so it doesn't fight
+  // with inner scroll). High restraint = accepts a "pure" vertical drag.
   useSwipe(headerRef, { onDown: onClose }, { enabled: open && isMobile, threshold: 70, restraint: 9999 })
 
   if (!open) return null
@@ -87,7 +87,7 @@ export function Sheet({
         className={`bg-surface-secondary w-full ${SIZE_MAXW[size]} rounded-t-2xl sm:rounded-2xl border-0 sm:border border-default shadow-2xl flex flex-col max-h-[92dvh] sm:max-h-[90vh] p-0 m-0 text-inherit`}
       >
         <div ref={headerRef}>
-          {/* Grabber — só no mobile, sinaliza o drag-to-close */}
+          {/* Grabber — mobile only, signals the drag-to-close */}
           <div className="sm:hidden mx-auto mt-2 mb-1 h-1.5 w-10 rounded-full bg-gray-600" aria-hidden />
           {!hideHeader && (
             <div className="flex items-center justify-between p-4 border-b border-default flex-shrink-0">
@@ -108,10 +108,10 @@ export function Sheet({
           )}
         </div>
 
-        {/* Sem footer, o corpo é a última zona — então ele reserva a safe-area
-            inferior do iOS (home-indicator), senão o último item (ex: botão de
-            play na lista do TorrentContentsModal) fica atrás da barra do sistema.
-            Com footer, é o footer que carrega a safe-area (abaixo). */}
+        {/* Without a footer, the body is the last zone — so it reserves the iOS
+            bottom safe-area (home-indicator), otherwise the last item (e.g. the
+            play button in TorrentContentsModal's list) ends up behind the system bar.
+            With a footer, it's the footer that carries the safe-area (below). */}
         <div
           className="flex-auto min-h-0 overflow-y-auto px-4 pt-4 overscroll-contain"
           style={{ paddingBottom: footer == null ? 'calc(1rem + env(safe-area-inset-bottom, 0px))' : '1rem' }}

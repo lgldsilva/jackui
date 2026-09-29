@@ -22,9 +22,9 @@ export type DownloadEntry = {
   bytesDownloaded: number
   progress: number
   downRate?: number
-  upRate?: number          // bytes/sec de upload (seeding), preenchido pelo backend
-  bytesUploaded?: number   // total enviado nesta sessão (reseta no re-add), preenchido pelo backend
-  seeders?: number         // seeders ao vivo do swarm, preenchido pelo backend
+  upRate?: number          // upload bytes/sec (seeding), filled in by the backend
+  bytesUploaded?: number   // total sent in this session (reset on re-add), filled in by the backend
+  seeders?: number         // live swarm seeders, filled in by the backend
   eta?: number
   startedAt?: string | null
   completedAt?: string | null
@@ -50,8 +50,8 @@ export type DownloadsQueueSettings = {
   agingCap: number
   rotationEnabled: boolean
   autoPromoteArr: boolean
-  // Modo de concorrência das cópias de promover/mover: 'auto' (detecta HDD/SSD),
-  // 'serial' (uma por vez) ou 'parallel' (sempre paralelo).
+  // Concurrency mode for promote/move copies: 'auto' (detects HDD/SSD),
+  // 'serial' (one at a time) or 'parallel' (always parallel).
   transferConcurrencyMode: 'auto' | 'serial' | 'parallel'
 }
 
@@ -71,17 +71,17 @@ export type DownloadSource = {
   createdAt: string
 }
 
-// AUTO_FILE_INDEX espelha downloads.FileIndexAuto no backend: o worker resolve
-// o melhor arquivo via pickBestFile (maior vídeo/mídia). Usar SEMPRE que a lista
-// de arquivos ainda não estiver resolvida — NUNCA fileIndex 0 (em packs adult/
-// scene o índice 0 costuma ser um .nfo de dezenas de bytes; o download "completa"
-// em segundos e o usuário fica sem o vídeo).
+// AUTO_FILE_INDEX mirrors downloads.FileIndexAuto on the backend: the worker
+// resolves the best file via pickBestFile (largest video/media). Use it ALWAYS
+// while the file list is still unresolved — NEVER fileIndex 0 (in adult/scene
+// packs index 0 is usually a tens-of-bytes .nfo; the download "completes"
+// in seconds and the user ends up without the video).
 export const AUTO_FILE_INDEX = -1
 
-// WHOLE_TORRENT_FILE_INDEX espelha downloads.FileIndexWholeTorrent no backend:
-// UMA linha na fila que baixa o torrent INTEIRO (progresso agregado, conclusão
-// move todos os arquivos preservando a estrutura). -1 já significa "auto-pick"
-// (AUTO_FILE_INDEX), por isso -2.
+// WHOLE_TORRENT_FILE_INDEX mirrors downloads.FileIndexWholeTorrent on the backend:
+// ONE queue row that downloads the ENTIRE torrent (aggregate progress; completion
+// moves all files preserving the structure). -1 already means "auto-pick"
+// (AUTO_FILE_INDEX), hence -2.
 export const WHOLE_TORRENT_FILE_INDEX = -2
 
 export type DownloadCreateParams = {
@@ -192,8 +192,8 @@ export const downloadCreate = async (params: DownloadCreateParams): Promise<Down
   return data
 }
 
-// Um arquivo do torrent dentro de um enqueue batch. Só os campos por-arquivo;
-// infoHash/magnet/name/tracker/category/destino são compartilhados no corpo.
+// One torrent file inside an enqueue batch. Only the per-file fields;
+// infoHash/magnet/name/tracker/category/destination are shared in the body.
 export type BatchFile = {
   fileIndex: number
   filePath: string
@@ -216,18 +216,18 @@ export type DownloadBatchCreateResult = {
   requeued: number
 }
 
-// buildBatchFiles mapeia os arquivos escolhidos (StreamFile do preview) para o
-// formato por-arquivo do corpo do batch. Função PURA — testável sem rede.
+// buildBatchFiles maps the picked files (StreamFile from the preview) to the
+// per-file format of the batch body. PURE function — testable without network.
 export function buildBatchFiles(picks: readonly StreamFile[]): BatchFile[] {
   return picks.map(f => ({ fileIndex: f.index, filePath: f.path, fileSize: f.size }))
 }
 
-// isWholeTorrentSelection: true quando TODOS os arquivos do torrent estão
-// marcados. Nesse caso enfileira-se UMA linha "torrent inteiro" (fileIndex=-2,
-// file priorities do anacrolix) em vez de N linhas por-arquivo — um pack de 778
-// arquivos vira 1 linha (fim da explosão que inflava a lista e o /api/downloads).
-// Subconjunto (o usuário desmarcou algo) continua batch, preservando a
-// granularidade. Função PURA — testável sem rede.
+// isWholeTorrentSelection: true when ALL of the torrent's files are
+// selected. In that case a SINGLE "whole torrent" row is enqueued (fileIndex=-2,
+// anacrolix file priorities) instead of N per-file rows — a 778-file
+// pack becomes 1 row (end of the explosion that inflated the list and /api/downloads).
+// A subset (the user unchecked something) stays a batch, preserving
+// granularity. PURE function — testable without network.
 export function isWholeTorrentSelection(
   files: readonly StreamFile[],
   selected: ReadonlySet<number>,
@@ -235,9 +235,9 @@ export function isWholeTorrentSelection(
   return files.length > 0 && files.every(f => selected.has(f.index))
 }
 
-// downloadBatchCreate enfileira N arquivos de UM torrent numa ÚNICA request
-// (substitui o Promise.allSettled de 1 POST por arquivo). O backend resolve o
-// destino uma vez e insere tudo numa transação (tudo-ou-nada, idempotente).
+// downloadBatchCreate enqueues N files of ONE torrent in a SINGLE request
+// (replaces the 1-POST-per-file Promise.allSettled). The backend resolves the
+// destination once and inserts everything in one transaction (all-or-nothing, idempotent).
 export const downloadBatchCreate = async (
   params: DownloadBatchCreateParams,
 ): Promise<DownloadBatchCreateResult> => {
@@ -278,11 +278,11 @@ export const updateDownloadsQueueSettings = async (
   return data
 }
 
-// downloadRecheck força um "Force Recheck" (estilo qBittorrent) — re-hasha
-// todos os pieces do arquivo no disco e reseta bytes_downloaded pro worker
-// reconciliar depois. UI mostra spinner enquanto o backend processa
-// (chamada retorna assim que o hash check inicia; o progresso aparece
-// no próximo tick do worker).
+// downloadRecheck forces a "Force Recheck" (qBittorrent style) — re-hashes
+// every piece of the file on disk and resets bytes_downloaded so the worker
+// reconciles it afterwards. UI shows a spinner while the backend processes
+// (the call returns as soon as the hash check starts; progress shows up
+// on the worker's next tick).
 export const downloadsListFiltered = async (params: DownloadFilterParams): Promise<DownloadEntry[]> => {
   const query = new URLSearchParams()
   if (params.status) query.set('status', params.status)
@@ -340,10 +340,10 @@ export const downloadRecheck = async (id: number): Promise<DownloadEntry> => {
   return data
 }
 
-// DownloadDetails: row do download + lista completa de arquivos do torrent
-// + sizes reais (sparse vs apparent). Backend só preenche torrent quando o
-// info_hash está active no streamer; null quando dropado (post-completed
-// sem seed).
+// DownloadDetails: the download row + the torrent's full file list
+// + real sizes (sparse vs apparent). The backend only fills torrent while the
+// info_hash is active in the streamer; null once dropped (post-completed
+// without seed).
 export type DownloadDetails = {
   download: DownloadEntry
   file: { apparent: number; onDisk: number; exists: boolean }
@@ -354,9 +354,9 @@ export const downloadDetails = async (id: number): Promise<DownloadDetails> => {
   return data
 }
 
-// PeerInfo: um peer conectado do torrent. `availability` é a fração (0..1) das
-// peças que o peer tem. `sending`/`receiving` são INFERIDOS das taxas (a lib
-// anacrolix não expõe choke/interest). `addr` pode repetir entre polls.
+// PeerInfo: a peer connected to the torrent. `availability` is the fraction (0..1) of
+// the pieces the peer has. `sending`/`receiving` are INFERRED from the rates (the
+// anacrolix lib does not expose choke/interest). `addr` may repeat across polls.
 export type PeerInfo = {
   addr: string
   client?: string
@@ -372,8 +372,8 @@ export type PeerInfo = {
   encrypted?: boolean
 }
 
-// DownloadPeers: snapshot ao vivo dos peers. `active=false` quando o torrent não
-// está carregado no streamer (foi dropado / nunca aberto) — peers vem vazio.
+// DownloadPeers: live snapshot of the peers. `active=false` when the torrent is not
+// loaded in the streamer (dropped / never opened) — peers comes back empty.
 export type DownloadPeers = {
   peers: PeerInfo[]
   active: boolean
@@ -388,9 +388,9 @@ export type PromoteDestination = {
   path: string
 }
 
-// Move um download concluído para o diretório compartilhado (JACKUI_SHARED_DIR
-// no servidor) ou outro destino (targetBase), opcionalmente numa subpasta. Após
-// mover, opcionalmente continua seedando (keepSeeding=true).
+// Moves a completed download to the shared directory (JACKUI_SHARED_DIR
+// on the server) or another destination (targetBase), optionally into a subfolder. After
+// moving, optionally keeps seeding (keepSeeding=true).
 export const downloadPromote = async (
   id: number,
   opts: { keepSeeding: boolean; targetSubdir?: string; targetBase?: string },
@@ -399,8 +399,8 @@ export const downloadPromote = async (
   return data
 }
 
-// Promove N downloads pra mesma subpasta de destino. Falhas individuais não
-// abortam o batch; retorna { promoted, failed }.
+// Promotes N downloads to the same destination subfolder. Individual failures
+// don't abort the batch; returns { promoted, failed }.
 export type PromoteBatchResult = {
   promoted: DownloadEntry[]
   failed: { id: number; error: string }[]
@@ -425,26 +425,26 @@ export const downloadPromotePreview = async (
   return { previews: data?.previews ?? [] }
 }
 
-// Lista subpastas no {base}/<path> pra alimentar o navegador da PromoteModal.
-// base vazio = sharedDir (default).
+// Lists subfolders under {base}/<path> to feed the PromoteModal browser.
+// Empty base = sharedDir (default).
 export const downloadPromoteBrowse = async (path: string, base?: string): Promise<{ dirs: string[]; path: string }> => {
   const params = new URLSearchParams({ path })
   if (base) params.set('base', base)
   const { data } = await api.get<{ dirs: string[]; path: string }>(
     `/downloads/promote/browse?${params}`,
   )
-  // A subpasta-folha (sem subdirs) volta com dirs=null (nil slice no Go); o
-  // navegador faz dirs.length → null crasha. Normaliza para [] sempre.
+  // A leaf subfolder (no subdirs) comes back with dirs=null (nil slice in Go); the
+  // browser does dirs.length → null crashes. Always normalize to [].
   return { dirs: data?.dirs ?? [], path: data?.path ?? path }
 }
 
-// Lista destinos de promoção disponíveis (nome + path).
+// Lists the available promotion destinations (name + path).
 export const fetchPromoteDestinations = async (): Promise<PromoteDestination[]> => {
   const { data } = await api.get<PromoteDestination[]>('/promote/destinations')
   return data ?? []
 }
 
-// Para de seedar sem mover o arquivo.
+// Stops seeding without moving the file.
 export const downloadStopSeed = async (id: number): Promise<void> => {
   await api.post(`/downloads/${id}/stop-seed`)
 }

@@ -28,8 +28,8 @@ type FileRowProps = {
   readonly indentStyle?: React.CSSProperties
   // role="treeitem" wiring for the tree; the flat list leaves it undefined.
   readonly treeItemProps?: React.HTMLAttributes<HTMLButtonElement>
-  // "Baixar a pasta inteira deste arquivo" — só aparece quando o pai oferece e o
-  // arquivo está dentro de uma pasta (torrents enormes com centenas de arquivos).
+  // "Download this file's whole folder" — only shows when the parent offers it and the
+  // file is inside a folder (huge torrents with hundreds of files).
   readonly onDownloadFolder?: (file: TorrentInfo['files'][number]) => void
 }
 
@@ -106,7 +106,7 @@ function FileRowImpl(
         <span className="truncate">{displayName}</span>
         <span className="flex items-center gap-1.5 flex-shrink-0">
           {onDownloadFolder && inFolder && (
-            // Span (não button) pra não aninhar <button> dentro da row-button.
+            // Span (not button) to avoid nesting <button> inside the row-button.
             <span
               role="button"
               tabIndex={-1}

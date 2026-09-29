@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { Volume2 } from 'lucide-react'
 import { TorrentInfo, streamArtworkURL, streamArtURL, resolveArt, isLocalHash, parseLocalHash, localAudioCoverURL } from '../../api/client'
 
-// audioCoverURL escolhe a fonte da capa: arquivo LOCAL serve a capa EMBUTIDA (rota
-// dedicada, headerless via ?token=); torrent usa a arte extraída por arquivo. Os
-// dois respondem 204 quando não há imagem (o <img> onError esconde).
+// audioCoverURL picks the cover source: a LOCAL file serves the EMBEDDED cover (dedicated
+// headerless route via ?token=); torrent uses the per-file extracted art. Both
+// answer 204 when there's no image (the <img> onError hides it).
 export function audioCoverURL(info: TorrentInfo, selectedFile: number, mediaToken: string): string {
   if (isLocalHash(info.infoHash)) {
     const loc = parseLocalHash(info.infoHash)
@@ -13,10 +13,10 @@ export function audioCoverURL(info: TorrentInfo, selectedFile: number, mediaToke
   return streamArtworkURL(info.infoHash, selectedFile, mediaToken || undefined)
 }
 
-// AudioCoverArt: capa do álbum atrás do player de áudio. Fallback quando o arquivo
-// NÃO tem imagem embutida: pra torrents, dispara a cadeia de arte do servidor
-// (embedded → TMDB → busca web, music-aware) e mostra o que resolver; arquivos
-// locais resolvem o fallback no servidor, então aqui só escondem no miss.
+// AudioCoverArt: album cover behind the audio player. Fallback when the file
+// has NO embedded image: for torrents, it triggers the server's art chain
+// (embedded → TMDB → web search, music-aware) and shows whatever resolves; local
+// files resolve the fallback server-side, so here they just hide on a miss.
 export function AudioCoverArt({ info, selectedFile, mediaToken }: {
   readonly info: TorrentInfo | null
   readonly selectedFile: number

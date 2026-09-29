@@ -61,8 +61,8 @@ export default function LibraryPage() {
   useScrollRestoration(!loading)
   const [filter, setFilter] = usePersistedState<Filter>('library.filter', 'recent')
   const [contentsTarget, setContentsTarget] = useState<SearchResult | null>(null)
-  // Item enviado ao modal de download (destino + seleção). `indices` pré-seleciona
-  // o arquivo que estava sendo assistido.
+  // Item sent to the download modal (destination + selection). `indices` pre-selects
+  // the file that was being watched.
   const [dl, setDl] = useState<{ result: SearchResult; indices?: number[] } | null>(null)
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
@@ -147,8 +147,8 @@ export default function LibraryPage() {
     publishDate: '',
   })
 
-  // Abre o modal unificado (destino + seleção), pré-selecionando o arquivo que
-  // estava sendo assistido. Antes enfileirava direto e redirecionava p/ /downloads.
+  // Opens the unified modal (destination + selection), pre-selecting the file that
+  // was being watched. It used to enqueue directly and redirect to /downloads.
   const handleDownload = (e: LibraryEntry) => {
     const fileIndex = e.lastFileIndex >= 0 ? e.lastFileIndex : e.primaryFileIndex
     setDl({ result: entryToResult(e), indices: fileIndex >= 0 ? [fileIndex] : undefined })
@@ -326,8 +326,8 @@ function LibraryCard({
       {...newTabProps(href, onPlay)}
       {...longPress}
     >
-      {/* Mobile context-menu trigger (⋮) — abre o Sheet de ações. Alvo >=44px.
-          No desktop fica oculto: as ações de hover abaixo bastam. */}
+      {/* Mobile context-menu trigger (⋮) — opens the actions Sheet. Target >=44px.
+          Hidden on desktop: the hover actions below are enough. */}
       <button
         onClick={(ev) => { ev.stopPropagation(); setMenuOpen(true) }}
         title={t('library.actions')}
@@ -336,7 +336,7 @@ function LibraryCard({
       >
         <MoreVertical className="w-5 h-5" />
       </button>
-      {/* Per-card delete — desktop only (mobile usa o menu de contexto). Stops
+      {/* Per-card delete — desktop only (mobile uses the context menu). Stops
           click propagation so it doesn't start playback. */}
       <button
         onClick={(ev) => { ev.stopPropagation(); onRemove() }}
@@ -345,7 +345,7 @@ function LibraryCard({
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      {/* Files/details — desktop only; no mobile estão no menu de contexto. */}
+      {/* Files/details — desktop only; on mobile they're in the context menu. */}
       <div className="hidden sm:flex absolute top-1.5 left-1.5 z-10 items-center gap-1">
         <button
           onClick={(ev) => { ev.stopPropagation(); onDetails() }}
@@ -424,8 +424,8 @@ function LibraryCard({
       )}
     </button>
 
-    {/* Menu de contexto mobile (⋮ / long-press). Fica FORA do <button> do card
-        pra não aninhar botões (HTML inválido). O Sheet é um overlay fixed. */}
+    {/* Mobile context menu (⋮ / long-press). Sits OUTSIDE the card <button>
+        to avoid nesting buttons (invalid HTML). The Sheet is a fixed overlay. */}
     <Sheet
       open={menuOpen}
       onClose={() => setMenuOpen(false)}

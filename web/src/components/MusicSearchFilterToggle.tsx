@@ -2,18 +2,18 @@ import { Music2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 type Props = {
-  readonly active: boolean    // Modo Música ligado (senão não renderiza nada)
-  readonly stacked: boolean   // layout full-width (sheet de filtros no mobile)
-  readonly showAll: boolean   // escape: mostrando TODOS os resultados
+  readonly active: boolean    // Music mode on (otherwise renders nothing)
+  readonly stacked: boolean   // full-width layout (mobile filter sheet)
+  readonly showAll: boolean   // escape: showing ALL results
   readonly onToggle: () => void
 }
 
 /**
- * Toggle "Só música" na barra de filtros da busca. Aparece só quando o Modo
- * Música está ativo; pressed (roxo) = filtrando só áudio, clicar mostra TODOS os
- * resultados sem sair do modo música. Vive em arquivo próprio para não engordar
- * o SearchPage (god-file) nem a função filterFields (que renderiza este botão
- * como irmão dos demais filtros, via os call-sites).
+ * "Music only" toggle on the search filter bar. Shows only when Music
+ * mode is active; pressed (purple) = filtering audio only, clicking shows ALL
+ * results without leaving music mode. Lives in its own file to avoid bloating
+ * the SearchPage (god-file) or the filterFields function (which renders this
+ * button as a sibling of the other filters, via the call-sites).
  */
 export function MusicSearchFilterToggle({ active, stacked, showAll, onToggle }: Props) {
   const { t } = useTranslation()

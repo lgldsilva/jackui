@@ -12,22 +12,22 @@ import (
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
-// Rótulos legíveis das categorias (consts p/ não duplicar literais — go:S1192).
+// Human-readable category labels (consts to avoid duplicating literals — go:S1192).
 const (
-	labelMovies   = "Filmes"
-	labelTV       = "Séries"
-	labelMusic    = "Música"
-	labelGames    = "Jogos"
+	labelMovies   = "Movies"
+	labelTV       = "TV"
+	labelMusic    = "Music"
+	labelGames    = "Games"
 	labelSoftware = "Software"
-	labelAdult    = "Adulto"
-	labelBooks    = "Livros"
-	labelOther    = "Outros"
+	labelAdult    = "Adult"
+	labelBooks    = "Books"
+	labelOther    = "Other"
 )
 
 // CategoryResult is what the classify endpoint returns.
 type CategoryResult struct {
 	Category   string  `json:"category"`   // "movies" | "tv" | "music" | "games" | "software" | "adult" | "other"
-	Label      string  `json:"label"`      // human-readable: "Filmes" | "Séries" | …
+	Label      string  `json:"label"`      // human-readable: "Movies" | "TV" | …
 	Source     string  `json:"source"`     // "regex" | "ai" | "fallback"
 	Confidence float64 `json:"confidence"` // 0..1
 }

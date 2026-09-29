@@ -456,7 +456,7 @@ func TestEnrichETA_NilStreamer(t *testing.T) {
 	d := &downloads.Download{InfoHash: "abc", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, nil)
 	if d.ETA != 42 || d.DownRate != 7 {
-		t.Errorf("streamer nil deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+		t.Errorf("nil streamer should skip enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
 	}
 }
 
@@ -465,7 +465,7 @@ func TestEnrichETA_EmptyHash(t *testing.T) {
 	d := &downloads.Download{InfoHash: "", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
 	if d.ETA != 42 || d.DownRate != 7 {
-		t.Errorf("hash vazio deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+		t.Errorf("empty hash should skip enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
 	}
 }
 
@@ -474,16 +474,16 @@ func TestEnrichETA_InvalidHash(t *testing.T) {
 	d := &downloads.Download{InfoHash: "nothex", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
 	if d.ETA != 42 || d.DownRate != 7 {
-		t.Errorf("hash inválido deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+		t.Errorf("invalid hash should skip enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
 	}
 }
 
 func TestEnrichETAList_NilStreamer(t *testing.T) {
-	enrichETAList(nil, nil) // não deve dar panic com lista/streamer nil
+	enrichETAList(nil, nil) // must not panic with a nil list/streamer
 	list := []downloads.Download{{InfoHash: "abc", FileSize: 1000, ETA: 5, DownRate: 9}}
 	enrichETAList(list, nil)
 	if list[0].ETA != 5 || list[0].DownRate != 9 {
-		t.Errorf("streamer nil deveria deixar a lista intacta: %+v", list[0])
+		t.Errorf("nil streamer should leave the list untouched: %+v", list[0])
 	}
 }
 

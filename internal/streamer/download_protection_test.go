@@ -30,10 +30,10 @@ func TestRegisterUnregisterDownload(t *testing.T) {
 	}
 }
 
-// Regression: anacrolix grava single-file como "<name>.part" durante o
-// download. O worker registra "<name>" (t.Name()), e o enforceCacheLimit
-// consulta com a entry do disco ("<name>.part"). Sem tolerância ao sufixo
-// o LRU deletava o .part e o download recomeçava do zero.
+// Regression: anacrolix writes single-file downloads as "<name>.part" while the
+// download runs. The worker registers "<name>" (t.Name()), and enforceCacheLimit
+// looks up with the on-disk entry ("<name>.part"). Without suffix tolerance the
+// LRU deleted the .part and the download started over from zero.
 func TestIsDownloadProtectedTolerantesPartSuffix(t *testing.T) {
 	s := newProtectionTestStreamer()
 	s.RegisterDownload("Star.Wars.mkv")

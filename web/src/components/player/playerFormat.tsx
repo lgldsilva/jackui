@@ -21,9 +21,9 @@ export const PLAYER_VIDEO_RE = /\.(mp4|mkv|avi|mov|webm|m4v|wmv|flv|ts|m2ts|vob)
 // Variable playback speed for audiobooks / lectures.
 export const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const
 
-// canPlayNativeHls: o browser toca HLS (.m3u8) nativo? True no Safari e em
-// qualquer browser iOS (WebKit); false no Chrome/Firefox/Edge desktop → precisam do
-// hls.js. Cacheado porque não muda durante a sessão.
+// canPlayNativeHls: does the browser play HLS (.m3u8) natively? True on Safari and
+// any iOS browser (WebKit); false on desktop Chrome/Firefox/Edge → they need
+// hls.js. Cached because it doesn't change during the session.
 let _nativeHlsSupport: boolean | null = null
 export function canPlayNativeHls(): boolean {
   if (_nativeHlsSupport === null) {

@@ -76,9 +76,9 @@ export default function PlayerModal({
   const [info, setInfo] = useState<TorrentInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  // blessed (iOS): o usuário JÁ iniciou a reprodução nesta sessão via gesto (toque
-  // no "Tocar" / play). A Apple então libera load()/play() programático pras
-  // faixas seguintes ("once the user has started playing the first media element").
+  // blessed (iOS): the user ALREADY started playback in this session via a gesture (tap
+  // on "Play"). Apple then allows programmatic load()/play() for the
+  // following tracks ("once the user has started playing the first media element").
   const [blessed, setBlessed] = useState(false)
   const [selectedFile, setSelectedFile] = useState<number>(-1)
   // Scrolls the file list to the currently-playing file when the picker opens —
@@ -91,7 +91,7 @@ export default function PlayerModal({
   // Lock background scroll while the player is full-screen; allow it when
   // minimized (PiP) so the user can still browse the page behind the card.
   useScrollLock(!minimized)
-  // Mobile: secondary controls collapsed behind an "Opções" toggle.
+  // Mobile: secondary controls collapsed behind an "Options" toggle.
   const [showMobileOpts, setShowMobileOpts] = useState(false)
   // Subtitles backend configured? (feature flag; the rest of the subtitle
   // cluster lives in useSubtitles.)
@@ -121,14 +121,14 @@ export default function PlayerModal({
   }, [sidebarOpen])
   // Incognito mode: synced with the global toggle in the navbar (localStorage).
   const [incognito, setIncognito] = useIncognito()
-  // Auth ligado no servidor? Com auth off as rotas de mídia são públicas.
+  // Auth enabled on the server? With auth off the media routes are public.
   const { enabled: authEnabled } = useAuth()
 
   // serverReady — flips true the moment streamAdd resolves and the streamer has
   // actually loaded the torrent.
   const [serverReady, setServerReady] = useState(false)
-  // Media token: JWT scope="media" com TTL longo (6h backend). Buscado uma vez
-  // ao abrir o player e usado em TODAS as URLs de mídia.
+  // Media token: scope="media" JWT with a long TTL (6h backend). Fetched once
+  // when the player opens and used in ALL media URLs.
   const [mediaToken, setMediaToken] = useState('')
 
   // Frozen snapshot of the diagnostic at the moment onVideoError fired.
@@ -138,14 +138,14 @@ export default function PlayerModal({
 
   // Transcoding options — any non-null value triggers `/api/stream/transcode` instead of raw stream
   const [transcodeAudio, setTranscodeAudio] = useState<number | null>(null)
-  // Fase 8 (HLS master multi-áudio): quando o master expõe >1 rendition de áudio,
-  // a troca é SEAMLESS (hls.audioTrack, sem reload) — seamlessAudio guarda o
-  // índice escolhido e transcodeAudio (o gatilho de reload ?audio=N) fica intacto.
-  // hlsAudioCount é reportado pelo VideoPlayerElement (hls.js/WebKit). Com o toggle
-  // do backend OFF o master traz ≤1 faixa → seamless nunca ativa → troca legada.
+  // Phase 8 (multi-audio HLS master): when the master exposes >1 audio rendition,
+  // switching is SEAMLESS (hls.audioTrack, no reload) — seamlessAudio holds the
+  // chosen index and transcodeAudio (the ?audio=N reload trigger) stays untouched.
+  // hlsAudioCount is reported by VideoPlayerElement (hls.js/WebKit). With the backend
+  // toggle OFF the master carries ≤1 track → seamless never activates → legacy switch.
   const [hlsAudioCount, setHlsAudioCount] = useState(0)
   const [seamlessAudio, setSeamlessAudio] = useState<number | null>(null)
-  // Dispara o auto-transcode do áudio incompatível no máximo uma vez por arquivo.
+  // Triggers auto-transcode of incompatible audio at most once per file.
   const audioAutoRef = useRef(false)
   const [forceH264, setForceH264] = useState(false)
   const [burnSubTrack, setBurnSubTrack] = useState<number | null>(null)
@@ -183,7 +183,7 @@ export default function PlayerModal({
   // Swipe down on the header bar minimizes the player to its PiP card.
   const headerRef = useRef<HTMLDivElement>(null)
   useSwipe(headerRef, { onDown: () => setMinimized(true) }, { enabled: !minimized, threshold: 50 })
-  // Minimized → arrastar pra CIMA (ou tocar) na barra expande de volta.
+  // Minimized → dragging UP on the bar (or tapping it) expands back.
   const miniBarRef = useRef<HTMLDivElement>(null)
   useSwipe(miniBarRef, { onUp: () => setMinimized(false) }, { enabled: minimized, threshold: 40 })
   // Prefetch fire-once flags. Reset whenever the underlying selected file changes.
@@ -271,7 +271,7 @@ export default function PlayerModal({
     setBufferedRanges([])
   }
 
-  // Session lifecycle: media-token, streamAdd (+cache preview), Cinema↔Música
+  // Session lifecycle: media-token, streamAdd (+cache preview), Cinema↔Music
   // re-send, 2s poll, viewer lease. handlePlaybackStarted marks iOS "blessed".
   const { handlePlaybackStarted } = useStreamSession({
     result, audioMode, initialFileIndex, t, info, selectedFile, caps, blessed,
@@ -313,9 +313,9 @@ export default function PlayerModal({
   const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe, playbackID: playbackIDRef.current })
   const { streamURL, encoderLabel, isTranscoded } = videoUrls
 
-  // Fase 8: seleção de áudio unificada. Com o master expondo >1 rendition, a troca
-  // é seamless (seamlessAudio, via hls.audioTrack — sem tocar em transcodeAudio,
-  // logo sem reload da streamURL); senão cai no legado (setTranscodeAudio → ?audio=N).
+  // Phase 8: unified audio selection. When the master exposes >1 rendition, the switch
+  // is seamless (seamlessAudio, via hls.audioTrack — without touching transcodeAudio,
+  // hence no streamURL reload); otherwise it falls back to legacy (setTranscodeAudio → ?audio=N).
   const seamlessAudioOn = seamlessAudioAvailable(hlsAudioCount)
   const activeAudioIndex = seamlessAudioOn ? seamlessAudio : transcodeAudio
   const selectAudio = (idx: number | null) => {
@@ -344,10 +344,10 @@ export default function PlayerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFileIndex])
 
-  // "Nenhum arquivo de vídeo": aviso informativo — some sozinho após uns segundos.
+  // "No video file": informational notice — disappears on its own after a few seconds.
   const [showNoVideoBanner, setShowNoVideoBanner] = useState(true)
   useEffect(() => {
-    if (!info || info.files.some(f => f.isVideo)) return // tem vídeo → nem aparece
+    if (!info || info.files.some(f => f.isVideo)) return // has video → never shows
     setShowNoVideoBanner(true)
     const t = setTimeout(() => setShowNoVideoBanner(false), 8000)
     return () => clearTimeout(t)
@@ -359,8 +359,8 @@ export default function PlayerModal({
   const videoFiles = info?.files.filter(f => f.isVideo) || []
   const currentFile = selectedFile >= 0 ? info?.files[selectedFile] : null
   const currentEp = currentFile ? parseEpisodeTag(currentFile.path) : null
-  // disableNativeAutoplay: bloqueia o autoplay não-gesto SÓ até o usuário iniciar
-  // a reprodução (blessed). O <video> no iOS sofre o mesmo bloqueio do áudio.
+  // disableNativeAutoplay: blocks non-gesture autoplay ONLY until the user starts
+  // playback (blessed). The <video> on iOS suffers the same block as audio.
   const disableNativeAutoplay = isIOS() && !blessed
 
   const renderVideoError = () => (
@@ -555,8 +555,8 @@ export default function PlayerModal({
           />
         )
       })()}
-      {/* Download modal aninhado (📁↓ por arquivo / "cache no servidor"). A
-          barreira de propagação evita que o Escape/clique-fora borbulhe pro shell. */}
+      {/* Nested download modal (📁↓ per file / "cache on server"). The
+          propagation barrier keeps Escape/outside-click from bubbling to the shell. */}
       {playerDownload && (
         <div
           onClick={e => e.stopPropagation()}

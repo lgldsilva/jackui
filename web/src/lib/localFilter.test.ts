@@ -14,19 +14,19 @@ describe('matchesEntryStatus', () => {
     expect(matchesEntryStatus(mk({}), 'all')).toBe(true)
   })
 
-  it("'downloading' aceita só incompletos", () => {
+  it("'downloading' accepts only incomplete", () => {
     expect(matchesEntryStatus(mk({ incomplete: true }), 'downloading')).toBe(true)
     expect(matchesEntryStatus(mk({ incomplete: false }), 'downloading')).toBe(false)
-    expect(matchesEntryStatus(mk({}), 'downloading')).toBe(false) // ausente = completo
+    expect(matchesEntryStatus(mk({}), 'downloading')).toBe(false) // absent = complete
   })
 
-  it("'done' aceita só completos (incomplete falsy)", () => {
+  it("'done' accepts only complete (falsy incomplete)", () => {
     expect(matchesEntryStatus(mk({ incomplete: true }), 'done')).toBe(false)
     expect(matchesEntryStatus(mk({ incomplete: false }), 'done')).toBe(true)
     expect(matchesEntryStatus(mk({}), 'done')).toBe(true)
   })
 
-  it('vale igual para pastas (uma pasta com .part é incompleta)', () => {
+  it('applies equally to folders (a folder with a .part is incomplete)', () => {
     expect(matchesEntryStatus(mk({ isDir: true, incomplete: true }), 'downloading')).toBe(true)
     expect(matchesEntryStatus(mk({ isDir: true, incomplete: true }), 'done')).toBe(false)
     expect(matchesEntryStatus(mk({ isDir: true }), 'done')).toBe(true)

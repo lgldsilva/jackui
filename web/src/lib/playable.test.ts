@@ -8,7 +8,7 @@ const mkResult = (over: Partial<SearchResult>): SearchResult => ({
   infoHash: '', publishDate: '', ...over,
 })
 
-describe('detectKind fallback (Cinema/Música preference)', () => {
+describe('detectKind fallback (Cinema/Music preference)', () => {
   it('clear signals ignore the fallback', () => {
     // Obvious video by ext/hint → always video, even with audio fallback.
     expect(detectKind('Movie.2024.1080p.x264.mkv', 0, 'audio')).toBe('video')

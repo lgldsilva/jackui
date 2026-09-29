@@ -2,14 +2,14 @@ import { useEffect } from 'react'
 import type Hls from 'hls.js'
 import { probeAudioToPosition, applyAudioSelection, nativeAudioCount, type VideoWithAudioTracks } from './hlsAudioTracks'
 
-// useSeamlessAudio conecta a troca de faixa de áudio SEM recriar o player (Fase 8).
-// Extraído do VideoPlayerElement p/ não inflar sua complexidade cognitiva (o
-// componente já está no baseline legacyComplexity). Dois effects:
-//  1) HLS nativo (Safari/iOS, sem hls.js): reporta a contagem de faixas da
-//     AudioTrackList do WebKit (o hls.js reporta pelo próprio listener no effect
-//     do componente). A lista pode só popular após 'loadedmetadata' → add/removetrack.
-//  2) aplica a faixa escolhida (hls.audioTrack / video.audioTracks). No-op quando a
-//     engine tem ≤1 faixa (troca já foi pelo ?audio=N reload). Idempotente.
+// useSeamlessAudio wires the audio track switch WITHOUT recreating the player (Phase 8).
+// Extracted from VideoPlayerElement so its cognitive complexity isn't inflated (the
+// component is already at the legacyComplexity baseline). Two effects:
+//  1) native HLS (Safari/iOS, no hls.js): reports the WebKit
+//     AudioTrackList's track count (hls.js reports through its own listener in the
+//     component's effect). The list may only populate after 'loadedmetadata' → add/removetrack.
+//  2) applies the chosen track (hls.audioTrack / video.audioTracks). No-op when the
+//     engine has ≤1 track (the switch already went through the ?audio=N reload). Idempotent.
 export function useSeamlessAudio(params: {
   videoRef: React.RefObject<HTMLVideoElement | null>
   hlsRef: React.MutableRefObject<Hls | null>

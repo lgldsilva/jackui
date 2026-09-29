@@ -1,5 +1,5 @@
-// Estado/persistência das abas de busca — extraído do SearchPage.tsx (móvel puro:
-// types + funções puras, sem JSX). O contador de abas vira nextTabId() (via uid()).
+// Search tab state/persistence — extracted from SearchPage.tsx (pure module:
+// types + pure functions, no JSX). The tab counter becomes nextTabId() (via uid()).
 import { load, save } from './storage'
 import type { SearchResult } from '../api/client'
 import { mergeCachedResults, getTabResults } from './searchResultsCache'
@@ -13,10 +13,10 @@ export const ACTIVE_KEY = 'activeTabId'
 // Last-used filter preferences, applied to every NEW tab/search so a setting
 // like "min 10 seeders" sticks instead of resetting to 0 on each fresh search.
 export const FILTER_DEFAULTS_KEY = 'searchFilterDefaults'
-// One-shot flag: corrige filtros antigos persistidos no browser que escondiam
-// resultados — `onlyPlayable` ligado matava qualquer torrent sem magnet (trackers
-// privados como o amigos-share só expõem o .torrent), e `minSeeders=0` deixava
-// passar torrents mortos. Migra uma vez para os novos defaults.
+// One-shot flag: fixes old persisted browser filters that hid
+// results — `onlyPlayable` on killed any torrent without a magnet (private
+// trackers like amigos-share only expose the .torrent), and `minSeeders=0` let
+// dead torrents through. Migrates once to the new defaults.
 export const FILTER_MIGRATION_KEY = 'searchFiltersMigratedV1'
 
 export type FilterDefaults = {
@@ -30,9 +30,9 @@ export type FilterDefaults = {
 }
 
 export const FALLBACK_FILTERS: FilterDefaults = {
-  // minSeeders=1 é o único filtro ligado por padrão: esconde torrents mortos
-  // (0 seeds) sem mexer em mais nada. onlyPlayable nasce sempre desligado e não
-  // é persistido — antes ele escondia silenciosamente conteúdo sem magnet.
+  // minSeeders=1 is the only filter on by default: hides dead torrents
+  // (0 seeds) without touching anything else. onlyPlayable always starts off and is
+  // not persisted — it used to silently hide content without a magnet.
   trackerFilter: 'all', minSeeders: 1, minLeechers: 0, maxSizeGb: '',
   resultSort: 'seeders', resultSortAsc: false, onlyPlayable: false,
 }
@@ -76,7 +76,7 @@ export type TabState = {
   resultSort: ResultSortKey
   resultSortAsc: boolean
   onlyPlayable: boolean
-  // Quality filters (onda 3). Per-tab, persisted; not part of the global
+  // Quality filters (wave 3). Per-tab, persisted; not part of the global
   // FilterDefaults (quality is per-search, unlike "min seeders").
   resolution: string
   hdrOnly: boolean
@@ -94,15 +94,15 @@ export function newTab(id: string = uid()): TabState {
     trackerFilter: d.trackerFilter,
     minSeeders: d.minSeeders, minLeechers: d.minLeechers, maxSizeGb: d.maxSizeGb,
     resultSort: d.resultSort, resultSortAsc: d.resultSortAsc,
-    // Nunca herdado/persistido: o toggle vale só para a sessão atual.
+    // Never inherited/persisted: the toggle applies to the current session only.
     onlyPlayable: false,
     resolution: '', hdrOnly: false, codecGroup: '',
   }
 }
 
 export function hydrateTabs(): { tabs: TabState[]; activeId: string } {
-  // Migração one-shot dos defaults: floor de minSeeders em 1 (não derrubamos um
-  // valor que o usuário tenha subido) e onlyPlayable desligado.
+  // One-shot migration of the defaults: floor minSeeders at 1 (we don't lower a
+  // value the user raised) and onlyPlayable off.
   const migrated = load<boolean>(FILTER_MIGRATION_KEY, false)
   if (!migrated) {
     const d = load<FilterDefaults>(FILTER_DEFAULTS_KEY, FALLBACK_FILTERS)
@@ -120,8 +120,8 @@ export function hydrateTabs(): { tabs: TabState[]; activeId: string } {
 
   // Deduplicate any corrupted/collided IDs from legacy persisted state
   const seenIds = new Set<string>()
-  // onlyPlayable nunca é restaurado (deixou de esconder sem-magnet); na migração
-  // inicial, abas que estavam em 0 seeds passam a 1 — sem mexer em valores >0.
+  // onlyPlayable is never restored (it stopped hiding no-magnet results); in the
+  // initial migration, tabs that were at 0 seeds move to 1 — without touching values >0.
   const tabs = persisted.map(p => {
     let id = p.id
     if (!id || seenIds.has(id)) {
@@ -182,8 +182,8 @@ export function setErrorMsg(prev: TabState[], tabId: string, message: string): T
   return prev.map(t => t.id === tabId ? { ...t, error: message } : t)
 }
 
-// nextTabId devolve um id único de aba (UUID), substituindo o
-// contador sequencial que sofria colisão em abas paralelas.
+// nextTabId returns a unique tab id (UUID), replacing the
+// sequential counter that suffered collisions in parallel tabs.
 export function nextTabId(): string {
   return uid()
 }

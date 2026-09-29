@@ -28,7 +28,7 @@ function entry(over: Partial<DownloadEntry> & { id: number }): DownloadEntry {
   }
 }
 
-// Props do SeedingTab que o teste não exercita — todas no-op.
+// SeedingTab props the test doesn't exercise — all no-ops.
 function noopProps() {
   return {
     completedFilter: 'all' as const,
@@ -45,13 +45,13 @@ function noopProps() {
   }
 }
 
-// O torrent multi-arquivo 100% baixado precisa oferecer "parar e remover" —
-// é a única ação que tira o torrent da lista MANTENDO os arquivos no disco.
-// Bug: o botão era condicionado a `g.seeding`, e como DownloadsTabContent passa
-// `torrents={[]}` ao SeedingTab, `seeding` era sempre false → o botão nunca
-// aparecia num pack multi-arquivo e o item ficava preso na lista.
-describe('SeedingTab — parar e remover num grupo concluído', () => {
-  it('oferece a ação mesmo sem torrent vivo na lista (grupo "No disco")', async () => {
+// The 100%-downloaded multi-file torrent must offer "stop & remove" —
+// it's the only action that takes the torrent off the list WHILE KEEPING the files on disk.
+// Bug: the button was conditioned on `g.seeding`, and since DownloadsTabContent passes
+// `torrents={[]}` to SeedingTab, `seeding` was always false → the button never
+// showed up on a multi-file pack and the item stayed stuck on the list.
+describe('SeedingTab — stop & remove on a completed group', () => {
+  it('offers the action even without a live torrent on the list ("On disk" group)', async () => {
     const onStopSeedMany = vi.fn()
     const files = [entry({ id: 1 }), entry({ id: 2, fileIndex: 1 })]
     render(
@@ -64,13 +64,13 @@ describe('SeedingTab — parar e remover num grupo concluído', () => {
       />,
     )
 
-    const btn = screen.getByRole('button', { name: /parar e remover todos|stop & remove all/i })
+    const btn = screen.getByRole('button', { name: /stop & remove all/i })
     await userEvent.click(btn)
     expect(onStopSeedMany).toHaveBeenCalledTimes(1)
     expect(onStopSeedMany.mock.calls[0][0]).toHaveLength(2)
   })
 
-  it('mantém a ação quando o torrent está vivo (grupo "Semeando")', () => {
+  it('keeps the action when the torrent is live ("Seeding" group)', () => {
     const files = [entry({ id: 1 }), entry({ id: 2, fileIndex: 1 })]
     render(
       <SeedingTab

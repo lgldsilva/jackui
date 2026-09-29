@@ -132,8 +132,8 @@ export default function FavoriteCard(p: FavoriteCardProps) {
           <Play className="w-3.5 h-3.5" />
           {t('favorites.play')}
         </button>
-        {/* Baixar — abre o modal unificado (destino + seleção de
-            arquivos/árvore), igual à busca/histórico. */}
+        {/* Download — opens the unified modal (destination + file/tree
+            selection), same as search/history. */}
         <button
           onClick={e => { e.stopPropagation(); p.onDownload() }}
           disabled={!fav.magnet}

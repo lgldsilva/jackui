@@ -91,7 +91,7 @@ func TestParseProbeOutput_VideoDimensions(t *testing.T) {
 	}
 }
 
-// Fonte sem vídeo (só áudio) → dimensões 0 (ladder cai para single-variant).
+// Source without video (audio only) → 0 dimensions (ladder falls back to single-variant).
 func TestParseProbeOutput_NoVideoZeroDims(t *testing.T) {
 	json := `{"streams":[{"index":0,"codec_type":"audio","codec_name":"aac","channels":2}],"format":{}}`
 	result, err := parseProbeOutput([]byte(json))
@@ -103,8 +103,8 @@ func TestParseProbeOutput_NoVideoZeroDims(t *testing.T) {
 	}
 }
 
-// A capa/thumbnail embutida (2º stream de vídeo, ex. 600x900) NÃO deve
-// sobrescrever as dimensões do vídeo principal — só o primeiro conta.
+// An embedded cover/thumbnail (2nd video stream, e.g. 600x900) must NOT
+// overwrite the main video's dimensions — only the first one counts.
 func TestParseProbeOutput_IgnoresCoverArtDims(t *testing.T) {
 	json := `{
 		"streams": [
@@ -118,7 +118,7 @@ func TestParseProbeOutput_IgnoresCoverArtDims(t *testing.T) {
 		t.Fatalf("parseProbeOutput: %v", err)
 	}
 	if result.VideoWidth != 1280 || result.VideoHeight != 720 {
-		t.Errorf("dims = %dx%d, want 1280x720 (primeiro vídeo)", result.VideoWidth, result.VideoHeight)
+		t.Errorf("dims = %dx%d, want 1280x720 (first video)", result.VideoWidth, result.VideoHeight)
 	}
 }
 
@@ -168,7 +168,7 @@ func TestParseProbeOutput_Chapters(t *testing.T) {
 	if result.Chapters[1].StartSec != 300 || result.Chapters[1].EndSec != 1200.5 {
 		t.Errorf("chapter1 times = %+v", result.Chapters[1])
 	}
-	// A chapter with no tags keeps an empty title (the UI falls back to "Capítulo N").
+	// A chapter with no tags keeps an empty title (the UI falls back to "Chapter N").
 	if result.Chapters[2].Title != "" {
 		t.Errorf("chapter2 title = %q, want empty", result.Chapters[2].Title)
 	}
@@ -652,7 +652,7 @@ func TestActiveList_Empty(t *testing.T) {
 
 func TestPauseAll_Empty(t *testing.T) {
 	s := NewForTesting()
-	s.PauseAll() // sem torrents ativos: não deve dar panic
+	s.PauseAll() // no active torrents: must not panic
 }
 
 func TestResumeAll_Empty(t *testing.T) {
@@ -663,40 +663,40 @@ func TestResumeAll_Empty(t *testing.T) {
 func TestPause_Empty(t *testing.T) {
 	s := NewForTesting()
 	if err := s.Pause(metainfo.Hash{}); err == nil {
-		t.Error("Pause de hash inativa deveria retornar erro 'not active'")
+		t.Error("Pause of an inactive hash should return the 'not active' error")
 	}
 }
 
 func TestResume_Empty(t *testing.T) {
 	s := NewForTesting()
 	if err := s.Resume(metainfo.Hash{}); err == nil {
-		t.Error("Resume de hash inativa deveria retornar erro 'not active'")
+		t.Error("Resume of an inactive hash should return the 'not active' error")
 	}
 }
 
 func TestSetPriority_Empty(t *testing.T) {
 	s := NewForTesting()
 	if err := s.SetPriority(metainfo.Hash{}, "normal"); err == nil {
-		t.Error("SetPriority de hash inativa deveria retornar erro 'not active'")
+		t.Error("SetPriority of an inactive hash should return the 'not active' error")
 	}
 }
 
 func TestDrop_Empty(t *testing.T) {
 	s := NewForTesting()
-	s.Drop(metainfo.Hash{}) // hash inativa: no-op sem panic
+	s.Drop(metainfo.Hash{}) // inactive hash: no-op without panic
 }
 
 func TestClearAll_Empty(t *testing.T) {
 	s := NewForTesting()
 	if err := s.ClearAll(); err != nil {
-		t.Errorf("ClearAll sem DataDir/torrents deveria ser no-op limpo, got %v", err)
+		t.Errorf("ClearAll without DataDir/torrents should be a clean no-op, got %v", err)
 	}
 }
 
 func TestClearEntry_Empty(t *testing.T) {
 	s := NewForTesting()
 	if err := s.ClearEntry("nonexistent"); err != nil {
-		t.Errorf("ClearEntry de entrada inexistente deveria ser no-op limpo, got %v", err)
+		t.Errorf("ClearEntry of a nonexistent entry should be a clean no-op, got %v", err)
 	}
 }
 
@@ -783,8 +783,8 @@ func TestStreamerFavorites_Nil(t *testing.T) {
 	}
 }
 
-// TestClassifyTranscode é o guard do #16: a decisão de transcode é por CODEC
-// (navegador-agnóstica), não por nome de arquivo. MKV/HEVC/AV1/AC3/DTS → HLS;
+// TestClassifyTranscode is the #16 guard: the transcode decision is by CODEC
+// (browser-agnostic), not by file name. MKV/HEVC/AV1/AC3/DTS → HLS;
 // MP4/H.264/AAC → direct-play.
 func TestClassifyTranscode(t *testing.T) {
 	cases := []struct {
@@ -799,7 +799,7 @@ func TestClassifyTranscode(t *testing.T) {
 		{"mp4", "h264", "ac3", true},      // AC3 → HLS
 		{"mp4", "h264", "dts", true},      // DTS → HLS
 		{"webm", "vp9", "opus", false},    // VP9/Opus/webm → direct
-		{"", "", "", false},               // desconhecido → não força
+		{"", "", "", false},               // unknown → no force
 	}
 	for _, c := range cases {
 		got, reason := classifyTranscode(c.container, c.vcodec, c.acodec)

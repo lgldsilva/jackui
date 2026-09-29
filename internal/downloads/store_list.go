@@ -10,7 +10,7 @@ const ListMaxResults = 5000
 
 const listLimitClause = " LIMIT 5000"
 
-// Leituras/listagens do store de downloads — extraído de store.go.
+// Reads / listings of the downloads store — extracted from store.go.
 // List returns all downloads for the user, newest first.
 func (s *Store) List(userID int) ([]Download, error) {
 	rows, err := s.db.Query(dlSelect+"WHERE user_id=? ORDER BY created_at DESC"+listLimitClause, userID)
@@ -220,16 +220,16 @@ func (s *Store) DistinctCategories(userID int) ([]string, error) {
 }
 
 func scanSlice(rows *sql.Rows) ([]Download, error) {
-	// Pré-aloca para o caso típico dos polls (dezenas–milhares de linhas) e
-	// escaneia direto no elemento do slice (scanGenericInto): elimina o
-	// `&Download{}` por linha + o copy do append crescente. Um pack de 5000
-	// linhas (~400 B/row) antes realocava o slice ~13 vezes copiando ~2 MB.
+	// Pre-allocates for the typical poll case (tens–thousands of rows) and scans
+	// straight into the slice element (scanGenericInto): eliminates the
+	// `&Download{}` per row plus the growing-append copy. A 5000-row pack
+	// (~400 B/row) used to reallocate the slice ~13 times, copying ~2 MB.
 	out := make([]Download, 0, 256)
 	for rows.Next() {
-		out = append(out, Download{}) // slot zero: cresce a capacidade, sem heap alloc extra
+		out = append(out, Download{}) // zero slot: grows capacity, no extra heap alloc
 		if err := scanGenericInto(rows, &out[len(out)-1]); err != nil {
 			out = out[:len(out)-1]
-			continue // linha ilegível: pula (mesmo comportamento anterior)
+			continue // unreadable row: skip (same behavior as before)
 		}
 	}
 	return out, rows.Err()

@@ -64,7 +64,7 @@ type Client struct {
 
 func New(apiKey, username, password, cacheDir string) *Client {
 	if cacheDir != "" {
-		// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+		// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read
 		_ = os.MkdirAll(cacheDir, 0o755)
 	}
 	return &Client{
@@ -123,7 +123,7 @@ type SearchOpts struct {
 // When MovieHash is set, results are typically ranked first by hash-match (frame-exact).
 func (c *Client) SearchAuto(opts SearchOpts) ([]Subtitle, error) {
 	if !c.Enabled() {
-		return nil, errors.New("OpenSubtitles desabilitado — configure a API key em Settings")
+		return nil, errors.New("OpenSubtitles disabled — configure the API key in Settings")
 	}
 	q := url.Values{}
 	if opts.Query != "" {
@@ -224,12 +224,12 @@ func (c *Client) search(q url.Values) ([]Subtitle, error) {
 
 func (c *Client) Download(fileID string) ([]byte, error) {
 	if !c.Enabled() {
-		return nil, errors.New("OpenSubtitles desabilitado")
+		return nil, errors.New("OpenSubtitles disabled")
 	}
 
 	// Disk cache — subtitle content for a given file_id is immutable
 	if path := c.cachePath(fileID); path != "" {
-		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+		// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 		if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
 			return data, nil
 		}
@@ -252,7 +252,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 
 	// Persist to disk cache so we don't burn quota again
 	if path := c.cachePath(fileID); path != "" {
-		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+		// #nosec G306 -- media/cache file; 0644 intentional for reading
 		_ = os.WriteFile(path, vtt, 0o644)
 	}
 	return vtt, nil

@@ -31,8 +31,8 @@ type Props = {
   readonly onReclassify: (entry: LocalEntry) => void
 }
 
-// Barra do breadcrumb + botões de ação (recarregar, cachear pasta, upload,
-// limpar vazias, duplicados, reclassificar).
+// Breadcrumb bar + action buttons (reload, cache folder, upload,
+// clean empty, duplicates, reclassify).
 export function LocalActionBar({
   activeMount, path, onNavigate, onOpenMountSheet, onRefresh, loading, activeMountObj,
   onCacheFolder, canManipulate, isAdmin, fileInputRef, onUploadPick, uploadInFlight,
@@ -42,7 +42,7 @@ export function LocalActionBar({
   return (
     <div className="flex-shrink-0 flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-2 min-w-0 flex-1 max-md:basis-full">
-        {/* Dropdown de mount — só no mobile (a sidebar some em <md) */}
+        {/* Mount dropdown — mobile only (the sidebar disappears below md) */}
         <button
           onClick={onOpenMountSheet}
           className="md:hidden flex-shrink-0 flex items-center gap-1.5 px-2.5 min-h-[40px] rounded-lg bg-surface-secondary border border-default text-sm text-text-primary max-w-[45vw]"
@@ -53,8 +53,8 @@ export function LocalActionBar({
         </button>
         <Breadcrumbs mountName={activeMount} path={path} onNavigate={onNavigate} />
       </div>
-      {/* Botões de ação agrupados: no mobile quebram juntos para a linha
-          de baixo (antes encavalavam no breadcrumb); inline no desktop. */}
+      {/* Grouped action buttons: on mobile they wrap together onto the next
+          line (they used to pile onto the breadcrumb); inline on desktop. */}
       <div className="flex items-center gap-2 flex-shrink-0">
       <button
         onClick={onRefresh}

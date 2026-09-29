@@ -39,10 +39,10 @@ export function ResumePrompt({ resumePosition, formatTime, onContinue, onRestart
   )
 }
 
-// StartAudioOverlay: botão grande "Tocar" sobre a capa, mostrado no iOS-áudio
-// quando a faixa abriu mas ainda não tocou. O iOS proíbe play() de áudio fora de
-// um gesto, então o onClick (gesto) é o que de fato inicia a reprodução com som —
-// não é só estética: é o caminho de start no iPhone/iPad. Espelha o ResumePrompt.
+// StartAudioOverlay: big "Play" button over the cover, shown on iOS-audio
+// when the track opened but hasn't played yet. iOS forbids audio play() outside
+// a gesture, so the onClick (gesture) is what actually starts playback with sound —
+// it's not just cosmetic: it's the start path on iPhone/iPad. Mirrors the ResumePrompt.
 export function StartAudioOverlay({ onPlay }: { readonly onPlay: () => void }) {
   const { t } = useTranslation()
   return (

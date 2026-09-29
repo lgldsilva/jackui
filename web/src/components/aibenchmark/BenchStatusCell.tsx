@@ -13,7 +13,7 @@ const STATUS_META: Record<RunStatus, { labelKey: string; cls: string; Icon: Luci
 
 // BenchStatusCell answers, at a glance, the three things the run history adds:
 // did the last run succeed or error (colored status), did the error persist
-// ("erro persiste: N falhas desde …"), and when did it last succeed ("último OK:
+// ("error persists: N failures since …"), and when did it last succeed ("last OK:
 // …"). Shared by the desktop table row and the mobile card so both stay in sync.
 export default function BenchStatusCell({ s }: Readonly<{ s: AISlotScore }>) {
   const { t } = useTranslation()

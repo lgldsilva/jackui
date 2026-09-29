@@ -8,9 +8,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// ScopeMedia marca tokens emitidos por SignMedia — usados como ?token= em
-// <video>/<track>/<img> que precisam sobreviver a refreshes do access token
-// regular durante uma sessão de playback longa.
+// ScopeMedia marks tokens issued by SignMedia — used as ?token= in
+// <video>/<track>/<img> that must survive access-token refreshes during a
+// long playback session.
 const ScopeMedia = "media"
 
 // Claims is what we encode inside the JWT access token.
@@ -18,10 +18,10 @@ type Claims struct {
 	UserID   int    `json:"uid"`
 	Username string `json:"u"`
 	Role     Role   `json:"r"`
-	// Scope distingue access token regular ("") de tokens especiais. Hoje só
-	// "media" — TTL longo, válido apenas em rotas servidas via ?token=
-	// (isMediaPath). Middleware Required rejeita tokens com scope="media"
-	// pra impedir uso em rotas sensíveis via header Authorization.
+	// Scope distinguishes the regular access token ("") from special tokens.
+	// Today only "media" — long TTL, valid only on routes served via ?token=
+	// (isMediaPath). Middleware Required rejects tokens with scope="media"
+	// to prevent their use on sensitive routes via the Authorization header.
 	Scope string `json:"scope,omitempty"`
 	jwt.RegisteredClaims
 }
@@ -35,7 +35,7 @@ type TokenManager struct {
 
 // NewTokenManager — secret must be at least 32 random bytes for HS256 to be safe.
 // accessTTL controls how often the frontend must hit /refresh.
-// mediaTTL é o TTL dos tokens de mídia (SignMedia); default 6h se zero.
+// mediaTTL is the TTL of media tokens (SignMedia); default 6h when zero.
 func NewTokenManager(secret []byte, accessTTL time.Duration) *TokenManager {
 	if accessTTL == 0 {
 		accessTTL = 15 * time.Minute
@@ -43,7 +43,7 @@ func NewTokenManager(secret []byte, accessTTL time.Duration) *TokenManager {
 	return &TokenManager{secret: secret, accessTTL: accessTTL, mediaTTL: 6 * time.Hour}
 }
 
-// SetMediaTTL ajusta o TTL dos media tokens. 0 = default 6h.
+// SetMediaTTL adjusts the TTL of media tokens. 0 = default 6h.
 func (t *TokenManager) SetMediaTTL(d time.Duration) {
 	if d > 0 {
 		t.mediaTTL = d
@@ -73,11 +73,11 @@ func (t *TokenManager) SignAccess(u *User) (string, time.Time, error) {
 	return s, exp, nil
 }
 
-// SignMedia emite um JWT scope="media" com TTL longo, pra ser usado em URLs de
-// mídia (<video src>, <track src>) que sobrevivem ao refresh do access token
-// regular durante uma sessão de playback. Carrega as mesmas claims de usuário
-// que SignAccess pra que os handlers continuem identificando o requester. NÃO
-// é aceito em rotas que usam header Authorization (ver middleware Required).
+// SignMedia issues a scope="media" JWT with a long TTL, meant for media URLs
+// (<video src>, <track src>) that survive access-token refreshes during a
+// playback session. Carries the same user claims as SignAccess so handlers
+// keep identifying the requester. It is NOT accepted on routes that use the
+// Authorization header (see middleware Required).
 func (t *TokenManager) SignMedia(u *User) (string, time.Time, error) {
 	now := time.Now()
 	exp := now.Add(t.mediaTTL)

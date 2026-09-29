@@ -15,8 +15,8 @@ import (
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
-// Boot reconcile: um promote persistido (interrompido por restart) é re-submetido
-// e a cópia conclui — o destino passa a existir e o pending é removido.
+// Boot reconcile: a persisted promote (interrupted by a restart) is re-submitted
+// and the copy completes — the destination comes to exist and the pending is removed.
 func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
@@ -29,7 +29,7 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 
 	src := filepath.Join(t.TempDir(), "movie.mkv")
 	dst := filepath.Join(t.TempDir(), "dest", "movie.mkv")
-	if err := os.WriteFile(src, []byte("conteudo-do-filme"), 0o644); err != nil {
+	if err := os.WriteFile(src, []byte("movie-content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "movie.mkv", FilePath: src})
@@ -45,7 +45,7 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 
 	ReconcilePendingTransfers(pending, tr, store, s)
 
-	// A cópia roda em background (tr.Submit → goroutine). Espera concluir.
+	// The copy runs in the background (tr.Submit → goroutine). Waits for it to finish.
 	moved := false
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -53,32 +53,32 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 			moved = true
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de cópia
+		<-time.After(2 * time.Millisecond) // yields the CPU to the copy goroutine
 	}
 	if !moved {
-		t.Fatal("destino não foi criado pela reconciliação")
+		t.Fatal("destination was not created by the reconcile")
 	}
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("origem deveria ser removida após o move")
+		t.Error("source should have been removed after the move")
 	}
-	// pending limpo + file_path atualizado.
+	// pending cleared + file_path updated.
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if l, _ := pending.List(); len(l) == 0 {
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de cópia
+		<-time.After(2 * time.Millisecond) // yields the CPU to the copy goroutine
 	}
 	if l, _ := pending.List(); len(l) != 0 {
-		t.Errorf("pending deveria estar vazio, got %d", len(l))
+		t.Errorf("pending should be empty, got %d", len(l))
 	}
 	if up, _ := store.Get(0, d.ID); up == nil || up.FilePath != dst {
-		t.Errorf("file_path não atualizado: %+v", up)
+		t.Errorf("file_path not updated: %+v", up)
 	}
 }
 
-// Origem ausente + destino presente = a cópia já tinha concluído antes do
-// crash: reconcilia re-apontando o file_path e limpa o pending (sem re-copiar).
+// Missing source + present destination = the copy had already completed before the
+// crash: reconcile by re-pointing file_path and clear the pending (no re-copy).
 func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
@@ -102,14 +102,14 @@ func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 	ReconcilePendingTransfers(pending, transfer.New(), store, s)
 
 	if l, _ := pending.List(); len(l) != 0 {
-		t.Errorf("pending deveria ser limpo, got %d", len(l))
+		t.Errorf("pending should be cleared, got %d", len(l))
 	}
 	if up, _ := store.Get(0, d.ID); up == nil || up.FilePath != dst {
-		t.Errorf("file_path deveria apontar pro destino existente: %+v", up)
+		t.Errorf("file_path should point at the existing destination: %+v", up)
 	}
 }
 
-// Kind desconhecido é descartado (não trava a fila de reconciliação).
+// Unknown kind is dropped (does not stall the reconcile queue).
 func Test_Reconcile_UnknownKindDropped(t *testing.T) {
 	pending, err := transfer.OpenStore(dbtest.NewDB(t))
 	if err != nil {
@@ -119,30 +119,30 @@ func Test_Reconcile_UnknownKindDropped(t *testing.T) {
 	_, _ = pending.Add(transfer.Pending{Kind: "bogus", Src: "a", Dst: "b"})
 	ReconcilePendingTransfers(pending, transfer.New(), hgAStore(t), streamer.NewForTesting())
 	if l, _ := pending.List(); len(l) != 0 {
-		t.Errorf("kind desconhecido deveria ser removido, got %d", len(l))
+		t.Errorf("unknown kind should be removed, got %d", len(l))
 	}
 }
 
 func Test_shouldSerialize_Modes(t *testing.T) {
-	// serial: força sequencial em qualquer disco.
-	if !shouldSerialize(transferModeSerial, "/qualquer/coisa") {
-		t.Error("modo serial deveria serializar")
+	// serial: forces sequential on any disk.
+	if !shouldSerialize(transferModeSerial, "/anything/at/all") {
+		t.Error("serial mode should serialize")
 	}
-	// parallel: nunca serializa (ignora detecção de HDD).
-	if shouldSerialize(transferModeParallel, "/qualquer/coisa") {
-		t.Error("modo parallel não deveria serializar")
+	// parallel: never serializes (ignores HDD detection).
+	if shouldSerialize(transferModeParallel, "/anything/at/all") {
+		t.Error("parallel mode should not serialize")
 	}
-	// auto / "" : delega à detecção de disco — path inexistente → false.
+	// auto / "" : delegates to disk detection — nonexistent path → false.
 	if shouldSerialize(transferModeAuto, "/no/such/path-xyz") {
-		t.Error("auto em path inexistente deveria ser false (não-rotacional)")
+		t.Error("auto on a nonexistent path should be false (non-rotational)")
 	}
 	if shouldSerialize("", "/no/such/path-xyz") {
-		t.Error("vazio = auto")
+		t.Error("empty = auto")
 	}
 }
 
 func Test_transferMode_NilSafe(t *testing.T) {
 	if transferMode(nil) != "" {
-		t.Error("transferMode(nil) deveria ser vazio")
+		t.Error("transferMode(nil) should be empty")
 	}
 }

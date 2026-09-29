@@ -12,10 +12,10 @@ import QualityBadges from './QualityBadges'
 import SeedBadge from './SeedBadge'
 
 
-// Backwards-compat no-op shim. Antes da onda 3, SearchPage seedava o estado
-// de "favorito" via cache module-scope; agora o backend já entrega
-// `result.isFavorited` em cada SearchResult, então esta função existe só
-// pra não quebrar o import enquanto a chamada estiver no fluxo.
+// Backwards-compat no-op shim. Before wave 3, SearchPage seeded the "favorite"
+// state via a module-scope cache; now the backend already delivers
+// `result.isFavorited` on every SearchResult, so this function exists only
+// to keep the import working while the call is still in the flow.
 export function refreshFavoritesCache(_entries: unknown): void { /* no-op backwards compat */ }
 
 type ResultCardProps = {
@@ -37,8 +37,8 @@ async function copyToClipboard(text: string) {
     el.value = text
     document.body.appendChild(el)
     el.select()
-    // execCommand é depreciado, mas é o único fallback de cópia quando
-    // navigator.clipboard falha (contexto não-HTTPS / browser antigo).
+    // execCommand is deprecated, but it's the only copy fallback when
+    // navigator.clipboard fails (non-HTTPS context / old browser).
     document.execCommand('copy') // NOSONAR
     el.remove()
   }
@@ -67,8 +67,8 @@ async function resolveMagnetIfNeeded(
 
 function useTmdbMatch(title: string) {
   const [tmdb, setTmdb] = useState<TmdbMatch | null>(null)
-  // HTMLElement: the card wrapper is a plain container <div> (a ação primária
-  // vive no botão-título; o wrapper só ancora o IntersectionObserver).
+  // HTMLElement: the card wrapper is a plain container <div> (the primary action
+  // lives on the title button; the wrapper only anchors the IntersectionObserver).
   const cardRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
@@ -196,9 +196,9 @@ function renderCardTitle(
   return (
     <div className="flex items-start justify-between gap-2">
       {renderArtSection(tmdb)}
-      {/* O título é o interativo primário do card (button real): o wrapper do
-          card é um container estático, então botões/âncoras irmãos (favorito,
-          IMDb, Play...) nunca ficam aninhados dentro de outro interativo. */}
+      {/* The title is the card's primary interactive (real button): the card
+          wrapper is a static container, so sibling buttons/anchors (favorite,
+          IMDb, Play...) never end up nested inside another interactive. */}
       <h3 className={`text-sm font-medium text-text-primary flex-1 min-w-0 ${cardAction ? '' : 'line-clamp-2 break-words'}`} title={titleAttr}>
         {cardAction ? (
           <button
@@ -417,10 +417,10 @@ function cardShellTitle(canPlay: boolean, cardClickable: boolean): string | unde
   return undefined
 }
 
-// O card em si é um container estático (sem role/tabIndex/handlers): a ação
-// primária vive no botão-título e as demais nos botões irmãos. Manter o hover
-// de borda/fundo preserva o visual de "card vivo" sem que o wrapper inteiro
-// seja um interativo envelopando os demais.
+// The card itself is a static container (no role/tabIndex/handlers): the primary
+// action lives on the title button and the rest on the sibling buttons. Keeping the
+// border/background hover preserves the "live card" look without the whole wrapper
+// being an interactive wrapping the others.
 const CLICKABLE_CARD_CLASS =
   'card flex flex-col gap-3 text-left hover:border-green-500/40 hover:bg-surface-secondary/80 active:bg-surface-secondary/60 transition-[color,background-color,border-color,box-shadow,transform]'
 const STATIC_CARD_CLASS = 'card flex flex-col gap-3 text-left'
@@ -488,8 +488,8 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
 
   const hasSource = Boolean(result.magnetUri || result.link)
   const canDownload = hasSource
-  // result.playable vem do backend. Fallback `true` mantém comportamento legacy
-  // para syntheticResult / deep links que constroem SearchResult sem o campo.
+  // result.playable comes from the backend. The `true` fallback keeps legacy behavior
+  // for syntheticResult / deep links that build SearchResult without the field.
   const canPlay = !!(hasSource && onPlay && (result.playable ?? true))
   const playLinkHref = canPlay && result.infoHash ? playHref(result.infoHash) : null
   const shell = buildCardShell(result, tmdb, canPlay, hasSource, onPlay, onExploreContents)

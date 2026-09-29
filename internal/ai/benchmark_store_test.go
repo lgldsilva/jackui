@@ -93,7 +93,7 @@ func TestRecordRunFirstError(t *testing.T) {
 }
 
 // TestRecordRunErrorPersists: a second error extends the streak and PRESERVES the
-// original first_failure_at (the date the error started) — that's "o erro se manteve".
+// original first_failure_at (the date the error started) — that's "the error persisted".
 func TestRecordRunErrorPersists(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.SaveResults([]SlotScore{{SlotID: "p:m"}}); err != nil {
@@ -116,7 +116,7 @@ func TestRecordRunErrorPersists(t *testing.T) {
 }
 
 // TestRecordRunRecovers: a usable run after a failure streak clears the streak and
-// stamps last_success_at — that's "qual a data da última vez que deu certo".
+// stamps last_success_at — that's "when did it last succeed".
 func TestRecordRunRecovers(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.SaveResults([]SlotScore{{SlotID: "p:m"}}); err != nil {
