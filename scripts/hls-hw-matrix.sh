@@ -73,7 +73,7 @@ run_case() { # encoder  srcfile  -> echoes PASS/FAIL + reason
          -hls_playlist_type vod -hls_segment_filename "$dir/seg_%05d.ts" "$dir/index.m3u8")
   local err; err=$("$FFMPEG" "${args[@]}" 2>&1); local rc=$?
   if [ $rc -ne 0 ]; then echo "FAIL ffmpeg rc=$rc: $(echo "$err" | tail -1 | cut -c1-80)"; return; fi
-  local s0="$dir/seg_00000.ts"; [ -s "$s0" ] || { echo "FAIL no seg0"; return; }
+  local s0="$dir/seg_00000.ts"; [[ -s "$s0" ]] || { echo "FAIL no seg0"; return; }
   # validations (spec): start≈0, h264, ≤1080, seg0 and seg1 start on a keyframe
   local st res cod; st=$($FFPROBE -v error -select_streams v:0 -show_entries stream=start_time -of csv=p=0 "$s0" 2>/dev/null | head -1)
   res=$($FFPROBE -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$s0" 2>/dev/null | head -1)
@@ -86,7 +86,7 @@ run_case() { # encoder  srcfile  -> echoes PASS/FAIL + reason
   [ -n "$res" ] && [ "$res" -gt 1080 ] 2>/dev/null && why="$why height=$res(>1080)"
   case "$k0" in *K*) :;; *) why="$why seg0-no-IDR";; esac
   [ -n "${k1:-}" ] && case "$k1" in *K*) :;; *) why="$why seg1-no-IDR";; esac
-  if [ -z "$why" ]; then echo "PASS (start=$st h264 ${res}p IDR-ok)"; else echo "FAIL$why"; fi
+  if [[ -z "$why" ]]; then echo "PASS (start=$st h264 ${res}p IDR-ok)"; else echo "FAIL$why"; fi
 }
 
 # ── 4) matrix ────────────────────────────────────────────────────────────────
