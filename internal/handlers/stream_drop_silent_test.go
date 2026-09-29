@@ -13,16 +13,16 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-// ─── Regressão do incidente de 2026-09-28 ───────────────────────────────────
+// ─── Regression for the 2026-09-28 incident ─────────────────────────────────
 //
-// Antes: DELETE /api/stream/:hash respondia 200 {"message":"dropped"} mesmo
-// quando o Streamer.Drop recusava o drop (activeReadGuard alimentado pelo
-// torrent-get da *arr) — a UI não tinha como saber que nada aconteceu.
-// Agora: a ação explícita dropa mesmo após o poll, e uma recusa real
-// (viewer lease / download em background) vira 409 com o motivo.
+// Before: DELETE /api/stream/:hash replied 200 {"message":"dropped"} even when
+// Streamer.Drop refused the drop (activeReadGuard fed by the *arr torrent-get
+// poll) — the UI had no way to know nothing happened. Now: an explicit action
+// drops even right after the poll, and a real refusal (viewer lease /
+// background download) becomes 409 with the reason.
 
-// O cenário exato do incidente — poll da *arr (Get) e o clique logo em
-// seguida — agora termina com o torrent REMOVIDO e 200 verdadeiro.
+// The exact incident scenario — *arr poll (Get) followed immediately by the
+// click — now ends with the torrent REMOVED and a truthful 200.
 func TestStreamDrop_DropsEvenRightAfterArrPoll(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
@@ -30,10 +30,10 @@ func TestStreamDrop_DropsEvenRightAfterArrPoll(t *testing.T) {
 	h, cleanup := s.SeedActiveForTesting("incident-torrent", time.Now().Add(-2*time.Hour))
 	defer cleanup()
 
-	// torrent-get da *arr → GetUntouched; um Get aqui simularia leitura real —
-	// o fix vale para ambos, pois o caminho explícito bypassa o guard de leitura.
+	// *arr torrent-get → GetUntouched; a Get here simulates a real read — the
+	// fix covers both, since the explicit path bypasses the read guard.
 	if _, err := s.Get(h); err != nil {
-		t.Fatalf("Get (poll *arr): %v", err)
+		t.Fatalf("Get (*arr poll): %v", err)
 	}
 
 	router := gin.New()
@@ -52,12 +52,12 @@ func TestStreamDrop_DropsEvenRightAfterArrPoll(t *testing.T) {
 		t.Fatalf("message = %q, want 'dropped'", resp["message"])
 	}
 	if got := len(s.ActiveList()); got != 0 {
-		t.Fatalf("ActiveList = %d entradas após DELETE 200, want 0 (agora o 200 é verdadeiro)", got)
+		t.Fatalf("ActiveList = %d entries after DELETE 200, want 0 (the 200 is now truthful)", got)
 	}
 }
 
-// Recusa real com feedback honesto: player aberto (viewer lease) → 409 com o
-// motivo, torrent permanece ativo e a row NÃO é marcada seed-stopped.
+// Real refusal with honest feedback: open player (viewer lease) → 409 with
+// the reason, torrent stays active, and the row is NOT marked seed-stopped.
 func TestStreamDrop_Conflict_WhenViewerLeaseActive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
@@ -77,11 +77,11 @@ func TestStreamDrop_Conflict_WhenViewerLeaseActive(t *testing.T) {
 		t.Fatalf("status = %d, want 409; body: %s", w.Code, w.Body.String())
 	}
 	if got := len(s.ActiveList()); got != 1 {
-		t.Fatalf("ActiveList = %d, want 1 — viewer lease deve manter o torrent", got)
+		t.Fatalf("ActiveList = %d, want 1 — a viewer lease must keep the torrent", got)
 	}
 }
 
-// Controle: sem leitura recente e sem viewer, o DELETE dropa de verdade.
+// Control: with no recent read and no viewer, the DELETE really drops.
 func TestStreamDrop_ActuallyDrops_WhenNoRecentMonitoringRead(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
@@ -100,14 +100,14 @@ func TestStreamDrop_ActuallyDrops_WhenNoRecentMonitoringRead(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 	if got := len(s.ActiveList()); got != 0 {
-		t.Fatalf("ActiveList = %d entradas após DELETE, want 0", got)
+		t.Fatalf("ActiveList = %d entries after DELETE, want 0", got)
 	}
 }
 
-// Batch: a recusa de UM hash (viewer lease) não aborta o lote nem vira
-// "dropped" fantasma — o hash recusado vai para failed (com a string RAW que o
-// cliente mandou), os demais são dropados de verdade, e o torrent segurado pelo
-// viewer permanece ativo.
+// Batch: refusing ONE hash (viewer lease) must not abort the batch nor turn
+// into a phantom "dropped" — the refused hash lands in failed (as the RAW
+// string the client sent), the others really drop, and the viewer-held
+// torrent stays active.
 func TestStreamDropBatch_RefusedHashLandsInFailed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
@@ -118,16 +118,16 @@ func TestStreamDropBatch_RefusedHashLandsInFailed(t *testing.T) {
 	defer cleanupIdle()
 	s.AcquireViewer(watched)
 
-	// Poll da *arr entre o seed e o clique: não pode influenciar o resultado.
+	// *arr poll between the seed and the click: must not influence the outcome.
 	if _, err := s.Get(idle); err != nil {
-		t.Fatalf("Get (poll *arr): %v", err)
+		t.Fatalf("Get (*arr poll): %v", err)
 	}
 
 	router := gin.New()
 	router.POST("/api/stream/drop/batch", StreamDropBatch(s, nil, nil))
 
-	// O hash assistido vai em MAIÚSCULAS para provar que failed devolve a
-	// string raw (é assim que o cliente casa de volta com a seleção).
+	// The watched hash goes in UPPERCASE to prove `failed` echoes the raw
+	// string (that's how the client matches it back to the selection).
 	rawWatched := strings.ToUpper(watched.HexString())
 	body := `{"hashes":["` + rawWatched + `","` + idle.HexString() + `","` + idle.HexString() + `"]}`
 	w := postDropBatch(t, router, body)
@@ -144,27 +144,28 @@ func TestStreamDropBatch_RefusedHashLandsInFailed(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if resp.Dropped != 1 || resp.Total != 3 {
-		t.Fatalf("dropped=%d total=%d, want 1/3 (duplicata deduplicada, recusado não conta)", resp.Dropped, resp.Total)
+		t.Fatalf("dropped=%d total=%d, want 1/3 (duplicate deduped, refused not counted)", resp.Dropped, resp.Total)
 	}
 	if len(resp.Failed) != 1 || resp.Failed[0] != rawWatched {
-		t.Fatalf("failed = %v, want [%s] (string raw do hash recusado)", resp.Failed, rawWatched)
+		t.Fatalf("failed = %v, want [%s] (raw string of the refused hash)", resp.Failed, rawWatched)
 	}
 
 	active := s.ActiveList()
 	if len(active) != 1 {
-		t.Fatalf("ActiveList = %d, want 1 — só o torrent com viewer lease sobrevive", len(active))
+		t.Fatalf("ActiveList = %d, want 1 — only the viewer-leased torrent survives", len(active))
 	}
 	if _, err := s.GetUntouched(watched); err != nil {
-		t.Fatalf("torrent assistido deveria continuar ativo: %v", err)
+		t.Fatalf("watched torrent should still be active: %v", err)
 	}
 	if _, err := s.GetUntouched(idle); err == nil {
-		t.Fatal("torrent ocioso deveria ter sido dropado pelo batch")
+		t.Fatal("idle torrent should have been dropped by the batch")
 	}
 }
 
-// Com store: a row do hash dropado é marcada seed-stopped (para o boot não
-// ressuscitar o auto-seed), mas a do hash RECUSADO fica intacta — o torrent
-// continua vivo, então marcar seed_stopped seria mentir para o próximo boot.
+// With a store: the dropped hash's row is marked seed-stopped (so the next
+// boot does not resurrect the auto-seed), but the REFUSED hash's row stays
+// intact — the torrent is still alive, so marking seed_stopped would lie to
+// the next boot.
 func TestStreamDropBatch_SeedStoppedOnlyForDroppedRows(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
@@ -193,13 +194,13 @@ func TestStreamDropBatch_SeedStoppedOnlyForDroppedRows(t *testing.T) {
 		t.Fatalf("Get(idle): %v", err)
 	}
 	if gotIdle.SeedStoppedAt == nil {
-		t.Fatal("row do hash dropado deveria estar seed-stopped")
+		t.Fatal("dropped hash's row should be seed-stopped")
 	}
 	gotWatched, err := store.Get(rowWatched.UserID, rowWatched.ID)
 	if err != nil {
 		t.Fatalf("Get(watched): %v", err)
 	}
 	if gotWatched.SeedStoppedAt != nil {
-		t.Fatalf("row do hash RECUSADO não pode ser seed-stopped (torrent segue vivo): %v", gotWatched.SeedStoppedAt)
+		t.Fatalf("REFUSED hash's row must not be seed-stopped (torrent still alive): %v", gotWatched.SeedStoppedAt)
 	}
 }

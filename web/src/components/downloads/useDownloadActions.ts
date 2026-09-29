@@ -265,9 +265,9 @@ export function useDownloadActions(deps: {
       await streamDrop(hash)
       await loadTorrents()
     } catch (err) {
-      // O backend agora responde 409 com o motivo quando alguém ainda está
-      // assistindo (viewer lease) — o toast mostra o porquê em vez de falhar
-      // em silêncio.
+      // The backend now replies 409 with the reason when someone is still
+      // watching (viewer lease) — the toast shows why instead of failing
+      // silently.
       notifyError(err)
     } finally { setBusyHash(null) }
   }

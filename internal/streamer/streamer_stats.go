@@ -40,7 +40,7 @@ func (s *Streamer) GetUntouched(hash metainfo.Hash) (*TorrentInfo, error) {
 }
 
 // errTorrentGone — Get/GetUntouched on a hash no longer in the active set.
-var errTorrentGone = errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
+var errTorrentGone = errors.New("torrent not found (expired or never added)")
 
 // LiveStats returns a torrent's current down/up rate + connected seeders WITHOUT
 // building the full file list. buildInfo (used by Get) iterates t.Files() — a
