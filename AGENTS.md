@@ -103,6 +103,17 @@ scenarios found while operating the project.
   proving the guarantee. A new barrier in the model without a test = PR rejected. If a
   function changes semantics, the test breaks before the model becomes a lie.
 
+## Cursor Cloud specific instructions
+
+- `.cursor/cloud-install.sh` installs PostgreSQL 16, Node 24.19.0 (same release as `Dockerfile.ci`), and golangci-lint v2.13.1, then runs `npm ci` and `npm run build` in `web/`. The frontend build is required because `ui/embed.go` embeds `all:dist`, so `go run ./cmd/server` fails when `ui/dist` is missing.
+- Node is unpacked to `/usr/local/lib/jackui-node`. The agent `PATH` finds `/exec-daemon/node` first, so install and start symlink `node`, `npm`, and `npx` there.
+- `.cursor/cloud-start.sh` starts PostgreSQL without systemd (`pg_ctlcluster`), creates the peer-auth role `ubuntu` and database `jackui`, and writes `~/.jackui/dev.env`. Source that file before `make dev-backend`. The DSN is quoted because it contains `&`.
+- Auth in that env file matches `make dev-backend`: `JACKUI_AUTH_ENABLED=0` and `JACKUI_ALLOW_INSECURE_AUTH=1`. Stream, download, and library directories live under `~/.jackui`.
+- The first start copies `config.yaml.example` to `config.yaml` when the file is missing. `config.yaml` is gitignored.
+- UI dev server: `make dev-frontend` (Vite on :5173 proxies `/api`, `/status`, and `/healthz` to :8989).
+- Jackett, TMDB, and AI keys are optional. Without them, search and posters stay empty; `GET /healthz` still reports the database and the streamer.
+- Do not run `make deploy-*` from a cloud agent. Those targets SSH to the homelab.
+
 ## Frontend
 
 - `web/postcss.config.js` was renamed to `.mjs` to avoid the Node 24
