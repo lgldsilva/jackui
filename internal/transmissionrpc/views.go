@@ -122,7 +122,7 @@ var defaultTorrentFields = []string{
 	"maxConnectedPeers", "peers",
 }
 
-// activeTorrentObjects resolve, por infoHash, os objetos *torrent.Torrent ativos.
+// activeTorrentObjects resolves, per infoHash, the active *torrent.Torrent objects.
 func (h *Handler) activeTorrentObjects(all []downloads.Download) map[string]*torrent.Torrent {
 	active := make(map[string]*torrent.Torrent)
 	if h.streamer == nil {
@@ -144,8 +144,8 @@ func (h *Handler) activeTorrentObjects(all []downloads.Download) map[string]*tor
 	return active
 }
 
-// torrentView agrega os valores derivados de um download (+ info do streamer)
-// usados pra montar os campos do protocolo Transmission.
+// torrentView aggregates the values derived from a download (+ streamer info)
+// used to assemble the Transmission protocol fields.
 type torrentView struct {
 	d                  downloads.Download
 	trStatus           int
