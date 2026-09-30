@@ -4,6 +4,11 @@
 # Exits after readiness; it does not run the app servers.
 set -euo pipefail
 
+LOG=/var/log/jackui-cloud-start.log
+sudo touch "${LOG}"
+sudo chmod 666 "${LOG}"
+echo "jackui cloud start $(date -Is)" >>"${LOG}"
+
 NODE_PREFIX=/usr/local/lib/jackui-node
 if [[ -x "${NODE_PREFIX}/bin/node" && -d /exec-daemon ]]; then
 	sudo ln -sfn "${NODE_PREFIX}/bin/node" /exec-daemon/node
@@ -17,12 +22,19 @@ if ! sudo pg_lsclusters --no-header | awk '{print $1,$2}' | grep -qx "${PG_VER} 
 fi
 
 if ! pg_isready -q; then
-	pid_file="/var/run/postgresql/${PG_VER}-main.pid"
-	if [[ -f "${pid_file}" ]] && ! sudo pg_ctlcluster "${PG_VER}" main status >/dev/null 2>&1; then
-		sudo rm -f "${pid_file}"
+	# A disk snapshot keeps postmaster.pid and drops the process. If that pid
+	# is not alive, remove it so pg_ctlcluster can start instead of refusing.
+	data_pid="/var/lib/postgresql/${PG_VER}/main/postmaster.pid"
+	if [[ -f "${data_pid}" ]]; then
+		old_pid="$(sudo awk 'NR==1 { print; exit }' "${data_pid}" || true)"
+		if [[ -z "${old_pid}" ]] || ! sudo kill -0 "${old_pid}" 2>/dev/null; then
+			echo "removing stale postmaster.pid (${old_pid:-empty})" >>"${LOG}"
+			sudo rm -f "${data_pid}" "/var/run/postgresql/${PG_VER}-main.pid"
+		fi
 	fi
-	sudo pg_ctlcluster "${PG_VER}" main start
+	sudo pg_ctlcluster "${PG_VER}" main start || sudo pg_ctlcluster "${PG_VER}" main start
 fi
+echo "postgres ready" >>"${LOG}"
 
 ready=0
 for _ in $(seq 1 30); do
