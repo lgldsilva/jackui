@@ -18,7 +18,10 @@ NODE_VERSION=24.19.0
 NODE_PREFIX=/usr/local/lib/jackui-node
 if ! [[ -x "${NODE_PREFIX}/bin/node" ]] || [[ "$("${NODE_PREFIX}/bin/node" -v)" != "v${NODE_VERSION}" ]]; then
 	tmp="$(mktemp)"
-	curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o "${tmp}"
+	# --proto/--tlsv1.2 reject a downgrade to cleartext HTTP (shell:S6506).
+	curl --proto '=https' --tlsv1.2 -fsSL \
+		"https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+		-o "${tmp}"
 	sudo rm -rf "${NODE_PREFIX}"
 	sudo mkdir -p "${NODE_PREFIX}"
 	sudo tar -xJf "${tmp}" -C "${NODE_PREFIX}" --strip-components=1
@@ -44,6 +47,8 @@ if ! command -v golangci-lint >/dev/null 2>&1 || ! golangci-lint version 2>/dev/
 fi
 
 go mod download
-npm ci --prefix web
+# --ignore-scripts skips dependency lifecycle scripts (shell:S6505). The
+# embed build is invoked explicitly below, same as scripts/ci-container.sh.
+npm ci --ignore-scripts --prefix web
 # go:embed in ui/embed.go requires ui/dist before `go run ./cmd/server`.
 npm run build --prefix web
