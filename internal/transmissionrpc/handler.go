@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,6 +61,21 @@ type rpcRequest struct {
 	Tag       int                    `json:"tag,omitempty"`
 }
 
+// rpcIdentity is the authenticated RPC caller: which user's download rows it
+// may act on, and whether it gets admin (cross-user) visibility. Guest users
+// never get past resolveSessionUser, so every identity that reaches dispatch
+// is a user or an admin.
+type rpcIdentity struct {
+	userID int
+	admin  bool
+}
+
+// owns reports whether ident may see/act on a download row. Admins keep full
+// visibility across users; everyone else is confined to their own rows.
+func (ident rpcIdentity) owns(d downloads.Download) bool {
+	return ident.admin || d.UserID == ident.userID
+}
+
 type rpcResponse struct {
 	Result    string                 `json:"result"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
@@ -101,9 +117,18 @@ type Handler struct {
 	sharedDir   string
 	autoPromote func() bool
 
+	// lockout guards the Basic-Auth password-verify path against brute force.
+	// Optional (nil = disabled) so tests and existing callers don't have to
+	// wire it; production calls SetLockout right after NewHandler.
+	lockout *auth.Lockout
+
 	mu sync.RWMutex
 	// sessionID → userID. When auth is disabled all sessions map to 0 (system).
 	sessions map[string]int
+	// userID → admin? Captured at Basic-Auth verify time alongside the session
+	// so session reuse doesn't need a DB hit per RPC. Sessions only exist for
+	// users whose role passed the guest check.
+	roles map[int]bool
 
 	// Mutable session state (set via session-set)
 	altSpeedEnabled      bool
@@ -131,6 +156,7 @@ func NewHandler(store *downloads.Store, s *streamer.Streamer, authStore *auth.St
 		sharedDir:            sharedDir,
 		autoPromote:          autoPromote,
 		sessions:             make(map[string]int),
+		roles:                make(map[int]bool),
 		startAddedTorrents:   true,
 		downloadQueueEnabled: true,
 		downloadQueueSize:    5,
@@ -139,6 +165,13 @@ func NewHandler(store *downloads.Store, s *streamer.Streamer, authStore *auth.St
 		altSpeedDown:         50,
 		altSpeedUp:           50,
 	}
+}
+
+// SetLockout wires the brute-force guard for the Basic-Auth password-verify
+// path. Call right after NewHandler in production wiring; leaving it unset
+// (nil) disables lockout (tests).
+func (h *Handler) SetLockout(l *auth.Lockout) {
+	h.lockout = l
 }
 
 func (h *Handler) RegisterRoutes(router *gin.Engine) {
@@ -181,7 +214,7 @@ func (h *Handler) confinePath(p string) (string, bool) {
 func (h *Handler) rpcHandler(c *gin.Context) {
 	sessionID := c.GetHeader(headerTransmissionSessionID)
 
-	userID, ok := h.resolveSessionUser(c, sessionID)
+	ident, ok := h.resolveSessionUser(c, sessionID)
 	if !ok {
 		return
 	}
@@ -197,7 +230,7 @@ func (h *Handler) rpcHandler(c *gin.Context) {
 		JSONRPC string `json:"jsonrpc"`
 	}
 	if json.Unmarshal(body, &probe) == nil && probe.JSONRPC == "2.0" {
-		h.handleJSONRPC(c, body, userID)
+		h.handleJSONRPC(c, body, ident)
 		return
 	}
 
@@ -207,15 +240,39 @@ func (h *Handler) rpcHandler(c *gin.Context) {
 		return
 	}
 
-	resp := h.dispatch(req, userID)
+	resp := h.dispatch(req, ident)
 	if req.Tag > 0 {
 		resp.Tag = req.Tag
 	}
 	c.JSON(http.StatusOK, resp)
 }
 
+// rejectUnauthorized answers 401-style: the credentials verified but identify
+// a user that may not use the RPC (role guest). The WWW-Authenticate challenge
+// is what Basic clients expect on a definitive credential rejection.
+func rejectUnauthorized(c *gin.Context) {
+	c.Header("WWW-Authenticate", `Basic realm="transmission"`)
+	c.JSON(http.StatusUnauthorized, rpcResponse{Result: "unauthorized"})
+}
+
+// rejectIfLocked mirrors handlers.Login's respondIfLocked: refuse with
+// 429 + Retry-After while the username is locked out by consecutive password
+// failures. Returns true when the request was answered (caller must stop).
+func (h *Handler) rejectIfLocked(c *gin.Context, username string) bool {
+	if h.lockout == nil {
+		return false
+	}
+	locked, rem := h.lockout.Locked(username)
+	if !locked {
+		return false
+	}
+	c.Header("Retry-After", strconv.Itoa(int(rem.Seconds())+1))
+	c.JSON(http.StatusTooManyRequests, rpcResponse{Result: "too many failed login attempts — try again later"})
+	return true
+}
+
 // handleJSONRPC processes a JSON-RPC 2.0 request (Transmission 4.1.0+).
-func (h *Handler) handleJSONRPC(c *gin.Context, body []byte, userID int) {
+func (h *Handler) handleJSONRPC(c *gin.Context, body []byte, ident rpcIdentity) {
 	var req jsonRPCReq
 	if err := json.Unmarshal(body, &req); err != nil {
 		c.JSON(http.StatusBadRequest, jsonRPCResp{
@@ -256,7 +313,7 @@ func (h *Handler) handleJSONRPC(c *gin.Context, body []byte, userID int) {
 		Method:    method,
 		Arguments: params,
 	}
-	resp := h.dispatch(internalReq, userID)
+	resp := h.dispatch(internalReq, ident)
 
 	// Build JSON-RPC 2.0 response
 	jsonResp := jsonRPCResp{
@@ -336,7 +393,7 @@ func toSnakeCase(s string) string {
 	return result.String()
 }
 
-func (h *Handler) dispatch(req rpcRequest, userID int) rpcResponse {
+func (h *Handler) dispatch(req rpcRequest, ident rpcIdentity) rpcResponse {
 	args := req.Arguments
 	if args == nil {
 		args = make(map[string]interface{})
@@ -352,25 +409,25 @@ func (h *Handler) dispatch(req rpcRequest, userID int) rpcResponse {
 	case "session-close":
 		return h.methodSessionClose()
 	case "torrent-add":
-		return h.methodTorrentAdd(args, userID)
+		return h.methodTorrentAdd(args, ident.userID)
 	case "torrent-get":
-		return h.methodTorrentGet(args)
+		return h.methodTorrentGet(args, ident)
 	case "torrent-set":
-		return h.methodTorrentSet(args)
+		return h.methodTorrentSet(args, ident)
 	case "torrent-start":
-		return h.methodTorrentStart(args)
+		return h.methodTorrentStart(args, ident)
 	case "torrent-stop":
-		return h.methodTorrentStop(args)
+		return h.methodTorrentStop(args, ident)
 	case "torrent-start-now":
-		return h.methodTorrentStartNow(args)
+		return h.methodTorrentStartNow(args, ident)
 	case "torrent-verify":
-		return h.methodTorrentVerify(args)
+		return h.methodTorrentVerify(args, ident)
 	case "torrent-reannounce":
-		return h.methodTorrentReannounce(args)
+		return h.methodTorrentReannounce(args, ident)
 	case "torrent-remove":
-		return h.methodTorrentRemove(args)
+		return h.methodTorrentRemove(args, ident)
 	case "torrent-set-location":
-		return h.methodTorrentSetLocation(args)
+		return h.methodTorrentSetLocation(args, ident)
 	case "torrent-rename-path":
 		return successResp(nil)
 	case "port-test":
@@ -405,9 +462,11 @@ func failResp(msg string) rpcResponse {
 	return rpcResponse{Result: msg}
 }
 
-// forEachDownload applies fn to every download matching ids. When ids is nil
-// (omitted), applies to ALL downloads. Returns success when no downloads match.
-func (h *Handler) forEachDownload(ids map[int]bool, fn func(d downloads.Download) error) rpcResponse {
+// forEachDownload applies fn to every download matching ids within the
+// caller's scope (non-admins only ever see their own rows). When ids is nil
+// (omitted), applies to ALL downloads in scope. Returns success when no
+// downloads match.
+func (h *Handler) forEachDownload(ids map[int]bool, ident rpcIdentity, fn func(d downloads.Download) error) rpcResponse {
 	if h.store == nil {
 		return successResp(nil)
 	}
@@ -417,6 +476,9 @@ func (h *Handler) forEachDownload(ids map[int]bool, fn func(d downloads.Download
 	}
 	for _, d := range all {
 		if ids != nil && !ids[d.ID] {
+			continue
+		}
+		if !ident.owns(d) {
 			continue
 		}
 		if err := fn(d); err != nil {

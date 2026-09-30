@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"syscall"
 	"time"
 
@@ -23,8 +24,8 @@ var portCheckURLs = []string{
 
 // ─── torrent-start / stop / start-now ──────────────────────────────────────
 
-func (h *Handler) methodTorrentStart(args map[string]interface{}) rpcResponse {
-	return h.forEachDownload(parseIDs(args["ids"]), func(d downloads.Download) error {
+func (h *Handler) methodTorrentStart(args map[string]interface{}, ident rpcIdentity) rpcResponse {
+	return h.forEachDownload(parseIDs(args["ids"]), ident, func(d downloads.Download) error {
 		if d.Status == downloads.StatusCompleted || d.Status == downloads.StatusFailed {
 			return nil
 		}
@@ -42,8 +43,8 @@ func (h *Handler) methodTorrentStart(args map[string]interface{}) rpcResponse {
 	})
 }
 
-func (h *Handler) methodTorrentStop(args map[string]interface{}) rpcResponse {
-	return h.forEachDownload(parseIDs(args["ids"]), func(d downloads.Download) error {
+func (h *Handler) methodTorrentStop(args map[string]interface{}, ident rpcIdentity) rpcResponse {
+	return h.forEachDownload(parseIDs(args["ids"]), ident, func(d downloads.Download) error {
 		if d.Status == downloads.StatusCompleted || d.Status == downloads.StatusFailed {
 			return nil
 		}
@@ -59,15 +60,15 @@ func (h *Handler) methodTorrentStop(args map[string]interface{}) rpcResponse {
 	})
 }
 
-func (h *Handler) methodTorrentStartNow(args map[string]interface{}) rpcResponse {
+func (h *Handler) methodTorrentStartNow(args map[string]interface{}, ident rpcIdentity) rpcResponse {
 	// Same as torrent-start; no queue to disregard.
-	return h.methodTorrentStart(args)
+	return h.methodTorrentStart(args, ident)
 }
 
 // ─── torrent-verify ────────────────────────────────────────────────────────
 
-func (h *Handler) methodTorrentVerify(args map[string]interface{}) rpcResponse {
-	return h.forEachDownload(parseIDs(args["ids"]), func(d downloads.Download) error {
+func (h *Handler) methodTorrentVerify(args map[string]interface{}, ident rpcIdentity) rpcResponse {
+	return h.forEachDownload(parseIDs(args["ids"]), ident, func(d downloads.Download) error {
 		if h.streamer == nil {
 			return nil
 		}
@@ -87,7 +88,7 @@ func (h *Handler) methodTorrentVerify(args map[string]interface{}) rpcResponse {
 
 // ─── torrent-reannounce ────────────────────────────────────────────────────
 
-func (h *Handler) methodTorrentReannounce(args map[string]interface{}) rpcResponse {
+func (h *Handler) methodTorrentReannounce(args map[string]interface{}, ident rpcIdentity) rpcResponse {
 	// The anacrolix/torrent v1.61.0 library does not expose a manual
 	// announce API. The library handles tracker announces internally via
 	// its own ticker. We return success as a no-op; the swarm is still
@@ -97,7 +98,7 @@ func (h *Handler) methodTorrentReannounce(args map[string]interface{}) rpcRespon
 	}
 	// Best-effort: if the client DHT server is running, try to re-announce
 	// via DHT. This is optional and may not always be available.
-	_ = h.forEachDownload(parseIDs(args["ids"]), func(d downloads.Download) error {
+	_ = h.forEachDownload(parseIDs(args["ids"]), ident, func(d downloads.Download) error {
 		hh, err := hashFromDownload(d)
 		if err != nil {
 			return nil
@@ -186,7 +187,7 @@ func (h *Handler) methodGroupSet(args map[string]interface{}) rpcResponse {
 
 // ─── torrent-remove ────────────────────────────────────────────────────────
 
-func (h *Handler) methodTorrentRemove(args map[string]interface{}) rpcResponse {
+func (h *Handler) methodTorrentRemove(args map[string]interface{}, ident rpcIdentity) rpcResponse {
 	ids := parseIDs(args["ids"])
 	if ids == nil {
 		return failResp("missing 'ids' argument")
@@ -201,7 +202,7 @@ func (h *Handler) methodTorrentRemove(args map[string]interface{}) rpcResponse {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
 	for _, d := range all {
-		if !ids[d.ID] {
+		if !ids[d.ID] || !ident.owns(d) {
 			continue
 		}
 		if err := h.removeDownload(d, deleteLocal); err != nil {
@@ -220,15 +221,39 @@ func (h *Handler) removeDownload(d downloads.Download, deleteLocal bool) error {
 			_ = h.streamer.DropSeed(hh)
 		}
 	}
+	if deleteLocal {
+		h.removeLocalData(d)
+	}
 	if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusFailed); err != nil {
 		return err
 	}
 	return h.store.Delete(d.UserID, d.ID)
 }
 
+// removeLocalData deletes the download's files from disk after a
+// delete-local-data removal. Best-effort and path-confined: the row's
+// file_path must resolve inside the download roots (confinePath), otherwise
+// it is skipped with a warning — row deletion always proceeds. Callers own
+// the row (scoped upstream by rpcIdentity).
+func (h *Handler) removeLocalData(d downloads.Download) {
+	if d.FilePath == "" {
+		return
+	}
+	resolved, ok := h.confinePath(d.FilePath)
+	if !ok {
+		log.Printf("transmission-rpc: delete-local-data: skipping %q (outside download roots), download %d", d.FilePath, d.ID)
+		return
+	}
+	if err := os.RemoveAll(resolved); err != nil {
+		log.Printf("transmission-rpc: delete-local-data: failed to remove %q (download %d): %v", resolved, d.ID, err)
+		return
+	}
+	log.Printf("transmission-rpc: delete-local-data: removed %q (download %d)", resolved, d.ID)
+}
+
 // ─── torrent-set-location ──────────────────────────────────────────────────
 
-func (h *Handler) methodTorrentSetLocation(args map[string]interface{}) rpcResponse {
+func (h *Handler) methodTorrentSetLocation(args map[string]interface{}, ident rpcIdentity) rpcResponse {
 	ids := parseIDs(args["ids"])
 	if ids == nil {
 		return failResp("missing 'ids' argument")
@@ -252,7 +277,7 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}) rpcRespo
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
 	for _, d := range all {
-		if !ids[d.ID] {
+		if !ids[d.ID] || !ident.owns(d) {
 			continue
 		}
 		_ = h.store.SetFilePath(d.UserID, d.ID, cleanLoc)

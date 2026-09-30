@@ -11,7 +11,9 @@ import (
 
 // ─── torrent-get ───────────────────────────────────────────────────────────
 
-func (h *Handler) methodTorrentGet(args map[string]interface{}) rpcResponse {
+// torrentFieldSet resolves the requested field set: the caller's list, or the
+// default field list when omitted.
+func torrentFieldSet(args map[string]interface{}) map[string]bool {
 	rawFields, _ := args["fields"].([]interface{})
 	fieldSet := make(map[string]bool, len(rawFields))
 	for _, f := range rawFields {
@@ -24,9 +26,26 @@ func (h *Handler) methodTorrentGet(args map[string]interface{}) rpcResponse {
 			fieldSet[f] = true
 		}
 	}
+	return fieldSet
+}
 
-	idFilter := parseIDs(args["ids"])
+// scopeRowsForCaller narrows the row list to the caller's own downloads
+// unless they are an admin. torrent-get previously served ListAll to any
+// authenticated user, leaking every account's rows to the *arr compat layer.
+func scopeRowsForCaller(all []downloads.Download, ident rpcIdentity) []downloads.Download {
+	if ident.admin {
+		return all
+	}
+	scoped := make([]downloads.Download, 0, len(all))
+	for _, d := range all {
+		if d.UserID == ident.userID {
+			scoped = append(scoped, d)
+		}
+	}
+	return scoped
+}
 
+func (h *Handler) methodTorrentGet(args map[string]interface{}, ident rpcIdentity) rpcResponse {
 	if h.store == nil {
 		return successResp(map[string]interface{}{"torrents": []interface{}{}})
 	}
@@ -35,6 +54,10 @@ func (h *Handler) methodTorrentGet(args map[string]interface{}) rpcResponse {
 	if err != nil {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
+	all = scopeRowsForCaller(all, ident)
+
+	fieldSet := torrentFieldSet(args)
+	idFilter := parseIDs(args["ids"])
 
 	activeHashes := h.activeTorrentInfo(all)
 	activeTorrentObjs := h.activeTorrentObjects(all)

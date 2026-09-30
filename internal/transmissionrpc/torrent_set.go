@@ -9,7 +9,7 @@ import (
 
 // ─── torrent-set ───────────────────────────────────────────────────────────
 
-func (h *Handler) methodTorrentSet(args map[string]interface{}) rpcResponse {
+func (h *Handler) methodTorrentSet(args map[string]interface{}, ident rpcIdentity) rpcResponse {
 	if h.store == nil {
 		return successResp(nil)
 	}
@@ -22,8 +22,9 @@ func (h *Handler) methodTorrentSet(args map[string]interface{}) rpcResponse {
 
 	// Transmission RPC: omitted/empty "ids" means apply to ALL torrents
 	// (nil → match every row), like forEachDownload and the other methods.
+	// Non-admin callers only ever reach their own rows.
 	for _, d := range all {
-		if ids == nil || ids[d.ID] {
+		if (ids == nil || ids[d.ID]) && ident.owns(d) {
 			if err := h.applyAllTorrentSetArgs(d, args); err != nil {
 				return failResp(err.Error())
 			}

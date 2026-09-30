@@ -46,7 +46,7 @@ func TestRPC_TorrentGet_AllStatuses(t *testing.T) {
 			"fields": []interface{}{"id", "name", "status", "percentDone", "rateDownload",
 				"eta", "downloadDir", "labels", "trackers", "files", "peers", "error"},
 		},
-	}, 1)
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("torrent-get: %q", resp.Result)
 	}
@@ -65,7 +65,7 @@ func TestRPC_TorrentGet_ByID(t *testing.T) {
 	resp := h.dispatch(rpcRequest{
 		Method:    "torrent-get",
 		Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "fields": []interface{}{"id", "name"}},
-	}, 1)
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("torrent-get by id: %q", resp.Result)
 	}
@@ -75,7 +75,7 @@ func TestRPC_TorrentRemove(t *testing.T) {
 	st := newTestStore(t)
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
-	resp := h.dispatch(rpcRequest{Method: "torrent-remove", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}}}, 1)
+	resp := h.dispatch(rpcRequest{Method: "torrent-remove", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}}}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("torrent-remove: %q", resp.Result)
 	}
@@ -84,7 +84,7 @@ func TestRPC_TorrentRemove(t *testing.T) {
 		t.Errorf("download não foi removido: %d restantes", len(all))
 	}
 	// sem ids → erro
-	if r := h.dispatch(rpcRequest{Method: "torrent-remove", Arguments: map[string]interface{}{}}, 1); r.Result == "success" {
+	if r := h.dispatch(rpcRequest{Method: "torrent-remove", Arguments: map[string]interface{}{}}, sysIdent); r.Result == "success" {
 		t.Error("torrent-remove sem ids deveria falhar")
 	}
 }
@@ -94,12 +94,12 @@ func TestRPC_TorrentSet_Paused(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 	// pausa
-	h.dispatch(rpcRequest{Method: "torrent-set", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "paused": true}}, 1)
+	h.dispatch(rpcRequest{Method: "torrent-set", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "paused": true}}, sysIdent)
 	if d, _ := st.Get(1, id); d.Status != downloads.StatusPaused {
 		t.Errorf("esperava paused, got %s", d.Status)
 	}
 	// retoma
-	h.dispatch(rpcRequest{Method: "torrent-set", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "paused": false}}, 1)
+	h.dispatch(rpcRequest{Method: "torrent-set", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "paused": false}}, sysIdent)
 	if d, _ := st.Get(1, id); d.Status != downloads.StatusDownloading {
 		t.Errorf("esperava downloading, got %s", d.Status)
 	}
@@ -108,10 +108,10 @@ func TestRPC_TorrentSet_Paused(t *testing.T) {
 func TestRPC_FreeSpace_And_SetLocation(t *testing.T) {
 	st := newTestStore(t)
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
-	if r := h.dispatch(rpcRequest{Method: "free-space", Arguments: map[string]interface{}{"path": "/data"}}, 1); r.Result != "success" {
+	if r := h.dispatch(rpcRequest{Method: "free-space", Arguments: map[string]interface{}{"path": "/data"}}, sysIdent); r.Result != "success" {
 		t.Errorf("free-space: %q", r.Result)
 	}
-	if r := h.dispatch(rpcRequest{Method: "torrent-set-location", Arguments: map[string]interface{}{"ids": []interface{}{float64(1)}, "location": "/data/x"}}, 1); r.Result != "success" {
+	if r := h.dispatch(rpcRequest{Method: "torrent-set-location", Arguments: map[string]interface{}{"ids": []interface{}{float64(1)}, "location": "/data/x"}}, sysIdent); r.Result != "success" {
 		t.Errorf("torrent-set-location: %q", r.Result)
 	}
 }

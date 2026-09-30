@@ -240,7 +240,7 @@ func blockInternalIP(_, address string, _ syscall.RawConn) error {
 func fetchTorrentHash(url string) (string, error) {
 	lower := strings.ToLower(url)
 	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
-		return "", fmt.Errorf("esquema de URL não suportado")
+		return "", fmt.Errorf("unsupported URL scheme")
 	}
 	client := &http.Client{
 		Timeout: 30 * time.Second,
