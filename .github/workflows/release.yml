@@ -64,13 +64,13 @@ jobs:
         run: |
           set -uo pipefail  # NOT -e (L7)
           TRIVY_VERSION="0.72.0"
-          curl -sSfL \
+          curl -sSfL --proto "=https" --tlsv1.2 \
             "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             -o /tmp/trivy.tar.gz
           # Supply-chain: verify the tarball against the checksum published with
           # the release before executing anything from it. Fails the step (and
           # the release) on mismatch or on a missing checksum line.
-          curl -sSfL \
+          curl -sSfL --proto "=https" --tlsv1.2 \
             "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt" \
             -o /tmp/trivy_checksums.txt
           if ! grep "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz\$" /tmp/trivy_checksums.txt \
