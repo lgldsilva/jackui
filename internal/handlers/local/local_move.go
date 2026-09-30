@@ -348,7 +348,10 @@ func copyFileAndRemoveJob(src, dst string, stat os.FileInfo, job *transfer.Job) 
 	// previous transfer already copied it (it was interrupted later, midway
 	// through the batch). Skip the copy — count it in the progress (without
 	// inflating the rate) and remove the source. This is what makes move/promote
-	// resumable without re-copying what is already done.
+	// resumable without re-copying what is already done. Safe against unrelated
+	// same-size decoys: a FRESH move never gets here — the local-move handler
+	// refuses an existing destination (409) and the promote planner rejects
+	// existing destinations unless a pending intent owns the pair.
 	if di, err := os.Stat(dst); err == nil && !di.IsDir() && di.Size() == stat.Size() {
 		job.AddSkipped(stat.Size())
 		job.FileDone()
@@ -361,20 +364,39 @@ func copyFileAndRemoveJob(src, dst string, stat os.FileInfo, job *transfer.Job) 
 	}
 	defer func() { _ = in.Close() }()
 
+	// Atomic copy: write to a scratch file, fsync, close, THEN rename onto the
+	// final name. A kill -9 / power loss mid-copy can only ever leave the
+	// scratch file — never a truncated dst that a later same-size resume check
+	// could pass off as "already copied" while the source is deleted.
+	partial := dst + ".partial"
 	// #nosec G304 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
+	out, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, stat.Mode())
 	if err != nil {
 		return err
 	}
-	defer func() { _ = out.Close() }()
 
 	if _, err = io.Copy(out, transfer.ProgressReader(in, job.AddBytesFunc())); err != nil {
-		_ = os.Remove(dst)
+		_ = out.Close()
+		_ = os.Remove(partial)
 		return err
 	}
-
-	_ = out.Close()
-	_ = in.Close()
+	// Flush to disk BEFORE the rename: once dst exists under its final name the
+	// source is about to go away, so every byte must already be durable.
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		_ = os.Remove(partial)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(partial)
+		return err
+	}
+	// The scratch file lives in dst's directory, so this rename is always
+	// same-filesystem and cannot fail with EXDEV.
+	if err := os.Rename(partial, dst); err != nil {
+		_ = os.Remove(partial)
+		return err
+	}
 	// Preserve the original mtime — os.Rename keeps it, but this cross-device
 	// fallback (→ rclone/GDrive, other disk) would otherwise stamp "now",
 	// breaking date sort and mtime-based scans.

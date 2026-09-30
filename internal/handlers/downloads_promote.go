@@ -386,6 +386,16 @@ func promotePreparePlan(o *promoteOpts) (*promotePlan, error) {
 	if src == dst {
 		return nil, nil // already in place
 	}
+	// Destination-collision policy: a FRESH promote must never clobber an
+	// existing item (the move's rename overwrites it) and must never mistake an
+	// unrelated same-size decoy for "already copied" — the copy helper would
+	// then DELETE the source. Only a persisted pending intent for this exact
+	// src→dst pair (addPendingPromote writes it BEFORE the copy starts) turns an
+	// existing destination into a legitimate RESUME of that interrupted copy.
+	// Mirrors LocalMoveEntry's documented refuse-to-clobber behavior.
+	if _, err := os.Stat(dst); err == nil && !hasPendingPromoteIntent(o.pending, src, dst) {
+		return nil, fmt.Errorf("destination already exists: %s", dst)
+	}
 	srcInfo, statErr := os.Stat(src)
 	if statErr != nil {
 		return nil, errors.New("source file does not exist: " + statErr.Error())
@@ -514,6 +524,24 @@ func promoteDestPath(o *promoteOpts, baseName string, targetDir *string) string 
 		}
 	}
 	return filepath.Join(*targetDir, baseName)
+}
+
+// hasPendingPromoteIntent reports whether a persisted transfer intent of kind
+// "promote" covers the src→dst pair — i.e. an existing destination is (the
+// partial or complete artifact of) THAT interrupted copy, so proceeding is a
+// resume rather than a clobber. A nil or unreadable pending store means no
+// intent: the fresh-move collision rule applies.
+func hasPendingPromoteIntent(pending *transfer.Store, src, dst string) bool {
+	list, err := pending.List()
+	if err != nil {
+		return false
+	}
+	for _, p := range list {
+		if p.Kind == "promote" && p.Src == src && p.Dst == dst {
+			return true
+		}
+	}
+	return false
 }
 
 func ensureTargetDir(targetDir string) error {
