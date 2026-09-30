@@ -15,6 +15,20 @@ if [ -z "$GITEA_TOKEN" ] || [ -z "$GITEA_API" ] || [ -z "$GITEA_USER" ]; then
   exit 0
 fi
 
+# Verified TLS (mirrors scripts/publish-release.sh): when the runner bakes the
+# internal Gitea CA, pin every call to it; otherwise fall back to the OS trust
+# store (which already resolves Gitea). Overridable via GITEA_CA. Verification
+# is NEVER disabled on these token-bearing calls.
+GITEA_CA="${GITEA_CA:-/usr/local/share/ca-certificates/gitea-ca.crt}"
+CURL_CA=()
+[ -f "$GITEA_CA" ] && CURL_CA=(--cacert "$GITEA_CA")
+if [ -f "$GITEA_CA" ]; then
+  # Export for the python block below (urllib uses the same bundle).
+  export GITEA_CA
+else
+  unset GITEA_CA
+fi
+
 echo "=== Starting cleanup of old jackui packages ==="
 
 # Fetches the package list via the API and filters it using jq.
@@ -24,11 +38,15 @@ echo "=== Starting cleanup of old jackui packages ==="
 # Using python3 to process the JSON is more portable and guaranteed in any working container.
 
 python3 -c '
-import sys, json, urllib.request, ssl
+import sys, json, os, urllib.request, ssl
 
-ctx = ssl.create_default_context()
-ctx.check_hostname = False
-ctx.verify_mode = ssl.CERT_NONE
+# Verified TLS: pin the runner-baked Gitea CA when provided (GITEA_CA),
+# otherwise use the system trust store. Never CERT_NONE on a token-bearing call.
+ca_file = os.environ.get("GITEA_CA", "")
+if ca_file and os.path.isfile(ca_file):
+    ctx = ssl.create_default_context(cafile=ca_file)
+else:
+    ctx = ssl.create_default_context()
 
 req = urllib.request.Request(
     "'"$GITEA_API"'/packages/'"$GITEA_USER"'?type=container&limit=100",
@@ -63,7 +81,8 @@ except Exception as e:
 ' | while read -r v; do
   if [ -n "$v" ]; then
     echo "Deleting package jackui:$v..."
-    HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" -X DELETE \
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+      "${CURL_CA[@]+"${CURL_CA[@]}"}" \
       -H "Authorization: token $GITEA_TOKEN" \
       "$GITEA_API/packages/$GITEA_USER/container/jackui/$v")
     echo "  -> Result: HTTP $HTTP_CODE"

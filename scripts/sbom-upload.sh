@@ -26,8 +26,17 @@ if [ -z "$DT_API" ] || [ -z "$DT_USER" ] || [ -z "$DT_PASS" ]; then
   exit 0
 fi
 
+# Verified TLS (mirrors scripts/publish-release.sh): when the runner bakes the
+# internal CA, pin every call to it; otherwise fall back to the OS trust store.
+# Overridable via DT_CA. Verification is NEVER disabled on these
+# credential-bearing calls (login exchanges DT_USER/DT_PASS; the upload carries
+# the resulting JWT).
+CA="${DT_CA:-/usr/local/share/ca-certificates/gitea-ca.crt}"
+CURL_CA=()
+[ -f "$CA" ] && CURL_CA=(--cacert "$CA")
+
 echo "=== Logging in to Dependency-Track ==="
-JWT=$(curl -sk --max-time 20 -X POST "$DT_API/api/v1/user/login" \
+JWT=$(curl -s --max-time 20 "${CURL_CA[@]+"${CURL_CA[@]}"}" -X POST "$DT_API/api/v1/user/login" \
   --data-urlencode "username=$DT_USER" \
   --data-urlencode "password=$DT_PASS" || true)
 
@@ -40,7 +49,7 @@ echo "=== Uploading SBOM to Dependency-Track ==="
 printf '{"projectName":"jackui","projectVersion":"main","autoCreate":true,"bom":"%s"}' \
   "$(base64 -w0 bom.json)" > dt-payload.json
 
-HTTP_CODE=$(curl -sk --max-time 60 -o /dev/null -w "%{http_code}" -X PUT "$DT_API/api/v1/bom" \
+HTTP_CODE=$(curl -s --max-time 60 "${CURL_CA[@]+"${CURL_CA[@]}"}" -o /dev/null -w "%{http_code}" -X PUT "$DT_API/api/v1/bom" \
   -H "Authorization: Bearer $JWT" \
   -H 'Content-Type: application/json' \
   --data-binary @dt-payload.json)
