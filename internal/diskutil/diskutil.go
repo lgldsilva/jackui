@@ -50,9 +50,9 @@ func IsRotational(path string) bool {
 	// st.Dev is uint64 on Linux (the only platform this project builds for):
 	// device numbers are inherently unsigned, so the value feeds straight into
 	// major/minor extraction with no sign handling or wrapping risk.
-	maj, min := unix.Major(st.Dev), unix.Minor(st.Dev)
+	devMajor, devMinor := unix.Major(st.Dev), unix.Minor(st.Dev)
 	// /sys/dev/block/MAJ:MIN symlinks to …/block/<disk>[/<part>].
-	link, err := os.Readlink(fmt.Sprintf("/sys/dev/block/%d:%d", maj, min))
+	link, err := os.Readlink(fmt.Sprintf("/sys/dev/block/%d:%d", devMajor, devMinor))
 	if err != nil {
 		return false
 	}

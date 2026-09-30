@@ -99,6 +99,37 @@ export function useResumePlayback(deps: {
   // tap start it. isIOS() (not isSafariBrowser) so we do NOT regress macOS Safari,
   // which plays with normal autoplay. Only depends on audioMode (prop) → valid here.
   const iosAudio = audioMode && isIOS()
+  // Sequential (not nested) play attempts: sound first, then muted. Every
+  // rejection is handled here, so the returned promise never rejects.
+  const autoplayWithMutedFallback = async (v: HTMLVideoElement): Promise<void> => {
+    try {
+      await v.play()
+      clientLog('info', 'player', 'autoplay ok (sound)', {})
+      return
+    } catch (e) {
+      // AbortError ≠ autoplay block (NotAllowedError): the play() was
+      // INTERRUPTED by a load()/src swap/element remount while
+      // still pending (on iOS the initial buffering window is long).
+      // do NOT chain a muted play() on a still-loading element — that only
+      // worsens the abort and kills sound for good. Instead, release the
+      // one-shot guard so the NEXT loadedmetadata/canplay retries cleanly on the
+      // already-settled element (with SOUND). That was the cause of "played then stopped /
+      // no sound" on the iPhone.
+      if ((e as { name?: string })?.name === 'AbortError') {
+        clientLog('warn', 'player', 'autoplay aborted (load interrupted) — will retry', { err: String(e) })
+        autoplayTriedRef.current = false
+        return
+      }
+      clientLog('warn', 'player', 'autoplay blocked, trying muted', { err: String(e) })
+    }
+    v.muted = true
+    try {
+      await v.play()
+      clientLog('info', 'player', 'autoplay ok (muted)', {})
+    } catch (error_) {
+      clientLog('error', 'player', 'autoplay failed (not even muted)', { err: String(error_) })
+    }
+  }
   // Autoplay on the NATIVE path (<video> without hls.js): iOS ignores the autoPlay
   // attribute when there's audio, so we try play() explicitly (with muted
   // fallback). Once per source. Not called when we're about to show the resume prompt
@@ -121,28 +152,7 @@ export function useResumePlayback(deps: {
     // to pin down the iOS flakiness — played with SOUND, fell back to MUTED (no gesture),
     // or failed. Same logic as tryAutoplayMutedFallback + logs.
     clientLog('info', 'player', 'autoplay try', { readyState: v.readyState, file: selectedFile })
-    v.play()
-      .then(() => clientLog('info', 'player', 'autoplay ok (sound)', {}))
-      .catch((e) => {
-        // AbortError ≠ autoplay block (NotAllowedError): the play() was
-        // INTERRUPTED by a load()/src swap/element remount while
-        // still pending (on iOS the initial buffering window is long).
-        // do NOT chain a muted play() on a still-loading element — that only
-        // worsens the abort and kills sound for good. Instead, release the
-        // one-shot guard so the NEXT loadedmetadata/canplay retries cleanly on the
-        // already-settled element (with SOUND). That was the cause of "played then stopped /
-        // no sound" on the iPhone.
-        if ((e as { name?: string })?.name === 'AbortError') {
-          clientLog('warn', 'player', 'autoplay aborted (load interrupted) — will retry', { err: String(e) })
-          autoplayTriedRef.current = false
-          return
-        }
-        clientLog('warn', 'player', 'autoplay blocked, trying muted', { err: String(e) })
-        v.muted = true
-        v.play()
-          .then(() => clientLog('info', 'player', 'autoplay ok (muted)', {}))
-          .catch((error_) => clientLog('error', 'player', 'autoplay failed (not even muted)', { err: String(error_) }))
-      })
+    void autoplayWithMutedFallback(v)
   }
   const handleVideoCanPlay = () => {
     const v = videoRef.current
