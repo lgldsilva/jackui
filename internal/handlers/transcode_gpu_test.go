@@ -8,7 +8,8 @@ import (
 )
 
 // writeFakeNvidiaSmi drops an executable nvidia-smi stub in a fresh dir and
-// points PATH at it, so getGPUStats resolves the stub instead of a real GPU.
+// points the fixed lookup dirs at it, so getGPUStats resolves the stub instead
+// of a real GPU (nvidia-smi is never resolved through PATH).
 func writeFakeNvidiaSmi(t *testing.T, script string) {
 	t.Helper()
 	binDir := t.TempDir()
@@ -16,7 +17,46 @@ func writeFakeNvidiaSmi(t *testing.T, script string) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", binDir)
+	prev := nvidiaSMIDirs
+	nvidiaSMIDirs = []string{binDir}
+	t.Cleanup(func() { nvidiaSMIDirs = prev })
+}
+
+// TestNvidiaSMIPath_FixedDirsOnly: the binary is looked up only in the
+// configured fixed directories — a PATH entry pointing at a stub must not be
+// picked up, and a non-executable file in a fixed dir does not count.
+func TestNvidiaSMIPath_FixedDirsOnly(t *testing.T) {
+	pathDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(pathDir, "nvidia-smi"), []byte("#!/bin/sh\necho hijacked\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", pathDir)
+
+	prev := nvidiaSMIDirs
+	t.Cleanup(func() { nvidiaSMIDirs = prev })
+
+	empty := t.TempDir()
+	nvidiaSMIDirs = []string{empty}
+	if got := nvidiaSMIPath(); got != "" {
+		t.Fatalf("no nvidia-smi in fixed dirs, got %q (PATH must be ignored)", got)
+	}
+	if info := getGPUStats(); info != nil && info.Type == "nvidia" {
+		t.Fatalf("PATH stub must not be executed, got %+v", info)
+	}
+
+	if err := os.WriteFile(filepath.Join(empty, "nvidia-smi"), []byte("not executable"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := nvidiaSMIPath(); got != "" {
+		t.Fatalf("non-executable file must be ignored, got %q", got)
+	}
+
+	if err := os.Chmod(filepath.Join(empty, "nvidia-smi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := nvidiaSMIPath(); got != filepath.Join(empty, "nvidia-smi") {
+		t.Fatalf("executable in a fixed dir must resolve, got %q", got)
+	}
 }
 
 // TestGetGPUStats_NvidiaSmiTimeout: nvidia-smi can hang on a wedged driver.

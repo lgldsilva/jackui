@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -113,13 +114,55 @@ type GPUInfo struct {
 	VRAMTotal int    `json:"vramTotal"` // MB
 }
 
+// nvidiaSMIDirs are the only directories nvidia-smi is looked up in — fixed,
+// root-owned locations (the nvidia-container-toolkit injects the binary at
+// /usr/bin/nvidia-smi) instead of a PATH walk that a writable entry could
+// hijack. Var so tests can point it at a stub directory.
+var nvidiaSMIDirs = []string{"/usr/bin", "/usr/local/bin"}
+
+// nvidiaSMIPath returns the first regular, executable nvidia-smi found in
+// nvidiaSMIDirs, or "" when the host has none (no NVIDIA runtime).
+func nvidiaSMIPath() string {
+	for _, dir := range nvidiaSMIDirs {
+		p := filepath.Join(dir, "nvidia-smi")
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() && st.Mode().Perm()&0o111 != 0 {
+			return p
+		}
+	}
+	return ""
+}
+
 func getGPUStats() *GPUInfo {
 	// 1. Try NVIDIA. Bounded: nvidia-smi can hang on a wedged driver, and an
 	// unbounded exec stalled the /api/transcode/active poll for as long as the
 	// tool took to return. On timeout the process is killed and we fall through.
+	if info := nvidiaGPUStats(); info != nil {
+		return info
+	}
+
+	// 2. Try VAAPI /sys/class/drm/card0/device/gpu_busy_percent (Intel/AMD)
+	if bytesRead, err := os.ReadFile("/sys/class/drm/card0/device/gpu_busy_percent"); err == nil {
+		if val, err := strconv.Atoi(strings.TrimSpace(string(bytesRead))); err == nil {
+			return &GPUInfo{
+				Type: "vaapi",
+				GPU:  val,
+			}
+		}
+	}
+
+	return &GPUInfo{Type: "none"}
+}
+
+// nvidiaGPUStats queries nvidia-smi (bounded to 5s) and returns nil when the
+// binary is absent, fails, times out or prints an unexpected row.
+func nvidiaGPUStats() *GPUInfo {
+	smi := nvidiaSMIPath()
+	if smi == "" {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits")
+	cmd := exec.CommandContext(ctx, smi, "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err == nil {
@@ -136,18 +179,7 @@ func getGPUStats() *GPUInfo {
 			}
 		}
 	}
-
-	// 2. Try VAAPI /sys/class/drm/card0/device/gpu_busy_percent (Intel/AMD)
-	if bytesRead, err := os.ReadFile("/sys/class/drm/card0/device/gpu_busy_percent"); err == nil {
-		if val, err := strconv.Atoi(strings.TrimSpace(string(bytesRead))); err == nil {
-			return &GPUInfo{
-				Type: "vaapi",
-				GPU:  val,
-			}
-		}
-	}
-
-	return &GPUInfo{Type: "none"}
+	return nil
 }
 
 // TranscodeActive handles GET /api/transcode/active
