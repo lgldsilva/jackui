@@ -52,7 +52,9 @@ func TestValidateTOTPForUser_SingleUsePerStep(t *testing.T) {
 	}
 	// A zero-value Store (no New) has no replay memory — plain validation only.
 	var zero Store
-	if !zero.ValidateTOTPForUser(7, secret, code) || !zero.ValidateTOTPForUser(7, secret, code) {
-		t.Fatal("zero-value Store degrades to plain validation")
+	for attempt := 1; attempt <= 2; attempt++ {
+		if !zero.ValidateTOTPForUser(7, secret, code) {
+			t.Fatalf("zero-value Store degrades to plain validation (attempt %d refused)", attempt)
+		}
 	}
 }
