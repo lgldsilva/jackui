@@ -269,9 +269,9 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}) rpcRespo
 
 func (h *Handler) methodFreeSpace(args map[string]interface{}) rpcResponse {
 	path, _ := args["path"].(string)
-	// Confina o path do cliente aos diretórios permitidos. Vazio OU fora dos
-	// diretórios cai no mesmo fallback seguro (downloadDir/dataDir) — não expõe
-	// statfs de caminho arbitrário do host.
+	// Confine the client-supplied path to the allowed directories. Empty OR
+	// outside those directories falls back to the same safe default
+	// (downloadDir/dataDir) — never statfs an arbitrary host path.
 	if clean, ok := h.confinePath(path); ok {
 		path = clean
 	} else {
@@ -297,8 +297,8 @@ func getFreeBytes(path string) (int64, error) {
 	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0, err
 	}
-	// Um contador de blocos acima de MaxInt64 (>8 EiB de blocos de 1 byte) não
-	// tem representação int64 positiva; satura em vez de virar negativo.
+	// A block count above MaxInt64 (>8 EiB of 1-byte blocks) has no positive
+	// int64 representation; saturate instead of going negative.
 	if stat.Bavail > math.MaxInt64 {
 		return math.MaxInt64, nil
 	}
