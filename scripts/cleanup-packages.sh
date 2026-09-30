@@ -21,8 +21,8 @@ fi
 # is NEVER disabled on these token-bearing calls.
 GITEA_CA="${GITEA_CA:-/usr/local/share/ca-certificates/gitea-ca.crt}"
 CURL_CA=()
-[ -f "$GITEA_CA" ] && CURL_CA=(--cacert "$GITEA_CA")
-if [ -f "$GITEA_CA" ]; then
+[[ -f "$GITEA_CA" ]] && CURL_CA=(--cacert "$GITEA_CA")
+if [[ -f "$GITEA_CA" ]]; then
   # Export for the python block below (urllib uses the same bundle).
   export GITEA_CA
 else

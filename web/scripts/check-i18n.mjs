@@ -39,17 +39,18 @@ const PT_WORDS = [
   'crescente', 'decrescente', 'agora',
   'ordenar por', 'algo deu errado',
 ]
-const WORD_ALT = PT_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+const WORD_ALT = PT_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)).join('|')
 
-const ACCENT = 'À-ÿ' // À-ÿ (Latin-1 acentuado, cobre pt-BR)
+// Accented PT (covers pt-BR's full accent set)
+const ACCENT = 'À-ÿ'
 const reChild = new RegExp(`>[^<>{}]*[${ACCENT}]`)
 const reAttr = new RegExp(`(?:title|placeholder|aria-label)=("|')[^"']*[${ACCENT}]`)
 const reCall = new RegExp(String.raw`\b(?:alert|confirm)\([^)]*[${ACCENT}]`)
-// Sem acento: palavra PT em atributo title/label/placeholder/aria-label...
-const reWordAttr = new RegExp(`\\b(?:title|label|placeholder|aria-label)\\s*=\\s*["'][^"']*?\\b(?:${WORD_ALT})\\b`, 'i')
-// ...ou em qualquer literal de string ('...'/"...") da linha — cobre filhos
-// JSX do tipo {'Alta'} e strings de toast/notify em arquivos .ts.
-const reWordLit = new RegExp(`["'][^"'\\n]*?\\b(?:${WORD_ALT})\\b[^"'\\n]*?["']`, 'i')
+// Unaccented PT: word in a title/label/placeholder/aria-label attribute...
+const reWordAttr = new RegExp(String.raw`\b(?:title|label|placeholder|aria-label)\s*=\s*["'][^"']*?\b(?:${WORD_ALT})\b`, 'i')
+// ...or in any string literal on the line — covers JSX children like {'Alta'}
+// and toast/notify strings in .ts files.
+const reWordLit = new RegExp(String.raw`["'][^"'\n]*?\b(?:${WORD_ALT})\b[^"'\n]*?["']`, 'i')
 
 function walk(dir) {
   const out = []

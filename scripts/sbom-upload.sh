@@ -33,7 +33,7 @@ fi
 # the resulting JWT).
 CA="${DT_CA:-/usr/local/share/ca-certificates/gitea-ca.crt}"
 CURL_CA=()
-[ -f "$CA" ] && CURL_CA=(--cacert "$CA")
+[[ -f "$CA" ]] && CURL_CA=(--cacert "$CA")
 
 echo "=== Logging in to Dependency-Track ==="
 JWT=$(curl -s --max-time 20 "${CURL_CA[@]+"${CURL_CA[@]}"}" -X POST "$DT_API/api/v1/user/login" \
