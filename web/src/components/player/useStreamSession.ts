@@ -106,7 +106,7 @@ export function useStreamSession(deps: {
         if (cancelled || !cached || streamAddDoneRef.current) return
         setInfo(cached)
         setSelectedFile(chooseInitialFile(cached, initialFileIndex))
-      })
+      }).catch(() => {}) // cache probe only — streamAdd below is authoritative
     }
 
     streamAdd(pickTorrentSource(result), audioMode ? 'audio' : 'video')
