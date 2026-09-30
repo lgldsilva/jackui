@@ -252,7 +252,7 @@ func (c *Client) Download(fileID string) ([]byte, error) {
 
 	// Persist to disk cache so we don't burn quota again
 	if path := c.cachePath(fileID); path != "" {
-		// #nosec G306 -- media/cache file; 0644 intentional for reading
+		// media/cache file; 0644 intentional for reading
 		_ = os.WriteFile(path, vtt, 0o644)
 	}
 	return vtt, nil

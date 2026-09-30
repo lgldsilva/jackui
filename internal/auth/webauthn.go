@@ -86,7 +86,12 @@ func waUserFrom(id int, name string, creds []webauthn.Credential) *waUser {
 }
 func (u *waUser) WebAuthnID() []byte {
 	b := make([]byte, 8)
-	// #nosec G115 -- bounded conversion (statfs/Unix time/id/ASCII rune/fs magic); no real overflow
+	// User ids are SQLite INTEGER PRIMARY KEYs and always positive; a negative
+	// value would mean a corrupted store, and zero bytes are the sane opaque
+	// handle for that — never the wrapped two's-complement of a negative.
+	if u.id < 0 {
+		return b
+	}
 	binary.BigEndian.PutUint64(b, uint64(u.id))
 	return b
 }

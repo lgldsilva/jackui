@@ -17,14 +17,15 @@ const backupCodeAlphabet = "abcdefghjkmnpqrstuvwxyz23456789"
 // normalizeBackupCode lowercases and strips separators so "ABCD-EFGH" and
 // "abcdefgh" hash identically — users mistype dashes/case.
 func normalizeBackupCode(s string) string {
-	var b []byte
+	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			// #nosec G115 -- bounded conversion (statfs/Unix time/id/ASCII rune/fs magic); no real overflow
-			b = append(b, byte(r))
+			// The filter above leaves only ASCII, so WriteRune emits exactly
+			// the same single byte a byte(r) append would — with no conversion.
+			b.WriteRune(r)
 		}
 	}
-	return string(b)
+	return b.String()
 }
 
 // SetTOTPSecret stores a (not-yet-enabled) TOTP secret during enrollment.

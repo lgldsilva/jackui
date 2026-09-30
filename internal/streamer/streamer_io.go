@@ -123,8 +123,7 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 	r.SetReadahead(8 << 20) // 8 MiB — enough to cover the first few seconds
 	r.SetResponsive()
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
-		// #nosec G104 -- Close is best-effort during cleanup; teardown errors are irrelevant
-		r.Close()
+		_ = r.Close()
 		return fmt.Errorf("prefetch seek: %w", err)
 	}
 	// Tiny read just to commit the readahead hint and trigger piece priority.
@@ -142,8 +141,7 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 		case <-done:
 		case <-time.After(5 * time.Second):
 		}
-		// #nosec G104 -- Close is best-effort during cleanup; teardown errors are irrelevant
-		r.Close()
+		_ = r.Close()
 	}()
 	return nil
 }

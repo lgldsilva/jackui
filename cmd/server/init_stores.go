@@ -29,8 +29,7 @@ func initHistoryStore(deps *appDeps) {
 	go func() {
 		for {
 			time.Sleep(24 * time.Hour)
-			// #nosec G104 -- best-effort periodic cleanup in background
-			store.Cleanup(90 * 24 * time.Hour)
+			_ = store.Cleanup(90 * 24 * time.Hour)
 		}
 	}()
 }

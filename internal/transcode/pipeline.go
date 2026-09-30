@@ -58,7 +58,7 @@ func Run(ctx context.Context, in io.Reader, w http.ResponseWriter, opts Options)
 	w.Header().Set("Content-Type", containerMime(container))
 	w.Header().Set("Accept-Ranges", "bytes")
 
-	// #nosec G204 -- fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, caps.FFmpegPath, args...)
 	cmd.Stdin = in
 	cmd.Stdout = w

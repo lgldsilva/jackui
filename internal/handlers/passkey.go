@@ -24,7 +24,7 @@ func PasskeyRegisterBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc
 			return
 		}
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfigF)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfigF)
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -46,7 +46,7 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 			return
 		}
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfig)
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -67,7 +67,7 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfig)
 			return
 		}
 		var req struct {
@@ -103,7 +103,7 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfig)
 			return
 		}
 		// The assertion JSON is the body go-webauthn parses (we must NOT consume it

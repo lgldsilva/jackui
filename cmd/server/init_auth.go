@@ -49,8 +49,7 @@ func initAuth(deps *appDeps) {
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)
-			// #nosec G104 -- best-effort periodic cleanup in background
-			deps.authStore.CleanupExpired()
+			_ = deps.authStore.CleanupExpired()
 		}
 	}()
 }

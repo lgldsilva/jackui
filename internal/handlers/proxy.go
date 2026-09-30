@@ -101,6 +101,6 @@ func proxyResponse(c *gin.Context, resp *http.Response) {
 	c.Header(httpshared.ContentType, ct)
 	c.Header(HeaderContentDisp, cd)
 	c.Status(http.StatusOK)
-	// #nosec G104 -- proxy stream; typical error = client disconnected
-	io.Copy(c.Writer, resp.Body) //nolint:errcheck
+	// proxy stream; typical error = client disconnected, not actionable
+	_, _ = io.Copy(c.Writer, resp.Body)
 }

@@ -2,7 +2,10 @@
 
 package local
 
-import "syscall"
+import (
+	"math"
+	"syscall"
+)
 
 // Filesystem magics for storage that lives off the local block device — i.e.
 // slow/remote mounts worth caching to disk. rclone (Google Drive, etc.) mounts
@@ -24,7 +27,12 @@ func detectRemoteFS(abs string) bool {
 	if err := syscall.Statfs(abs, &st); err != nil {
 		return false
 	}
-	// #nosec G115 -- bounded conversion (statfs/Unix time/id/ASCII rune/fs magic); no real overflow
+	// Real filesystem magics are non-negative 32-bit values; anything outside
+	// [0, MaxUint32] is not a magic we care about, so bail out instead of
+	// letting the int64 -> uint32 conversion wrap.
+	if st.Type < 0 || st.Type > math.MaxUint32 {
+		return false
+	}
 	return isRemoteMagic(uint32(st.Type))
 }
 

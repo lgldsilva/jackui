@@ -249,8 +249,7 @@ func (c *Client) listOllamaModels(ctx context.Context, base string) []string {
 	resp, err := c.http.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			// #nosec G104 -- Close best-effort, no cleanup; teardown error is irrelevant
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}
@@ -280,8 +279,7 @@ func (c *Client) listOpenAIModels(ctx context.Context, base, apiKey string) []st
 	resp, err := c.http.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			// #nosec G104 -- Close best-effort, no cleanup; teardown error is irrelevant
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}

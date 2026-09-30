@@ -7,8 +7,9 @@ package httpretry
 
 import (
 	"context"
+	"crypto/rand"
 	"io"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"strconv"
 	"time"
@@ -144,9 +145,19 @@ func backoffDelay(p Policy, attempt int, resp *http.Response) time.Duration {
 		return capDelay(ra, p.MaxDelay)
 	}
 	d := p.BaseDelay << uint(attempt)
-	// #nosec G404 -- non-crypto rand is fine for backoff jitter
-	d += time.Duration(rand.Int63n(int64(p.BaseDelay) + 1)) // jitter in [0, BaseDelay]
+	d += jitter(p.BaseDelay) // uniform in [0, BaseDelay]
 	return capDelay(d, p.MaxDelay)
+}
+
+// jitter returns a uniform duration in [0, span] drawn from crypto/rand.
+// Backoff jitter has no security sensitivity, but using crypto/rand keeps the
+// gosec G404 (weak random) finding clean at a negligible cost per retry.
+func jitter(span time.Duration) time.Duration {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(span)+1))
+	if err != nil {
+		return 0 // unreachable with a working OS entropy source; skip jitter
+	}
+	return time.Duration(n.Int64())
 }
 
 func capDelay(d, max time.Duration) time.Duration {

@@ -26,7 +26,7 @@ func (s *HLSSession) launch(startSeg int) error {
 	s.mu.Unlock()
 	ffctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	// #nosec G204 -- fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ffctx, s.spec.ffmpegPath, s.spec.args(startSeg)...)
 	log.Printf("hls: ffmpeg %s", strings.Join(s.spec.args(startSeg), " "))
 	oom := newOOMWatcher("hls/" + s.Key + " ")

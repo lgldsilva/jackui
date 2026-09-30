@@ -51,8 +51,8 @@ func (s *Streamer) SeedActiveForTesting(name string, lastAccess time.Time) (meta
 	s.mu.Unlock()
 
 	return h, func() {
-		cl.Close()
-		os.RemoveAll(dataDir)
+		_ = cl.Close()
+		_ = os.RemoveAll(dataDir)
 	}
 }
 

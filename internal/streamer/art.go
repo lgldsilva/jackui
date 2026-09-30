@@ -143,7 +143,7 @@ func (s *Streamer) SaveArtBytes(hash metainfo.Hash, data []byte) (string, error)
 		return "", err
 	}
 	rel := filepath.Join(artDirName, hash.HexString()+".jpg")
-	// #nosec G306 -- media/cache file; 0644 intentional for readability
+	// media/cache file; 0644 intentional for readability
 	if err := os.WriteFile(filepath.Join(s.cfg.DataDir, rel), data, 0o644); err != nil {
 		return "", err
 	}

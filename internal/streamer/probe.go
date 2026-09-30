@@ -171,7 +171,7 @@ func ProbeLocal(ctx context.Context, path string) (ProbeResult, error) {
 }
 
 func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, error) {
-	// #nosec G204 -- fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		ffHideBanner, ffLogLevel, "error",
 		"-of", "json",
@@ -395,7 +395,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 
 	// -ss before -i is "fast seek" via container index; less accurate but much faster.
 	// We're only producing a preview tooltip image — pixel-accuracy is overkill.
-	// #nosec G204 -- fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-ss", fmt.Sprintf("%d", bucket*10),
@@ -416,7 +416,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	}
 	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(cacheDir, 0o755); err == nil {
-		// #nosec G306 -- media/cache file; 0644 intentional for readability
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(cachePath, out, 0o644)
 	}
 	return out, false, nil
@@ -453,7 +453,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 
 	// `-map 0:v -map -0:V` selects attached pictures only, excluding regular
 	// video streams (e.g. a music-video stream baked into the same file).
-	// #nosec G204 -- fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", pi.input,
@@ -473,13 +473,13 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 		// Negative-cache so we don't burn ffmpeg again next time.
 		// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 		_ = os.MkdirAll(cacheDir, 0o755)
-		// #nosec G306 -- media/cache file; 0644 intentional for readability
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(emptyMarker, []byte{}, 0o644)
 		return nil, false, nil
 	}
 	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(cacheDir, 0o755); err == nil {
-		// #nosec G306 -- media/cache file; 0644 intentional for readability
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(cachePath, out, 0o644)
 	}
 	return out, false, nil
@@ -522,7 +522,7 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 		defer closeFn()
 	}
 
-	// #nosec G204 -- fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", input,

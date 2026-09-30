@@ -539,8 +539,9 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 	if !o.keepSeeding {
 		// User promoted WITHOUT "keep seeding" → stop for good, clear the
 		// persisted auto-seed and mark the completed row as seed-stopped so the
-		// next boot does not reactivate the torrent.
-		o.s.DropSeed(h)
+		// next boot does not reactivate the torrent. Best-effort: the promote
+		// outcome does not depend on the seed teardown.
+		_ = o.s.DropSeed(h)
 		if d.Status == downloads.StatusCompleted {
 			_ = o.store.StopSeed(d.UserID, d.ID)
 		}
@@ -590,7 +591,8 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer, worker Down
 			if err := h.FromHexString(d.InfoHash); err == nil {
 				// "Stop seeding" is explicit → DropSeed also clears the persisted
 				// auto-seed so the next boot does not reactivate the torrent.
-				s.DropSeed(h)
+				// Best-effort: the row is deleted right after regardless.
+				_ = s.DropSeed(h)
 			}
 		}
 		// Any status (completed, paused, …): the row leaves the list. The old

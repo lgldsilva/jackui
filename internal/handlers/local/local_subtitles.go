@@ -391,7 +391,7 @@ func localSubVTTPath(cache *localcache.Cache, abs string, st os.FileInfo, track 
 // (PGS/VobSub) fail here — the frontend filters them via the probe's Image flag.
 func extractEmbeddedVTT(ctx context.Context, src string, track int) ([]byte, error) {
 	// -map 0:<absoluteIndex> selects the stream; ffmpeg accepts the absolute idx.
-	// #nosec G204 -- binary fixed/from config; user values are operands of -i or integers; exec without shell
+	// binary fixed/from config; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, "ffmpeg",
 		ffHideBanner, ffLogLevel, "error",
 		"-i", src,
@@ -453,7 +453,7 @@ func persistVTT(vttPath string, data []byte) {
 		return
 	}
 	tmp := vttPath + ".tmp"
-	// #nosec G306 -- media/cache file; 0644 intentional for readability
+	// media/cache file; 0644 intentional for readability
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return
 	}

@@ -361,7 +361,7 @@ func (c *Cache) saveIndex() {
 		return
 	}
 	tmp := c.indexPath() + ".tmp"
-	// #nosec G306 -- media/cache file; 0644 intentional for readability
+	// media/cache file; 0644 intentional for readability
 	if os.WriteFile(tmp, data, 0o644) == nil {
 		_ = os.Rename(tmp, c.indexPath())
 	}

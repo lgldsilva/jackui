@@ -173,7 +173,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	}
 	var out []byte
 	for _, s := range seeks {
-		// #nosec G204 -- binary fixed/from config; user values are operands of -i or integers; exec without shell
+		// binary fixed/from config; user values are operands of -i or integers; exec without shell
 		cmd := exec.CommandContext(ctx, ffBinary,
 			ffHideBanner, ffLogLevel, "error",
 			"-ss", strconv.Itoa(s),
@@ -194,7 +194,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 		return out
 	}
 	if len(out) > 0 {
-		// #nosec G306 -- media/cache file; 0644 intentional for readability
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(cachePath, out, 0o644)
 		_ = os.Remove(negativeMarkerPath(cachePath)) // a success clears any stale failure
 		return out
@@ -203,7 +203,7 @@ func captureThumb(c *gin.Context, abs string, at int, cacheDir, cachePath string
 	// frame ffmpeg can't produce — but only on a real ffmpeg error/timeout, not
 	// when the client cancelled (navigated away) before we finished.
 	if ctx.Err() != context.Canceled {
-		// #nosec G306 -- media/cache file; 0644 intentional for readability
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(negativeMarkerPath(cachePath), nil, 0o644)
 	}
 	return out

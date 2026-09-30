@@ -55,8 +55,7 @@ func spaFallback(distFS fs.FS, fileServer http.Handler) gin.HandlerFunc {
 
 		f, err := distFS.Open(strings.TrimPrefix(path, "/"))
 		if err == nil {
-			// #nosec G104 -- best-effort Close, no cleanup; teardown error is irrelevant
-			f.Close()
+			_ = f.Close()
 			fileServer.ServeHTTP(c.Writer, c.Request)
 			return
 		}

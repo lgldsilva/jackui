@@ -313,7 +313,7 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// #nosec G306 -- media/cache file; 0644 intentional for readability
+	// media/cache file; 0644 intentional for readability
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}

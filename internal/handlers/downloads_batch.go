@@ -154,8 +154,9 @@ func stopSeedOne(store *downloads.Store, s *streamer.Streamer, worker DownloadRe
 			var h metainfo.Hash
 			if err := h.FromHexString(d.InfoHash); err == nil {
 				// Explicit stop-seed also clears persisted auto-seed (same as
-				// the singular POST /downloads/:id/stop-seed).
-				s.DropSeed(h)
+				// the singular POST /downloads/:id/stop-seed). Best-effort: the
+				// row is deleted right after regardless.
+				_ = s.DropSeed(h)
 			}
 		}
 	}

@@ -335,7 +335,7 @@ func ffprobePathFrom(ffmpegPath string) string {
 func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) float64 {
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	// #nosec G204 -- fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(cctx, ffprobePathFrom(ffmpegPath),
 		ffHideBanner, ffLogLevel, "error",
 		ffSeekable, "1", ffMultipleReq, "1",

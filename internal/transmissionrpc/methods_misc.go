@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"syscall"
 	"time"
@@ -296,7 +297,11 @@ func getFreeBytes(path string) (int64, error) {
 	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0, err
 	}
-	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
+	// Um contador de blocos acima de MaxInt64 (>8 EiB de blocos de 1 byte) não
+	// tem representação int64 positiva; satura em vez de virar negativo.
+	if stat.Bavail > math.MaxInt64 {
+		return math.MaxInt64, nil
+	}
 	return int64(stat.Bsize) * int64(stat.Bavail), nil
 }
 
@@ -354,8 +359,7 @@ func (h *Handler) runPortTest() {
 		}
 		var buf [1]byte
 		n, _ := resp.Body.Read(buf[:])
-		// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
-		resp.Body.Close()
+		_ = resp.Body.Close() // best-effort teardown; nothing to clean up
 		if n > 0 {
 			open = buf[0] == '1'
 		}
