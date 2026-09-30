@@ -2,15 +2,9 @@ import { StreamFavorite } from '../api/client'
 
 // Sort options for the favorites list. seeds/size come from the metadata cache
 // (enriched server-side); date/name are always present on the favorite.
+// Labels live in the locale files (favorites.sort*) — see FavoritesSortControl.
 export type SortKey = 'date' | 'name' | 'seeds' | 'size'
 export type SortDir = 'asc' | 'desc'
-
-export const SORT_LABELS: Record<SortKey, string> = {
-  date: 'Date added',
-  name: 'Name',
-  seeds: 'Seeds',
-  size: 'Size',
-}
 
 // Raw comparator (ascending). Unknown seeds (never probed) and size (never
 // resolved) collapse to the lowest value so they land last on desc — the

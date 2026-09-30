@@ -467,7 +467,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
                 onChange={(e) => setSavePath(e.target.value)}
                 onFocus={() => setShowRecent(recentPaths.length > 0)}
                 onBlur={() => setTimeout(() => setShowRecent(false), 150)}
-                placeholder="/downloads/filmes"
+                placeholder="/downloads/movies"
                 className="input-field pr-10"
               />
               {recentPaths.length > 0 && (

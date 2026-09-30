@@ -19,16 +19,29 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = event.notification.data?.url || '/'
+  // data.url comes from the push payload (server-controlled but still external
+  // input). Restrict navigation to same-origin URLs: `new URL(raw, origin)`
+  // resolves relative paths ("/watchlist") against us, while absolute foreign
+  // origins and dangerous schemes (javascript:, data: → origin "null") fail
+  // the comparison. Anything else is ignored.
+  const raw = event.notification.data?.url || '/'
+  let target = null
+  try {
+    const parsed = new URL(raw, self.location.origin)
+    if (parsed.origin === self.location.origin) target = parsed.href
+  } catch {
+    target = null
+  }
+  if (!target) return
   event.waitUntil((async () => {
     const list = await clients.matchAll({ type: 'window', includeUncontrolled: true })
     for (const client of list) {
       if ('focus' in client) {
         await client.focus()
-        if ('navigate' in client) await client.navigate(url)
+        if ('navigate' in client) await client.navigate(target)
         return
       }
     }
-    await clients.openWindow(url)
+    await clients.openWindow(target)
   })())
 })

@@ -218,10 +218,10 @@ export default function HistoryPage() {
         arr.map(r => r.id === id ? { ...r, seeders: fresh.seeders, leechers: fresh.leechers } : r)
       setResults(prev => updater(prev))
       setGlobalResults(prev => updater(prev))
-      // Show "agora" (5min cache) or "cache" hint right after click.
+      // Show "now" (fresh fetch) or "cache" (5min cache) hint right after click.
       setRefreshedLabels(prev => {
         const next = new Map(prev)
-        next.set(id, fresh.cached ? 'cache' : 'agora')
+        next.set(id, fresh.cached ? 'cache' : 'now')
         return next
       })
       // Fade the label out after 30s so old marks don't linger across many refreshes.

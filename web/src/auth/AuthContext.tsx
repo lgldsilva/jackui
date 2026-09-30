@@ -281,4 +281,24 @@ function clearTokens() {
   clearPlaylistSnapshot()
   resetIncognitoFlag()
   setRevealHidden(false)
+  // User-scoped UI state must not leak into the next session either.
+  purgeUserScopedUiKeys()
+}
+
+// Sweep of user-scoped UI keys on logout (keep this list explicit and
+// commented — grep `lib/storage` helpers + their callers when adding entries).
+// Device/shared settings (theme, locale, mediaModePref, volume, sidebar
+// layout) are deliberately NOT cleared.
+//   - 'pinnedSearches' — saved searches (components/SavedSearches.tsx).
+//     ("Recent" searches are server-side per-user history — cleaned up by the
+//     backend on logout; there is no localStorage key for them.)
+//   - 'lastRoute' — cold-boot route restore (App.tsx / lib/bootRoute.ts); the
+//     next user must not land on the previous user's last screen.
+//   - 'library.filter' — LibraryPage view filter.
+//   - 'downloads.completedFilter' — DownloadsPage completion filter.
+export function purgeUserScopedUiKeys() {
+  remove('pinnedSearches')
+  remove('lastRoute')
+  remove('library.filter')
+  remove('downloads.completedFilter')
 }

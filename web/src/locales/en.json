@@ -440,7 +440,8 @@
     "title": "Notifications",
     "empty": "No notifications yet. Watchlist hits show up here.",
     "enable_push": "Enable push in this browser",
-    "push_on": "Push on"
+    "push_on": "Push on",
+    "copy_magnet": "Copy magnet"
   },
   "trailer": {
     "watch": "Trailer",
@@ -648,6 +649,7 @@
       "priorityLow": "Low",
       "priorityNormal": "Normal",
       "priorityHigh": "High",
+      "queuePriorityTitle": "Queue priority",
       "stopSeed": "Stop & remove",
       "openLocal": "Open in local",
       "openLocalTitle": "Opens the file browser in this download's folder",
@@ -1309,7 +1311,14 @@
     "statusDownloading": "Downloading",
     "statusCompleted": "Downloaded",
     "statusPaused": "Paused",
-    "statusFailed": "Failed"
+    "statusFailed": "Failed",
+    "sortDate": "Date added",
+    "sortName": "Name",
+    "sortSeeds": "Seeds",
+    "sortSize": "Size",
+    "sortBy": "Sort by",
+    "sortDirAscTitle": "Ascending — click for descending",
+    "sortDirDescTitle": "Descending — click for ascending"
   },
   "local": {
     "cancel": "Cancel",
@@ -1645,6 +1654,9 @@
     "storage_file": "file — writes straight to disk (default)",
     "storage_mmap": "mmap — maps into memory (page cache; faster seeks)",
     "conns_per_torrent": "Connections per torrent",
+    "half_open": "Half-open",
+    "peers_high_water": "Peers (high water)",
+    "piece_hashers": "Piece hashers (CPU)",
     "field_zero_hint": "Field at 0 = use the library default (shown in the placeholder).",
     "save": "Save",
     "cache": {
@@ -1694,6 +1706,8 @@
     "kill_confirm": "Stop",
     "loading": "Loading transcode and GPU monitoring...",
     "title": "Transcode & GPU Usage",
+    "hardware_title": "Hardware Transcoding",
+    "probing": "Probing transcoder capabilities...",
     "session_active": "active session",
     "sessions_active": "active sessions",
     "gpu_usage": "GPU usage ({{type}}):",

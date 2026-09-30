@@ -22,7 +22,10 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8989',
       // /status is a root endpoint (build metadata), not under /api.
-      '/status': 'http://localhost:8989'
+      '/status': 'http://localhost:8989',
+      // Readiness probe fetched by client.ts getHealth() — without the proxy
+      // the dev-server SPA fallback answers with HTML and the JSON parse throws.
+      '/healthz': 'http://localhost:8989'
     }
   }
 })

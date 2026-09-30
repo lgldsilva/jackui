@@ -50,7 +50,7 @@ export default function TranscodeCapabilitiesCard() {
     return (
       <div className="card flex items-center gap-3 text-text-secondary">
         <Loader2 className="w-4 h-4 animate-spin" />
-        Probing transcoder capabilities...
+        {t('transcode.probing')}
       </div>
     )
   }
@@ -82,7 +82,7 @@ export default function TranscodeCapabilitiesCard() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Cpu className="w-5 h-5 text-green-500" />
-          <h2 className="text-lg font-semibold text-text-primary">Hardware Transcoding</h2>
+          <h2 className="text-lg font-semibold text-text-primary">{t('transcode.hardware_title')}</h2>
         </div>
         <button
           onClick={() => load(true)}
