@@ -23,14 +23,32 @@ import (
 // NOT a failure: the row stays `moving` and boot rescue re-dispatches it.
 const moveMaxAttempts = 3
 
+// partialCopySuffix is the scratch extension the cross-filesystem copy writes
+// before the atomic rename onto the final name (".partial" — distinct from the
+// anacrolix storage's partSuffix ".part", which marks an unfinished DOWNLOAD).
+// A crash mid-copy can therefore only ever leave a scratch file, never a
+// truncated file at the final destination name.
+const partialCopySuffix = ".partial"
+
 // runCompletionMove performs the post-download relocation OFF the tick loop and
 // finalizes the row. The move helpers are idempotent, so each retry resumes where
 // the last left off. On success → `completed` (+ AI rename + ntfy); after
 // moveMaxAttempts of a persistent error → `failed` with the message; on app
 // shutdown mid-retry it returns leaving the row `moving` for boot rescue.
 func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, whole bool, total int64, job *transfer.Job) {
+	// This goroutine owns the row's move for its whole lifetime: clear the
+	// dispatch bookkeeping on every exit (success, failure, shutdown) so the
+	// stuck-moving sweep can tell an owned row from a wedged one.
+	defer w.clearMovingState(d.ID)
 	dst, err := w.attemptCompletionMove(d, name, relPaths, whole, job)
 	if err != nil {
+		// The move gave up: release the eviction protection this move was
+		// holding (checkCompletion dropped the tracked entry WITHOUT
+		// unregistering precisely so the copy survives eviction). Without this
+		// the name stays protected until the next restart — user Remove can't
+		// release it either, because nothing tracks it anymore. Sibling-aware:
+		// a still-tracked row of the same torrent keeps its protection.
+		w.unregisterByName(name)
 		if e := w.store.SetError(d.UserID, d.ID, "move failed: "+err.Error()); e != nil {
 			log.Printf("downloads: failed to mark move-failed #%d: %v", d.ID, e)
 		}
@@ -254,10 +272,18 @@ func moveDownloadedFile(ctx context.Context, dataDir, destDir, relPath string, o
 		}
 		return "", fmt.Errorf("completed file not found in %s for %q", dataDir, relPath)
 	}
-	// Destination already present: remove the stale cache copy and succeed.
-	if fileExists(dst) {
-		_ = os.Remove(src)
-		return dst, nil
+	// Destination already present: only trust it as "already moved" (drop the
+	// cache copy, succeed) when its size matches the source. A mismatch is the
+	// fingerprint of a copy truncated by a crash (the pre-atomic scheme wrote
+	// straight to dst with O_TRUNC) — recopy instead of deleting the complete
+	// source, or the row would end `completed` pointing at truncated media.
+	if st, err := os.Stat(dst); err == nil {
+		if srcSt, serr := os.Stat(src); serr == nil && st.Size() == srcSt.Size() {
+			_ = os.Remove(src)
+			return dst, nil
+		}
+		// Truncated/partial destination: fall through — the move below replaces
+		// it atomically (rename/copy-then-rename), never leaving it truncated.
 	}
 	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
@@ -371,12 +397,16 @@ func moveTreeEntry(ctx context.Context, dataDir, destDir, torrentName, rel strin
 		}
 		return false, fmt.Errorf("completed file not found in %s for %q", dataDir, rel)
 	}
-	// Destination already present (e.g. relocated storage wrote it directly to
-	// bulk while a cache copy remained). Remove the stale cache file and treat
-	// as success — no need to overwrite a read-only (444) relocated-storage file.
-	if fileExists(dst) {
-		_ = os.Remove(src)
-		return true, nil
+	// Destination already present: same contract as moveDownloadedFile — trust
+	// it as "already moved" ONLY when the size matches the source (relocated
+	// storage writing directly to bulk leaves matching sizes); a mismatch is a
+	// truncated copy from a crash, which the move below replaces atomically.
+	// Never delete the source over a size mismatch.
+	if st, err := os.Stat(dst); err == nil {
+		if srcSt, serr := os.Stat(src); serr == nil && st.Size() == srcSt.Size() {
+			_ = os.Remove(src)
+			return true, nil
+		}
 	}
 	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -487,6 +517,12 @@ func moveFile(src, dst string) error { return moveFileProgress(context.Backgroun
 // 100% on the progress bar); falls back to copy+delete for cross-filesystem moves
 // (DataDir on one volume, DownloadDir on another), streaming through a
 // transfer.ProgressReader so onBytes (nil-safe) sees the copy advance.
+//
+// The copy is ATOMIC: bytes land on dst+partialCopySuffix, the scratch file is
+// fsynced and closed, and only then renamed onto dst — so a kill -9 mid-copy
+// leaves (at worst) a scratch file, never a truncated dst that a later
+// "dst exists ⇒ already done" check would pass off as the finished move. The
+// source is removed only after the complete copy is durable at dst.
 func moveFileProgress(ctx context.Context, src, dst string, onBytes func(int64)) error {
 	if err := renameFn(src, dst); err == nil {
 		if onBytes != nil {
@@ -502,20 +538,39 @@ func moveFileProgress(ctx context.Context, src, dst string, onBytes func(int64))
 		return err
 	}
 	defer func() { _ = in.Close() }()
+	// Write to the scratch name, never the final one: an interrupted copy must
+	// not be observable (or mistaken for a finished move) at dst.
+	partial := dst + partialCopySuffix
 	// #nosec G304 G302 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config; media file; 0644 intentional for readability
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	out, err := os.OpenFile(partial, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
 	// Cross-device copy streams through a ctx-aware reader so a Tracker.Cancel
-	// aborts it mid-file (the partial dst is removed below).
+	// aborts it mid-file (only the scratch file is affected; dst stays untouched).
 	if _, err := io.Copy(out, transfer.ProgressReaderCtx(ctx, in, onBytes)); err != nil {
 		_ = out.Close()
-		_ = os.Remove(dst)
+		_ = os.Remove(partial)
+		return err
+	}
+	// Flush to disk BEFORE the rename: the whole point is that once dst exists
+	// under its final name, every byte is durable — otherwise a crash after the
+	// rename (and before the page cache flushed) would leave a truncated dst
+	// while the source is gone.
+	if err := out.Sync(); err != nil {
+		_ = out.Close()
+		_ = os.Remove(partial)
 		return err
 	}
 	if err := out.Close(); err != nil {
-		_ = os.Remove(dst)
+		_ = os.Remove(partial)
+		return err
+	}
+	// The scratch file lives in dst's directory, so this rename is always
+	// same-filesystem — os.Rename directly (NOT renameFn, whose EXDEV stub
+	// models the src↔dst device boundary only).
+	if err := os.Rename(partial, dst); err != nil {
+		_ = os.Remove(partial)
 		return err
 	}
 	return os.Remove(src)

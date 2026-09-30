@@ -44,6 +44,17 @@ async function copyToClipboard(text: string) {
   }
 }
 
+// Only magnet URIs may be handed to location.href. The magnet comes from the
+// API (result.magnetUri, indexer-influenced), so it is untrusted input: a
+// `javascript:` URI here would execute in the app origin, where the auth JWTs
+// live in localStorage. Anchored + scheme case-insensitive (URI schemes are
+// case-insensitive per RFC 3986), everything else fails closed.
+const SAFE_MAGNET_RE = /^magnet:\?/i
+
+export function isSafeMagnetUri(uri: string): boolean {
+  return SAFE_MAGNET_RE.test(uri)
+}
+
 async function resolveMagnetIfNeeded(
   result: SearchResult,
   setResolving: (r: boolean) => void
@@ -467,7 +478,13 @@ function useResultCardActions(result: SearchResult) {
   }
   const handleOpenMagnet = async () => {
     const magnet = await resolveMagnetIfNeeded(result, setResolvingMagnet)
-    if (magnet) globalThis.location.href = magnet
+    if (!magnet) return
+    // Never navigate on unvalidated API data — see isSafeMagnetUri above.
+    if (!isSafeMagnetUri(magnet)) {
+      notify(i18n.t('common.errorTitle'), 'error')
+      return
+    }
+    globalThis.location.href = magnet
   }
   const handleTorrentDownload = () => {
     startTorrentDownload(result, setResolvingTorrent).catch(() => { /* notifyError inside */ })

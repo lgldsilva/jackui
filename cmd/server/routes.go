@@ -186,6 +186,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 			deps.streamCfg.DataDir, deps.cfg.Stream.DownloadDir,
 			deps.cfg.Stream.SharedDir, func() bool { return deps.cfg.DownloadsQueue.AutoPromoteArr },
 		)
+		trpc.SetLockout(deps.loginLockout)
 		trpc.RegisterRoutes(router)
 		log.Printf("Transmission RPC: /transmission/rpc (compat layer for *arr stack)")
 	}
@@ -365,12 +366,16 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.POST("/stream/art/resolve/batch", handlers.ResolveArtBatch(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
 	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
 	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore))
-	// Batch drop BEFORE the singular DELETE so gin does not treat "drop" as a hash.
-	api.POST("/stream/drop/batch", handlers.StreamDropBatch(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	api.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.POST("/stream/:hash/viewer", handlers.StreamViewerOpen(deps.streamSrv))
 	api.DELETE("/stream/:hash/viewer", handlers.StreamViewerClose(deps.streamSrv, deps.hlsMgr))
 	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore))
+
+	// Destructive GLOBAL mutations: dropping a torrent (and its HLS sessions)
+	// hits every user of the shared swarm — admin-only, like cache-clear and
+	// pause/resume-all. Batch drop BEFORE the singular DELETE so gin does not
+	// treat "drop" as a hash.
+	adminAPI.POST("/stream/drop/batch", handlers.StreamDropBatch(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
+	adminAPI.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 
 	api.GET("/transfers", handlers.TransfersList(deps.transferTracker))
 	api.DELETE("/transfers/:id", handlers.TransfersCancel(deps.transferTracker))

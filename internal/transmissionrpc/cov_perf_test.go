@@ -132,7 +132,7 @@ func TestTorrentSet_AcceptsAllArgs(t *testing.T) {
 		"seedIdleLimit":       float64(30),
 		"queuePosition":       float64(0),
 		"honorsSessionLimits": false,
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("torrent-set: %q", resp.Result)
 	}
@@ -158,7 +158,7 @@ func TestTorrentSet_StreamerWithoutClient(t *testing.T) {
 		"sequentialDownload": true,
 		"peerLimit":          float64(30),
 		"bandwidthPriority":  float64(-1),
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("torrent-set (streamer sem client): %q", resp.Result)
 	}
@@ -171,14 +171,14 @@ func TestMethodTorrentVerifyAndReannounce(t *testing.T) {
 	id := mkDownload(t, st, strings.Repeat("c", 40), downloads.StatusDownloading)
 	args := map[string]interface{}{"ids": []interface{}{float64(id)}}
 
-	if r := h.methodTorrentVerify(args); r.Result != "success" {
+	if r := h.methodTorrentVerify(args, sysIdent); r.Result != "success" {
 		t.Errorf("torrent-verify: %q", r.Result)
 	}
-	if r := h.methodTorrentReannounce(args); r.Result != "success" {
+	if r := h.methodTorrentReannounce(args, sysIdent); r.Result != "success" {
 		t.Errorf("torrent-reannounce: %q", r.Result)
 	}
 	// streamer nil → reannounce ainda dá success (no-op)
-	if r := (&Handler{}).methodTorrentReannounce(args); r.Result != "success" {
+	if r := (&Handler{}).methodTorrentReannounce(args, sysIdent); r.Result != "success" {
 		t.Errorf("torrent-reannounce (streamer nil): %q", r.Result)
 	}
 }
@@ -338,7 +338,7 @@ func TestMethodTorrentStartStop(t *testing.T) {
 	done := mkDownload(t, st, strings.Repeat("f", 40), downloads.StatusCompleted)
 	ids := map[string]interface{}{"ids": []interface{}{float64(dl), float64(done)}}
 
-	if r := h.methodTorrentStop(ids); r.Result != "success" {
+	if r := h.methodTorrentStop(ids, sysIdent); r.Result != "success" {
 		t.Fatalf("stop: %q", r.Result)
 	}
 	if got, _ := st.Get(1, dl); got.Status != downloads.StatusPaused {
@@ -347,7 +347,7 @@ func TestMethodTorrentStartStop(t *testing.T) {
 	if got, _ := st.Get(1, done); got.Status != downloads.StatusCompleted {
 		t.Errorf("completed deveria ser pulado, status = %q", got.Status)
 	}
-	if r := h.methodTorrentStart(ids); r.Result != "success" {
+	if r := h.methodTorrentStart(ids, sysIdent); r.Result != "success" {
 		t.Fatalf("start: %q", r.Result)
 	}
 	// torrent-start re-queues; scheduler promotes later (active limit).

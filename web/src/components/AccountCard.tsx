@@ -4,6 +4,13 @@ import { Loader2, KeyRound, User, ShieldCheck, ShieldOff, Copy, Check, Fingerpri
 import { changePassword, changeEmail, mfaEnroll, mfaVerify, mfaDisable, mfaBackupCodesRemaining, mfaRegenerateBackupCodes, isPasskeySupported, passkeyList, passkeyRegister, passkeyDelete, PasskeyInfo } from '../api/client'
 import { useAuth, getRefreshToken } from '../auth/AuthContext'
 
+// The MFA enroll URI lands straight in an <a href>. It comes from the API, so
+// allow-list the only two schemes a TOTP app link can legitimately use —
+// anything else (javascript:, data:, ...) renders as plain nothing.
+export function isSafeEnrollUri(uri: string): boolean {
+  return /^(otpauth:\/\/|https:\/\/)/i.test(uri)
+}
+
 // AccountCard — self-service: shows who you are and lets you change your own
 // password (verifying the current one). Visible to every logged-in user.
 export default function AccountCard() {
@@ -220,7 +227,9 @@ export default function AccountCard() {
               <button onClick={() => { navigator.clipboard?.writeText(enroll.secret); setCopied(true) }} title={t('account.copy_secret')}
                 className="text-text-secondary hover:text-text-primary flex-shrink-0">{copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}</button>
             </div>
-            <a href={enroll.uri} className="text-[11px] text-blue-400 hover:underline truncate" title={enroll.uri}>{t('account.open_in_app')}</a>
+            {isSafeEnrollUri(enroll.uri) && (
+              <a href={enroll.uri} className="text-[11px] text-blue-400 hover:underline truncate" title={enroll.uri}>{t('account.open_in_app')}</a>
+            )}
             <div className="flex items-center gap-2">
               <input value={mfaCode} onChange={e => setMfaCode(e.target.value.replaceAll(/\D/g, '').slice(0, 6))} placeholder="000000" inputMode="numeric"
                 className="bg-surface border border-default rounded-lg px-3 py-1.5 text-sm text-text-primary font-mono tracking-widest w-28 text-center" />

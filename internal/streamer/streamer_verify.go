@@ -270,15 +270,21 @@ func (s *Streamer) warmTail(f *torrent.File) {
 		_ = r.Close()
 		return
 	}
+	// Bound the read itself. Reader.Close() does NOT unblock a Read blocked in
+	// waitAvailable (anacrolix reader.go: Close only detaches the reader), so
+	// the old fire-and-forget goroutine leaked — sometimes until an unrelated
+	// client event woke it, sometimes until process exit — one per playback on
+	// a stalled swarm. SetContext wires a deadline into waitAvailable, which
+	// returns ctx.Err() when it fires: the read (and this goroutine) ends on
+	// time. The priority hint is already committed either way.
+	ctx, cancel := context.WithTimeout(context.Background(), warmTailReadBudget)
+	defer cancel()
+	r.SetContext(ctx)
 	buf := make([]byte, 256<<10)
-	done := make(chan struct{})
-	go func() {
-		_, _ = r.Read(buf) // commit the priority hint; bytes themselves discarded
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
-	}
+	_, _ = r.Read(buf) // commit the priority hint; bytes themselves discarded
 	_ = r.Close()
 }
+
+// warmTailReadBudget bounds warmTail's tail read. Var (not const) so tests can
+// shrink it; the default is the production budget.
+var warmTailReadBudget = 30 * time.Second

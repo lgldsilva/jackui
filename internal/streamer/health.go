@@ -139,9 +139,21 @@ func (s *Streamer) ProbeHealthAsync(hash metainfo.Hash, magnet string) {
 func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 	// Already streaming? Just snapshot live — never interfere with a play. Keep
 	// the seeders count from regressing the last tracker scrape (see HealthSnapshot).
-	if e := s.activeEntry(hash); e != nil {
-		st := e.t.Stats()
-		_ = s.cache.SetHealth(hash.HexString(), s.seedersNotBelowScrape(hash, st.ConnectedSeeders), st.TotalPeers)
+	// Read Stats() while STILL holding s.mu — the invariant documented for
+	// HealthSnapshot (see the TOCTOU comment at health.go:37-47) applies here
+	// too: activeEntry() releases the lock before we touch e.t, so a concurrent
+	// Drop/gcLoop could tear the torrent down in between and this probe would
+	// read a dead torrent (persisting a bogus zeroed snapshot).
+	s.mu.Lock()
+	e, ok := s.active[hash]
+	var connectedSeeders, totalPeers int
+	if ok {
+		ts := e.t.Stats()
+		connectedSeeders, totalPeers = ts.ConnectedSeeders, ts.TotalPeers
+	}
+	s.mu.Unlock()
+	if ok {
+		_ = s.cache.SetHealth(hash.HexString(), s.seedersNotBelowScrape(hash, connectedSeeders), totalPeers)
 		return
 	}
 
@@ -171,7 +183,9 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.MetadataWait+healthPeerWait+2*time.Second)
 	defer cancel()
 	if _, err := s.Add(ctx, magnet); err != nil {
-		_ = s.cache.SetHealth(hash.HexString(), 0, 0)
+		// Leave the previous snapshot untouched: a failed fallback says nothing
+		// about the swarm, and zeroing it used to bury a good scrape (same
+		// policy as the magnet=="" early return above).
 		return
 	}
 
@@ -191,12 +205,12 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 	}
 
 	s.mu.Lock()
-	e := s.active[hash]
-	if e == nil {
+	e2 := s.active[hash]
+	if e2 == nil {
 		s.mu.Unlock()
 		return
 	}
-	st := e.t.Stats()
+	st := e2.t.Stats()
 	s.mu.Unlock()
 	_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
 	s.dropProbeEntry(hash, probeEntry, la0)

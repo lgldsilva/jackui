@@ -84,11 +84,13 @@ export const streamInfo = async (hash: string): Promise<TorrentInfo> => {
   return data
 }
 
+/** Admin-only (global mutation): the server answers 403 for non-admins. */
 export const streamDrop = async (hash: string): Promise<void> => {
   await api.delete(`/stream/${hash}`)
 }
 
-/** Perf #7: drop many torrents (+ HLS) in one POST instead of N DELETE /stream/:hash. */
+/** Perf #7: drop many torrents (+ HLS) in one POST instead of N DELETE /stream/:hash.
+ *  Admin-only (global mutation): the server answers 403 for non-admins. */
 export type StreamDropBatchResult = {
   dropped: number
   total: number

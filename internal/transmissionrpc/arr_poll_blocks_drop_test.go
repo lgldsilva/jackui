@@ -103,7 +103,7 @@ func TestTorrentRemove_DeleteLocalData_DropsActiveTorrentAfterPoll(t *testing.T)
 	resp := h.methodTorrentRemove(map[string]interface{}{
 		"ids":               []interface{}{float64(d.ID)},
 		"delete-local-data": true,
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -137,7 +137,7 @@ func TestTorrentRemove_KeepLocalData_LeavesActiveTorrentAlone(t *testing.T) {
 
 	resp := h.methodTorrentRemove(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}

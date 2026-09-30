@@ -59,6 +59,12 @@ export function useStreamSession(deps: {
   const everReadyRef = useRef(false)
   const prevAudioModeRef = useRef(audioMode)
   const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null)
+  // Staleness guard for the progress poll (mirrors DownloadsPage's loadSeqRef):
+  // the hash the current poll belongs to. An in-flight streamInfo tick from the
+  // PREVIOUS track resolves after the switch — without the guard it would stomp
+  // the new track's `info`. Bumped in the streamAdd effect (target known at
+  // switch time) and again by the poll effect itself.
+  const pollHashRef = useRef('')
 
   // Asks for a media token (long-TTL JWT, scope="media") when the player opens.
   // Required BEFORE mounting <video src> so the URL doesn't change afterwards
@@ -70,7 +76,12 @@ export function useStreamSession(deps: {
     let cancelled = false
     fetchMediaToken()
       .then(t => { if (!cancelled) setMediaToken(t) })
-      .catch(() => {}) // fallback: streamURL stays empty, UI shows "loading"
+      .catch(() => {
+        // Without a token the streamURL stays empty and the UI would sit on
+        // "loading" forever — surface the failure through the error state the
+        // modal already renders (existing i18n key, same as streamAdd's).
+        if (!cancelled) setError(t('player.modal.streamStartFailed'))
+      })
     return () => { cancelled = true }
   }, [result?.infoHash])
 
@@ -94,6 +105,9 @@ export function useStreamSession(deps: {
     streamAddDoneRef.current = false
 
     resetForNewResult(warmHold)
+    // Invalidate any in-flight progress poll from the previous hash right away —
+    // this effect runs before the poll effect below re-arms for the new hash.
+    pollHashRef.current = result.infoHash ?? ''
 
     // Try the cached metadata first — if the server has seen this hash before,
     // the file list + name appear instantly. streamAdd still kicks off in
@@ -164,12 +178,21 @@ export function useStreamSession(deps: {
   // Poll progress every 2s while modal is open
   useEffect(() => {
     if (!info?.infoHash) return
+    const hash = info.infoHash
+    pollHashRef.current = hash
     const tick = () => {
       // Skip while the tab is hidden (background audio is the common case): each
       // streamInfo rebuilds the torrent's buildInfo (dozens of BytesCompleted
       // on a multi-file pack). Resumes updating on its own when the tab regains focus.
       if (document.hidden) return
-      streamInfo(info.infoHash).then(setInfo).catch(() => {})
+      streamInfo(hash)
+        .then(latest => {
+          // Stale tick: this poll was started for a hash that is no longer the
+          // current one (track/playlist switch happened mid-flight) — drop it.
+          if (pollHashRef.current !== hash) return
+          setInfo(latest)
+        })
+        .catch(() => {})
     }
     pollRef.current = globalThis.setInterval(tick, 2000)
     return () => {

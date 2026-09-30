@@ -64,9 +64,21 @@ jobs:
         run: |
           set -uo pipefail  # NOT -e (L7)
           TRIVY_VERSION="0.72.0"
-          curl -sSfL \
+          curl -sSfL --proto "=https" --tlsv1.2 \
             "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             -o /tmp/trivy.tar.gz
+          # Supply-chain: verify the tarball against the checksum published with
+          # the release before executing anything from it. Fails the step (and
+          # the release) on mismatch or on a missing checksum line.
+          curl -sSfL --proto "=https" --tlsv1.2 \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt" \
+            -o /tmp/trivy_checksums.txt
+          if ! grep "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz\$" /tmp/trivy_checksums.txt \
+              | sed "s/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz/trivy.tar.gz/" \
+              | (cd /tmp && sha256sum --check -); then
+            echo "::error::Trivy tarball failed SHA256 verification" >&2
+            exit 1
+          fi
           tar xzf /tmp/trivy.tar.gz -C /tmp trivy
           mv /tmp/trivy /usr/local/bin/trivy
           trivy --version
@@ -141,10 +153,15 @@ jobs:
           fetch-depth: 0
 
       - id: changelog
+        env:
+          # Pass the version via env (quoted at use) instead of unquoted ${{ }}
+          # interpolation into the shell: a tag name carrying shell
+          # metacharacters must never reach the command line unquoted.
+          VERSION: ${{ needs.semver.outputs.version }}
         run: |
           {
             echo 'changelog<<EOF'
-            bash scripts/changelog.sh ${{ needs.semver.outputs.version }}
+            bash scripts/changelog.sh "$VERSION"
             echo 'EOF'
           } >> $GITHUB_OUTPUT
 

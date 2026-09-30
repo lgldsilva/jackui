@@ -247,7 +247,8 @@ func (h *GoogleOAuthHandlers) rejectOAuthMFA(c *gin.Context, user *auth.User, to
 		return true
 	}
 	secret, _, _ := h.store.GetTOTPSecret(user.ID)
-	if !auth.ValidateTOTP(secret, totp) && !h.store.ConsumeBackupCode(user.ID, totp) {
+	// Replay-aware validation (records the matched step), same as the login flow.
+	if !h.store.ValidateTOTPForUser(user.ID, secret, totp) && !h.store.ConsumeBackupCode(user.ID, totp) {
 		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "invalid MFA code", gin.H{"mfaRequired": true})
 		return true
 	}

@@ -67,25 +67,34 @@ func padBase32(s string) string {
 	return s
 }
 
-// ValidateTOTP checks a code against the secret, allowing ±1 step (clock skew /
-// the user typing as the window rolls).
-func ValidateTOTP(secret, code string) bool {
+// validateTOTPStep checks a code against the secret, allowing ±1 step (clock
+// skew / the user typing as the window rolls), and returns the step that
+// matched so callers can enforce single-use (replay gating).
+func validateTOTPStep(secret, code string) (uint64, bool) {
 	code = strings.TrimSpace(code)
 	if len(code) != 6 || secret == "" {
-		return false
+		return 0, false
 	}
 	now := time.Now().Unix() / int64(totpStep.Seconds())
 	if now < 0 {
 		// Clocks set before the Unix epoch have no meaningful TOTP window.
-		return false
+		return 0, false
 	}
 	// now >= 0, so the widening conversion to the counter space is exact; the
 	// ±1 skew window below wraps in uint64 space exactly as before.
 	u := uint64(now)
 	for _, c := range []uint64{u - 1, u, u + 1} {
 		if hmac.Equal([]byte(totpAt(secret, c)), []byte(code)) {
-			return true
+			return c, true
 		}
 	}
-	return false
+	return 0, false
+}
+
+// ValidateTOTP checks a code against the secret, allowing ±1 step (clock skew /
+// the user typing as the window rolls). Replay gating lives in
+// Store.ValidateTOTPForUser, which records the matched step.
+func ValidateTOTP(secret, code string) bool {
+	_, ok := validateTOTPStep(secret, code)
+	return ok
 }

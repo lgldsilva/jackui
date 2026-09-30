@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/downloads"
 )
 
@@ -35,29 +36,53 @@ func (h *Handler) emit409(c *gin.Context, sid string) {
 	c.JSON(http.StatusConflict, rpcResponse{Result: "success"})
 }
 
-// resolveSessionUser autentica o usuário via session-id ou Basic Auth.
-// Retorna (userID, false) quando emite 409 (handshake necessário).
-func (h *Handler) resolveSessionUser(c *gin.Context, sessionID string) (userID int, ok bool) {
+// resolveSessionUser authenticates the caller via session-id or Basic Auth.
+// Returns (identity, false) after emitting 409 (handshake needed) — or after
+// answering the request itself with 401 (guest role refused) / 429 (locked
+// out by repeated password failures).
+func (h *Handler) resolveSessionUser(c *gin.Context, sessionID string) (rpcIdentity, bool) {
 	if h.authStore == nil {
-		return 0, true
+		// Auth disabled: local-trusted deployment; the system identity has
+		// full cross-user visibility.
+		return rpcIdentity{userID: 0, admin: true}, true
 	}
 	h.mu.RLock()
 	uid, known := h.sessions[sessionID]
+	admin := h.roles[uid]
 	h.mu.RUnlock()
 	if known {
-		return uid, true
+		return rpcIdentity{userID: uid, admin: admin}, true
 	}
 	sid := newSessionID()
 	if user, pass, pwok := c.Request.BasicAuth(); pwok {
-		if u, err := h.authStore.VerifyPassword(user, pass); err == nil && u != nil {
-			userID = u.ID
+		if h.rejectIfLocked(c, user) {
+			return rpcIdentity{}, false
+		}
+		u, err := h.authStore.VerifyPassword(user, pass)
+		switch {
+		case err != nil || u == nil:
+			// Bad credentials still answer 409 (the *arr handshake the client
+			// expects), but count toward the brute-force lockout.
+			if h.lockout != nil {
+				h.lockout.Fail(user)
+			}
+		case u.Role == auth.RoleGuest:
+			// Guests are read-only UI visitors; the RPC can add/remove any
+			// download, so they never get past authentication.
+			rejectUnauthorized(c)
+			return rpcIdentity{}, false
+		default:
+			if h.lockout != nil {
+				h.lockout.Reset(user)
+			}
 			h.mu.Lock()
-			h.sessions[sid] = userID
+			h.sessions[sid] = u.ID
+			h.roles[u.ID] = u.Role == auth.RoleAdmin
 			h.mu.Unlock()
 		}
 	}
 	h.emit409(c, sid)
-	return 0, false
+	return rpcIdentity{}, false
 }
 
 // ─── session-set ───────────────────────────────────────────────────────────
@@ -69,7 +94,11 @@ func (h *Handler) methodSessionSet(args map[string]interface{}) rpcResponse {
 	return successResp(nil)
 }
 
+// applySessionAltSpeed mutates the live session state under the handler
+// mutex: the *arr session-get poll reads these fields concurrently.
 func (h *Handler) applySessionAltSpeed(args map[string]interface{}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if v, ok := args[keyAltSpeedEn].(bool); ok {
 		h.altSpeedEnabled = v
 	}
@@ -85,6 +114,8 @@ func (h *Handler) applySessionAltSpeed(args map[string]interface{}) {
 }
 
 func (h *Handler) applySessionQueue(args map[string]interface{}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if v, ok := args[keyDLQueueEn].(bool); ok {
 		h.downloadQueueEnabled = v
 	}
@@ -181,6 +212,19 @@ func (h *Handler) methodSessionGet() rpcResponse {
 		}
 	}
 
+	// Snapshot the mutable session state under the read lock: session-set may
+	// be mutating it concurrently (live *arr poll vs UI settings change).
+	h.mu.RLock()
+	startAdded := h.startAddedTorrents
+	altSpeedEnabled := h.altSpeedEnabled
+	altSpeedDown := h.altSpeedDown
+	altSpeedUp := h.altSpeedUp
+	dlQueueEnabled := h.downloadQueueEnabled
+	dlQueueSize := h.downloadQueueSize
+	seedQueueEnabled := h.seedQueueEnabled
+	seedQueueSize := h.seedQueueSize
+	h.mu.RUnlock()
+
 	return successResp(map[string]interface{}{
 		"version":                              "4.1.1",
 		"rpc-version":                          19,
@@ -205,10 +249,10 @@ func (h *Handler) methodSessionGet() rpcResponse {
 		"utp-enabled":                          true,
 		"tcp-enabled":                          true,
 		"encryption":                           "preferred",
-		"start-added-torrents":                 h.startAddedTorrents,
-		"alt-speed-enabled":                    h.altSpeedEnabled,
-		"alt-speed-down":                       h.altSpeedDown,
-		"alt-speed-up":                         h.altSpeedUp,
+		"start-added-torrents":                 startAdded,
+		"alt-speed-enabled":                    altSpeedEnabled,
+		"alt-speed-down":                       altSpeedDown,
+		"alt-speed-up":                         altSpeedUp,
 		"alt-speed-time-begin":                 540,
 		"alt-speed-time-day":                   127,
 		"alt-speed-time-enabled":               false,
@@ -217,10 +261,10 @@ func (h *Handler) methodSessionGet() rpcResponse {
 		keySpeedLimitDownEn:                    false,
 		keySpeedLimitUp:                        0,
 		keySpeedLimitUpEn:                      false,
-		"download-queue-enabled":               h.downloadQueueEnabled,
-		"download-queue-size":                  h.downloadQueueSize,
-		"seed-queue-enabled":                   h.seedQueueEnabled,
-		"seed-queue-size":                      h.seedQueueSize,
+		"download-queue-enabled":               dlQueueEnabled,
+		"download-queue-size":                  dlQueueSize,
+		"seed-queue-enabled":                   seedQueueEnabled,
+		"seed-queue-size":                      seedQueueSize,
 		"queue-stalled-enabled":                true,
 		"queue-stalled-minutes":                30,
 		"idle-seeding-limit":                   3000,

@@ -7,6 +7,16 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 )
 
+// Bounded periodic sweep for rows stuck in `moving` (see sweepStuckMoving):
+const (
+	// movingSweepTicks is the sweep cadence in ticks (default 2s interval →
+	// roughly once a minute).
+	movingSweepTicks = 30
+	// movingStuckAfter is how long a row may sit in `moving` without an active
+	// in-process move before the sweep re-dispatches it.
+	movingStuckAfter = 10 * time.Minute
+)
+
 func (w *Worker) run() {
 	defer w.doneWG.Done()
 
@@ -89,6 +99,83 @@ func (w *Worker) tick() {
 	qs := w.queueSettings()
 	w.detectStalls(qs)
 	w.applySchedule(qs)
+
+	w.maybeSweepStuckMoving()
+}
+
+// maybeSweepStuckMoving runs the stuck-moving sweep every movingSweepTicks
+// ticks (bounded periodic — not per tick).
+func (w *Worker) maybeSweepStuckMoving() {
+	w.mu.Lock()
+	w.ticks++
+	due := w.ticks%movingSweepTicks == 0
+	w.mu.Unlock()
+	if due {
+		w.sweepStuckMoving()
+	}
+}
+
+// sweepStuckMoving re-dispatches rows wedged in `moving`: checkCompletion flips
+// the status and only then submits the transfer job, so a crash in between (or
+// a boot rescue that missed) leaves the row invisible — ListActive only returns
+// `downloading`, so no tick would ever look at it again. A row is stuck when
+// THIS process owns no move for it (not in movingActive) and either the
+// dispatch was never recorded or it predates movingStuckAfter. Re-dispatch
+// reuses the boot rescue verbatim: re-register eviction protection, flip the
+// row back to `downloading`, let the next tick re-run the idempotent move.
+func (w *Worker) sweepStuckMoving() {
+	rows, err := w.store.ListMoving()
+	if err != nil {
+		log.Printf("downloads: stuck-moving sweep list failed: %v", err)
+		return
+	}
+	now := time.Now()
+	live := make(map[int]struct{}, len(rows))
+	var stuck []Download
+	w.mu.Lock()
+	for _, d := range rows {
+		live[d.ID] = struct{}{}
+		if _, active := w.movingActive[d.ID]; active {
+			continue // a move goroutine/queued job owns this row — a long copy is healthy
+		}
+		if started, seen := w.movingSince[d.ID]; seen && now.Sub(started) < movingStuckAfter {
+			continue // recorded dispatch within the grace period — give the pool its turn
+		}
+		stuck = append(stuck, d)
+	}
+	// Prune bookkeeping for rows that left `moving` (completed/failed/paused).
+	for id := range w.movingActive {
+		if _, ok := live[id]; !ok {
+			delete(w.movingActive, id)
+			delete(w.movingSince, id)
+		}
+	}
+	w.mu.Unlock()
+
+	for _, d := range stuck {
+		log.Printf("downloads: sweep re-dispatching stuck move #%d %q (no active move)", d.ID, d.Name)
+		w.clearMovingState(d.ID)
+		// Same rescue the boot path uses — factored, not duplicated.
+		rescueInterruptedMove(WorkerConfig{Store: w.store, Streamer: w.streamer}, d)
+	}
+}
+
+// markMovingDispatch records that THIS process dispatched a completion move for
+// id (called by checkCompletion before the transfer job is submitted).
+func (w *Worker) markMovingDispatch(id int) {
+	w.mu.Lock()
+	w.movingActive[id] = struct{}{}
+	w.movingSince[id] = time.Now()
+	w.mu.Unlock()
+}
+
+// clearMovingState drops the dispatch bookkeeping once the move goroutine
+// returns (any outcome) — called via defer from runCompletionMove.
+func (w *Worker) clearMovingState(id int) {
+	w.mu.Lock()
+	delete(w.movingActive, id)
+	delete(w.movingSince, id)
+	w.mu.Unlock()
 }
 
 // hashesStillWanted is the set of info hashes that ANY currently-active row maps

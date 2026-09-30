@@ -440,7 +440,8 @@
     "title": "Notificações",
     "empty": "Nenhuma notificação ainda. Os hits das watchlists aparecem aqui.",
     "enable_push": "Ativar push neste navegador",
-    "push_on": "Push ativo"
+    "push_on": "Push ativo",
+    "copy_magnet": "Copiar magnet"
   },
   "trailer": {
     "watch": "Trailer",
@@ -648,6 +649,7 @@
       "priorityLow": "Baixa",
       "priorityNormal": "Normal",
       "priorityHigh": "Alta",
+      "queuePriorityTitle": "Prioridade na fila",
       "stopSeed": "Parar e remover",
       "openLocal": "Abrir no local",
       "openLocalTitle": "Abre o navegador de arquivos na pasta deste download",
@@ -1309,7 +1311,14 @@
     "statusDownloading": "Baixando",
     "statusCompleted": "Baixado",
     "statusPaused": "Pausado",
-    "statusFailed": "Falhou"
+    "statusFailed": "Falhou",
+    "sortDate": "Data",
+    "sortName": "Nome",
+    "sortSeeds": "Seeds",
+    "sortSize": "Tamanho",
+    "sortBy": "Ordenar por",
+    "sortDirAscTitle": "Crescente — clique p/ decrescente",
+    "sortDirDescTitle": "Decrescente — clique p/ crescente"
   },
   "local": {
     "cancel": "Cancelar",
@@ -1645,6 +1654,9 @@
     "storage_file": "file — grava direto no disco (padrão)",
     "storage_mmap": "mmap — mapeia em memória (page cache; seek mais rápido)",
     "conns_per_torrent": "Conexões por torrent",
+    "half_open": "Conexões half-open",
+    "peers_high_water": "Peers (limite alto)",
+    "piece_hashers": "Hashers de pieces (CPU)",
     "field_zero_hint": "Campo em 0 = usar o default da biblioteca (mostrado no placeholder).",
     "save": "Salvar",
     "cache": {
@@ -1694,6 +1706,8 @@
     "kill_confirm": "Encerrar",
     "loading": "Carregando monitoramento de transcode e GPU...",
     "title": "Transcode & Uso de GPU",
+    "hardware_title": "Transcodificação por hardware",
+    "probing": "Testando capacidades do transcoder...",
     "session_active": "sessão ativa",
     "sessions_active": "sessões ativas",
     "gpu_usage": "Uso da GPU ({{type}}):",

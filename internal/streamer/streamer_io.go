@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,26 +12,29 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 )
 
-// Close shuts down the torrent client and releases storage.
+// Close shuts down the torrent client and releases storage. Idempotent: a
+// second call is a no-op (close(s.stop) used to panic on the double close).
 func (s *Streamer) Close() {
-	if s.lifetimeCancel != nil {
-		s.lifetimeCancel()
-	}
-	if s.verifyLim != nil {
-		s.verifyLim.Shutdown()
-	}
-	if s.stop != nil {
-		close(s.stop)
-	}
-	s.client.Close()
-	// Closes the mmap storage (releases mappings/handles). The default FileStorage
-	// is managed by the client, so storageImpl is nil in that case.
-	if s.storageImpl != nil {
-		_ = s.storageImpl.Close()
-	}
-	if s.dlPieceCompletion != nil {
-		_ = s.dlPieceCompletion.Close()
-	}
+	s.closeOnce.Do(func() {
+		if s.lifetimeCancel != nil {
+			s.lifetimeCancel()
+		}
+		if s.verifyLim != nil {
+			s.verifyLim.Shutdown()
+		}
+		if s.stop != nil {
+			close(s.stop)
+		}
+		s.client.Close()
+		// Closes the mmap storage (releases mappings/handles). The default FileStorage
+		// is managed by the client, so storageImpl is nil in that case.
+		if s.storageImpl != nil {
+			_ = s.storageImpl.Close()
+		}
+		if s.dlPieceCompletion != nil {
+			_ = s.dlPieceCompletion.Close()
+		}
+	})
 }
 
 // FileReader returns a ReadSeeker for one file, configured for streaming.
@@ -127,24 +131,28 @@ func (s *Streamer) Prefetch(hash metainfo.Hash, fileIdx int) error {
 		return fmt.Errorf("prefetch seek: %w", err)
 	}
 	// Tiny read just to commit the readahead hint and trigger piece priority.
+	// Bounded through the reader's OWN context: Reader.Close() does not unblock
+	// a Read blocked in waitAvailable, so the old detached read goroutine
+	// leaked past the soft deadline on a stalled swarm. The budget is
+	// unchanged; the readahead is registered before the read, so the hint
+	// survives even when it times out. The budget is read here (caller's
+	// goroutine) and passed in, so the goroutine never touches the package var
+	// (which tests shrink and restore).
+	budget := prefetchReadBudget
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), budget)
+		defer cancel()
+		r.SetContext(ctx)
 		buf := make([]byte, 256<<10) // 256 KiB
-		// Best-effort read with a soft deadline: even if it blocks waiting for
-		// peers, the readahead is already registered so closing later still
-		// leaves the pieces queued in anacrolix.
-		done := make(chan struct{})
-		go func() {
-			_, _ = r.Read(buf)
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-		}
+		_, _ = r.Read(buf)
 		_ = r.Close()
 	}()
 	return nil
 }
+
+// prefetchReadBudget bounds Prefetch's hint-commit read. Var (not const) so
+// tests can shrink it; the default is the production budget.
+var prefetchReadBudget = 5 * time.Second
 
 // activeReadGuard: a torrent read within this window is treated as still being
 // watched, so an explicit Drop() (player close) is skipped. trackingReader bumps

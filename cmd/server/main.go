@@ -52,6 +52,36 @@ const (
 	routePlaylistID = "/playlists/:id"
 )
 
+// instanceLockName is the lockfile (inside DataDir) backing the single-instance
+// guard. It carries no data — only the flock matters.
+const instanceLockName = ".jackui.lock"
+
+// acquireInstanceLock takes an exclusive non-blocking flock on a lockfile
+// inside dataDir, so a second jackui process pointed at the same DataDir fails
+// fast instead of corrupting the anacrolix bolt DB / piece storage (neither is
+// multi-process safe). Returns (nil, nil) for an empty dataDir — nothing to
+// protect (tests/CI configs without a DataDir). The lock lives as long as the
+// returned file stays open; closing it (or process exit) releases it.
+func acquireInstanceLock(dataDir string) (*os.File, error) {
+	if dataDir == "" {
+		return nil, nil
+	}
+	// #nosec G301 -- data dir; 0755 intentional so media tools can traverse it
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create data dir: %w", err)
+	}
+	// #nosec G304 -- path derived from the configured DataDir
+	f, err := os.OpenFile(filepath.Join(dataDir, instanceLockName), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open instance lock: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("another jackui instance is running on this DataDir (%s): %w", dataDir, err)
+	}
+	return f, nil
+}
+
 type appDeps struct {
 	cfg              *config.Config
 	configPath       string
@@ -234,6 +264,15 @@ func handledMigrateAuth() bool {
 func bootstrapApp() *appDeps {
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
+	// Single-instance guard: two processes on one DataDir would race on the
+	// anacrolix bolt DB and piece storage. Fail fast; the running instance wins.
+	lock, err := acquireInstanceLock(deps.cfg.Stream.DataDir)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	if lock != nil {
+		deps.addCleanup(func() { _ = lock.Close() }) // releases the flock
+	}
 	if err := config.CheckWritable(deps.configPath); err != nil {
 		log.Printf("WARNING: config %s is not writable (%v) — changes from Settings/Mounts will not persist; fix the owner/permissions on the host for the container uid", deps.configPath, err)
 	}

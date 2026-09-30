@@ -23,7 +23,8 @@ func b2iFav(b bool) int {
 // Favorites are EVICTED LAST by the cache LRU (only when nothing else can
 // bring the cache under MaxCacheSize) and preserved by manual clear-all.
 //
-// Schema: one row per torrent name (as stored on disk), nullable info_hash for cross-reference.
+// Schema: one row per (user_id, torrent name) — each user owns their favorites
+// independently; nullable info_hash for cross-reference.
 type FavoritesStore struct {
 	db *dbutil.DB
 }
@@ -66,7 +67,10 @@ func (f *FavoritesStore) Close() {
 	// No-op: shared Postgres pool lifecycle is owned by main (S1186).
 }
 
-// Add marks a stream as favorite. Idempotent — re-adding refreshes the timestamp.
+// Add marks a stream as favorite. Idempotent per user — the same user
+// re-adding a name refreshes the row; a different user favoriting the same
+// name gets their own row (PK is (user_id, name) since migration 0006, so one
+// user's Add/Remove can never steal or delete another user's favorite).
 // userID=0 means "no auth/legacy". magnet may be empty if unknown.
 func (f *FavoritesStore) Add(name, infoHash, magnet, reason string, userID int) error {
 	if f == nil {
@@ -74,7 +78,7 @@ func (f *FavoritesStore) Add(name, infoHash, magnet, reason string, userID int) 
 	}
 	_, err := f.db.Exec(`
 		INSERT INTO favorites(name, info_hash, magnet, reason, user_id) VALUES(?, ?, ?, ?, ?)
-		ON CONFLICT(name) DO UPDATE SET
+		ON CONFLICT (user_id, name) DO UPDATE SET
 			info_hash    = excluded.info_hash,
 			magnet       = CASE WHEN excluded.magnet != '' THEN excluded.magnet ELSE favorites.magnet END,
 			reason       = excluded.reason,

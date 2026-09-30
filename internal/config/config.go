@@ -159,7 +159,6 @@ type AuthConfig struct {
 	JWTSecret     string    `yaml:"jwt_secret"`     // HS256 secret; REQUIRED (>=32 bytes) when auth enabled — boot fails otherwise
 	AdminUsername string    `yaml:"admin_username"` // bootstrap admin login
 	AdminPassword string    `yaml:"admin_password"` // bootstrap admin password (only used on first run)
-	DBPath        string    `yaml:"db_path"`        // auth DB (defaults to /data/auth.db)
 	OAuth         AuthOAuth `yaml:"oauth"`          // "Sign in with Google" — optional; see AuthOAuth
 }
 
@@ -313,8 +312,9 @@ func (c *Config) Save(path string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// media/cache file; 0644 intentional for readability
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// 0600: config.yaml holds credentials (JWT secret, SMTP and download-client
+	// passwords, AI API keys) — nothing else on the host needs to read it.
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
@@ -437,14 +437,18 @@ func defaultConfig() *Config {
 	cfg.Auth.Enabled = true // fail-closed: a fresh install defaults to auth ON
 	cfg.Jackett.URL = "http://localhost:9117"
 	cfg.Jackett.APIKey = "YOUR_API_KEY_HERE"
+	// Credentials intentionally ship EMPTY: seeding the well-known qBittorrent
+	// defaults (admin/adminadmin) to disk would put guessable credentials on
+	// the filesystem and make a default install trivially hijackable. Fill
+	// them in via config.yaml / the UI (see config.yaml.example).
 	cfg.DownloadClients = []DownloadClient{
 		{
 			ID:       "qbit-local",
 			Name:     "qBittorrent Local",
 			Type:     "qbittorrent",
 			URL:      "http://localhost:8080",
-			Username: "admin",
-			Password: "adminadmin",
+			Username: "",
+			Password: "",
 			Default:  true,
 		},
 	}

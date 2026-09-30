@@ -4,19 +4,22 @@ jackett:
   api_key: YOUR_API_KEY_HERE
 
 download_clients:
+  # qBittorrent credentials ship EMPTY on purpose — fill in your credentials
+  # below (never commit them). Do not rely on the qBittorrent well-known
+  # admin/adminadmin default.
   - id: qbit-local
     name: "qBittorrent Local"
     type: qbittorrent
     url: http://localhost:8080
-    username: admin
-    password: adminadmin
+    username: ""
+    password: ""
     default: true
   - id: qbit-remote
     name: "qBittorrent Remote"
     type: qbittorrent
     url: http://your-server-ip:8080
-    username: admin
-    password: adminadmin
+    username: ""
+    password: ""
     default: false
   - id: transmission-local
     name: "Transmission Local"

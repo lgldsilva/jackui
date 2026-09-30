@@ -79,7 +79,9 @@ func TestPush_SubscribeListUnsubscribe(t *testing.T) {
 		t.Fatalf("vapid: %d %s", w.Code, w.Body.String())
 	}
 
-	sub := map[string]any{"endpoint": "https://push/e1", "keys": map[string]string{"p256dh": "p", "auth": "a"}}
+	// Public IP literal: endpoint validation requires https + a public host
+	// (203.0.113.7 is TEST-NET-3 — public-classified, never routed here).
+	sub := map[string]any{"endpoint": "https://203.0.113.7/e1", "keys": map[string]string{"p256dh": "p", "auth": "a"}}
 	if w := pushDo(r, "POST", "/api/push/subscribe", sub); w.Code != http.StatusOK {
 		t.Fatalf("subscribe: %d %s", w.Code, w.Body.String())
 	}
@@ -112,7 +114,7 @@ func TestPush_SubscribeListUnsubscribe(t *testing.T) {
 		t.Fatalf("unread after read = %d", n)
 	}
 
-	if w := pushDo(r, "POST", "/api/push/unsubscribe", map[string]string{"endpoint": "https://push/e1"}); w.Code != http.StatusOK {
+	if w := pushDo(r, "POST", "/api/push/unsubscribe", map[string]string{"endpoint": "https://203.0.113.7/e1"}); w.Code != http.StatusOK {
 		t.Fatalf("unsubscribe: %d", w.Code)
 	}
 	if w := pushDo(r, "POST", "/api/push/unsubscribe", map[string]string{"endpoint": ""}); w.Code != http.StatusBadRequest {

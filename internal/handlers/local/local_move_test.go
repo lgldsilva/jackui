@@ -1,12 +1,14 @@
 package local
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -247,5 +249,154 @@ func TestResolveRenameDest_InvalidName(t *testing.T) {
 	}
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid name") {
 		t.Fatalf("status = %d; body=%s", w.Code, w.Body.String())
+	}
+}
+
+// ─── Atomic cross-filesystem copy (hardening fix) ───────────────────────────
+//
+// copyFileAndRemoveJob used to write the destination directly with O_TRUNC and
+// never fsynced before removing the source — a kill -9 / power loss mid-copy
+// could leave a truncated destination while the complete source was gone.
+
+// partialPath is the scratch name the atomic copy writes before the final
+// rename (kept in sync with copyFileAndRemoveJob).
+func partialPath(dst string) string { return dst + ".partial" }
+
+// A stale scratch file from a copy killed mid-flight (the atomic scheme's
+// crash signature: scratch present, no dst) must not wedge the next attempt —
+// the move completes, consumes the scratch file and only then removes the src.
+func TestCopyFileAndRemoveJob_StalePartialFromCrashIsRecovered(t *testing.T) {
+	dir := t.TempDir()
+	payload := bytes.Repeat([]byte("A"), 100)
+	src := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(src, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "copy.mkv")
+	// What a kill -9 mid-copy leaves: scratch file, no final destination.
+	if err := os.WriteFile(partialPath(dst), []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFileAndRemove(src, dst, st); err != nil {
+		t.Fatalf("copyFileAndRemove: %v", err)
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, payload) {
+		t.Fatalf("dst content mismatch: %d bytes, want %d", len(body), len(payload))
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Errorf("src should be removed after the copy completed, stat err=%v", err)
+	}
+	if _, err := os.Stat(partialPath(dst)); !os.IsNotExist(err) {
+		t.Errorf("scratch copy %s must be consumed by the final rename", partialPath(dst))
+	}
+}
+
+// A truncated destination (crash signature of the old non-atomic copy) must be
+// fully recopied, never kept as "already done".
+func TestCopyFileAndRemoveJob_TruncatedDstIsRecopied(t *testing.T) {
+	dir := t.TempDir()
+	payload := bytes.Repeat([]byte("B"), 80)
+	src := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(src, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "copy.mkv")
+	if err := os.WriteFile(dst, bytes.Repeat([]byte("C"), 10), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFileAndRemove(src, dst, st); err != nil {
+		t.Fatalf("copyFileAndRemove: %v", err)
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, payload) {
+		t.Fatalf("destination holds a TRUNCATED copy (%d bytes, want %d)", len(body), len(payload))
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Errorf("src should be removed after the recopy, stat err=%v", err)
+	}
+}
+
+// Resume contract: a destination with the SAME size as the source is treated as
+// already copied — the source is removed WITHOUT recopying (the decoy content
+// proves the copy was skipped).
+func TestCopyFileAndRemoveJob_SameSizeDstResumesWithoutRecopy(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(src, bytes.Repeat([]byte("D"), 50), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "copy.mkv")
+	decoy := bytes.Repeat([]byte("E"), 50) // same size, different content
+	if err := os.WriteFile(dst, decoy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFileAndRemove(src, dst, st); err != nil {
+		t.Fatalf("copyFileAndRemove: %v", err)
+	}
+	body, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, decoy) {
+		t.Fatal("same-size destination was recopied — the resume/skip contract broke")
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Errorf("src should be removed on the resume path, stat err=%v", err)
+	}
+}
+
+// The atomic rename must preserve the source's mode and mtime (the old
+// copy+Chtimes contract — date sort and mtime-based scans depend on it).
+func TestCopyFileAndRemoveJob_PreservesModeAndMtime(t *testing.T) {
+	dir := t.TempDir()
+	payload := bytes.Repeat([]byte("F"), 30)
+	src := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(src, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Date(2020, 3, 4, 5, 6, 7, 0, time.UTC)
+	if err := os.Chtimes(src, old, old); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "copy.mkv")
+
+	st, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFileAndRemove(src, dst, st); err != nil {
+		t.Fatalf("copyFileAndRemove: %v", err)
+	}
+	got, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode().Perm() != 0o600 {
+		t.Fatalf("dst mode = %v, want 0600", got.Mode().Perm())
+	}
+	if !got.ModTime().Equal(old) {
+		t.Fatalf("dst mtime = %v, want %v", got.ModTime(), old)
 	}
 }

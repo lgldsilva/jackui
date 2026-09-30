@@ -107,6 +107,7 @@ export default function NotificationsBell() {
 }
 
 function FeedItem({ n }: { readonly n: AppNotification }) {
+  const { t } = useTranslation()
   return (
     <div className={`px-3 py-2 border-b border-default/40 last:border-b-0 ${n.read ? 'opacity-60' : ''}`}>
       <div className="flex items-start justify-between gap-2">
@@ -115,7 +116,7 @@ function FeedItem({ n }: { readonly n: AppNotification }) {
           <button
             onClick={() => navigator.clipboard?.writeText(n.magnet!)}
             className="flex-shrink-0 text-text-muted hover:text-text-primary p-0.5"
-            title="Copiar magnet"
+            title={t('notifications.copy_magnet')}
           >
             <Copy className="w-3.5 h-3.5" />
           </button>

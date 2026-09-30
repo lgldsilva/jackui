@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,12 @@ import (
 )
 
 const errInvalidFileIndex = "invalid file index"
+
+// maxTorrentFileBytes bounds POST /api/stream/add-file uploads. The route is
+// exempt from the global 2MiB JSON cap (real .torrent files exceed it) but must
+// not be unbounded — it is guest-reachable. 16 MiB matches the Transmission-RPC
+// torrent-add cap (transmissionrpc maxTorrentFileBytes).
+const maxTorrentFileBytes = 16 << 20
 
 type streamAddReq struct {
 	Magnet string `json:"magnet"`
@@ -75,8 +83,21 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 // StreamAddTorrentFile handles POST /api/stream/add-file — adds a torrent from uploaded .torrent file.
 func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Handler-side upload cap (the global BodyLimit exempts this path).
+		// Declared Content-Length over the cap → reject upfront; a chunked body
+		// is cut by MaxBytesReader mid-read and mapped to 413 below.
+		if c.Request.ContentLength > maxTorrentFileBytes {
+			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "torrent file too large")
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTorrentFileBytes)
 		file, err := c.FormFile("file")
 		if err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) || strings.Contains(err.Error(), "request body too large") {
+				httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "torrent file too large")
+				return
+			}
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "file is required")
 			return
 		}

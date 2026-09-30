@@ -75,7 +75,7 @@ func (s *HLSSession) launch(startSeg int) error {
 		// encodes) so playback succeeds. Only for a non-superseded HW-decode run
 		// that actually failed; tryRecoverFromCUDAOOM no-ops otherwise (and only
 		// downgrades once).
-		if err != nil && !superseded && s.tryRecoverFromCUDAOOM(ffctx, oom, startSeg) {
+		if err != nil && !superseded && s.tryRecoverFromCUDAOOM(ffctx, oom, startSeg, myGen) {
 			return
 		}
 		if err != nil && !errors.Is(ffctx.Err(), context.Canceled) && !superseded {
@@ -93,12 +93,23 @@ func (s *HLSSession) launch(startSeg int) error {
 // the held GPU slot (the HW decoder it couldn't allocate), clears `closed` and
 // relaunches at the same segment. Returns true when it took over the recovery
 // (caller must not log the exit as a hard failure).
-func (s *HLSSession) tryRecoverFromCUDAOOM(ffctx context.Context, oom *oomWatcher, startSeg int) bool {
+// myGen is the generation of the run whose death triggered the recovery: a
+// concurrent seek-restart bumps s.gen, and a recovery for a superseded run
+// must not relaunch over the newer encoder.
+func (s *HLSSession) tryRecoverFromCUDAOOM(ffctx context.Context, oom *oomWatcher, startSeg, myGen int) bool {
 	if errors.Is(ffctx.Err(), context.Canceled) || oom == nil || !oom.sawOOM() {
 		return false
 	}
+	// Serialize against seek-restarts: RestartAt holds restartMu across its
+	// cancel→wait→launch sequence, so once we hold it, either a concurrent
+	// seek-restart ALREADY bumped s.gen past myGen (we bail below) or it can't
+	// interleave between our check and the relaunch. Without this a recovery
+	// racing a seek relaunched the OLD segment over the newer encoder — two
+	// ffmpegs, one of them uncancellable from the session's point of view.
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
 	s.mu.Lock()
-	if s.dead || s.swFallbackTried || s.spec == nil || s.spec.swDecode {
+	if s.dead || s.gen != myGen || s.swFallbackTried || s.spec == nil || s.spec.swDecode {
 		s.mu.Unlock()
 		return false
 	}

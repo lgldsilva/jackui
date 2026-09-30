@@ -80,7 +80,11 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	// Submit to the bounded transfer pool: the move waits FIFO for a slot (status
 	// 'queued' in the dock) so many simultaneous completions don't thrash the disk
 	// all at once. The download row stays 'moving' meanwhile (boot rescue covers a
-	// restart while queued).
+	// restart while queued). The dispatch bookkeeping goes in BEFORE SubmitFor so
+	// the stuck-moving sweep can tell "owned by this process" (healthy long copy
+	// or still queued) from "wedged, dispatch lost" — never re-dispatching a live
+	// move.
+	w.markMovingDispatch(d.ID)
 	w.tracker.SubmitFor(d.UserID, name, "download-move", len(relPaths), total, func(job *transfer.Job) {
 		w.runCompletionMove(d, name, relPaths, whole, total, job)
 	})

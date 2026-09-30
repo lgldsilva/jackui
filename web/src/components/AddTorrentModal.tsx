@@ -418,7 +418,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
                       onChange={(e) => setSavePath(e.target.value)}
                       onFocus={() => setShowRecent(recentPaths.length > 0)}
                       onBlur={() => setTimeout(() => setShowRecent(false), 150)}
-                      placeholder="/downloads/filmes"
+                      placeholder="/downloads/movies"
                       className="w-full bg-surface border border-default rounded-lg px-3 py-2 pr-10 text-text-primary text-sm focus:outline-none focus:border-cyan-500 transition-colors"
                     />
                     {recentPaths.length > 0 && selectedClientId !== INTERNAL_ID && (

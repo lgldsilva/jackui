@@ -3,7 +3,55 @@ package auth
 import (
 	"crypto/rand"
 	"strings"
+	"sync"
 )
+
+// TOTPReplayCache is a process-local memory of the newest TOTP step each user
+// has already spent. A code that matched at step N is burnt: N and anything
+// older can never validate again, so an observed code can't be replayed within
+// its ±1 window. Deliberately in-memory only: restarts clear it and each
+// process enforces its own (a multi-instance deployment would need a shared
+// store — this single-binary app has exactly one).
+type TOTPReplayCache struct {
+	mu   sync.Mutex
+	last map[int]uint64
+}
+
+// NewTOTPReplayCache returns an empty replay cache.
+func NewTOTPReplayCache() *TOTPReplayCache {
+	return &TOTPReplayCache{last: make(map[int]uint64)}
+}
+
+// Allow reports whether a code for userID that matched at `step` may be
+// accepted, recording it when so. A step equal to or older than the user's
+// last accepted step is a replay → false.
+func (c *TOTPReplayCache) Allow(userID int, step uint64) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.last == nil {
+		c.last = make(map[int]uint64)
+	}
+	if last, ok := c.last[userID]; ok && step <= last {
+		return false
+	}
+	c.last[userID] = step
+	return true
+}
+
+// ValidateTOTPForUser validates a login TOTP and enforces single use per step:
+// a code that just logged the user in cannot do so again until the next 30s
+// window. Zero-value Stores (built without New — tests only) skip the replay
+// memory.
+func (s *Store) ValidateTOTPForUser(userID int, secret, code string) bool {
+	step, ok := validateTOTPStep(secret, code)
+	if !ok {
+		return false
+	}
+	if s.totpReplay == nil {
+		return true
+	}
+	return s.totpReplay.Allow(userID, step)
+}
 
 // ─── MFA backup codes ───────────────────────────────────────────────────────
 

@@ -8,6 +8,14 @@ type Props = {
   readonly onClose: () => void
 }
 
+// YouTube video keys are exactly 11 chars of [A-Za-z0-9_-]. The key is API
+// data interpolated into the embed URL — validating the shape keeps anything
+// that is not a plain video id (path traversal, query injection, javascript:)
+// out of the iframe src.
+export function isValidYouTubeKey(videoKey: string): boolean {
+  return /^[A-Za-z0-9_-]{11}$/.test(videoKey)
+}
+
 // TrailerModal embeds a YouTube trailer via the privacy-enhanced
 // youtube-nocookie host. Unmounting the iframe stops playback, so closing
 // needs no player API.
@@ -44,13 +52,16 @@ export default function TrailerModal({ videoKey, title, onClose }: Readonly<Prop
           </button>
         </div>
         <div className="aspect-video bg-black rounded-lg overflow-hidden">
-          <iframe
-            src={`https://www.youtube-nocookie.com/embed/${videoKey}?autoplay=1&rel=0`}
-            title={title}
-            className="w-full h-full"
-            allow="autoplay; encrypted-media; picture-in-picture"
-            allowFullScreen
-          />
+          {/* Unvalidated key → no iframe at all (empty shell stays closable). */}
+          {isValidYouTubeKey(videoKey) && (
+            <iframe
+              src={`https://www.youtube-nocookie.com/embed/${videoKey}?autoplay=1&rel=0`}
+              title={title}
+              className="w-full h-full"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+            />
+          )}
         </div>
       </div>
     </div>

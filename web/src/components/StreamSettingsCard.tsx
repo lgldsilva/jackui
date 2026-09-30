@@ -262,11 +262,11 @@ export default function StreamSettingsCard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <NumberField label={t('stream.conns_per_torrent')} value={form.maxConnsPerTorrent} onChange={(n) => set('maxConnsPerTorrent', n)}
             placeholder={defaults.maxConnsPerTorrent} />
-          <NumberField label="Half-open" value={form.halfOpenConns} onChange={(n) => set('halfOpenConns', n)}
+          <NumberField label={t('stream.half_open')} value={form.halfOpenConns} onChange={(n) => set('halfOpenConns', n)}
             placeholder={defaults.halfOpenConns} />
-          <NumberField label="Peers (high water)" value={form.peersHighWater} onChange={(n) => set('peersHighWater', n)}
+          <NumberField label={t('stream.peers_high_water')} value={form.peersHighWater} onChange={(n) => set('peersHighWater', n)}
             placeholder={defaults.peersHighWater} />
-          <NumberField label="Piece hashers (CPU)" value={form.pieceHashers} onChange={(n) => set('pieceHashers', n)}
+          <NumberField label={t('stream.piece_hashers')} value={form.pieceHashers} onChange={(n) => set('pieceHashers', n)}
             placeholder={defaults.pieceHashers} />
         </div>
         <p className="text-[11px] text-text-muted">{t('stream.field_zero_hint')}</p>

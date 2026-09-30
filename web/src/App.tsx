@@ -1,5 +1,6 @@
 import { useEffect, useRef, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { load, save } from './lib/storage'
 import { isIncognito } from './lib/incognito'
@@ -138,6 +139,7 @@ function AppRoutes() {
 }
 
 function App() {
+  const { t } = useTranslation()
   return (
     <AuthProvider>
       <ConfirmProvider>
@@ -149,7 +151,7 @@ function App() {
               {/* Global crash net: a render error in any page would otherwise blank
                   the whole app (white screen). Show a recoverable message; reset
                   does a hard reload to home so a wedged route always recovers. */}
-              <ErrorBoundary title="Algo deu errado" onReset={() => { globalThis.location.href = '/' }}>
+              <ErrorBoundary title={t('common.errorTitle')} onReset={() => { globalThis.location.href = '/' }}>
                 <SkipLink />
                 <div id="route-root">
                   <AppRoutes />

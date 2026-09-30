@@ -162,6 +162,17 @@ type Worker struct {
 	// moveBackoff is the base delay between post-download move retries. A field
 	// (not a const) so tests can shrink it; defaults to 2s in NewWorker.
 	moveBackoff time.Duration
+
+	// In-flight completion-move bookkeeping for the stuck-moving sweep, both
+	// guarded by mu. movingActive holds every row whose move goroutine (or its
+	// queued transfer-pool job) is owned by THIS process — set by checkCompletion
+	// before SubmitFor, cleared when runCompletionMove returns. movingSince is
+	// the dispatch timestamp. A `moving` row with neither entry is wedged (the
+	// dispatch never happened or was lost) — the periodic sweep re-dispatches it.
+	movingActive map[int]struct{}
+	movingSince  map[int]time.Time
+	// ticks counts tick() invocations for the bounded stuck-moving sweep cadence.
+	ticks int
 }
 
 // wholeTarget is the slice of *torrent.Torrent the worker needs for
@@ -239,6 +250,8 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		tmdbClient:      cfg.TMDBClient,
 		tracker:         cfg.Tracker,
 		moveBackoff:     2 * time.Second,
+		movingActive:    make(map[int]struct{}),
+		movingSince:     make(map[int]time.Time),
 	}
 	if cfg.Streamer != nil {
 		w.drop = cfg.Streamer.Drop

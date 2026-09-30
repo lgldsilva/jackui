@@ -81,6 +81,20 @@ func (s *Store) ListActive() ([]Download, error) {
 	return scanSlice(rows)
 }
 
+// ListMoving returns every download in `moving` status across all users. The
+// tick's stuck-move sweep uses it: a row wedged in `moving` (a crash between
+// the status flip and the transfer submission, or a boot rescue that missed)
+// never appears in ListActive, so without this query no tick would look at it
+// again.
+func (s *Store) ListMoving() ([]Download, error) {
+	rows, err := s.db.Query(dlSelect+"WHERE status=? ORDER BY id", StatusMoving)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSlice(rows)
+}
+
 // WantedRowsByHash returns every row of one (user, info_hash) that still WANTS
 // the torrent's data — status `downloading` or `queued`. The aggregate-by-torrent
 // completion check uses this to avoid finalizing a torrent while a sibling file

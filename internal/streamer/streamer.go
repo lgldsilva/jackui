@@ -108,13 +108,16 @@ type Config struct {
 type FilePathResolver func(hash metainfo.Hash, fileIdx int) (string, bool)
 
 type Streamer struct {
-	cfg              Config
-	client           *torrent.Client
-	mu               sync.Mutex
-	active           map[metainfo.Hash]*entry
-	favs             *FavoritesStore // optional — nil disables favorites protection
-	cache            *MetadataCache  // optional — nil disables instant-open snapshots
-	stop             chan struct{}
+	cfg    Config
+	client *torrent.Client
+	mu     sync.Mutex
+	active map[metainfo.Hash]*entry
+	favs   *FavoritesStore // optional — nil disables favorites protection
+	cache  *MetadataCache  // optional — nil disables instant-open snapshots
+	stop   chan struct{}
+	// closeOnce makes Close() idempotent: manual shutdown and the GC loop's
+	// teardown can both call it, and close(s.stop) panics on a second close.
+	closeOnce        sync.Once
 	lifetimeCtx      context.Context
 	lifetimeCancel   context.CancelFunc
 	filePathResolver FilePathResolver

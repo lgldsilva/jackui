@@ -257,7 +257,7 @@ func ensureMetainfo(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, magne
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 	if _, err := s.Add(ctx, magnet); err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusGatewayTimeout, fmt.Sprintf("tempo limite atingido aguardando metadados: %v", err))
+		httpshared.RespondErrorMessage(c, http.StatusGatewayTimeout, fmt.Sprintf("timeout waiting for metadata: %v", err))
 		return true
 	}
 	return false

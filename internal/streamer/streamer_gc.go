@@ -120,6 +120,13 @@ func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 		if now.Sub(e.lastAccess) <= s.cfg.IdleTimeout {
 			continue
 		}
+		// A player holding a viewer lease (paused, buffering, or simply idle in
+		// the UI) is still "watching" — Drop() refuses viewers for the same
+		// reason. Dropping here tore playback out from under a paused player,
+		// and the stale viewer-close later killed a NEW entry on fresh playback.
+		if e.viewers > 0 {
+			continue
+		}
 		// Active downloads stay alive even when idle — the user is waiting for
 		// the file to finish in background.
 		if _, protected := s.downloads[e.t.Name()]; protected {

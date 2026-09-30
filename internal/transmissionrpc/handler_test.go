@@ -70,7 +70,7 @@ func TestPortTest(t *testing.T) {
 	h := &Handler{sessions: make(map[string]int)}
 	gin.SetMode(gin.ReleaseMode)
 
-	resp := h.dispatch(rpcRequest{Method: "port-test"}, 0)
+	resp := h.dispatch(rpcRequest{Method: "port-test"}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -171,7 +171,7 @@ func TestRPCErrorOnMissingMethod(t *testing.T) {
 	h := &Handler{sessions: make(map[string]int)}
 	gin.SetMode(gin.ReleaseMode)
 
-	resp := h.dispatch(rpcRequest{Method: "non-existent-method"}, 0)
+	resp := h.dispatch(rpcRequest{Method: "non-existent-method"}, sysIdent)
 	if resp.Result == "success" {
 		t.Errorf("expected error for unknown method")
 	}
@@ -285,7 +285,7 @@ func TestTorrentSet_Labels_UpdatesCategory(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":    []interface{}{float64(d.ID)},
 		"labels": []interface{}{"tv-sonarr"},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("torrent-set: %q", resp.Result)
 	}
@@ -482,7 +482,7 @@ func TestTorrentStart_ChangesStatus(t *testing.T) {
 
 	resp := h.methodTorrentStart(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -511,7 +511,7 @@ func TestTorrentStop_ChangesStatus(t *testing.T) {
 
 	resp := h.methodTorrentStop(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -540,7 +540,7 @@ func TestTorrentStartNow_SameAsStart(t *testing.T) {
 
 	_ = h.methodTorrentStartNow(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
-	})
+	}, sysIdent)
 
 	got, err := st.Get(1, d.ID)
 	if err != nil {
@@ -567,7 +567,7 @@ func TestTorrentStart_OmitsCompleted(t *testing.T) {
 
 	resp := h.methodTorrentStart(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -595,7 +595,7 @@ func TestTorrentStart_AllWhenNoIDs(t *testing.T) {
 	})
 	_ = st.SetStatus(1, d2.ID, downloads.StatusPaused)
 
-	_ = h.methodTorrentStart(nil)
+	_ = h.methodTorrentStart(nil, sysIdent)
 
 	all, _ := st.ListAll()
 	paused := 0
@@ -617,7 +617,7 @@ func TestTorrentVerify_NoStreamer_ReturnsSuccess(t *testing.T) {
 
 	resp := h.methodTorrentVerify(map[string]interface{}{
 		"ids": []interface{}{float64(1)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success without streamer, got %q", resp.Result)
 	}
@@ -627,7 +627,7 @@ func TestTorrentVerify_NoIDs_ReturnsSuccess(t *testing.T) {
 	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	resp := h.methodTorrentVerify(nil)
+	resp := h.methodTorrentVerify(nil, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -641,7 +641,7 @@ func TestTorrentReannounce_NoStreamer_ReturnsSuccess(t *testing.T) {
 
 	resp := h.methodTorrentReannounce(map[string]interface{}{
 		"ids": []interface{}{float64(1)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success without streamer, got %q", resp.Result)
 	}
@@ -651,7 +651,7 @@ func TestTorrentReannounce_NoIDs_ReturnsSuccess(t *testing.T) {
 	h := NewHandler(nil, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	resp := h.methodTorrentReannounce(nil)
+	resp := h.methodTorrentReannounce(nil, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -699,7 +699,7 @@ func TestDispatch_NewMethods_ReturnSuccess(t *testing.T) {
 		"queue-move-top", "queue-move-up", "queue-move-down", "queue-move-bottom",
 	}
 	for _, m := range methods {
-		resp := h.dispatch(rpcRequest{Method: m, Arguments: map[string]interface{}{}}, 0)
+		resp := h.dispatch(rpcRequest{Method: m, Arguments: map[string]interface{}{}}, sysIdent)
 		if resp.Result != "success" {
 			t.Errorf("dispatch(%q) = %q, want success", m, resp.Result)
 		}
@@ -713,7 +713,7 @@ func TestForEachDownload_NoStore(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 
 	called := false
-	resp := h.forEachDownload(nil, func(d downloads.Download) error {
+	resp := h.forEachDownload(nil, sysIdent, func(d downloads.Download) error {
 		called = true
 		return nil
 	})
@@ -740,7 +740,7 @@ func TestForEachDownload_WithStore(t *testing.T) {
 	})
 
 	var visited []int
-	resp := h.forEachDownload(nil, func(d downloads.Download) error {
+	resp := h.forEachDownload(nil, sysIdent, func(d downloads.Download) error {
 		visited = append(visited, d.ID)
 		return nil
 	})
@@ -1077,7 +1077,7 @@ func TestTorrentSet_BandwidthPriority(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":               []interface{}{float64(1)},
 		"bandwidthPriority": float64(1),
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1099,7 +1099,7 @@ func TestTorrentSet_TrackerListOld(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":         []interface{}{float64(d.ID)},
 		"trackerList": "https://new-tracker.example/announce\nhttps://backup.example/announce",
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -1113,7 +1113,7 @@ func TestTorrentSet_PeerLimit(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":       []interface{}{float64(1)},
 		"peerLimit": float64(100),
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1516,7 +1516,7 @@ func TestTorrentRemove_DeleteLocalData_NoStreamer(t *testing.T) {
 	resp := h.methodTorrentRemove(map[string]interface{}{
 		"ids":               []interface{}{float64(d.ID)},
 		"delete-local-data": true,
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -1541,7 +1541,7 @@ func TestTorrentRemove_DeleteLocalData_False(t *testing.T) {
 
 	resp := h.methodTorrentRemove(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -1570,7 +1570,7 @@ func TestTorrentSetLocation_WithPath(t *testing.T) {
 		"ids":      []interface{}{float64(d.ID)},
 		"location": "/data/new/location",
 		"move":     true,
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1602,7 +1602,7 @@ func TestTorrentSetLocation_RejectsTraversal(t *testing.T) {
 		resp := h.methodTorrentSetLocation(map[string]interface{}{
 			"ids":      []interface{}{float64(d.ID)},
 			"location": loc,
-		})
+		}, sysIdent)
 		if resp.Result == "success" {
 			t.Errorf("location %q deveria ser rejeitada (fora do downloadDir)", loc)
 		}
@@ -1619,7 +1619,7 @@ func TestTorrentSetLocation_NoLocation(t *testing.T) {
 
 	resp := h.methodTorrentSetLocation(map[string]interface{}{
 		"ids": []interface{}{float64(1)},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1637,7 +1637,7 @@ func TestTorrentSet_SpeedLimits(t *testing.T) {
 		"downloadLimited": true,
 		"uploadLimit":     float64(100),
 		"uploadLimited":   true,
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1652,7 +1652,7 @@ func TestTorrentSet_TrackerAdd(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":        []interface{}{float64(1)},
 		"trackerAdd": []interface{}{"udp://new-tracker.example:1337"},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1665,7 +1665,7 @@ func TestTorrentSet_TrackerReplace(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":            []interface{}{float64(1)},
 		"trackerReplace": []interface{}{[]interface{}{float64(0), "http://new-tracker.example/announce"}},
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1678,7 +1678,7 @@ func TestTorrentSet_TrackerList(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":         []interface{}{float64(1)},
 		"trackerList": "http://t1.example/announce\nhttp://t2.example/announce\n\nhttp://backup.example/announce",
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1691,7 +1691,7 @@ func TestTorrentSet_TrackerList_Empty(t *testing.T) {
 	resp := h.methodTorrentSet(map[string]interface{}{
 		"ids":         []interface{}{float64(1)},
 		"trackerList": "",
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1709,7 +1709,7 @@ func TestTorrentSet_SeedRatio(t *testing.T) {
 		"seedRatioMode":  float64(1),
 		"seedIdleLimit":  float64(60),
 		"seedIdleMode":   float64(1),
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1725,7 +1725,7 @@ func TestTorrentSet_ExtraArgs(t *testing.T) {
 		"ids":                 []interface{}{float64(1)},
 		"honorsSessionLimits": true,
 		"queuePosition":       float64(0),
-	})
+	}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
@@ -1761,7 +1761,7 @@ func TestDispatch_BespokePortTest(t *testing.T) {
 	h := &Handler{sessions: make(map[string]int)}
 	gin.SetMode(gin.ReleaseMode)
 
-	resp := h.dispatch(rpcRequest{Method: "port-test"}, 0)
+	resp := h.dispatch(rpcRequest{Method: "port-test"}, sysIdent)
 	if resp.Result != "success" {
 		t.Errorf("port-test: expected success, got %q", resp.Result)
 	}

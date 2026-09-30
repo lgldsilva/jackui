@@ -89,6 +89,15 @@ func (s *Streamer) dropIfStillIdle(hash metainfo.Hash, e *entry) {
 		s.mu.Unlock()
 		return
 	}
+	// Do not drop a torrent another reader is actively streaming: a co-watcher
+	// without a viewer lease (leases are best-effort) still refreshes lastAccess
+	// on every read via trackingReader. Same guard as drop() in streamer_io.go —
+	// without it the grace fire 8s after ONE viewer closed killed a SURVIVING
+	// viewer's mid-playback torrent.
+	if time.Since(e.lastAccess) < activeReadGuard {
+		s.mu.Unlock()
+		return
+	}
 	delete(s.active, hash)
 	e.dropTimer = nil
 	s.mu.Unlock()
