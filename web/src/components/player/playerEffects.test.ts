@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { autoDownloadNextFile, trySaveResume } from './playerEffects'
+import { autoDownloadNextFile, buildErrorInfo, trySaveResume } from './playerEffects'
 
 vi.mock('../../api/client', async () => {
   const actual = await vi.importActual<typeof import('../../api/client')>('../../api/client')
@@ -162,6 +162,28 @@ describe('autoDownloadNextFile', () => {
     autoDownloadNextFile({ info: mkInfo(files), selectedFile: 1, nextIdx: 2, doneRef, incognito: false, onEnqueue })
     expect(onEnqueue).toHaveBeenCalledTimes(2)
     expect(onEnqueue).toHaveBeenLastCalledWith(2)
+  })
+})
+
+describe('buildErrorInfo', () => {
+  // Healthy swarm, enough data downloaded — the "codec" branch territory.
+  const healthy = mkInfo([mkFile({ index: 0, downloaded: 500 * 1024 * 1024, size: 1_000 * 1024 * 1024 })])
+
+  it('blames the browser codec on direct-play failures (unchanged)', () => {
+    const r = buildErrorInfo(5, false, healthy)
+    expect(r.title).toBe('Format not supported by the browser')
+  })
+
+  it('reports a server transcode failure when the transcoded stream is the one that died', () => {
+    const r = buildErrorInfo(5, false, healthy, true)
+    expect(r.title).toBe('Server transcode failed')
+    expect(r.detail).not.toMatch(/codec or container/i)
+  })
+
+  it('keeps swarm messages even when the transcode also failed (data starvation wins)', () => {
+    expect(buildErrorInfo(0, false, healthy, true).title).toBe('No seeds available')
+    const starving = mkInfo([mkFile({ index: 0, downloaded: 1024, size: 100 * 1024 * 1024 })])
+    expect(buildErrorInfo(5, true, starving, true).title).toBe('Download too slow for streaming')
   })
 })
 

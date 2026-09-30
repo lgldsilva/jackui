@@ -32,13 +32,15 @@ func probeSource(hc *hlsCtx) (streamer.ProbeResult, bool) {
 	return pr, true
 }
 
-// probeVideoHeight is the source video height (0 = unknown), for the ladder.
-func probeVideoHeight(hc *hlsCtx) int {
+// probeVideoDims is the source video width+height (0 = unknown), for the
+// ladder — the width matters because a level that fits 16:9 does not fit a
+// cinemascope frame of the same height (macroblock budget is width×height).
+func probeVideoDims(hc *hlsCtx) (int, int) {
 	pr, ok := probeSource(hc)
 	if !ok {
-		return 0
+		return 0, 0
 	}
-	return pr.VideoHeight
+	return pr.VideoWidth, pr.VideoHeight
 }
 
 // resolveVariant pins hc.variant from the v/:variant path param by probing the
@@ -51,7 +53,8 @@ func resolveVariant(hc *hlsCtx) bool {
 	if idx < 0 {
 		return true
 	}
-	ladder := transcode.VariantLadder(probeVideoHeight(hc))
+	srcW, srcH := probeVideoDims(hc)
+	ladder := transcode.VariantLadder(srcW, srcH)
 	if idx >= len(ladder) {
 		return false
 	}
@@ -117,7 +120,7 @@ func serveMasterIfMultiVariant(hc *hlsCtx) bool {
 	if !ok {
 		return false
 	}
-	ladder := transcode.VariantLadder(pr.VideoHeight)
+	ladder := transcode.VariantLadder(pr.VideoWidth, pr.VideoHeight)
 	subs := textSubs(pr.Subtitles)
 	if !masterWarranted(hc.mediaRenditions, ladder, pr.Audio, subs) {
 		return false
@@ -165,20 +168,6 @@ func textSubs(subs []streamer.Track) []streamer.Track {
 func writeMaster(c *gin.Context, o masterOpts) {
 	c.Header(httpshared.CacheControl, httpshared.CacheNoStore)
 	c.Data(http.StatusOK, httpshared.MIMEMPEGURL, buildMasterPlaylist(o))
-}
-
-// variantWidth derives a rung's pixel width from the source aspect ratio,
-// rounded to an even number (yuv420p requires it). 0 when the source dims are
-// unknown → RESOLUTION is omitted (it is optional in EXT-X-STREAM-INF).
-func variantWidth(srcW, srcH, variantH int) int {
-	if srcW <= 0 || srcH <= 0 || variantH <= 0 {
-		return 0
-	}
-	w := srcW * variantH / srcH
-	if w%2 != 0 {
-		w++
-	}
-	return w
 }
 
 // audioTrackName is the human label for an EXT-X-MEDIA NAME (Title → Language →
@@ -253,7 +242,7 @@ func buildMasterPlaylist(o masterOpts) []byte {
 	for i, v := range o.ladder {
 		b.WriteString("#EXT-X-STREAM-INF:BANDWIDTH=")
 		b.WriteString(strconv.Itoa(v.Bandwidth()))
-		if w := variantWidth(o.srcW, o.srcH, v.Height); w > 0 {
+		if w := transcode.VariantWidth(o.srcW, o.srcH, v.Height); w > 0 {
 			fmt.Fprintf(&b, ",RESOLUTION=%dx%d", w, v.Height)
 		}
 		fmt.Fprintf(&b, ",CODECS=%q", v.Codecs())

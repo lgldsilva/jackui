@@ -217,3 +217,105 @@ func TestStoppedSessionRefusesRelaunch(t *testing.T) {
 		t.Error("stop() must close the session source")
 	}
 }
+
+// stubFailingFFmpegCaps points the manager at a fake ffmpeg that starts fine
+// but exits 1 immediately — the "launch succeeded, encoder died before any
+// output" failure class (e.g. NVENC rejecting an invalid -level:v).
+func stubFailingFFmpegCaps(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	ffmpeg := filepath.Join(dir, "ffmpeg")
+	if err := os.WriteFile(ffmpeg, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	SetCachedForTesting(&Capabilities{FFmpegPath: ffmpeg, Preferred: "libx264"})
+	t.Cleanup(ResetCachedForTesting)
+}
+
+// waitForHardExit polls until the session's exit watcher has recorded the
+// encoder's hard failure (exitErr).
+func waitForHardExit(t *testing.T, s *HLSSession) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.mu.Lock()
+		failed := s.exitErr != nil
+		s.mu.Unlock()
+		if failed {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("fake ffmpeg exit was never recorded by the watcher")
+		}
+		<-time.After(2 * time.Millisecond)
+	}
+}
+
+// A session whose ffmpeg died BEFORE producing the playlist must be reaped and
+// rebuilt by the next GetOrStart — it used to sit in the map until the idle GC
+// (minutes), so every client retry (the player retries within seconds) failed
+// instantly with no relaunch (the "poisoned session").
+func TestGetOrStartReapsFailedSession(t *testing.T) {
+	stubFailingFFmpegCaps(t)
+	m := lifecycleManager(t)
+
+	opts := HLSStartOpts{Key: "reap", Source: &fakeSource{}, SourceSize: 1, KnownDurationSec: 10}
+	s1, err := m.GetOrStart(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("GetOrStart: %v", err)
+	}
+	waitForHardExit(t, s1)
+	if !s1.failedBeforeOutput() {
+		t.Fatal("dead encoder + no playlist must count as failed-before-output")
+	}
+
+	opts.Source = &fakeSource{}
+	s2, err := m.GetOrStart(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("second GetOrStart: %v", err)
+	}
+	if s2 == s1 {
+		t.Fatal("GetOrStart returned the dead session — poisoned, no relaunch ever happens")
+	}
+	s1.mu.Lock()
+	dead := s1.dead
+	s1.mu.Unlock()
+	if !dead {
+		t.Error("the failed session must have been stopped, not just replaced")
+	}
+	m.mu.Lock()
+	match, n := m.sess["reap"] == s2, len(m.sess)
+	m.mu.Unlock()
+	if !match || n != 1 {
+		t.Errorf("manager map must hold exactly the fresh session; match=%v total=%d", match, n)
+	}
+	m.Stop()
+}
+
+// The reap must NOT fire for a session that died after producing output: in
+// VOD those are resurrected by EnsureSegment on seek — only sessions that
+// never wrote the playlist are corpses.
+func TestGetOrStartKeepsFailedSessionWithPlaylist(t *testing.T) {
+	stubFailingFFmpegCaps(t)
+	m := lifecycleManager(t)
+
+	opts := HLSStartOpts{Key: "keep", Source: &fakeSource{}, SourceSize: 1, KnownDurationSec: 10}
+	s1, err := m.GetOrStart(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("GetOrStart: %v", err)
+	}
+	waitForHardExit(t, s1)
+	if err := os.WriteFile(filepath.Join(s1.Dir, hlsPlaylistFile), []byte("#EXTM3U\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	opts.Source = &fakeSource{}
+	s2, err := m.GetOrStart(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("second GetOrStart: %v", err)
+	}
+	if s2 != s1 {
+		t.Fatal("session that produced a playlist must be kept for seek-restart resurrection")
+	}
+	m.Stop()
+}

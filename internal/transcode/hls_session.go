@@ -52,8 +52,9 @@ func (s *HLSSession) launch(startSeg int) error {
 	// Relaunching clears the "dead encoder" flag: a previous run may have ended
 	// (closed=true) and this one resurrects it (e.g. a seek into a hole after the
 	// ffmpeg completed near the end). Without this the session stays marked
-	// closed and the GC reaps it.
+	// closed and the GC reaps it. A previous hard exit no longer counts either.
 	s.closed = false
+	s.exitErr = nil
 	s.gen++
 	s.encodingSince = time.Now()
 	myGen := s.gen
@@ -80,6 +81,9 @@ func (s *HLSSession) launch(startSeg int) error {
 		}
 		if err != nil && !errors.Is(ffctx.Err(), context.Canceled) && !superseded {
 			log.Printf("hls: ffmpeg exited for session %s: %v", s.Key, err)
+			s.mu.Lock()
+			s.exitErr = err
+			s.mu.Unlock()
 		}
 	}()
 	return nil
@@ -375,6 +379,21 @@ func (s *HLSSession) WaitForSegment(name string, timeout time.Duration) (string,
 			}
 		}
 	}
+}
+
+// failedBeforeOutput reports a session whose encoder exited with a hard error
+// before writing the playlist: it can never serve this content, but without a
+// reap it stays in the manager map until the idle GC (minutes) — every client
+// retry gets the dead session and an instant failure with no relaunch.
+func (s *HLSSession) failedBeforeOutput() bool {
+	s.mu.Lock()
+	err := s.exitErr
+	s.mu.Unlock()
+	if err == nil {
+		return false
+	}
+	fi, statErr := os.Stat(filepath.Join(s.Dir, hlsPlaylistFile))
+	return statErr != nil || fi.Size() == 0
 }
 
 // stop kills ffmpeg, shuts down the loopback source server, closes the input

@@ -132,6 +132,13 @@ type HLSSession struct {
 	// swFallbackTried guards against an infinite relaunch loop: a session only
 	// downgrades HW→software decode ONCE. Guarded by s.mu.
 	swFallbackTried bool
+	// exitErr records a hard (non-cancelled, non-superseded) ffmpeg exit, set
+	// by the exit watcher once recovery paths are exhausted. failedBeforeOutput
+	// reads it so GetOrStart can reap a session whose encoder died before
+	// producing anything — without this, that session sits in the map until
+	// the idle GC and every client retry fails instantly with no relaunch.
+	// Cleared on relaunch. Guarded by s.mu.
+	exitErr error
 }
 
 // NewHLSManager constructs a manager rooted at baseDir/hls/. The directory

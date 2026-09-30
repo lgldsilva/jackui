@@ -75,7 +75,7 @@ func TestHLSVariantDownscaleE2E(t *testing.T) {
 		Key:        "e2e-v720",
 		Source:     f,
 		SourceSize: fi.Size(),
-		Variant:    mkVariant(720), // 720p rung of the ladder
+		Variant:    mkVariant(1280, 720, 720), // 720p rung of the ladder
 	})
 	if err != nil {
 		t.Fatalf("GetOrStart: %v", err)
