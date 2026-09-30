@@ -12,7 +12,7 @@
 # start_time≈0 (without the muxer's ~1.4s TS initial_offset), resolution ≤1080p, h264.
 set -u
 FFMPEG="${1:-ffmpeg}"
-FFPROBE="$(dirname "$FFMPEG")/ffprobe"; [ -x "$FFPROBE" ] || FFPROBE=ffprobe
+FFPROBE="$(dirname "$FFMPEG")/ffprobe"; [[ -x "$FFPROBE" ]] || FFPROBE=ffprobe
 WORK="${TMPDIR:-/tmp}/hls-hw-matrix"
 SRC="$WORK/src"; OUT="$WORK/out"
 SEG=4   # hls_time (same as JackUI's hlsSegDur)
@@ -23,7 +23,7 @@ echo "== ffmpeg: $FFMPEG ($($FFMPEG -version 2>/dev/null | head -1))"
 
 # ── 1) sample clips (lavfi), covering the scenarios ─────────────────────────
 gen() { # name  extra_video  extra_audio  size
-  local f="$SRC/$1"; [ -s "$f" ] && return
+  local f="$SRC/$1"; [[ -s "$f" ]] && return
   $FFMPEG -y -hide_banner -loglevel error \
     -f lavfi -i "testsrc2=size=${4}:rate=24:duration=12" \
     -f lavfi -i "sine=frequency=440:duration=12" $2 $3 -shortest "$f" 2>/dev/null \
@@ -60,7 +60,7 @@ run_case() { # encoder  srcfile  -> echoes PASS/FAIL + reason
   local enc="$1" src="$SRC/$2" dir="$OUT/${1}__${2}"; rm -rf "$dir"; mkdir -p "$dir"
   # -hwaccel is an INPUT option → it MUST come before -i (same as JackUI).
   local args=(-y -hide_banner -loglevel error)
-  local hd; hd=$(hwdecode "$enc"); [ -n "$hd" ] && args+=($hd)
+  local hd; hd=$(hwdecode "$enc"); [[ -n "$hd" ]] && args+=($hd)
   args+=(-i "$src" -map 0:v:0 -map 0:a:0? -sn -dn -c:v "$enc")
   case "$enc" in *_nvenc) args+=(-preset p4 -cq 23 -forced-idr 1);; *_vaapi) args+=(-qp 23);; *_qsv) args+=(-global_quality 23);; libx264) args+=(-preset veryfast -crf 23);; esac
   args+=(-profile:v main)
@@ -72,20 +72,20 @@ run_case() { # encoder  srcfile  -> echoes PASS/FAIL + reason
          -f hls -hls_time $SEG -hls_list_size 0 -hls_flags temp_file+independent_segments
          -hls_playlist_type vod -hls_segment_filename "$dir/seg_%05d.ts" "$dir/index.m3u8")
   local err; err=$("$FFMPEG" "${args[@]}" 2>&1); local rc=$?
-  if [ $rc -ne 0 ]; then echo "FAIL ffmpeg rc=$rc: $(echo "$err" | tail -1 | cut -c1-80)"; return; fi
+  if [[ $rc -ne 0 ]]; then echo "FAIL ffmpeg rc=$rc: $(echo "$err" | tail -1 | cut -c1-80)"; return; fi
   local s0="$dir/seg_00000.ts"; [[ -s "$s0" ]] || { echo "FAIL no seg0"; return; }
   # validations (spec): start≈0, h264, ≤1080, seg0 and seg1 start on a keyframe
   local st res cod; st=$($FFPROBE -v error -select_streams v:0 -show_entries stream=start_time -of csv=p=0 "$s0" 2>/dev/null | head -1)
   res=$($FFPROBE -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$s0" 2>/dev/null | head -1)
   cod=$($FFPROBE -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 "$s0" 2>/dev/null | head -1)
   local k0 k1; k0=$($FFPROBE -v error -read_intervals '%+#1' -select_streams v:0 -show_entries packet=flags -of csv=p=0 "$s0" 2>/dev/null | head -1)
-  [ -s "$dir/seg_00001.ts" ] && k1=$($FFPROBE -v error -read_intervals '%+#1' -select_streams v:0 -show_entries packet=flags -of csv=p=0 "$dir/seg_00001.ts" 2>/dev/null | head -1)
+  [[ -s "$dir/seg_00001.ts" ]] && k1=$($FFPROBE -v error -read_intervals '%+#1' -select_streams v:0 -show_entries packet=flags -of csv=p=0 "$dir/seg_00001.ts" 2>/dev/null | head -1)
   local why=""
   awk -v s="$st" 'BEGIN{exit !(s+0 > 0.5)}' && why="$why start=$st(>0.5,muxer-offset!)"
-  [ "$cod" != "h264" ] && why="$why codec=$cod"
-  [ -n "$res" ] && [ "$res" -gt 1080 ] 2>/dev/null && why="$why height=$res(>1080)"
+  [[ "$cod" != "h264" ]] && why="$why codec=$cod"
+  [[ -n "$res" ]] && [[ "$res" -gt 1080 ]] 2>/dev/null && why="$why height=$res(>1080)"
   case "$k0" in *K*) :;; *) why="$why seg0-no-IDR";; esac
-  [ -n "${k1:-}" ] && case "$k1" in *K*) :;; *) why="$why seg1-no-IDR";; esac
+  [[ -n "${k1:-}" ]] && case "$k1" in *K*) :;; *) why="$why seg1-no-IDR";; esac
   if [[ -z "$why" ]]; then echo "PASS (start=$st h264 ${res}p IDR-ok)"; else echo "FAIL$why"; fi
 }
 
