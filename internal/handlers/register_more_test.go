@@ -304,3 +304,93 @@ func TestBaseURL_EmptyConfigEmptyRequest(t *testing.T) {
 		t.Errorf("got %q, want empty URL when configuration is missing", got)
 	}
 }
+
+func TestRegisterHandler_SendsVerifyEmailLink(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := auth.New(dbtest.NewDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := []byte(`{"username":"maileruser","email":"mailer@test.com","password":"password123"}`)
+	c.Request = httptest.NewRequest("POST", "/api/auth/register", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	// Non-empty configured base URL → a verify token is issued and the link is
+	// dispatched through notify (no SMTP → the link is only logged).
+	registerHandler(c, store, nil, "https://jackui.example")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["status"] != "pending" {
+		t.Errorf("status = %v, want 'pending'", resp["status"])
+	}
+	u, err := store.GetUserByEmail("mailer@test.com")
+	if err != nil || u == nil {
+		t.Fatalf("user should exist after registration: %v", err)
+	}
+}
+
+func TestInvite_EmailsInviteLink(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := auth.New(dbtest.NewDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/api/auth/invite", bytes.NewReader([]byte(`{"email":"friend@test.com"}`)))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	// Non-empty email + configured base URL → the link is emailed via notify.
+	Invite(store, nil, "https://jackui.example")(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	link, _ := resp["link"].(string)
+	if !strings.HasPrefix(link, "https://jackui.example/register?invite=") {
+		t.Errorf("link = %q, want a register invite link on the configured base", link)
+	}
+}
+
+func TestForgot_SendsResetLink(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := auth.New(dbtest.NewDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.CreateUserFull("forgotuser", "forgot@test.com", "password123", auth.RoleUser, auth.StatusActive); err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := []byte(`{"email":"forgot@test.com"}`)
+	c.Request = httptest.NewRequest("POST", "/api/auth/forgot", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	// Registered email + configured base URL → a reset token is issued and the
+	// link dispatched via notify; the response stays neutral (no user leak).
+	Forgot(store, nil, "https://jackui.example")(c)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "recovery link") {
+		t.Errorf("body = %s, want the neutral recovery message", w.Body.String())
+	}
+}
