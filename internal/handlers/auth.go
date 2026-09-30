@@ -104,7 +104,9 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 		return false
 	}
 	secret, _, _ := store.GetTOTPSecret(user.ID)
-	if auth.ValidateTOTP(secret, totp) || store.ConsumeBackupCode(user.ID, totp) {
+	// ValidateTOTPForUser (not plain ValidateTOTP) records the matched step so
+	// the same code can't be replayed within its ±1 window.
+	if store.ValidateTOTPForUser(user.ID, secret, totp) || store.ConsumeBackupCode(user.ID, totp) {
 		return true
 	}
 	lockout.Fail(user.Username)

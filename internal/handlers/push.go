@@ -45,6 +45,13 @@ func PushSubscribe(store *push.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
+		// The server POSTs to this endpoint later with the VAPID Authorization
+		// header — an internal URL here would be an authenticated SSRF. Gate it
+		// at subscribe time (the sender re-checks at send time too).
+		if err := push.ValidateEndpoint(in.Endpoint); err != nil {
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		if err := store.Subscribe(userID, in.Endpoint, in.Keys.P256dh, in.Keys.Auth); err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)

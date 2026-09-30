@@ -62,8 +62,20 @@ func (s *Store) ConsumeToken(plain, purpose string) (*TokenInfo, error) {
 	if time.Now().After(exp) {
 		return nil, errors.New("token expired")
 	}
-	if _, err := s.db.Exec(`UPDATE auth_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ?`, hash); err != nil {
+	// The redemption itself must be atomic: the `used_at IS NULL` predicate
+	// makes this a single conditional UPDATE, so two concurrent consumers race
+	// on one statement and only the winner's RowsAffected is 1 (the same
+	// pattern as ConsumeBackupCode). A plain unconditional UPDATE here let both
+	// racers succeed — the SELECTs above had both seen the row as unused.
+	res, err := s.db.Exec(
+		`UPDATE auth_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ? AND used_at IS NULL`,
+		hash,
+	)
+	if err != nil {
 		return nil, err
+	}
+	if n, rerr := res.RowsAffected(); rerr != nil || n != 1 {
+		return nil, errors.New("token already used")
 	}
 	ti := &TokenInfo{Email: email, Purpose: purpose}
 	if uid.Valid {

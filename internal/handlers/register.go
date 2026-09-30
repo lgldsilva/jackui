@@ -27,8 +27,21 @@ func baseURL(_ *gin.Context, configured string) string {
 	return strings.TrimRight(strings.TrimSpace(configured), "/")
 }
 
-// notify sends an email link, or — when SMTP is off — logs it so an admin (or a
-// local dev) can relay/copy it. Always best-effort; never blocks the response.
+// logSafeLink strips the query string before a link reaches the logs: the query
+// carries the live single-use token (reset/verify/invite), and anyone with log
+// visibility could otherwise redeem it (account takeover — the forgot flow is
+// unauthenticated). The bare path keeps the flow identifiable; delivering the
+// real link is SMTP's job, so a broken configuration says so instead.
+func logSafeLink(link string) string {
+	if i := strings.IndexByte(link, '?'); i >= 0 {
+		return link[:i] + "?<redacted>"
+	}
+	return link
+}
+
+// notify sends an email link. Always best-effort; never blocks the response.
+// The link is NEVER logged — not on SMTP failure, not when SMTP is off —
+// because it embeds a live single-use token.
 func notify(mlr *mailer.Mailer, to, subject, intro, link string) {
 	body := fmt.Sprintf(
 		`<p>%s</p><p><a href="%s">%s</a></p><p style="color:#888;font-size:12px">If you did not request this, ignore this email.</p>`,
@@ -36,12 +49,15 @@ func notify(mlr *mailer.Mailer, to, subject, intro, link string) {
 	)
 	if mlr != nil && mlr.Enabled() && to != "" {
 		if err := mlr.Send(to, subject, body); err != nil {
-			log.Printf("auth: email to %s failed (%v) — link: %s", httpshared.SanitizeForLog(to), err, httpshared.SanitizeForLog(link))
+			log.Printf("auth: email to %s failed (%v) — check SMTP configuration; link: %s",
+				httpshared.SanitizeForLog(to), err, httpshared.SanitizeForLog(logSafeLink(link)))
 		}
 		return
 	}
-	// No SMTP: surface the link in the logs so it can be relayed manually.
-	log.Printf("auth: [no-smtp] %s for %s → %s", httpshared.SanitizeForLog(subject), httpshared.SanitizeForLog(to), httpshared.SanitizeForLog(link))
+	// No SMTP: say so instead of logging the link (the token in a logged link
+	// is an account takeover for anyone with log visibility).
+	log.Printf("auth: [no-smtp] %s for %s → %s (link not logged: carries a live token)",
+		httpshared.SanitizeForLog(subject), httpshared.SanitizeForLog(to), httpshared.SanitizeForLog(logSafeLink(link)))
 }
 
 type registerReq struct {

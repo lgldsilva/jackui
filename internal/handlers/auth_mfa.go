@@ -51,7 +51,9 @@ func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		secret, _, _ := store.GetTOTPSecret(claims.UserID)
-		if !auth.ValidateTOTP(secret, req.Code) {
+		// ValidateTOTPForUser (not plain ValidateTOTP): records the matched step
+		// so the same code cannot be replayed within its window.
+		if !store.ValidateTOTPForUser(claims.UserID, secret, req.Code) {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid code")
 			return
 		}

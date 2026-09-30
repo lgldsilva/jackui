@@ -59,12 +59,15 @@ type User struct {
 // Store wraps the PostgreSQL-backed user + refresh token persistence.
 type Store struct {
 	db *dbutil.DB
+	// totpReplay gates TOTP single-use at login (process-local; see
+	// TOTPReplayCache). Created by New.
+	totpReplay *TOTPReplayCache
 }
 
 // New wires the auth store onto the shared Postgres pool. The schema is applied
 // centrally (internal/db migrations), so there's no per-store migrate here.
 func New(pool *sql.DB) (*Store, error) {
-	return &Store{db: dbutil.Wrap(pool)}, nil
+	return &Store{db: dbutil.Wrap(pool), totpReplay: NewTOTPReplayCache()}, nil
 }
 
 // Bootstrap ensures an admin user exists. If no users at all, creates "admin" with the given password.

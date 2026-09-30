@@ -37,6 +37,11 @@ func newTestSender(t *testing.T) (*Sender, *Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The endpoint SSRF guard would (correctly) refuse every httptest URL —
+	// they are loopback http doubles for the push service. Disable it here;
+	// the guard itself is covered by TestSendOne_SkipsNonPublicEndpoint and
+	// the ValidateEndpoint tests.
+	sender.endpointGuard = nil
 	return sender, s
 }
 
