@@ -9,8 +9,7 @@ type Diag = Record<string, unknown>
 // Diagnostic chip shown under the video-error message. Renders the frozen
 // error-time snapshot (falls back to a live probe) — MediaError code, ready/net
 // state, transcode status — so a single user report is enough to debug.
-function renderDiagnosticChip(lastErrorDiag: Diag | null, videoDiagnostic: () => Diag, t: ReturnType<typeof useTranslation>['t']) {
-  const diag = (lastErrorDiag ?? videoDiagnostic()) as Record<string, any>
+function renderDiagnosticChip(diag: Record<string, any>, t: ReturnType<typeof useTranslation>['t']) {
   const codeNames: Record<number, string> = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' }
   const codeName = diag.errorCode ? codeNames[diag.errorCode] || `code ${diag.errorCode}` : '—'
   return (
@@ -36,13 +35,17 @@ export function VideoErrorOverlay(props: Readonly<{
   const fileDownloaded = cf?.downloaded ?? 0
   const starving = fileDownloaded < 30 * 1024 * 1024
   const kind: 'swarm' | 'codec' = (peers === 0 || starving) ? 'swarm' : 'codec'
-  const errorData = buildErrorInfo(peers, starving, info)
+  const diag = (lastErrorDiag ?? videoDiagnostic()) as Record<string, any>
+  // The source that died was already the transcoded HLS stream → the server
+  // encoder failed, not the browser codec.
+  const transcodeFailed = kind === 'codec' && !!diag.isTranscoded && !!diag.transcodeFallbackAttempted
+  const errorData = buildErrorInfo(peers, starving, info, transcodeFailed)
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center text-text-primary p-6 text-center">
       <AlertCircle className={`w-12 h-12 mb-3 ${kind === 'swarm' ? 'text-orange-400' : 'text-yellow-400'}`} />
       <p className="font-medium">{errorData.title}</p>
       <p className="text-sm text-text-muted mt-2 max-w-md">{errorData.detail}</p>
-      {renderDiagnosticChip(lastErrorDiag, videoDiagnostic, t)}
+      {renderDiagnosticChip(diag, t)}
       <button
         onClick={onRetry}
         className="mt-4 text-xs text-green-400 hover:underline"

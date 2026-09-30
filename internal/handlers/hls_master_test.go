@@ -50,7 +50,7 @@ func TestBuildMasterPlaylistCA21(t *testing.T) {
 		{2560, 1440, 2},
 		{3840, 2160, 3},
 	} {
-		ladder := transcode.VariantLadder(src.h)
+		ladder := transcode.VariantLadder(src.w, src.h)
 		master := string(bmp(ladder, src.w, src.h, nil, nil, "", false))
 		if got := countStreamInf(master); got != src.want {
 			t.Errorf("%dp: %d STREAM-INF, want %d\n%s", src.h, got, src.want, master)
@@ -63,7 +63,7 @@ func TestBuildMasterPlaylistCA21(t *testing.T) {
 
 // Variant URIs are RELATIVE and match the v/:variant/index.m3u8 route.
 func TestBuildMasterPlaylistVariantURIs(t *testing.T) {
-	master := string(bmp(transcode.VariantLadder(1080), 1920, 1080, nil, nil, "", false))
+	master := string(bmp(transcode.VariantLadder(1920, 1080), 1920, 1080, nil, nil, "", false))
 	for _, want := range []string{"\nv/0/index.m3u8", "\nv/1/index.m3u8"} {
 		if !strings.Contains(master, want) {
 			t.Errorf("master without URI %q:\n%s", want, master)
@@ -76,7 +76,7 @@ func TestBuildMasterPlaylistVariantURIs(t *testing.T) {
 
 // token + native_hls propagated into the variant URIs.
 func TestBuildMasterPlaylistPropagatesTokenAndNative(t *testing.T) {
-	master := string(bmp(transcode.VariantLadder(2160), 3840, 2160, nil, nil, "Tok123", true))
+	master := string(bmp(transcode.VariantLadder(3840, 2160), 3840, 2160, nil, nil, "Tok123", true))
 	for _, line := range strings.Split(master, "\n") {
 		if strings.HasPrefix(line, "v/") {
 			if !strings.Contains(line, "?token=Tok123") || !strings.Contains(line, "native_hls=1") {
@@ -94,7 +94,7 @@ func TestBuildMasterPlaylistAudioRenditions(t *testing.T) {
 		{Index: 1, Language: "por", Title: "Português", Default: true},
 		{Index: 2, Language: "eng", Title: "English"},
 	}
-	master := string(bmp(transcode.VariantLadder(1080), 1920, 1080, audio, nil, "Tok", true))
+	master := string(bmp(transcode.VariantLadder(1920, 1080), 1920, 1080, audio, nil, "Tok", true))
 	if n := countMedia(master, "AUDIO"); n != 2 {
 		t.Fatalf("expected 2 EXT-X-MEDIA AUDIO, found %d\n%s", n, master)
 	}
@@ -131,7 +131,7 @@ func TestBuildMasterPlaylistAudioWithoutSubtitleFlag(t *testing.T) {
 	}
 	subs := []streamer.Track{{Index: 3, Language: "por", Title: "Subs"}}
 	master := string(buildMasterPlaylist(masterOpts{
-		ladder: transcode.VariantLadder(1080), srcW: 1920, srcH: 1080,
+		ladder: transcode.VariantLadder(1920, 1080), srcW: 1920, srcH: 1080,
 		audio: audio, subs: subs, renditions: false,
 	}))
 	if n := countMedia(master, "AUDIO"); n != 2 {
@@ -146,7 +146,7 @@ func TestBuildMasterPlaylistAudioWithoutSubtitleFlag(t *testing.T) {
 }
 
 func TestMasterWarrantedAudioWithoutVideoLadder(t *testing.T) {
-	ladder := transcode.VariantLadder(720) // single rung
+	ladder := transcode.VariantLadder(1280, 720) // single rung
 	audio := []streamer.Track{{Index: 1}, {Index: 2}}
 	if !masterWarranted(false, ladder, audio, nil) {
 		t.Fatal("2 audio tracks must justify a master even at 720p")
@@ -163,7 +163,7 @@ func TestMasterWarrantedAudioWithoutVideoLadder(t *testing.T) {
 // muxed into the variant, nothing to switch).
 func TestBuildMasterPlaylistSingleAudioNoRenditions(t *testing.T) {
 	audio := []streamer.Track{{Index: 1, Language: "eng"}}
-	master := string(bmp(transcode.VariantLadder(1080), 1920, 1080, audio, nil, "", false))
+	master := string(bmp(transcode.VariantLadder(1920, 1080), 1920, 1080, audio, nil, "", false))
 	if countMedia(master, "AUDIO") != 0 {
 		t.Errorf("1 track should not generate EXT-X-MEDIA:\n%s", master)
 	}
@@ -174,7 +174,7 @@ func TestBuildMasterPlaylistSingleAudioNoRenditions(t *testing.T) {
 
 // RESOLUTION derived from the aspect ratio (par); CODECS per tier.
 func TestBuildMasterPlaylistResolutionCodecs(t *testing.T) {
-	master := string(bmp(transcode.VariantLadder(1080), 1920, 1080, nil, nil, "", false))
+	master := string(bmp(transcode.VariantLadder(1920, 1080), 1920, 1080, nil, nil, "", false))
 	for _, want := range []string{"RESOLUTION=1920x1080", "RESOLUTION=1280x720", `CODECS="avc1.4d4028,mp4a.40.2"`, `CODECS="avc1.4d401f,mp4a.40.2"`} {
 		if !strings.Contains(master, want) {
 			t.Errorf("master without %q:\n%s", want, master)
@@ -184,7 +184,7 @@ func TestBuildMasterPlaylistResolutionCodecs(t *testing.T) {
 
 // Unknown dims (0,0) → RESOLUTION omitted, master still valid.
 func TestBuildMasterPlaylistUnknownDimsOmitsResolution(t *testing.T) {
-	master := string(bmp(transcode.VariantLadder(1080), 0, 0, nil, nil, "", false))
+	master := string(bmp(transcode.VariantLadder(1920, 1080), 0, 0, nil, nil, "", false))
 	if strings.Contains(master, "RESOLUTION=") {
 		t.Errorf("dims 0 should omit RESOLUTION:\n%s", master)
 	}
@@ -200,7 +200,7 @@ func TestWriteMaster(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
 
-	writeMaster(c, masterOpts{ladder: transcode.VariantLadder(1080), srcW: 1920, srcH: 1080})
+	writeMaster(c, masterOpts{ladder: transcode.VariantLadder(1920, 1080), srcW: 1920, srcH: 1080})
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -220,7 +220,7 @@ func TestWriteMaster(t *testing.T) {
 // propagated into the variant URL (audio switch via reload).
 func TestBuildMasterPlaylistM2aAudioQuery(t *testing.T) {
 	master := string(buildMasterPlaylist(masterOpts{
-		ladder: transcode.VariantLadder(1080), srcW: 1920, srcH: 1080,
+		ladder: transcode.VariantLadder(1920, 1080), srcW: 1920, srcH: 1080,
 		token: "T", audioQuery: "2", renditions: false,
 	}))
 	if countMedia(master, "AUDIO") != 0 {
@@ -235,8 +235,8 @@ func TestBuildMasterPlaylistM2aAudioQuery(t *testing.T) {
 
 // Gate: masterWarranted — ≥2 rungs or ≥2 audios always; subtitles only with the flag.
 func TestMasterWarranted(t *testing.T) {
-	two := transcode.VariantLadder(1080) // 2 rungs
-	one := transcode.VariantLadder(720)  // 1 rung
+	two := transcode.VariantLadder(1920, 1080) // 2 rungs
+	one := transcode.VariantLadder(1280, 720)  // 1 rung
 	a2 := []streamer.Track{{}, {}}
 	s1 := []streamer.Track{{}}
 	cases := []struct {
@@ -279,23 +279,6 @@ func TestStreamHLSVariantOutOfRange(t *testing.T) {
 	}
 }
 
-func TestVariantWidth(t *testing.T) {
-	cases := []struct {
-		sw, sh, vh, want int
-	}{
-		{1920, 1080, 1080, 1920},
-		{1920, 1080, 720, 1280},
-		{1920, 1080, 480, 854},
-		{0, 0, 720, 0},
-		{1920, 0, 720, 0},
-	}
-	for _, c := range cases {
-		if got := variantWidth(c.sw, c.sh, c.vh); got != c.want {
-			t.Errorf("variantWidth(%d,%d,%d) = %d, want %d", c.sw, c.sh, c.vh, got, c.want)
-		}
-	}
-}
-
 // CA-2.2 (subtitle): TEXT tracks → EXT-X-MEDIA TYPE=SUBTITLES with a
 // sub/{idx} URI; STREAM-INF references SUBTITLES="sub". PGS (Image) is filtered.
 func TestBuildMasterPlaylistSubtitleRenditions(t *testing.T) {
@@ -303,7 +286,7 @@ func TestBuildMasterPlaylistSubtitleRenditions(t *testing.T) {
 		{Index: 3, Language: "eng", Codec: "subrip"},
 		{Index: 4, Language: "spa", Codec: "hdmv_pgs_subtitle", Image: true}, // PGS → burn-in, no rendition
 	}
-	master := string(bmp(transcode.VariantLadder(1080), 1920, 1080, nil, textSubs(subs), "Tok", true))
+	master := string(bmp(transcode.VariantLadder(1920, 1080), 1920, 1080, nil, textSubs(subs), "Tok", true))
 	if n := countMedia(master, "SUBTITLES"); n != 1 {
 		t.Fatalf("expected 1 EXT-X-MEDIA SUBTITLES (PGS filtered), found %d\n%s", n, master)
 	}

@@ -7,7 +7,7 @@ import {
 import { isLocalHash } from '../../api/local'
 import { formatRate } from '../../lib/format'
 
-export function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null): { title: string; detail: string } {
+export function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null, transcodeFailed = false): { title: string; detail: string } {
   if (peers === 0) {
     return {
       title: 'No seeds available',
@@ -19,6 +19,16 @@ export function buildErrorInfo(peers: number, starving: boolean, info: TorrentIn
     return {
       title: 'Download too slow for streaming',
       detail: `Downloading at ${formatRate(info?.downRate ?? 0)} from ${peers} peer${suffix} — too slow to watch in real time (4K needs ~3.7 MB/s). Download the full file before watching.`,
+    }
+  }
+  if (transcodeFailed) {
+    // The failing source was already the transcoded HLS stream — blaming the
+    // browser codec here sent users (and agents) down the wrong path while the
+    // real cause was an encoder failure server-side (e.g. NVENC rejecting an
+    // invalid -level:v).
+    return {
+      title: 'Server transcode failed',
+      detail: 'The stream was routed to the server transcoder but never became playable — the encoder failed to start. Check the server logs (filter "hls"/ffmpeg); this is not a browser codec issue.',
     }
   }
   return {

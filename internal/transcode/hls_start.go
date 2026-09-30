@@ -27,6 +27,16 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	for {
 		m.mu.Lock()
 		if s, ok := m.sess[effKey]; ok {
+			if s.failedBeforeOutput() {
+				// The encoder died before producing anything (bad args, invalid
+				// input, missing caps…). Reap and fall through to a fresh build so
+				// the client's retry relaunches instead of failing until the idle
+				// GC collects the corpse.
+				delete(m.sess, effKey)
+				m.mu.Unlock()
+				s.stop()
+				continue
+			}
 			s.mu.Lock()
 			s.LastAccess = time.Now()
 			s.mu.Unlock()
