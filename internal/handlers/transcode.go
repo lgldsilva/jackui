@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
@@ -112,8 +114,12 @@ type GPUInfo struct {
 }
 
 func getGPUStats() *GPUInfo {
-	// 1. Try NVIDIA
-	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits")
+	// 1. Try NVIDIA. Bounded: nvidia-smi can hang on a wedged driver, and an
+	// unbounded exec stalled the /api/transcode/active poll for as long as the
+	// tool took to return. On timeout the process is killed and we fall through.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err == nil {

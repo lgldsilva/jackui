@@ -66,6 +66,14 @@ func (s *Streamer) Stats() (*CacheStats, error) {
 	}
 
 	for _, ent := range entries {
+		// Skip internal bookkeeping (dot-prefixed): .metainfo (serialized
+		// .torrent cache), .piece-completion-dl (open Bolt piece DB), art/thumbs
+		// dirs. Walking them let LRU eviction delete live bookkeeping, and their
+		// bytes never belonged in the user-facing cache total anyway. Mirrors
+		// ClearAll's dot-prefix skip.
+		if strings.HasPrefix(ent.Name(), ".") {
+			continue
+		}
 		full := filepath.Join(s.cfg.DataDir, ent.Name())
 		size, mtime, err := dirSizeAndMTime(full)
 		if err != nil {
@@ -165,6 +173,13 @@ func (s *Streamer) ClearAll() error {
 		if s.favs != nil && s.favs.IsFavorite(name) {
 			continue
 		}
+		// Preserve entries protected by an active torrent or the downloads
+		// registry: in legacy storage mode completed downloads live INSIDE
+		// DataDir, and "clear cache" used to delete them while the downloads
+		// DB row still said completed.
+		if s.evictionBlocked(name) {
+			continue
+		}
 		_ = os.RemoveAll(filepath.Join(s.cfg.DataDir, name))
 	}
 	return nil
@@ -174,6 +189,12 @@ func (s *Streamer) ClearAll() error {
 // Refuses if the entry is favorited (use Favorites().Remove first).
 // If the torrent is currently active, it is dropped first.
 func (s *Streamer) ClearEntry(name string) error {
+	// Reject "." / ".." / "" explicitly: the prefix guard below used to admit
+	// abs == dirAbs, so DELETE /api/stream/cache?entry=. wiped the WHOLE
+	// DataDir (favorites bytes, .metainfo, .piece-completion-dl).
+	if clean := filepath.Clean(name); clean == "." || clean == ".." {
+		return fmt.Errorf("invalid cache entry %q", name)
+	}
 	if s.favs != nil && s.favs.IsFavorite(name) {
 		return fmt.Errorf("entry %q is a favorite — unfavorite it before removing", name)
 	}
@@ -189,7 +210,8 @@ func (s *Streamer) ClearEntry(name string) error {
 	s.mu.Unlock()
 
 	full := filepath.Join(s.cfg.DataDir, filepath.Clean(name))
-	// Safety: refuse to delete outside DataDir
+	// Safety: refuse to delete outside DataDir. Strict prefix only — an entry
+	// EQUAL to DataDir itself is never a valid target.
 	abs, err := filepath.Abs(full)
 	if err != nil {
 		return err
@@ -198,7 +220,7 @@ func (s *Streamer) ClearEntry(name string) error {
 	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(abs, dirAbs+string(os.PathSeparator)) && abs != dirAbs {
+	if !strings.HasPrefix(abs, dirAbs+string(os.PathSeparator)) {
 		return fmt.Errorf("invalid path")
 	}
 	return os.RemoveAll(full)
