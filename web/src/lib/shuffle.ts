@@ -1,9 +1,9 @@
-// shuffledOrder devolve uma permutação de [0..n-1] com `startIndex` fixo na
-// posição 0 (o item atual continua tocando) e o restante embaralhado por
-// Fisher-Yates usando crypto.getRandomValues. Garante "bag shuffle": uma
-// permutação cobre todos os índices uma única vez → nenhum repete até todos
-// tocarem. Compartilhado pelo nível PLAYLIST (PlayerProvider) e pelo nível
-// FAIXA (useTrackOrder).
+// shuffledOrder returns a permutation of [0..n-1] with `startIndex` fixed at
+// position 0 (the current item keeps playing) and the rest shuffled by
+// Fisher-Yates using crypto.getRandomValues. Guarantees "bag shuffle": a
+// permutation covers every index exactly once → none repeats until all
+// have played. Shared by the PLAYLIST level (PlayerProvider) and the
+// TRACK level (useTrackOrder).
 export function shuffledOrder(n: number, startIndex: number): number[] {
   if (n <= 0) return []
   const rest = Array.from({ length: n }, (_, i) => i).filter(i => i !== startIndex)
@@ -13,7 +13,7 @@ export function shuffledOrder(n: number, startIndex: number): number[] {
     const j = rand[i] % (i + 1)
     ;[rest[i], rest[j]] = [rest[j], rest[i]]
   }
-  // startIndex só entra na frente quando é um índice válido; caso contrário
-  // (ex.: -1, sem faixa atual) devolve só o restante já embaralhado.
+  // startIndex only goes in front when it's a valid index; otherwise
+  // (e.g. -1, no current track) returns just the already-shuffled rest.
   return startIndex >= 0 && startIndex < n ? [startIndex, ...rest] : rest
 }

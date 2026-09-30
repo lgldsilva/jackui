@@ -81,10 +81,10 @@ export const TorrentCard = memo(function TorrentCard({ t: torrent, busy, onPause
         <p className="text-[11px] text-text-muted truncate mt-0.5 font-mono" title={torrent.infoHash}>{torrent.infoHash}</p>
       </div>
 
-      {/* Live rate chips — destaque pro Down/Up/Peers de CADA torrent. Eram
-          mostrados em text-xs no rodapé, passavam batido (sintoma "não sei a
-          velocidade de cada um"). Agora ficam em fonte maior + chip dedicado.
-          Quando tudo zerado (ex.: pausado), só os peers ainda aparecem. */}
+      {/* Live rate chips — highlights each torrent's Down/Up/Peers. They used to
+          be shown in text-xs at the footer and went unnoticed (symptom: "I can't tell
+          each one's speed"). Now they're in a larger font + dedicated chip.
+          When everything is at zero (e.g. paused), only peers still show. */}
       <div className="flex items-center gap-2 flex-wrap text-sm">
         <span
           className={`flex items-center gap-1 px-2 py-0.5 rounded-full font-mono tabular-nums ${
@@ -137,9 +137,9 @@ export const TorrentCard = memo(function TorrentCard({ t: torrent, busy, onPause
 
       {/* Action bar */}
       <div className="flex items-center gap-2 flex-wrap pt-1">
-        {/* Ver arquivos / tocar: abre o player pelo info_hash (resolve o arquivo
-            principal e lista os demais). Disponível assim que há algo no cache —
-            inclusive quando completo/semeando, que antes só tinha pausar/parar. */}
+        {/* View files / play: opens the player by info_hash (resolves the primary
+            file and lists the rest). Available as soon as anything is in cache —
+            including when complete/seeding, which before only had pause/stop. */}
         {onPlay && torrent.progress > 0 && (
           <ActionButton onClick={onPlay} disabled={busy} variant="success" icon={<Play className="w-3.5 h-3.5 fill-current" />} label={t('downloads.page.viewFiles')} title={t('downloads.page.viewFilesTitle')} />
         )}

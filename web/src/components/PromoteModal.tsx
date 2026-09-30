@@ -12,16 +12,16 @@ type Props = {
 }
 
 /**
- * Navegador de subpastas + seletor de destino + ações de promover. Suporta
- * single OU batch — sempre chama o endpoint batch (single = ids:[1]). Permite
- * digitar uma subpasta nova (criada pelo backend com os.MkdirAll).
+ * Subfolder browser + destination selector + promote actions. Supports
+ * single OR batch — always calls the batch endpoint (single = ids:[1]). Allows
+ * typing a new subfolder (created by the backend with os.MkdirAll).
  */
 export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   const { t } = useTranslation()
   useScrollLock(!!items)
   const { notifyError } = useToast()
   const [dests, setDests] = useState<PromoteDestination[]>([])
-  // selectedBase é o path do destino selecionado; "" = sharedDir (default).
+  // selectedBase is the selected destination's path; "" = sharedDir (default).
   const [selectedBase, setSelectedBase] = useState('')
   const [path, setPath] = useState('')
   const [dirs, setDirs] = useState<string[]>([])
@@ -39,13 +39,13 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
     return path ? `${path}/${trimmed}` : trimmed
   })()
 
-  // Carrega destinos disponíveis ao abrir
+  // Loads the available destinations on open
   useEffect(() => {
     if (!items) return
     fetchPromoteDestinations().then(setDests).catch(() => {})
   }, [items])
 
-  // Carrega subpastas do destino selecionado sempre que path ou base mudar
+  // Loads the selected destination's subfolders whenever path or base changes
   useEffect(() => {
     if (!items) return
     setLoading(true)
@@ -56,7 +56,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
       .finally(() => setLoading(false))
   }, [path, items, selectedBase])
 
-  // Carrega preview da Renomeação IA
+  // Loads the AI rename preview
   useEffect(() => {
     if (!items || !renameIA) {
       setPreviews([])
@@ -73,7 +73,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
       .finally(() => setPreviewLoading(false))
   }, [renameIA, items, finalTarget, selectedBase])
 
-  // Reset ao abrir/fechar
+  // Reset on open/close
   useEffect(() => {
     if (items) {
       setSelectedBase('')
@@ -92,11 +92,11 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   const destLabel = currentDest?.name || t('local.promote.libraryDefault')
 
   const handlePromote = () => {
-    // Fecha o modal NA HORA: a cópia roda em background (pool de transferências)
-    // e aparece no painel de Transferências. Assim o usuário pode promover outro
-    // lote sem esperar a cópia (que pode ser grande/lenta). O resultado —
-    // aceitos + erros de validação — é processado por onPromoted quando a
-    // resposta volta (rápida: só validação + enfileiramento, sem a cópia).
+    // Closes the modal IMMEDIATELY: the copy runs in the background (transfers pool)
+    // and shows up in the Transfers panel. That way the user can promote another
+    // batch without waiting for the copy (which may be large/slow). The result —
+    // accepted + validation errors — is processed by onPromoted when the
+    // response returns (fast: validation + enqueueing only, no copying).
     const ids = items.map(i => i.id)
     const opts = { keepSeeding, targetSubdir: finalTarget, targetBase: selectedBase || undefined, renameIA }
     onClose()
@@ -116,8 +116,8 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
       onFocus={() => {}} tabIndex={-1}
       open
     >
-      {/* No mobile vira bottom-sheet (items-end) com altura em dvh — vh não
-          desconta a barra do browser e o modal centralizado estourava a tela. */}
+      {/* On mobile it becomes a bottom-sheet (items-end) with dvh height — vh doesn't
+          discount the browser bar and the centered modal overflowed the screen. */}
       <div className="bg-surface-secondary rounded-t-2xl sm:rounded-2xl border border-default w-full max-w-lg shadow-2xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
         <header className="flex items-center justify-between p-4 border-b border-default">
           <h2 className="text-base font-semibold text-text-primary flex items-center gap-2">
@@ -129,7 +129,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
           </button>
         </header>
 
-        {/* Lista de items sendo promovidos */}
+        {/* List of items being promoted */}
         <div className="px-4 py-2 border-b border-default bg-surface/40 max-h-32 overflow-y-auto">
           {items.map(d => (
             <p key={d.id} className="text-xs text-text-secondary truncate" title={d.name || d.filePath}>
@@ -197,7 +197,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
           })()}
         </div>
 
-        {/* Nova pasta + opções + ações */}
+        {/* New folder + options + actions */}
         <div className="border-t border-default p-4 safe-bottom flex flex-col gap-3 bg-surface/40">
           <label className="flex items-center gap-2 text-sm text-text-primary">
             <Plus className="w-4 h-4 text-text-muted flex-shrink-0" />

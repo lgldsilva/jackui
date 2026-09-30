@@ -15,7 +15,7 @@ type MoreActionsMenuProps = {
   readonly className?: string
 }
 
-/** Agrupa ações secundárias do card (UX-3.1) num menu ⋯ compacto. */
+/** Groups the card's secondary actions (UX-3.1) into a compact ⋯ menu. */
 export default function MoreActionsMenu({ items, className = '' }: MoreActionsMenuProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)

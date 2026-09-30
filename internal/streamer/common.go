@@ -11,12 +11,12 @@ var ErrTorrentNotActive = errors.New("torrent not active")
 // player still holds a viewer lease on the torrent: dropping it would kill an
 // ongoing playback. Handlers map it to HTTP 409 so the UI can tell the user to
 // close the player first instead of pretending the stop succeeded.
-var ErrTorrentViewerActive = errors.New("torrent em uso: existe um player aberto assistindo este torrent")
+var ErrTorrentViewerActive = errors.New("torrent in use: a player is actively watching this torrent")
 
 // ErrTorrentDownloadProtected is returned by explicit teardown (DropSeed) when
 // the torrent is registered as an active background download: dropping it
 // would pull the rug from under the downloads worker mid-transfer.
-var ErrTorrentDownloadProtected = errors.New("torrent protegido: download em background em andamento")
+var ErrTorrentDownloadProtected = errors.New("torrent protected: background download in progress")
 
 // IsDropRefusal reports whether err is a refusal from an explicit teardown
 // (DropSeed): the torrent is still alive because something holds it (player

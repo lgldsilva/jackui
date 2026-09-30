@@ -13,10 +13,10 @@ import (
 // linked/completed state instead of duplicated.
 func (s *Store) CreateLinked(d Download, externalPath string, fileSize int64) (*Download, error) {
 	if d.InfoHash == "" || externalPath == "" {
-		return nil, errors.New("infoHash e externalPath são obrigatórios")
+		return nil, errors.New("infoHash and externalPath are required")
 	}
 	if d.FileIndex < 0 {
-		return nil, fmt.Errorf("linked download requer file_index concreto (>=0), recebido %d", d.FileIndex)
+		return nil, fmt.Errorf("linked download requires a concrete file_index (>=0), got %d", d.FileIndex)
 	}
 	if existing, _ := s.GetByKey(d.UserID, d.InfoHash, d.FileIndex); existing != nil {
 		_, err := s.db.Exec(`

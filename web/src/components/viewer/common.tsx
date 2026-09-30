@@ -1,7 +1,7 @@
 import { Loader2, AlertCircle } from 'lucide-react'
 
-// Re-export do formatador canônico (variante com '—' para zero/ausente), que era
-// duplicado aqui. Mantém o nome `formatBytes` pros viewers que já importam daqui.
+// Re-export of the canonical formatter (the '—' variant for zero/missing), which used to
+// be duplicated here. Keeps the name `formatBytes` for viewers that already import from here.
 export { formatBytesOrDash as formatBytes } from '../../lib/format'
 
 // Shared loading/error states for the viewer family — keeps each viewer free

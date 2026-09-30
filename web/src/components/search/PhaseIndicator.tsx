@@ -1,7 +1,7 @@
 import type { SearchPhase } from '../../lib/searchResultsCache'
 
-// Bolinha de status por aba (amarela=carregando, verde=pronto, vermelha=erro).
-// Vive em arquivo próprio para não engordar o SearchPage (god-file).
+// Status dot per tab (yellow=loading, green=ready, red=error).
+// Lives in its own file to avoid bloating the SearchPage (god-file).
 export function PhaseIndicator({ phase }: { readonly phase: SearchPhase }) {
   if (phase === 'idle') return null
   if (phase === 'cache' || phase === 'live')

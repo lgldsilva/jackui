@@ -38,13 +38,13 @@ func StreamImport(s *streamer.Streamer) gin.HandlerFunc {
 func streamImportHandler(c *gin.Context, s *streamer.Streamer) {
 	var req importReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "corpo inválido")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid body")
 		return
 	}
 
 	favs := s.Favorites()
 	if favs == nil {
-		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "favorites store não inicializado")
+		httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "favorites store not initialized")
 		return
 	}
 
@@ -67,9 +67,9 @@ func streamImportHandler(c *gin.Context, s *streamer.Streamer) {
 		_ = favs.MoveFavoriteToFolder(userID, name, req.FolderID)
 	}
 
-	// %q nos verbos: o query Go de log-injection só aceita como sanitizer o
-	// operando %q ou ReplaceAll no próprio argumento — %s/%v deixavam o fluxo
-	// apontado mesmo com SanitizeForLog/SanitizeIntPtr na frente.
+	// %q in the verbs: the Go log-injection query only accepts %q or ReplaceAll
+	// on the argument itself as sanitizers — %s/%v left the flow pointed even
+	// with SanitizeForLog/SanitizeIntPtr in front.
 	log.Printf("streamer: import favorite user=%d name=%q infoHash=%q folderId=%q", userID, httpshared.SanitizeForLog(name), httpshared.SanitizeForLog(hash), httpshared.SanitizeIntPtr(req.FolderID))
 	c.JSON(http.StatusOK, gin.H{"infoHash": hash, "name": name, "magnet": magnet})
 }
@@ -81,7 +81,7 @@ func resolveImportSource(s *streamer.Streamer, req *importReq) (hash, name, magn
 	if strings.TrimSpace(req.TorrentB64) != "" {
 		return resolveTorrentB64Import(s, req.TorrentB64)
 	}
-	return "", "", "", fmt.Errorf("informe um magnet ou um arquivo .torrent")
+	return "", "", "", fmt.Errorf("provide a magnet or a .torrent file")
 }
 
 func resolveMagnetImport(s *streamer.Streamer, raw string) (hash, name, magnet string, err error) {
@@ -102,10 +102,10 @@ func resolveTorrentB64Import(s *streamer.Streamer, b64 string) (hash, name, magn
 	}
 	data, derr := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
 	if derr != nil {
-		return "", "", "", fmt.Errorf("base64 inválido")
+		return "", "", "", fmt.Errorf("invalid base64")
 	}
 	if len(data) > maxTorrentBytes {
-		return "", "", "", fmt.Errorf(".torrent excede 8 MB")
+		return "", "", "", fmt.Errorf(".torrent exceeds 8 MB")
 	}
 	hash, name, err = s.ImportTorrentBytes(data)
 	if err != nil {

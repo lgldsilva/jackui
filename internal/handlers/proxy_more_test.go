@@ -88,8 +88,8 @@ func TestIsJackettURL_AcceptsValidJackett(t *testing.T) {
 	}
 }
 
-// sanitizeJackettURL é a barreira de request-forgery do proxy: só o retorno
-// dela chega ao proxyHTTP.Get, e preserva os códigos 400/403 do fluxo antigo.
+// sanitizeJackettURL is the proxy's request-forgery barrier: only its return
+// value reaches proxyHTTP.Get, and it preserves the legacy flow's 400/403 codes.
 func TestSanitizeJackettURL(t *testing.T) {
 	client := jackett.New("http://jackett:9117", "k")
 

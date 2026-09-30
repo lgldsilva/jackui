@@ -11,7 +11,7 @@ import (
 
 // MusicTrending handles GET /api/music/trending?country=&limit= — proxies
 // Apple's keyless top-albums RSS (see internal/musictrending) for the Discover
-// grid in Música mode. Country defaults to us; limit is clamped by the client.
+// grid in Music mode. Country defaults to us; limit is clamped by the client.
 func MusicTrending(mc *musictrending.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if mc == nil {

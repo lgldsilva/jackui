@@ -16,7 +16,7 @@ describe('computeFilePickerState', () => {
     expect(state.fileCount).toBe(0)
   })
 
-  it('deve retornar os estados corretos para múltiplos arquivos', () => {
+  it('returns the correct states for multiple files', () => {
     const mockInfo = {
       infoHash: 'hash',
       name: 'Test Torrent',

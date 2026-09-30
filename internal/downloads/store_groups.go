@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// Operações de grupo / scheduling / requeue do store — extraído de store.go.
+// Group / scheduling / requeue operations of the store — extracted from store.go.
 // PromoteGroup flips every queued row of a torrent group to downloading in ONE
 // transaction, preserving PromoteToDownloading's status guard (a row not in
 // `queued` — already downloading, paused, or removed — is skipped) and its

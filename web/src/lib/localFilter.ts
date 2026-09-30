@@ -1,9 +1,9 @@
 import type { LocalEntry } from '../api/client'
 
-// Filtro de STATUS na lista de arquivos local: mostrar tudo, só o que está
-// baixando (entradas .part / pastas que contêm um .part → e.incomplete), ou só
-// o concluído. Aplica a arquivos E pastas, mas só quando ≠ 'all' — no default a
-// navegação por pastas permanece livre (não filtrada).
+// STATUS filter on the local file list: show everything, only what's
+// downloading (.part entries / folders containing a .part → e.incomplete), or only
+// completed ones. Applies to files AND folders, but only when ≠ 'all' — by default
+// folder navigation stays free (unfiltered).
 export type LocalStatusFilter = 'all' | 'downloading' | 'done'
 
 export function matchesEntryStatus(e: LocalEntry, f: LocalStatusFilter): boolean {

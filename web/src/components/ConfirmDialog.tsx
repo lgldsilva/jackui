@@ -8,7 +8,7 @@ export type ConfirmOptions = {
   readonly message?: ReactNode
   readonly confirmLabel?: string
   readonly cancelLabel?: string
-  /** Botão de confirmar em vermelho + ícone de alerta. Default true (uso típico é apagar). */
+  /** Red confirm button + alert icon. Default true (typical use is delete). */
   readonly destructive?: boolean
 }
 
@@ -17,9 +17,9 @@ type Pending = ConfirmOptions & { readonly resolve: (ok: boolean) => void }
 const ConfirmContext = createContext<((opts: ConfirmOptions) => Promise<boolean>) | null>(null)
 
 /**
- * Substitui o `confirm()` nativo (inacessível/feio no mobile) por um diálogo no
- * tema dark, montado sobre o Sheet (bottom-sheet no mobile, card no desktop).
- * Envolve a app uma vez; o hook `useConfirm()` retorna uma função async.
+ * Replaces the native `confirm()` (inaccessible/ugly on mobile) with a dialog in the
+ * dark theme, mounted on top of the Sheet (bottom-sheet on mobile, card on desktop).
+ * Wraps the app once; the `useConfirm()` hook returns an async function.
  */
 export function ConfirmProvider({ children }: { readonly children: ReactNode }) {
   const { t } = useTranslation()
@@ -28,7 +28,7 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
   pendingRef.current = pending
 
   const confirm = useCallback((opts: ConfirmOptions) => {
-    // Se já há um diálogo aberto, resolve-o como cancelado antes de abrir o novo.
+    // If a dialog is already open, resolve it as cancelled before opening the new one.
     pendingRef.current?.resolve(false)
     return new Promise<boolean>(resolve => setPending({ ...opts, resolve }))
   }, [])
@@ -80,6 +80,6 @@ export function ConfirmProvider({ children }: { readonly children: ReactNode }) 
 export function useConfirm(): (opts: ConfirmOptions) => Promise<boolean> {
   const ctx = useContext(ConfirmContext)
   if (!ctx) throw new Error('useConfirm must be used within a <ConfirmProvider>')
-  // useMemo só pra estabilizar a referência (o ctx já é estável via useCallback).
+  // useMemo only to stabilize the reference (the ctx is already stable via useCallback).
   return useMemo(() => ctx, [ctx])
 }

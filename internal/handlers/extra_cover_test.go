@@ -60,7 +60,7 @@ func TestEnrichETASkipsEmptyHash(t *testing.T) {
 	d := &downloads.Download{InfoHash: "", FileSize: 1000, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
 	if d.ETA != 42 || d.DownRate != 7 {
-		t.Errorf("hash vazio deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+		t.Errorf("empty hash should skip enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
 	}
 }
 
@@ -69,7 +69,7 @@ func TestEnrichETASkipsZeroSize(t *testing.T) {
 	d := &downloads.Download{InfoHash: "abc", FileSize: 0, ETA: 42, DownRate: 7}
 	enrichETA(d, s)
 	if d.ETA != 42 || d.DownRate != 7 {
-		t.Errorf("FileSize zero deveria pular enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
+		t.Errorf("zero FileSize should skip enrich: ETA=%d DownRate=%d", d.ETA, d.DownRate)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestEnrichETAListNilStreamer(t *testing.T) {
 	list := []downloads.Download{{InfoHash: "abc", ETA: 5, DownRate: 9}}
 	enrichETAList(list, nil)
 	if list[0].ETA != 5 || list[0].DownRate != 9 {
-		t.Errorf("streamer nil deveria deixar a lista intacta: %+v", list[0])
+		t.Errorf("nil streamer should leave the list untouched: %+v", list[0])
 	}
 }
 

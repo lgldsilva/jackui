@@ -5,6 +5,7 @@ package diskutil
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,8 +24,12 @@ func Usage(path string) (free, total int64) {
 		return 0, 0
 	}
 	bsize := int64(st.Bsize)
+	// A block count above MaxInt64 (>8 EiB of 1-byte blocks) has no positive
+	// int64 representation; saturate instead of wrapping negative.
+	if st.Bavail > math.MaxInt64 || st.Blocks > math.MaxInt64 {
+		return math.MaxInt64, math.MaxInt64
+	}
 	// Bavail = blocks free for unprivileged users (what's actually usable).
-	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
 	return bsize * int64(st.Bavail), bsize * int64(st.Blocks)
 }
 
@@ -42,24 +47,12 @@ func IsRotational(path string) bool {
 	if err := syscall.Stat(path, &st); err != nil {
 		return false
 	}
-	// st.Dev is int32 on macOS (Darwin). Device numbers are inherently
-	// unsigned, so a negative value can only result from filesystem quirks.
-	// Defensive: compute the absolute value with safe arithmetic so the
-	// int32→uint64 cast never wraps a negative (including MinInt32 where
-	// -x would overflow int32).
-	stDev := st.Dev
-	var absDev uint64
-	if stDev < 0 {
-		// int32→int64 is always safe; negating MinInt32 in int64 is safe;
-		// uint64 from positive int64 is also safe.
-		// #nosec G115
-		absDev = uint64(-int64(stDev))
-	} else {
-		absDev = uint64(stDev)
-	}
-	maj, min := unix.Major(absDev), unix.Minor(absDev)
+	// st.Dev is uint64 on Linux (the only platform this project builds for):
+	// device numbers are inherently unsigned, so the value feeds straight into
+	// major/minor extraction with no sign handling or wrapping risk.
+	devMajor, devMinor := unix.Major(st.Dev), unix.Minor(st.Dev)
 	// /sys/dev/block/MAJ:MIN symlinks to …/block/<disk>[/<part>].
-	link, err := os.Readlink(fmt.Sprintf("/sys/dev/block/%d:%d", maj, min))
+	link, err := os.Readlink(fmt.Sprintf("/sys/dev/block/%d:%d", devMajor, devMinor))
 	if err != nil {
 		return false
 	}
@@ -70,7 +63,7 @@ func IsRotational(path string) bool {
 		if name == "" {
 			continue
 		}
-		// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+		// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 		b, err := os.ReadFile("/sys/block/" + name + "/queue/rotational")
 		if err == nil {
 			return strings.TrimSpace(string(b)) == "1"

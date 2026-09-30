@@ -10,16 +10,16 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-// ─── Regressão do incidente de 2026-09-28 (ângulo *arr) ─────────────────────
+// ─── Regression for the 2026-09-28 incident (*arr angle) ────────────────────
 //
-// O torrent-get (poll da stack *arr a cada ~60s) usava streamer.Get, que
-// renovava o lastAccess de cada torrent ativo — o activeReadGuard do drop
-// ficava eternamente armado e qualquer "Parar" manual era recusado em
-// silêncio. Agora o poll usa GetUntouched (não conta como uso) e o caminho
-// explícito (DropSeed) bypassa o guard de leitura de qualquer forma.
+// torrent-get (the *arr stack's poll, every ~60s) used streamer.Get, which
+// refreshed every active torrent's lastAccess — the drop's activeReadGuard
+// stayed permanently armed and every manual "Stop" was silently refused. The
+// poll now uses GetUntouched (does not count as use) and the explicit path
+// (DropSeed) bypasses the read guard anyway.
 
-// O poll da *arr continua ENXERGANDO o torrent — e não bloqueia mais o stop
-// manual que vier logo em seguida.
+// The *arr poll still SEES the torrent — and no longer blocks a manual stop
+// issued right after it.
 func TestTorrentGet_PollSeesTorrent_AndNoLongerBlocksExplicitStop(t *testing.T) {
 	s := streamer.NewForTesting()
 	h := NewHandler(nil, s, nil, "/data", "/data", "", nil)
@@ -27,24 +27,24 @@ func TestTorrentGet_PollSeesTorrent_AndNoLongerBlocksExplicitStop(t *testing.T) 
 	hash, cleanup := s.SeedActiveForTesting("arr-polled-torrent", time.Now().Add(-2*time.Hour))
 	defer cleanup()
 
-	// O caminho exato que o torrent-get da *arr executa a cada minuto.
+	// The exact path the *arr torrent-get executes every minute.
 	active := h.activeTorrentInfo([]downloads.Download{
 		{ID: 372, InfoHash: hash.HexString()},
 	})
 	if _, ok := active[hash.HexString()]; !ok {
-		t.Fatal("activeTorrentInfo deveria resolver o torrent ativo (é assim que a *arr o vê)")
+		t.Fatal("activeTorrentInfo should resolve the active torrent (that is how the *arr sees it)")
 	}
 
-	// Imediatamente depois do poll, o usuário clica em "Parar".
+	// Immediately after the poll, the user clicks "Stop".
 	if err := s.DropSeed(hash); err != nil {
-		t.Fatalf("DropSeed após torrent-get da *arr: %v (poll não deve mais armar o guard)", err)
+		t.Fatalf("DropSeed after *arr torrent-get: %v (the poll must no longer arm the guard)", err)
 	}
 	if n := len(s.ActiveList()); n != 0 {
-		t.Fatalf("ActiveList = %d, want 0 — o stop explícito deve vencer", n)
+		t.Fatalf("ActiveList = %d, want 0 — the explicit stop must win", n)
 	}
 }
 
-// Controle: sem poll nenhum, o stop sempre funcionou.
+// Control: with no poll at all, stopping always worked.
 func TestTorrentGet_WithoutPoll_UserDropSucceeds(t *testing.T) {
 	s := streamer.NewForTesting()
 	_ = NewHandler(nil, s, nil, "/data", "/data", "", nil)
@@ -60,9 +60,7 @@ func TestTorrentGet_WithoutPoll_UserDropSucceeds(t *testing.T) {
 	}
 }
 
-// auto-seed persistido tem que ir junto (o Drop genérico deixava
-// o registro vivo → resumeSeeding ressuscitava o torrent no boot). Aqui
-// apenas a sanidade do fixture: o hash derivado resolve no streamer.
+// Fixture sanity: the derived hash resolves in the streamer.
 func TestSeedActiveForTesting_HashMatchesTorrent(t *testing.T) {
 	s := streamer.NewForTesting()
 	hash, cleanup := s.SeedActiveForTesting("hash-check", time.Now())
@@ -70,16 +68,16 @@ func TestSeedActiveForTesting_HashMatchesTorrent(t *testing.T) {
 
 	var zero metainfo.Hash
 	if hash == zero {
-		t.Fatal("SeedActiveForTesting retornou hash zerado")
+		t.Fatal("SeedActiveForTesting returned a zero hash")
 	}
 	if _, err := s.Get(hash); err != nil {
-		t.Fatalf("Get no torrent semeado: %v", err)
+		t.Fatalf("Get on the seeded torrent: %v", err)
 	}
 }
 
-// torrent-remove com delete-local-data vindo da *arr é remoção EXPLÍCITA:
-// mesmo com o guard de leitura armado por um poll recente, o torrent sai do
-// streamer e a row some da fila — o mesmo caminho do "Parar" na UI.
+// torrent-remove with delete-local-data from the *arr is an EXPLICIT removal:
+// even with the read guard armed by a recent poll, the torrent leaves the
+// streamer and the row leaves the queue — the same path as "Stop" in the UI.
 func TestTorrentRemove_DeleteLocalData_DropsActiveTorrentAfterPoll(t *testing.T) {
 	st := newTestStore(t)
 	s := streamer.NewForTesting()
@@ -97,9 +95,9 @@ func TestTorrentRemove_DeleteLocalData_DropsActiveTorrentAfterPoll(t *testing.T)
 		t.Fatal(err)
 	}
 
-	// Poll da *arr imediatamente antes do remove (o cenário do incidente).
+	// *arr poll immediately before the remove (the incident scenario).
 	if got := h.activeTorrentInfo([]downloads.Download{*d}); len(got) != 1 {
-		t.Fatalf("activeTorrentInfo = %d entradas, want 1", len(got))
+		t.Fatalf("activeTorrentInfo = %d entries, want 1", len(got))
 	}
 
 	resp := h.methodTorrentRemove(map[string]interface{}{
@@ -110,7 +108,7 @@ func TestTorrentRemove_DeleteLocalData_DropsActiveTorrentAfterPoll(t *testing.T)
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
 	if n := len(s.ActiveList()); n != 0 {
-		t.Fatalf("ActiveList = %d, want 0 — remove explícito da *arr deve dropar o torrent", n)
+		t.Fatalf("ActiveList = %d, want 0 — the explicit *arr remove must drop the torrent", n)
 	}
 	all, _ := st.ListAll()
 	if len(all) != 0 {
@@ -118,8 +116,8 @@ func TestTorrentRemove_DeleteLocalData_DropsActiveTorrentAfterPoll(t *testing.T)
 	}
 }
 
-// Sem delete-local-data a *arr só quer a row fora da fila: o torrent ativo
-// (arquivos no disco) NÃO pode ser dropado do streamer.
+// Without delete-local-data the *arr only wants the row out of the queue: the
+// active torrent (files on disk) must NOT be dropped from the streamer.
 func TestTorrentRemove_KeepLocalData_LeavesActiveTorrentAlone(t *testing.T) {
 	st := newTestStore(t)
 	s := streamer.NewForTesting()
@@ -144,7 +142,7 @@ func TestTorrentRemove_KeepLocalData_LeavesActiveTorrentAlone(t *testing.T) {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
 	if n := len(s.ActiveList()); n != 1 {
-		t.Fatalf("ActiveList = %d, want 1 — sem delete-local-data o torrent fica", n)
+		t.Fatalf("ActiveList = %d, want 1 — without delete-local-data the torrent stays", n)
 	}
 	all, _ := st.ListAll()
 	if len(all) != 0 {

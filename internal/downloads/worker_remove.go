@@ -40,7 +40,7 @@ func (w *Worker) Remove(id int, infoHash string) {
 		// lock + I/O) and is a safe no-op if a player still holds a viewer lease.
 		// dropTorrentSeed (not the plain drop) because Remove is an explicit user
 		// removal: the persisted auto-seed must go too, or resumeSeeding brings
-		// the torrent back as a live "Semeando" card on the next boot.
+		// the torrent back as a live "Seeding" card on the next boot.
 		w.dropTorrentSeed(hash)
 	}
 }

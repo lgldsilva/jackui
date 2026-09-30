@@ -1,5 +1,5 @@
-// ActionButton — botão de ação primitivo (tocar/pausar/remover/…) usado nos
-// cards de download e torrent. Variantes de cor via `variant`.
+// ActionButton — primitive action button (play/pause/remove/…) used on the
+// download and torrent cards. Color variants via `variant`.
 export function ActionButton({ onClick, disabled, variant, icon, label, className = '', title }: {
   readonly onClick: () => void
   readonly disabled: boolean

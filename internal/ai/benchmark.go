@@ -17,13 +17,13 @@ import (
 // the kind of releases you actually download and the chain re-ranks for them.
 //
 // Expect carries the STRUCTURE inline, in the same canonical form the rename
-// feature produces, so examples and results are coherent with séries/temporadas/
-// episódios (parsed by parseExpect at scoring time — no schema migration):
-//   - Movie:           "Inception - 2010"        (Título - Ano)
-//   - TV episode:      "Breaking Bad - S03E07"   (Série - Temporada/Episódio)
-//   - TV (no season):  "Frieren - E01"           (Série - Episódio)
-//   - Season pack:     "The Wire - S04"          (Série - Temporada, sem episódio)
-//   - Plain title:     "Inception"               (sem estrutura → só o título conta)
+// feature produces, so examples and results are coherent with TV series/seasons/
+// episodes (parsed by parseExpect at scoring time — no schema migration):
+//   - Movie:           "Inception - 2010"        (Title - Year)
+//   - TV episode:      "Breaking Bad - S03E07"   (Series - Season/Episode)
+//   - TV (no season):  "Frieren - E01"           (Series - Episode)
+//   - Season pack:     "The Wire - S04"          (Series - Season, no episode)
+//   - Plain title:     "Inception"               (no structure → title only)
 type BenchmarkCase struct {
 	Raw    string `json:"raw"`
 	Expect string `json:"expect"`
@@ -66,7 +66,7 @@ type SlotScore struct {
 	Tasks map[string]TaskScore `json:"tasks,omitempty"`
 	// Incomplete is true when some cases were transiently SKIPPED (rate limit
 	// after retries, network) so the model wasn't measured on the full set. These
-	// are the ones the "Rodar faltantes" button re-runs later, outside the
+	// are the ones the "Rodar faltantes" (run missing) button re-runs later, outside the
 	// rate-limit window. A model fully tested (even if some cases failed hard) is
 	// NOT incomplete.
 	Incomplete bool `json:"incomplete,omitempty"`
@@ -89,7 +89,7 @@ type SlotScore struct {
 }
 
 // Run outcome labels. A run is OK when it produced a complete, usable measurement;
-// INCOMPLETE when transiently cut short (rate limit) — the "faltante" state; ERROR
+// INCOMPLETE when transiently cut short (rate limit) — the "missing" state; ERROR
 // when it yielded no usable reply at all (hard failure). These drive the durable
 // per-slot history so the UI can show success/error status, error persistence, and
 // the date of the last success.
@@ -150,7 +150,7 @@ func localSlotContext(ctx context.Context, remainingSlots int) (context.Context,
 	return context.WithTimeout(ctx, share)
 }
 
-func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore { // NOSONAR: complexidade cognitiva rastreada no refactor de god-files (auditoria #416)
+func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []BenchmarkCase, onResult func(SlotScore)) []SlotScore {
 	if len(cases) == 0 {
 		cases = AllDefaultBenchmarkCases()
 	}
@@ -165,6 +165,12 @@ func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []Ben
 	// goroutine per slot to cut wall-clock. Both groups run concurrently: the local
 	// queue overlaps the parallel cloud calls.
 	results := make([]SlotScore, len(slots))
+	emit := func(i int, score SlotScore) {
+		results[i] = score
+		if onResult != nil {
+			onResult(score)
+		}
+	}
 	var wg sync.WaitGroup
 	for i, s := range slots {
 		if s.Local {
@@ -173,43 +179,47 @@ func (c *Client) RunSlotsProgress(ctx context.Context, slots []Slot, cases []Ben
 		wg.Add(1)
 		go func(i int, s Slot) {
 			defer wg.Done()
-			results[i] = c.scoreSlot(ctx, s, cases, false)
-			if onResult != nil {
-				onResult(results[i])
-			}
+			emit(i, c.scoreSlot(ctx, s, cases, false))
 		}(i, s)
-	}
-	// Local models: a single goroutine drains them sequentially (with warmup),
-	// each capped to a FAIR SHARE of the run's remaining time (see
-	// localSlotContext) so one slow/stuck model can't starve every local model
-	// still queued behind it.
-	localTotal := 0
-	for _, s := range slots {
-		if s.Local {
-			localTotal++
-		}
 	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		done := 0
-		for i, s := range slots {
-			if !s.Local {
-				continue
-			}
-			slotCtx, slotCancel := localSlotContext(ctx, localTotal-done)
-			results[i] = c.scoreSlot(slotCtx, s, cases, true)
-			slotCancel()
-			done++
-			if onResult != nil {
-				onResult(results[i])
-			}
-		}
+		c.runLocalSlotsSequential(ctx, slots, cases, emit)
 	}()
 	wg.Wait()
 
 	sort.SliceStable(results, func(i, j int) bool { return RankBefore(results[i], results[j]) })
 	return results
+}
+
+// runLocalSlotsSequential drains the LOCAL slots one at a time (with warmup),
+// each capped to a FAIR SHARE of the run's remaining time (see localSlotContext)
+// so one slow/stuck model can't starve every local model still queued behind it.
+// emit receives the slot's index in slots plus its score.
+func (c *Client) runLocalSlotsSequential(ctx context.Context, slots []Slot, cases []BenchmarkCase, emit func(int, SlotScore)) {
+	localTotal := countLocalSlots(slots)
+	done := 0
+	for i, s := range slots {
+		if !s.Local {
+			continue
+		}
+		slotCtx, slotCancel := localSlotContext(ctx, localTotal-done)
+		score := c.scoreSlot(slotCtx, s, cases, true)
+		slotCancel()
+		done++
+		emit(i, score)
+	}
+}
+
+func countLocalSlots(slots []Slot) int {
+	n := 0
+	for _, s := range slots {
+		if s.Local {
+			n++
+		}
+	}
+	return n
 }
 
 // warmupTimeout bounds the untimed priming call for a local Ollama model. It has
@@ -431,7 +441,7 @@ func rateLimitBackoff(err error, attempt int) time.Duration {
 // scoreSingleCase runs one case and folds it into the running score. Returns true
 // only to ABORT the whole slot (no point continuing) — i.e. the model is paid with
 // no balance. Error handling has three tiers:
-//   - insufficient balance → abort the slot ("pago — sem saldo").
+//   - insufficient balance → abort the slot ("paid — no balance").
 //   - bad output (errBadOutput: HTTP 400 / unparseable JSON) → a quality failure of
 //     this model on this input: counts as a 0-accuracy case (scored++, accSum += 0).
 //   - anything else (rate limit after retries, 5xx, network, a crashed local
@@ -442,7 +452,7 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 	if err != nil {
 		if errors.Is(err, errInsufficientBalance) {
 			if score.FailureReason == "" {
-				score.FailureReason = "pago — sem saldo"
+				score.FailureReason = "paid — no balance"
 			}
 			return true
 		}
@@ -471,11 +481,11 @@ func (c *Client) scoreSingleCase(ctx context.Context, s Slot, tc BenchmarkCase, 
 // vendor at runtime, falling through to the next, ultimately the free local).
 // RerunIncomplete re-benchmarks ONLY the models flagged Incomplete in prev (cases
 // transiently skipped, typically rate-limited) and merges the fresh scores over
-// prev. This backs the "Rodar faltantes" button: run it later — a day after, even
+// prev. This backs the "Rodar faltantes" (run missing) button: run it later — a day after, even
 // — so the retry lands OUTSIDE the rate-limit window and the model finally gets a
 // complete score. Paid models are filtered out (never spend on them); if nothing
 // is incomplete, prev is returned unchanged.
-// NeedsRerun reports whether a result is worth re-running via "Rodar faltantes":
+// NeedsRerun reports whether a result is worth re-running via "Rodar faltantes" (run missing):
 // either the model was left Incomplete (some cases transiently skipped) OR it
 // failed with a rate limit. The rate-limit check also catches results persisted
 // BEFORE the Incomplete flag existed, so the button works on pre-existing data

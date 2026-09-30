@@ -231,8 +231,8 @@ func TestSanitizeIntPtr(t *testing.T) {
 	}
 }
 
-// SanitizeForLog é a barreira de log-injection dos handlers: nenhum controle
-// de linha/coluna sobrevive, e o tamanho é limitado.
+// SanitizeForLog is the handlers' log-injection barrier: no control
+// characters survive, and the length is clamped.
 func TestSanitizeForLog(t *testing.T) {
 	in := "line1\r\nline2\tcol\x00nul"
 	want := "line1␊line2␉colnul"

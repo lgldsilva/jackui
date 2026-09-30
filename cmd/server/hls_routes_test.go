@@ -12,12 +12,12 @@ import (
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
-// TestRegisterHLSRoutesNoConflict monta as rotas HLS reais numa engine gin e
-// garante que NÃO há panic de conflito de árvore de rotas — o cenário do gin
-// "conflicts with existing wildcard" que a Phase 2 introduziria se `v/:variant`
-// colidisse com o legado `:seg`. Sem este teste, o panic só apareceria no boot
-// do servidor (runtime), nunca no CI. Também confirma a precedência: uma
-// requisição à playlist de variante casa um handler (não cai no NoRoute).
+// TestRegisterHLSRoutesNoConflict mounts the real HLS routes on a gin engine and
+// guarantees there is NO route-tree conflict panic — the gin "conflicts with
+// existing wildcard" scenario Phase 2 would introduce if `v/:variant` collided
+// with the legacy `:seg`. Without this test the panic would only appear at
+// server boot (runtime), never in CI. It also confirms precedence: a request to
+// the variant playlist matches a handler (does not fall to NoRoute).
 func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -32,16 +32,16 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 	}
 
 	r := gin.New()
-	// NoRoute sentinela: distingue "nenhuma rota casou" de "handler rodou e
-	// respondeu 404".
+	// NoRoute sentinel: distinguishes "no route matched" from "handler ran and
+	// answered 404".
 	r.NoRoute(func(c *gin.Context) { c.String(599, "NOROUTE") })
 
 	api := r.Group("/api")
 	adminAPI := r.Group("/api")
-	// Panic de conflito de rota estouraria AQUI (falha o teste).
+	// A route-conflict panic would blow up HERE (test fails).
 	registerHLSRoutes(api, adminAPI, deps)
 
-	// A árvore precisa conter as rotas de variante novas + o legado.
+	// The tree must contain the new variant routes + the legacy one.
 	wantPaths := map[string]bool{
 		"/api/stream/hls/:hash/:file/index.m3u8":            false,
 		"/api/stream/hls/:hash/:file/v/:variant/index.m3u8": false,
@@ -58,12 +58,12 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 	}
 	for p, found := range wantPaths {
 		if !found {
-			t.Errorf("rota HLS não registrada: %s", p)
+			t.Errorf("HLS route not registered: %s", p)
 		}
 	}
 
-	// Precedência: /v/0/index.m3u8 (3 segmentos após :file) casa a rota de
-	// variante — NÃO o NoRoute (599). `v` estático tem prioridade sobre `:seg`.
+	// Precedence: /v/0/index.m3u8 (3 segments after :file) matches the variant
+	// route — NOT the NoRoute (599). The static `v` takes priority over `:seg`.
 	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for _, path := range []string{
 		"/api/stream/hls/" + hash + "/0/v/0/index.m3u8",
@@ -77,7 +77,7 @@ func TestRegisterHLSRoutesNoConflict(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		r.ServeHTTP(w, req)
 		if w.Code == 599 {
-			t.Errorf("%s caiu no NoRoute (nenhuma rota casou)", path)
+			t.Errorf("%s fell to NoRoute (no route matched)", path)
 		}
 	}
 }

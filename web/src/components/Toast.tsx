@@ -11,10 +11,10 @@ type Toast = {
   readonly kind: ToastKind
 }
 
-// Store module-level (pub/sub) para que notify()/notifyError() também funcionem
-// FORA de componentes React — vários alert() de erro moram em helpers puros
-// (ResultCard etc.) que não podem usar hooks. O ToastProvider apenas se inscreve
-// nesse store e renderiza a pilha; useToast() devolve as mesmas funções.
+// Module-level store (pub/sub) so notify()/notifyError() also work
+// OUTSIDE React components — several error alerts live in pure helpers
+// (ResultCard etc.) that can't use hooks. ToastProvider merely subscribes
+// to this store and renders the stack; useToast() returns the same functions.
 type Listener = (toasts: readonly Toast[]) => void
 
 const AUTO_DISMISS_MS = 4000
@@ -104,9 +104,9 @@ function ToastViewport({ items }: { readonly items: readonly Toast[] }) {
 }
 
 /**
- * Substitui o `alert()` nativo por toasts empilhados no canto, acessíveis
- * (role="status" + aria-live) e com auto-dismiss (~4s). Envolve a app uma vez;
- * notify()/notifyError() podem ser chamados via useToast() ou importados direto.
+ * Replaces the native `alert()` with stacked toasts in the corner, accessible
+ * (role="status" + aria-live) and with auto-dismiss (~4s). Wraps the app once;
+ * notify()/notifyError() can be called via useToast() or imported directly.
  */
 export function ToastProvider({ children }: { readonly children: ReactNode }) {
   const [items, setItems] = useState<readonly Toast[]>(toasts)

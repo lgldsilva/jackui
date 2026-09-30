@@ -43,7 +43,7 @@ func MountsUpdate(cfg *config.Config, configPath string, browser *local.Browser)
 		if err := cfg.Save(configPath); err != nil {
 			cfg.External.Mounts = old
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error()+
-				" — nada foi alterado; o config.yaml precisa ser gravável pelo uid do container (ajuste dono/permissão no host)")
+				" — nothing was changed; config.yaml must be writable by the container uid (fix owner/permissions on the host)")
 			return
 		}
 		if browser != nil {
@@ -58,13 +58,13 @@ func validateMounts(mounts []config.ExternalMount) string {
 	for _, m := range mounts {
 		name := strings.TrimSpace(m.Name)
 		if name == "" {
-			return "todo mount precisa de um nome"
+			return "every mount needs a name"
 		}
 		if strings.TrimSpace(m.Path) == "" {
-			return "mount \"" + name + "\" precisa de um caminho"
+			return "mount \"" + name + "\" needs a path"
 		}
 		if seen[name] {
-			return "nome de mount duplicado: " + name
+			return "duplicate mount name: " + name
 		}
 		seen[name] = true
 	}

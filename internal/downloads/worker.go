@@ -120,7 +120,7 @@ type Worker struct {
 	// dropSeed drops a torrent AND its persisted auto-seed (streamer.DropSeed).
 	// Used ONLY by the explicit user-removal path (Remove): without it the seeds
 	// row survives and resumeSeeding resurrects the torrent on the next boot as
-	// a live "Semeando" card. Lifecycle drops (move/tick) keep the plain `drop`
+	// a live "Seeding" card. Lifecycle drops (move/tick) keep the plain `drop`
 	// seam above — those must preserve auto-seed. Returns a refusal error
 	// (viewer lease / background download) which the removal path ignores — the
 	// row is being deleted regardless; at worst the idle reaper reclaims it.

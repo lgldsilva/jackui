@@ -7,17 +7,17 @@ import { formatRate } from '../../lib/format'
 
 type Props = { readonly downloadId: number }
 
-// Ordena pelos peers mais "interessantes" no topo: quem estamos enviando primeiro
-// (importa pra ratio), depois quem nos envia, depois maior disponibilidade.
+// Sorts the most "interesting" peers to the top: who we're sending to first
+// (matters for ratio), then who sends to us, then highest availability.
 function sortPeers(peers: PeerInfo[]): PeerInfo[] {
   return [...peers].sort((a, b) =>
     b.upRate - a.upRate || b.downRate - a.downRate || b.availability - a.availability,
   )
 }
 
-// PeersTab lista os peers conectados do torrent, com polling de 2s enquanto
-// montado (o pai só monta quando a aba está aberta). A lib anacrolix não expõe
-// choke/interest, então "enviando"/"recebendo" são INFERIDOS das taxas ao vivo.
+// PeersTab lists the torrent's connected peers, polling every 2s while
+// mounted (the parent only mounts it when the tab is open). The anacrolix lib doesn't expose
+// choke/interest, so "sending"/"receiving" are INFERRED from the live rates.
 export default function PeersTab({ downloadId }: Props) {
   const { t } = useTranslation()
   const [peers, setPeers] = useState<PeerInfo[]>([])

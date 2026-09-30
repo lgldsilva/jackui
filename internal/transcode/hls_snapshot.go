@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Inspeção/fechamento de sessões HLS (Peek/Close/Sessions/snapshot) — extraído de hls.go.
+// HLS session inspection/close (Peek/Close/Sessions/snapshot) — extracted from hls.go.
 // closeIfCloser closes a source that supports it (torrent FileReader,
 // *os.File). Sources owned elsewhere (e.g. localstream.Session, returned to
 // its registry) simply don't implement io.Closer and pass through.
@@ -52,9 +52,10 @@ func (m *HLSSessionManager) Close(key string) {
 	}
 }
 
-// CloseForHash para TODAS as sessões HLS de um torrent (keys "<hash>-<fileIdx>").
-// Chamado quando o player fecha (Drop) pra não deixar o ffmpeg do transcode
-// órfão consumindo CPU até o idle-reaper (5min). Idempotente; no-op se não houver.
+// CloseForHash stops ALL HLS sessions of a torrent (keys "<hash>-<fileIdx>").
+// Called when the player closes (Drop) so the transcode ffmpeg isn't left
+// orphaned consuming CPU until the idle-reaper (5min). Idempotent; no-op when
+// there are none.
 func (m *HLSSessionManager) CloseForHash(hashHex string) {
 	if hashHex == "" {
 		return

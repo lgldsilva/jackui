@@ -316,9 +316,9 @@ func TestNaturalLess(t *testing.T) {
 	}
 }
 
-// TestSafeZipSize cobre a conversão uint64→int64 de tamanhos de header não
-// confiáveis: o caminho normal e o clamp anti-overflow (#480, G115). Um header
-// mentindo >MaxInt64 não pode virar negativo (burlaria os checks de tamanho).
+// TestSafeZipSize covers the uint64→int64 conversion of untrusted header
+// sizes: the normal path and the anti-overflow clamp (#480, G115). A header
+// lying about >MaxInt64 must not wrap negative (it would bypass the size checks).
 func TestSafeZipSize(t *testing.T) {
 	if got := safeZipSize(0); got != 0 {
 		t.Errorf("safeZipSize(0) = %d, want 0", got)
@@ -329,7 +329,7 @@ func TestSafeZipSize(t *testing.T) {
 	if got := safeZipSize(math.MaxInt64); got != math.MaxInt64 {
 		t.Errorf("safeZipSize(MaxInt64) = %d, want MaxInt64", got)
 	}
-	// Acima de MaxInt64 → clamp (sem wrap negativo).
+	// Above MaxInt64 → clamp (no negative wrap).
 	if got := safeZipSize(math.MaxUint64); got != math.MaxInt64 {
 		t.Errorf("safeZipSize(MaxUint64) = %d, want MaxInt64 (clamp)", got)
 	}

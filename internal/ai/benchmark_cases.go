@@ -11,7 +11,7 @@ const OriginDefault = "default"
 // naming — exactly the inputs weak models botch in production. Expects use the
 // canonical label parsed by parseExpect:
 //
-//	Movie:        "Inception - 2010"       (Título - Ano; year informational, not scored)
+//	Movie:        "Inception - 2010"       (Title - Year; year informational, not scored)
 //	TV episode:   "Breaking Bad - S03E07"  (title 60% + season/episode 40%)
 //	Episode only: "Frieren - E01"          (anime absolute numbering)
 //	Season pack:  "The Wire - S04"         (title 60% + season 40%)

@@ -5,9 +5,9 @@ import { useConfirm } from '../ConfirmDialog'
 
 type Setter = React.Dispatch<React.SetStateAction<string>>
 
-// Operações por-item/pasta sobre o mount atual: apagar, limpar pastas vazias,
-// fixar/soltar (.keep) e cachear pasta remota. Todas reportam erro/aviso via os
-// setters da página e re-listam ao concluir.
+// Per-item/folder operations on the current mount: delete, clean empty folders,
+// pin/release (.keep) and cache remote folder. All report error/notice via the
+// page's setters and re-list on completion.
 export function useLocalOps(activeMount: string, path: string, refresh: () => void, setError: Setter, setNotice: Setter) {
   const { t } = useTranslation()
   const confirm = useConfirm()
@@ -38,8 +38,8 @@ export function useLocalOps(activeMount: string, path: string, refresh: () => vo
 
   // Remove empty subfolders left behind after promoting/moving files. Low risk
   // (only deletes truly-empty dirs), so a light confirm is enough.
-  // scope 'here' = recursivo a partir da pasta atual; 'root' = desde a raiz do
-  // mount. Pastas "mantidas" (.keep) sobrevivem em ambos. Arquivos não são tocados.
+  // scope 'here' = recursive from the current folder; 'root' = from the mount's
+  // root. "Kept" folders (.keep) survive in both. Files are never touched.
   const requestCleanEmptyDirs = async (scope: 'here' | 'root') => {
     if (!activeMount) return
     const target = scope === 'root' ? '' : path
@@ -60,8 +60,8 @@ export function useLocalOps(activeMount: string, path: string, refresh: () => vo
     }
   }
 
-  // Fixa/solta uma pasta (.keep) pra que o "limpar vazias" a mantenha mesmo sem
-  // arquivos. Sem confirm — é reversível e inofensivo.
+  // Pins/releases a folder (.keep) so "clean empty" keeps it even without
+  // files. No confirm — it's reversible and harmless.
   const handleToggleLock = useCallback(async (entry: LocalEntry) => {
     if (!activeMount) return
     setError('')
@@ -73,10 +73,10 @@ export function useLocalOps(activeMount: string, path: string, refresh: () => vo
     }
   }, [activeMount, refresh, t, setError])
 
-  // Cacheia a pasta inteira (recursivo) num clique — só aparece em mount
-  // remoto (rclone/NFS/CIFS). O LRU do cache cuida do tamanho: copia tudo e vai
-  // soltando os mais frios conforme novos chegam (favoritos/downloads ficam
-  // protegidos), então uma série grande não estoura o cache.
+  // Caches the whole folder (recursive) in one click — only shows on remote
+  // mounts (rclone/NFS/CIFS). The cache LRU handles size: copies everything and
+  // gradually evicts the coldest as new ones arrive (favorites/downloads stay
+  // protected), so a big series doesn't blow the cache.
   const requestCacheFolder = async () => {
     if (!activeMount) return
     setError(''); setNotice('')

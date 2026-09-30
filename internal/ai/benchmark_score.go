@@ -10,9 +10,9 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Scoring/acurácia do benchmark (compositeScore/titleAccuracy/RankBefore…) — extraído de benchmark.go.
+// Benchmark scoring/accuracy (compositeScore/titleAccuracy/RankBefore…) — extracted from benchmark.go.
 // RunOutcome classifies a freshly-measured score into ok/incomplete/error. Order
-// matters: a partially-measured run is "incomplete" (the re-runnable faltante state)
+// matters: a partially-measured run is "incomplete" (the re-runnable missing state)
 // even if it gathered some samples; only a run with zero usable replies and no
 // transient cut is a hard "error".
 func RunOutcome(s SlotScore) string {

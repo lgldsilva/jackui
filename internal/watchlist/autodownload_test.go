@@ -197,7 +197,7 @@ func TestWorker_AutoDownload_SkipsBaselinePass(t *testing.T) {
 		t.Fatalf("enqueue call mismatch: %+v", c)
 	}
 	last := notifier.notifications[len(notifier.notifications)-1]
-	if !strings.Contains(last.body, "fila de downloads") {
+	if !strings.Contains(last.body, "in download queue") {
 		t.Fatalf("auto-download notification should say so, got %q", last.body)
 	}
 	hits, _ := s.Hits(7, mustFirstID(t, s, 7), 10)
@@ -228,7 +228,7 @@ func TestWorker_AutoDownload_RespectsFilters(t *testing.T) {
 	if len(notifier.notifications) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(notifier.notifications))
 	}
-	if strings.Contains(notifier.notifications[0].body, "fila") {
+	if strings.Contains(notifier.notifications[0].body, "queue") {
 		t.Fatalf("non-enqueued hit must not claim it was queued: %q", notifier.notifications[0].body)
 	}
 }
@@ -265,7 +265,7 @@ func TestWorker_AutoDownload_EnqueueErrorStillNotifies(t *testing.T) {
 	if len(notifier.notifications) != 1 {
 		t.Fatalf("enqueue failure must still notify, got %d", len(notifier.notifications))
 	}
-	if strings.Contains(notifier.notifications[0].body, "fila") {
+	if strings.Contains(notifier.notifications[0].body, "queue") {
 		t.Fatalf("failed enqueue must not claim success: %q", notifier.notifications[0].body)
 	}
 }
@@ -334,7 +334,7 @@ func TestWorker_AggregatesHitsIntoOneNotification(t *testing.T) {
 }
 
 // TestAggregateHits_TruncatesLongList: beyond maxHitList releases the summary
-// lists the first few and collapses the rest into a "… e mais N" line rather
+// lists the first few and collapses the rest into a "… and N more" line rather
 // than a wall of text.
 func TestAggregateHits_TruncatesLongList(t *testing.T) {
 	hits := make([]newHit, 0, maxHitList+3)
@@ -345,11 +345,11 @@ func TestAggregateHits_TruncatesLongList(t *testing.T) {
 	if magnet != "" {
 		t.Fatalf("multi-hit summary must carry no magnet, got %q", magnet)
 	}
-	if !strings.Contains(title, "9 novos") { // maxHitList(6)+3
+	if !strings.Contains(title, "9 new") { // maxHitList(6)+3
 		t.Fatalf("title should carry the total count, got %q", title)
 	}
-	if !strings.Contains(body, "… e mais 3") {
-		t.Fatalf("body should collapse the overflow into '… e mais 3', got %q", body)
+	if !strings.Contains(body, "… and 3 more") {
+		t.Fatalf("body should collapse the overflow into '… and 3 more', got %q", body)
 	}
 	if strings.Contains(body, "Rel.07") {
 		t.Fatalf("body must not spell out releases past the cap, got %q", body)

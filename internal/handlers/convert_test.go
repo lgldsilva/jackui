@@ -161,14 +161,14 @@ func TestResolveTorrentToMagnet_InvalidScheme(t *testing.T) {
 }
 
 func TestResolveTorrentToMagnet_BogusHost(t *testing.T) {
-	// 192.0.2.1 é TEST-NET-1 (RFC 5737), garantidamente irrouteável — a busca
-	// SEMPRE falha (timeout/conn refused), nunca retorna um torrent válido.
+	// 192.0.2.1 is TEST-NET-1 (RFC 5737), guaranteed unroutable — the fetch
+	// ALWAYS fails (timeout/conn refused), never returns a valid torrent.
 	res, cerr := resolveTorrentToMagnet("http://192.0.2.1/nonexistent.torrent")
 	if cerr == nil {
-		t.Fatal("host irrouteável deveria retornar erro, veio nil")
+		t.Fatal("unroutable host should return an error, got nil")
 	}
 	if res != nil {
-		t.Errorf("no erro, resolution deveria ser nil: %+v", res)
+		t.Errorf("with an error, resolution should be nil: %+v", res)
 	}
 }
 
@@ -276,5 +276,24 @@ func TestBuildMagnetFromMetainfo_FallbackToAnnounce(t *testing.T) {
 
 	if !strings.Contains(magnet, "tr=http%3A%2F%2Fsingle-tracker.example.com%2Fannounce") {
 		t.Errorf("magnet should contain single announce tracker, got %q", magnet)
+	}
+}
+
+// TestResolveTorrentToMagnet_LoopbackBlockedByDialerControl drives the REAL
+// ssrfSafeClient (no loopback swap) at 127.0.0.1 so the Dialer.Control SSRF
+// guard rejects the destination before any connect(2) happens.
+func TestResolveTorrentToMagnet_LoopbackBlockedByDialerControl(t *testing.T) {
+	res, cerr := resolveTorrentToMagnet("http://127.0.0.1:9/x.torrent")
+	if cerr == nil {
+		t.Fatal("loopback fetch should be blocked by the dialer guard, got nil error")
+	}
+	if res != nil {
+		t.Errorf("with an error, resolution should be nil: %+v", res)
+	}
+	if cerr.Code != http.StatusBadGateway {
+		t.Errorf("code = %d, want 502; message: %s", cerr.Code, cerr.Message)
+	}
+	if !strings.Contains(cerr.Message, "failed to download .torrent") {
+		t.Errorf("message = %q, want the download-failure wrap", cerr.Message)
 	}
 }

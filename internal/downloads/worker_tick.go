@@ -71,7 +71,7 @@ func (w *Worker) tick() {
 	// Stop the torrent in anacrolix too. Pause/cancel/delete only flip the DB
 	// status; without an explicit Drop the torrent kept leeching in the
 	// background until the streamer's idle reaper — so "Pause" looked like it did
-	// nothing ("fica lá baixando"). unregisterLocked above already cleared the
+	// nothing ("it kept downloading"). unregisterLocked above already cleared the
 	// download protection, so Drop won't be blocked by the protected guard. Drop
 	// runs OUTSIDE w.mu (it takes the streamer lock + does I/O) and is a safe
 	// no-op if a player still holds a viewer lease on the same torrent.

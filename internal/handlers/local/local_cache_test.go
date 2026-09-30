@@ -51,7 +51,7 @@ func TestLocalCacheStart_EnqueuesAndServesCached(t *testing.T) {
 			ready = true
 			break
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU ao worker de cópia
+		<-time.After(2 * time.Millisecond) // yields the CPU to the copy worker
 	}
 	if !ready {
 		t.Fatal("file did not finish caching")

@@ -44,7 +44,7 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 	job.Done()
 	log.Printf("downloads: completed #%d %q", d.ID, name)
 	body := fmt.Sprintf("%s · %.2f MB", name, float64(total)/1048576)
-	go w.sendNtfy(context.Background(), "Download concluído: "+name, body, "white_check_mark,torrent")
+	go w.sendNtfy(context.Background(), "Download completed: "+name, body, "white_check_mark,torrent")
 	// ORDER MATTERS: AI-rename BEFORE reseed. Both touch the same on-disk file —
 	// the rename moves it, the reseed reopens the torrent on it. Running them
 	// concurrently (the old `go ...; go ...`) raced: the reseed reopened the
@@ -128,7 +128,7 @@ func (w *Worker) attemptCompletionMove(d Download, name string, relPaths []strin
 	var err error
 	for attempt := 1; attempt <= moveMaxAttempts; attempt++ {
 		if job.Canceled() {
-			return "", fmt.Errorf("transferência cancelada")
+			return "", fmt.Errorf("transfer canceled")
 		}
 		if whole {
 			dst, err = w.moveCompletedTorrentFiles(d, name, relPaths, job)
@@ -259,7 +259,7 @@ func moveDownloadedFile(ctx context.Context, dataDir, destDir, relPath string, o
 		_ = os.Remove(src)
 		return dst, nil
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir %s: %w", destDir, err)
 	}
@@ -378,7 +378,7 @@ func moveTreeEntry(ctx context.Context, dataDir, destDir, torrentName, rel strin
 		_ = os.Remove(src)
 		return true, nil
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return false, fmt.Errorf("mkdir for %q: %w", rel, err)
 	}
@@ -418,7 +418,7 @@ func isPadPath(torrentName, rel string) bool {
 // under downloadDir, using the AI+TMDB rename chain — the same one the promote
 // flow uses. Runs off the tick loop and is best-effort: any failure leaves the
 // file where moveCompletedFile already put it. Only invoked when an AI client is
-// configured ("se a IA estiver disponível"). Returns the new path on success, or
+// configured ("if the AI is available"). Returns the new path on success, or
 // "" when nothing was moved (no-op preview, error, or destination == source), so
 // the caller knows whether the file was relocated and a stale torrent handle on
 // the old path must be released.
@@ -440,7 +440,7 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) string {
 	if newDst == currentPath {
 		return ""
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(filepath.Dir(newDst), 0o755); err != nil {
 		log.Printf("downloads: AI-rename mkdir #%d: %v", d.ID, err)
 		return ""
@@ -496,13 +496,13 @@ func moveFileProgress(ctx context.Context, src, dst string, onBytes func(int64))
 		}
 		return nil
 	}
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
-	// #nosec G304 G302 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna; arquivo de midia; 0644 intencional p/ leitura
+	// #nosec G304 G302 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config; media file; 0644 intentional for readability
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err

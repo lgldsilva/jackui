@@ -9,7 +9,7 @@ import (
 	"github.com/anacrolix/torrent/types"
 )
 
-// Controle: pause/resume/priority/active-list — extraído de streamer.go.
+// Control: pause/resume/priority/active-list — extracted from streamer.go.
 // Pause soft-pauses a torrent by zeroing its max established connections.
 // anacrolix lacks a native Pause; this is the closest equivalent — existing
 // peers drop off as TCP keepalives expire, and no new peers are accepted.

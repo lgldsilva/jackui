@@ -19,7 +19,7 @@ import (
 const (
 	ErrMissingMountOrPathParam = "missing mount or path parameter"
 	mountMeusDownloads         = "meus downloads"
-	errOnlyMeusDownloads       = "Somente a área 'Meus downloads' pode ser modificada ou promovida"
+	errOnlyMeusDownloads       = "Only the 'Meus downloads' area can be modified or promoted"
 	errFileOrDirNotFound       = "file or directory not found"
 )
 
@@ -40,7 +40,7 @@ func userFromCtx(c *gin.Context) string {
 func CheckMountAccess(b *lb.Browser, c *gin.Context, mountName string) bool {
 	username := userFromCtx(c)
 	if !b.UserCanAccess(username, mountName) {
-		httpshared.RespondErrorMessage(c, http.StatusForbidden, "acesso negado a este mount")
+		httpshared.RespondErrorMessage(c, http.StatusForbidden, "access denied to this mount")
 		return false
 	}
 	return true
@@ -75,8 +75,8 @@ func ScopePath(b *lb.Browser, c *gin.Context, mountName, relPath string) string 
 func LocalMounts(b *lb.Browser) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username := userFromCtx(c)
-		// Enriquece cada mount com o espaço livre/total do filesystem (discos
-		// físicos, rclone, etc) pra UI mostrar quanto dá pra usar.
+		// Enriches each mount with the filesystem's free/total space (physical
+		// disks, rclone, etc) so the UI can show how much is usable.
 		c.JSON(http.StatusOK, mountsWithSpace(b.MountsFor(username)))
 	}
 }
@@ -220,7 +220,7 @@ func StatLocalFile(c *gin.Context, abs string) bool {
 // type by extension and falls back to SNIFFING — and since we send
 // X-Content-Type-Options: nosniff, the client (iOS Safari especially) trusts the
 // header blindly. Sniffing gets .m4a wrong (detected as video/mp4), others empty,
-// so iOS refuses to decode the audio and stalls at readyState 2 ("não toca").
+// so iOS refuses to decode the audio and stalls at readyState 2 ("won't play").
 // Setting the type explicitly here makes ServeContent keep it → direct-play works.
 var localMediaContentType = map[string]string{
 	".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
@@ -340,9 +340,9 @@ func LocalWalk(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 }
 
 // LocalUpload handles POST /api/local/upload?mount=NAME&path=REL
-// allowedUploadExts restringe uploads locais a tipos de mídia + legenda. O
-// serving (LocalFile) já força download de não-mídia p/ barrar XSS armazenado;
-// isto é defesa em profundidade na entrada (rejeita .html/.js/.svg etc.).
+// allowedUploadExts restricts local uploads to media + subtitle types. Serving
+// (LocalFile) already forces download of non-media to block stored XSS;
+// this is defense in depth at the entrance (rejects .html/.js/.svg etc.).
 var allowedUploadExts = map[string]bool{
 	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".mov": true,
 	".webm": true, ".ts": true, ".m2ts": true, ".mpg": true, ".mpeg": true,

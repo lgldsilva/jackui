@@ -20,8 +20,8 @@ export function formatBytes(bytes: number): string {
   return formatBytesAs(bytes, i)
 }
 
-// Como formatBytes, mas mostra '—' para valores ausentes/zero/negativos — para
-// UIs que preferem um traço a "0 B" (conteúdo de torrent, metadados do viewer).
+// Like formatBytes, but shows '—' for missing/zero/negative values — for
+// UIs that prefer a dash over "0 B" (torrent content, viewer metadata).
 export function formatBytesOrDash(bytes: number): string {
   if (!bytes || bytes <= 0) return '—'
   return formatBytes(bytes)
@@ -53,10 +53,10 @@ export function formatDurationShort(totalSeconds: number): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
 }
 
-// Relative date in pt-BR: "5m atrás" | "3h atrás" | "ontem" | "4d atrás" |
-// "12 mai" (fallback to short locale date for >7d). Used in History/Favorites
+// Relative date in English: "5m ago" | "3h ago" | "yesterday" | "4d ago" |
+// "12 May" (fallback to short locale date for >7d). Used in History/Favorites
 // cards. Granularity drops to minutes under 1h so freshly-added items don't
-// all read "agora".
+// all read "now".
 export function formatDate(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -65,16 +65,16 @@ export function formatDate(iso: string): string {
   const diffH = diffMs / 3_600_000
   if (diffH < 1) {
     const m = Math.floor(diffH * 60)
-    return m <= 0 ? 'agora' : `${m}m atrás`
+    return m <= 0 ? 'now' : `${m}m ago`
   }
-  if (diffH < 24) return `${Math.floor(diffH)}h atrás`
-  if (diffH < 48) return 'ontem'
-  if (diffH < 168) return `${Math.floor(diffH / 24)}d atrás`
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+  if (diffH < 24) return `${Math.floor(diffH)}h ago`
+  if (diffH < 48) return 'yesterday'
+  if (diffH < 168) return `${Math.floor(diffH / 24)}d ago`
+  return d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' })
 }
 
-// Data + hora local ("dd/mm/aaaa HH:MM") — usado no browser de arquivos locais,
-// onde o horário de modificação importa (ao contrário do formatDate relativo).
+// Local date + time ("dd/mm/yyyy HH:MM") — used in the local file browser,
+// where the modification time matters (unlike formatDate's relative form).
 export function formatDateTime(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)

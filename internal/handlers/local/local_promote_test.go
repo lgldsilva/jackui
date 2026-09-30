@@ -49,7 +49,7 @@ func TestPromoteJobLabel(t *testing.T) {
 	if got := promoteJobLabel(&localPromoteReq{Path: "single"}, nil); got != "single" {
 		t.Errorf("single Path = %q", got)
 	}
-	if got := promoteJobLabel(&localPromoteReq{}, []string{"a", "b", "c"}); got != "3 itens" {
+	if got := promoteJobLabel(&localPromoteReq{}, []string{"a", "b", "c"}); got != "3 items" {
 		t.Errorf("multiple = %q", got)
 	}
 }

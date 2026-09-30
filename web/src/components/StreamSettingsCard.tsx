@@ -12,7 +12,7 @@ import { errMessage } from '../lib/errMessage'
 
 const MIB = 1024 * 1024
 
-// UI-friendly form: rates em MB/s (a API usa bytes/seg). Conversão no load/save.
+// UI-friendly form: rates in MB/s (the API uses bytes/sec). Conversion on load/save.
 type Form = {
   downMbps: number
   upMbps: number
@@ -23,7 +23,7 @@ type Form = {
   peersHighWater: number
   pieceHashers: number
   maxCacheGB: number
-  // Editado como texto (um tracker por linha); convertido pra []string no save.
+  // Edited as text (one tracker per line); converted to []string on save.
   seedTrackersText: string
   hlsMediaRenditions: boolean
 }
@@ -63,8 +63,8 @@ function toPayload(f: Form): StreamSettings {
   }
 }
 
-// NumberField: input numérico tocável (>=44px, 16px anti-zoom iOS). placeholder
-// mostra o default da lib quando o valor é 0 ("usar default").
+// NumberField: touch-friendly numeric input (>=44px, 16px anti-zoom iOS). The placeholder
+// shows the lib default when the value is 0 ("use default").
 function NumberField(props: Readonly<{
   label: string
   value: number
@@ -191,7 +191,7 @@ export default function StreamSettingsCard() {
         </div>
       </div>
 
-      {/* Seed contínuo por tracker — ao vivo */}
+      {/* Continuous seeding per tracker — live */}
       <div className="flex flex-col gap-3">
         <SectionTitle title={t('stream.seed_tracker_title')} badge="live" />
         <label className="flex flex-col gap-1">
@@ -210,7 +210,7 @@ export default function StreamSettingsCard() {
         </label>
       </div>
 
-      {/* HLS renditions de áudio/legenda (Phase 2 M2b) — ao vivo */}
+      {/* HLS audio/subtitle renditions (Phase 2 M2b) — live */}
       <div className="flex flex-col gap-3">
         <SectionTitle title={t('stream.hls_renditions_title')} badge="live" />
         <label htmlFor="hls-media-renditions" className="flex items-start gap-3 cursor-pointer">
@@ -229,7 +229,7 @@ export default function StreamSettingsCard() {
         </label>
       </div>
 
-      {/* Memória / leitura — ao vivo */}
+      {/* Memory / reads — live */}
       <div className="flex flex-col gap-3">
         <SectionTitle title={t('stream.readahead_title')} badge="live" />
         <NumberField label={t('stream.readahead_label')} value={form.readaheadMB} onChange={(n) => set('readaheadMB', n)}
@@ -237,7 +237,7 @@ export default function StreamSettingsCard() {
           hint={t('stream.readahead_hint')} />
       </div>
 
-      {/* Cache — requer reinício */}
+      {/* Cache — requires restart */}
       <div className="flex flex-col gap-3">
         <SectionTitle title={t('stream.cache_disk_title')} badge="restart" />
         <NumberField label={t('stream.cache_limit_label')} value={form.maxCacheGB} onChange={(n) => set('maxCacheGB', n)}
@@ -245,7 +245,7 @@ export default function StreamSettingsCard() {
           hint={t('stream.cache_limit_hint')} />
       </div>
 
-      {/* Avançado / hardware — requer reinício */}
+      {/* Advanced / hardware — requires restart */}
       <div className="flex flex-col gap-3">
         <SectionTitle title={t('stream.advanced_title')} badge="restart" />
         <label className="flex flex-col gap-1">

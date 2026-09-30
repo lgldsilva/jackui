@@ -842,8 +842,8 @@ func TestImportTorrentBytes_InvalidData(t *testing.T) {
 func TestStreamer_RecheckFilePieces_Dedup(t *testing.T) {
 	s := NewForTesting()
 
-	// Chave já carregada → recheckFilePieces vira no-op (loaded=true), sem panic
-	// com f=nil.
+	// Already-loaded key → recheckFilePieces becomes a no-op (loaded=true), no
+	// panic with f=nil.
 	s.verifiedMu.Lock()
 	s.verifiedFiles = map[string]bool{"test-key": true}
 	s.verifiedMu.Unlock()
@@ -851,9 +851,9 @@ func TestStreamer_RecheckFilePieces_Dedup(t *testing.T) {
 	_ = s.recheckFilePieces(context.Background(), "test-key", nil)
 }
 
-// purgeVerifiedFiles substituiu o wipe-tudo-ao-atingir-2000: agora a limpeza é
-// por ciclo de vida do torrent — só as chaves daquele info_hash são removidas,
-// preservando as de outros torrents ativos (que antes eram zeradas junto).
+// purgeVerifiedFiles replaced the wipe-everything-at-2000: cleanup is now per
+// torrent lifecycle — only the keys of that info_hash are removed, preserving
+// the ones from other active torrents (which were previously zeroed together).
 func TestStreamer_PurgeVerifiedFiles_ByHash(t *testing.T) {
 	s := NewForTesting()
 	keep := metainfo.Hash{0xaa}
@@ -872,9 +872,9 @@ func TestStreamer_PurgeVerifiedFiles_ByHash(t *testing.T) {
 	s.verifiedMu.Lock()
 	defer s.verifiedMu.Unlock()
 	if len(s.verifiedFiles) != 1 {
-		t.Fatalf("esperava só as chaves do hash preservado, obteve %d", len(s.verifiedFiles))
+		t.Fatalf("expected only the preserved hash's keys, got %d", len(s.verifiedFiles))
 	}
 	if !s.verifiedFiles[keep.HexString()+"-0"] {
-		t.Error("chave de outro torrent ativo não pode ser removida")
+		t.Error("key of another active torrent must not be removed")
 	}
 }

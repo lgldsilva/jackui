@@ -25,7 +25,7 @@ type execer interface {
 // s.db (a different connection that wouldn't see the uncommitted writes).
 func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, err error) {
 	if d.InfoHash == "" || d.Magnet == "" {
-		return nil, false, errors.New("infoHash e magnet são obrigatórios")
+		return nil, false, errors.New("infoHash and magnet are required")
 	}
 	if d.FileIndex < FileIndexWholeTorrent {
 		return nil, false, fmt.Errorf("invalid fileIndex %d (min %d)", d.FileIndex, FileIndexWholeTorrent)

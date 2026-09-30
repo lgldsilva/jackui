@@ -214,16 +214,16 @@ export const passkeyAuthenticate = async (username: string, remember: boolean): 
   return bundle
 }
 
-// ── Google OAuth ("Entrar com Google") ───────────────────────────────────────
-// /oauth/providers é a feature-detect pública: {google:true} só quando o
-// backend tem JACKUI_OAUTH_* configurado e o botão deve aparecer.
+// ── Google OAuth ("Sign in with Google") ─────────────────────────────────────
+// /oauth/providers is the public feature-detect: {google:true} only when the
+// backend has JACKUI_OAUTH_* configured and the button should show up.
 export const oauthProviders = async (): Promise<{ google: boolean }> => {
   const { data } = await api.get<{ google: boolean }>('/auth/oauth/providers')
   return data
 }
 
-// Troca o código single-use (que chegou na URL do callback) por uma sessão
-// real. Contas com MFA respondem mfaRequired:true — reenviar com `totp`.
+// Exchanges the single-use code (which arrived in the callback URL) for a real
+// session. MFA-enabled accounts respond mfaRequired:true — resend with `totp`.
 export type OAuthBundle = {
   access: string
   refresh: string
@@ -245,8 +245,8 @@ export const oauthExchange = async (code: string, totp?: string): Promise<OAuthB
     totp: totp || '',
   })
   if (data.mfaRequired) {
-    // Espelha a convenção do login por senha: o caller vê mfaRequired no
-    // err.response.data e mostra o passo TOTP.
+    // Mirrors the password-login convention: the caller sees mfaRequired on
+    // err.response.data and shows the TOTP step.
     const err = new Error('mfa required') as Error & { response?: { data?: { mfaRequired?: boolean } } }
     err.response = { data: { mfaRequired: true } }
     throw err

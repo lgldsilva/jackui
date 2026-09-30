@@ -446,8 +446,8 @@ func Test_hgA_promotePrepare_NotCompleted(t *testing.T) {
 	}
 }
 
-// Prepare valida e devolve o plano; runPromotePlan faz a cópia (job nil = sem
-// reporte) + atualiza file_path. Espelha o caminho async do handler.
+// Prepare validates and returns the plan; runPromotePlan does the copy (nil job = no
+// reporting) + updates file_path. Mirrors the handler's async path.
 func Test_hgA_promotePlan_Success(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
@@ -546,9 +546,9 @@ func Test_hgA_DownloadsPromote_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d want 200; body=%s", w.Code, w.Body.String())
 	}
-	// A cópia roda em background (tr.Submit → goroutine), então o handler retorna
-	// 200 antes de mover. Aguarda o arquivo aparecer no destino (deterministic
-	// completion — sai assim que o arquivo existe).
+	// The copy runs in the background (tr.Submit → goroutine), so the handler
+	// returns 200 before moving. Waits for the file to appear at the destination
+	// (deterministic completion — leaves as soon as the file exists).
 	waitForLocalFile(t, filepath.Join(shared, "promote_me.mkv"), 2*time.Second)
 }
 
@@ -690,8 +690,8 @@ func Test_hgA_previewOneDownload_Errors(t *testing.T) {
 		t.Fatal(err)
 	}
 	res = previewOneDownload(d, created.ID)
-	if res["error"] != "file_path vazio" {
-		t.Errorf("error=%v want 'file_path vazio'", res["error"])
+	if res["error"] != "file_path empty" {
+		t.Errorf("error=%v want 'file_path empty'", res["error"])
 	}
 }
 

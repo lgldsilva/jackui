@@ -15,7 +15,7 @@ import (
 )
 
 // POST /api/downloads with the whole-torrent sentinel must create ONE row with
-// fileIndex preserved — this is the "Baixar tudo" path (1 request instead of
+// fileIndex preserved — this is the "Download all" path (1 request instead of
 // 1-per-file).
 func TestDownloadsCreate_WholeTorrentSentinel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -131,8 +131,8 @@ func TestDownloadsRecheck_WholeTorrentUsesRecheckAllFiles(t *testing.T) {
 	router.POST("/api/downloads/:id/recheck", DownloadsRecheck(store, s))
 
 	hash := strings.Repeat("ab", 20)
-	// Magnet com scheme não suportado: EnsureActive falha RÁPIDO (sem tocar o
-	// torrent client, que o NewForTesting não tem) e o handler segue pro recheck.
+	// Magnet with an unsupported scheme: EnsureActive fails FAST (without touching
+	// the torrent client, which NewForTesting lacks) and the handler proceeds to the recheck.
 	whole, err := store.Create(downloads.Download{
 		InfoHash: hash, FileIndex: downloads.FileIndexWholeTorrent,
 		Magnet: "x-test://nope", Name: "W",

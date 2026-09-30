@@ -299,25 +299,25 @@ func TestEnsureSegmentNonVOD(t *testing.T) {
 func TestEnsureSegmentNoRestartIfWithinRange(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "seg_00003.ts"), []byte("data"), 0644)
-	// ffmpegPath="true" tornaria um relançamento observável (Cmd != nil); como o
-	// seg pedido está DENTRO da janela (highestSeg=3, threshold=30), o encoder
-	// sequencial chega sozinho e NÃO deve relançar.
+	// ffmpegPath="true" makes a relaunch observable (Cmd != nil); since the
+	// requested seg is WITHIN the window (highestSeg=3, threshold=30), the
+	// sequential encoder gets there on its own and must NOT relaunch.
 	s := &HLSSession{
 		spec:     &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
 		Dir:      dir,
 		startSeg: 0,
 	}
-	s.EnsureSegment(3) // dentro do range → NÃO relança
+	s.EnsureSegment(3) // within range → does NOT relaunch
 	s.mu.Lock()
 	cmd := s.Cmd
 	got := s.startSeg
 	s.mu.Unlock()
 	if cmd != nil {
 		s.stop()
-		t.Fatal("seg dentro do range NÃO deveria relançar o ffmpeg, mas Cmd != nil")
+		t.Fatal("seg within range should NOT relaunch ffmpeg, but Cmd != nil")
 	}
 	if got != 0 {
-		t.Errorf("startSeg mudou para %d — houve relançamento indevido", got)
+		t.Errorf("startSeg changed to %d — there was an undue relaunch", got)
 	}
 }
 
@@ -340,7 +340,7 @@ func TestEnsureSegmentQuickSeekAfterInitialPrefetchWindowRestarts(t *testing.T) 
 	s.mu.Unlock()
 	if got != 250 {
 		s.stop()
-		t.Fatalf("seek rápido foi ignorado como prefetch: startSeg=%d, want 250", got)
+		t.Fatalf("quick seek was ignored as prefetch: startSeg=%d, want 250", got)
 	}
 	s.stop()
 }
@@ -360,7 +360,7 @@ func TestEnsureSegmentInitialPrefetchStaysOnStart(t *testing.T) {
 	s.mu.Unlock()
 	if got != 0 {
 		s.stop()
-		t.Fatalf("prefetch inicial reiniciou o encoder: startSeg=%d, want 0", got)
+		t.Fatalf("initial prefetch restarted the encoder: startSeg=%d, want 0", got)
 	}
 }
 
@@ -392,36 +392,36 @@ func TestEnsureSegmentReplacesSupersededSeek(t *testing.T) {
 	s.mu.Unlock()
 	if got != 358 {
 		s.stop()
-		t.Fatalf("seek mais recente ficou no alvo antigo: startSeg=%d, want 358", got)
+		t.Fatalf("newest seek stayed on the old target: startSeg=%d, want 358", got)
 	}
 	s.stop()
 }
 
-// Um encoder morto (closed) deve RESSUSCITAR quando o player pede um segmento
-// que não existe — senão o miolo não-transcodificado (buracos deixados por seeks)
-// dá 404 pra sempre e o Safari, em VOD, não refetcha a playlist estática.
-// ffmpegPath="true" sai limpo (sem precisar do ffmpeg real); launch atualiza
-// startSeg de forma síncrona, então o relançamento é observável.
+// A dead (closed) encoder must RESURRECT when the player requests a segment
+// that doesn't exist — otherwise the un-transcoded middle (holes left by seeks)
+// 404s forever and Safari, in VOD, doesn't refetch the static playlist.
+// ffmpegPath="true" exits cleanly (no real ffmpeg needed); launch updates
+// startSeg synchronously, so the relaunch is observable.
 func TestEnsureSegmentClosedRelaunches(t *testing.T) {
 	dir := t.TempDir()
 	s := &HLSSession{
 		spec:     &encodeSpec{dir: dir, inputURL: "http://127.0.0.1:1/source", encoder: "libx264", ffmpegPath: "true", vod: true},
 		Dir:      dir,
 		startSeg: 0,
-		closed:   true, // ffmpeg terminou; seg pedido está num buraco
+		closed:   true, // ffmpeg finished; requested seg is in a hole
 	}
 	s.EnsureSegment(5) // closed → RestartAt(5) → launch(5)
 	s.mu.Lock()
 	got := s.startSeg
 	s.mu.Unlock()
 	if got != 5 {
-		t.Errorf("encoder morto não ressuscitou no seg pedido: startSeg=%d, queria 5", got)
+		t.Errorf("dead encoder did not resurrect at the requested seg: startSeg=%d, want 5", got)
 	}
 	s.stop()
 }
 
-// RestartAt com seg == cur mas closed ainda relança (o run anterior morreu e os
-// segmentos podem não existir) — diferente do caso vivo, que é no-op.
+// RestartAt with seg == cur but closed still relaunches (the previous run died
+// and the segments may not exist) — unlike the live case, which is a no-op.
 func TestRestartAtClosedSameSegRelaunches(t *testing.T) {
 	dir := t.TempDir()
 	s := &HLSSession{
@@ -437,7 +437,7 @@ func TestRestartAtClosedSameSegRelaunches(t *testing.T) {
 	cmd := s.Cmd
 	s.mu.Unlock()
 	if cmd == nil {
-		t.Error("RestartAt(closed, seg==cur) deveria ter relançado o ffmpeg, mas Cmd é nil")
+		t.Error("RestartAt(closed, seg==cur) should have relaunched ffmpeg, but Cmd is nil")
 	}
 	s.stop()
 }
@@ -610,20 +610,21 @@ func TestReadSeekerContentReadAt(t *testing.T) {
 }
 
 func TestNewHLSManagerInvalidDir(t *testing.T) {
-	// Um ARQUIVO no lugar do diretório-pai força MkdirAll a falhar com ENOTDIR
-	// mesmo rodando como root no CI (um path tipo /nonexistent só falha sem root,
-	// e o teste antigo tolerava os dois desfechos — não verificava nada).
+	// A FILE in place of the parent dir forces MkdirAll to fail with ENOTDIR
+	// even when running as root on CI (a path like /nonexistent only fails
+	// without root, and the old test tolerated both outcomes — it verified
+	// nothing).
 	parent := t.TempDir()
 	notADir := filepath.Join(parent, "iamafile")
 	if err := os.WriteFile(notADir, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	mgr, err := NewHLSManager(notADir) // baseDir é arquivo → join "hls" → MkdirAll ENOTDIR
+	mgr, err := NewHLSManager(notADir) // baseDir is a file → join "hls" → MkdirAll ENOTDIR
 	if err == nil {
 		if mgr != nil {
 			mgr.Close("test")
 		}
-		t.Fatal("NewHLSManager deveria falhar quando baseDir não é um diretório")
+		t.Fatal("NewHLSManager should fail when baseDir is not a directory")
 	}
 	if mgr != nil {
 		t.Errorf("mgr deveria ser nil no erro, got %v", mgr)

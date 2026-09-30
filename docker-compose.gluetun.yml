@@ -28,8 +28,8 @@ services:
     environment:
       - VPN_SERVICE_PROVIDER=protonvpn
       - VPN_TYPE=${VPN_TYPE:-openvpn}
-      - OPENVPN_USER=${OPENVPN_USER:?defina OPENVPN_USER (com +pmp) no .env}
-      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:?defina OPENVPN_PASSWORD no .env}
+      - OPENVPN_USER=${OPENVPN_USER:?set OPENVPN_USER (with +pmp) in .env}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:?set OPENVPN_PASSWORD in .env}
       - SERVER_COUNTRIES=${SERVER_COUNTRIES:-Brazil}
       - VPN_PORT_FORWARDING=on
       - VPN_PORT_FORWARDING_PROVIDER=protonvpn

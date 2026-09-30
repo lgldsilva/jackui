@@ -19,9 +19,9 @@ type Props = {
   readonly onConfigured: () => void
 }
 
-// Banner de primeira execução: pede URL + API key do Jackett quando não há
-// indexadores configurados. Extraído do SearchPage (god-file); o estado e o
-// runner vivem em useJackettSetup, aqui fica só o JSX.
+// First-run banner: asks for the Jackett URL + API key when there are no
+// configured indexers. Extracted from SearchPage (god-file); the state and
+// runner live in useJackettSetup, only the JSX stays here.
 export function JackettSetupPrompt({
   setupUrl, setSetupUrl, setupKey, setSetupKey,
   setupTesting, setupError, setupTestOk,

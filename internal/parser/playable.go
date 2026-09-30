@@ -2,9 +2,9 @@ package parser
 
 import "regexp"
 
-// Jackett categories que tipicamente contêm mídia tocável. Espelha
-// VIDEO_CATEGORIES / AUDIO_CATEGORIES de web/src/lib/playable.ts — a fonte
-// de verdade vive aqui agora; o frontend só lê os campos retornados.
+// Jackett categories that typically contain playable media. Mirrors
+// VIDEO_CATEGORIES / AUDIO_CATEGORIES from web/src/lib/playable.ts — the
+// source of truth lives here now; the frontend only reads the returned fields.
 var (
 	videoCategories = map[int]bool{
 		2000: true, 2010: true, 2020: true, 2030: true, 2040: true, 2045: true,
@@ -28,10 +28,10 @@ var (
 	reNeverPlayTg = regexp.MustCompile(`(?i)\b(ebook|audiobook[. ]?pdf|programs?|software|game[. ]?iso)\b`)
 )
 
-// MediaKind é "video" | "audio" | "other". "video" é o default quando o
-// classificador não tem sinal claro — o <video> do PlayerModal toca áudio
-// também, então não-perda; já o AudioBar não renderiza vídeo. Espelhe
-// detectKind() do playable.ts.
+// MediaKind is "video" | "audio" | "other". "video" is the default when the
+// classifier has no clear signal — the PlayerModal <video> plays audio too,
+// so nothing is lost; AudioBar does not render video, though. Mirror
+// detectKind() from playable.ts.
 type MediaKind string
 
 const (
@@ -40,8 +40,8 @@ const (
 	KindOther MediaKind = "other"
 )
 
-// DetectKind decide entre audio / video com base no título + categoria
-// Jackett. Mesma ordem de fallback que o frontend usava (ext > category >
+// DetectKind decides between audio / video based on the title + Jackett
+// category. Same fallback order the frontend used (ext > category >
 // hint > default).
 func DetectKind(title string, categoryID int) MediaKind {
 	if reAudioExt.MatchString(title) {
@@ -65,10 +65,10 @@ func DetectKind(title string, categoryID int) MediaKind {
 	return KindVideo
 }
 
-// IsPlayable retorna true se o player provavelmente consegue tocar este
-// release. Magnet vazio → false. Rejeições duras (epub/zip/iso/ebook).
-// Caso contrário usa allowlist de categorias/exts/hints com fallback "true"
-// (preferir oferecer Play e deixar o decoder reclamar do que esconder).
+// IsPlayable returns true if the player can probably play this release.
+// Empty magnet → false. Hard rejections (epub/zip/iso/ebook).
+// Otherwise uses an allowlist of categories/exts/hints with a "true"
+// fallback (better to offer Play and let the decoder complain than to hide).
 func IsPlayable(title string, categoryID int, magnetURI string, resolution string) bool {
 	if magnetURI == "" {
 		return false

@@ -26,10 +26,10 @@ type FileTreeProps = {
 
 const INDENT_PX = 14
 
-// Renderizar todos os FILE rows de uma vez (season pack / discografia c/ milhares)
-// congela o modal — então revelamos em lotes via useIncrementalReveal (mais ao
-// rolar/clicar), em vez do antigo teto fixo que escondia o resto atrás do filtro.
-// Dir rows nunca são capadas (esqueleto de navegação).
+// Rendering all FILE rows at once (season pack / discography with thousands)
+// freezes the modal — so we reveal in batches via useIncrementalReveal (more on
+// scroll/click), instead of the old fixed ceiling that hid the rest behind the filter.
+// Dir rows are never capped (navigation skeleton).
 
 // Keys we intercept (preventDefault) so the page doesn't scroll under us.
 const NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Enter', ' '])
@@ -58,20 +58,20 @@ export function FileTree({
   onDownloadDir,
 }: FileTreeProps) {
   const { t } = useTranslation()
-  // Key no infoHash (não info.files): a estrutura de arquivos é estável por
-  // torrent, mas o poll de progresso de 2s recria info.files — depender dele
-  // rebuildava a árvore inteira a cada tick (re-render desnecessário).
+  // Key on infoHash (not info.files): the file structure is stable per
+  // torrent, but the 2s progress poll recreates info.files — depending on it
+  // rebuilt the whole tree every tick (unnecessary re-render).
   const root = useMemo(
     () => buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter }),
     [info.infoHash, fileFilter, fileTypeFilter],
   )
-  // Total de arquivos elegíveis (nas pastas abertas), sem cap — só pra CONTAR
-  // (não renderiza): montar o array é barato; o que pesa é montar os <button>.
+  // Total of eligible files (in open folders), uncapped — only to COUNT
+  // (doesn't render): building the array is cheap; what's heavy is mounting the <button>s.
   const totalFiles = useMemo(
     () => flattenTreeCapped(root, expanded, Number.MAX_SAFE_INTEGER).rows.filter((r) => r.kind === 'file').length,
     [root, expanded],
   )
-  // Reseta o lote ao trocar torrent/filtro; abrir uma pasta NÃO reseta (só muda o total).
+  // Resets the batch on torrent/filter change; opening a folder does NOT reset (it only changes the total).
   const reveal = useIncrementalReveal(totalFiles, `${info.infoHash}|${fileFilter}|${fileTypeFilter}`)
   const { rows } = useMemo(
     () => flattenTreeCapped(root, expanded, reveal.visible),
@@ -149,8 +149,8 @@ export function FileTree({
                 : <Folder className="w-3.5 h-3.5 flex-shrink-0 text-amber-500/80" />}
               <span className="truncate flex-1 font-medium">{row.node.name}</span>
               {onDownloadDir && (
-                // Span (não button) pra não aninhar <button> dentro da row-button.
-                // stopPropagation pra baixar em vez de expandir/recolher a pasta.
+                // Span (not button) to avoid nesting <button> inside the row-button.
+                // stopPropagation so it downloads instead of expanding/collapsing the folder.
                 <span
                   role="button"
                   tabIndex={-1}

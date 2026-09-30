@@ -5,10 +5,10 @@ import { isIncognito } from '../../lib/incognito'
 import { openSearchStream, type SearchStreamHandle } from '../../lib/searchStream'
 import { appendResult, setErrorMsg, type TabState } from '../../lib/searchTabs'
 
-// Gerencia as conexões SSE de busca (uma por aba) e expõe start/stop/close.
-// Extraído do SearchPage (god-file): o Map de EventSources, o handleSearch e o
-// stopSearch viviam soltos no componente. `closeStream` é usado por quem fecha
-// uma aba para cancelar a busca em voo daquela aba.
+// Manages the search SSE connections (one per tab) and exposes start/stop/close.
+// Extracted from SearchPage (god-file): the EventSource Map, handleSearch and
+// stopSearch used to live loose in the component. `closeStream` is used by whoever
+// closes a tab to cancel that tab's in-flight search.
 export function useSearchStreams(
   tabs: TabState[],
   updateTab: (id: string, patch: Partial<TabState>) => void,

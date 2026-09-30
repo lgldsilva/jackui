@@ -54,7 +54,7 @@ var ssrfSafeClient = &http.Client{
 				}
 				ip := net.ParseIP(host)
 				if ip == nil || isBlockedFetchIP(ip) {
-					return fmt.Errorf("endereço de destino não permitido")
+					return fmt.Errorf("destination address not allowed")
 				}
 				return nil
 			},
@@ -74,10 +74,10 @@ func isBlockedFetchIP(ip net.IP) bool {
 func validateFetchScheme(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("URL inválida")
+		return fmt.Errorf("invalid URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("esquema não permitido")
+		return fmt.Errorf("scheme not allowed")
 	}
 	return nil
 }
@@ -86,7 +86,7 @@ func ConvertTorrentToMagnet() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		torrentURL := c.Query("url")
 		if torrentURL == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "URL requerida")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "URL required")
 			return
 		}
 
@@ -128,7 +128,7 @@ func resolveTorrentToMagnet(torrentURL string) (*torrentResolution, *convertErr)
 		}
 		resp, err := ssrfSafeClient.Get(current)
 		if err != nil {
-			return nil, &convertErr{http.StatusBadGateway, fmt.Sprintf("falha ao baixar .torrent: %v", err)}
+			return nil, &convertErr{http.StatusBadGateway, fmt.Sprintf("failed to download .torrent: %v", err)}
 		}
 		if !isRedirectStatus(resp.StatusCode) {
 			return parseTorrentResponse(resp)
@@ -160,7 +160,7 @@ func followRedirect(resp *http.Response) (*torrentResolution, string, *convertEr
 	defer func() { _ = resp.Body.Close() }()
 	loc := strings.TrimSpace(resp.Header.Get("Location"))
 	if loc == "" {
-		return nil, "", &convertErr{http.StatusBadGateway, "redirect sem cabeçalho Location"}
+		return nil, "", &convertErr{http.StatusBadGateway, "redirect without Location header"}
 	}
 	if strings.HasPrefix(strings.ToLower(loc), "magnet:") {
 		res, cerr := magnetResolution(loc)
@@ -168,7 +168,7 @@ func followRedirect(resp *http.Response) (*torrentResolution, string, *convertEr
 	}
 	u, err := resp.Location() // resolves relative redirects against the request URL
 	if err != nil {
-		return nil, "", &convertErr{http.StatusBadGateway, "Location de redirect inválido"}
+		return nil, "", &convertErr{http.StatusBadGateway, "invalid redirect Location"}
 	}
 	return nil, u.String(), nil
 }
@@ -177,7 +177,7 @@ func followRedirect(resp *http.Response) (*torrentResolution, string, *convertEr
 func magnetResolution(magnetURI string) (*torrentResolution, *convertErr) {
 	mi, err := metainfo.ParseMagnetUri(magnetURI)
 	if err != nil {
-		return nil, &convertErr{http.StatusBadGateway, fmt.Sprintf("magnet do indexador inválido: %v", err)}
+		return nil, &convertErr{http.StatusBadGateway, fmt.Sprintf("invalid indexer magnet: %v", err)}
 	}
 	return &torrentResolution{
 		magnet:   magnetURI,
@@ -191,15 +191,15 @@ func magnetResolution(magnetURI string) (*torrentResolution, *convertErr) {
 func parseTorrentResponse(resp *http.Response) (*torrentResolution, *convertErr) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, &convertErr{http.StatusBadGateway, fmt.Sprintf("servidor retornou erro %d", resp.StatusCode)}
+		return nil, &convertErr{http.StatusBadGateway, fmt.Sprintf("server returned error %d", resp.StatusCode)}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxTorrentBytes))
 	if err != nil {
-		return nil, &convertErr{http.StatusInternalServerError, "falha ao ler bytes do torrent"}
+		return nil, &convertErr{http.StatusInternalServerError, "failed to read torrent bytes"}
 	}
 	mi, err := metainfo.Load(bytes.NewReader(data))
 	if err != nil {
-		return nil, &convertErr{http.StatusBadRequest, fmt.Sprintf("falha ao ler metainfo do torrent: %v", err)}
+		return nil, &convertErr{http.StatusBadRequest, fmt.Sprintf("failed to read torrent metainfo: %v", err)}
 	}
 	name := ""
 	if info, err := mi.UnmarshalInfo(); err == nil && info.Name != "" {
@@ -238,7 +238,7 @@ func ConvertMagnetToTorrent(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		mi, err := metainfo.ParseMagnetUri(magnet)
 		if err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "magnet link inválido")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid magnet link")
 			return
 		}
 		h := mi.InfoHash
@@ -268,7 +268,7 @@ func serveTorrentFile(c *gin.Context, s *streamer.Streamer, h metainfo.Hash, mi 
 	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
 	f, err := os.Open(path)
 	if err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, fmt.Sprintf("falha ao ler arquivo .torrent gerado: %v", err))
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, fmt.Sprintf("failed to read generated .torrent file: %v", err))
 		return
 	}
 	defer func() { _ = f.Close() }()

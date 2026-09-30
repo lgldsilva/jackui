@@ -55,8 +55,7 @@ func spaFallback(distFS fs.FS, fileServer http.Handler) gin.HandlerFunc {
 
 		f, err := distFS.Open(strings.TrimPrefix(path, "/"))
 		if err == nil {
-			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
-			f.Close()
+			_ = f.Close()
 			fileServer.ServeHTTP(c.Writer, c.Request)
 			return
 		}
@@ -162,8 +161,8 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	} else {
 		router.GET("/api/metrics", promHandler)
 	}
-	// /debug/pprof — OFF por padrão (JACKUI_PPROF_ENABLED) e nunca anônimo:
-	// token estático (JACKUI_PPROF_TOKEN) ou JWT de admin. Ver pprof.go.
+	// /debug/pprof — OFF by default (JACKUI_PPROF_ENABLED) and never anonymous:
+	// static token (JACKUI_PPROF_TOKEN) or admin JWT. See pprof.go.
 	registerPprofRoutes(router, deps)
 
 	// Peer-port refresh: lets the gluetun port-forward up-command push an immediate
@@ -177,9 +176,10 @@ func setupRouter(deps *appDeps) *gin.Engine {
 
 	// Transmission RPC compatibility — so Sonarr/Radarr/Prowlarr can talk to
 	// JackUI as if it were a Transmission daemon. OPT-IN via
-	// JACKUI_TRANSMISSION_RPC_ENABLED=1 (default OFF): é uma superfície RPC e,
-	// com JACKUI_AUTH_ENABLED desligado, ficaria sem autenticação — habilite só
-	// em LAN e/ou com auth ligada. Só registra com streamer/downloads disponíveis.
+	// JACKUI_TRANSMISSION_RPC_ENABLED=1 (default OFF): it is a sensitive RPC
+	// surface and, with JACKUI_AUTH_ENABLED off, it would run unauthenticated —
+	// enable only on a LAN and/or with auth on. Registers only when
+	// streamer/downloads are available.
 	if transmissionRPCEnabled() && deps.downloadsStore != nil && deps.streamSrv != nil {
 		trpc := transmissionrpc.NewHandler(
 			deps.downloadsStore, deps.streamSrv, deps.authStore,
@@ -518,18 +518,19 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/stream/hls/:hash/:file/index.m3u8", handlers.StreamHLSMaster(deps.streamSrv, deps.hlsMgr, deps.downloadsStore, deps.cfg))
-	// Variantes do ladder ABR (HLS master, Phase 2). `v` é segmento estático →
-	// coexiste com o wildcard `:seg` no mesmo nível (o gin avalia estáticos antes
-	// do wildcard); `:variant` fica sob o nó estático, sem colisão com `:seg`.
+	// ABR ladder variants (HLS master, Phase 2). `v` is a static segment →
+	// coexists with the `:seg` wildcard at the same level (gin evaluates statics
+	// before the wildcard); `:variant` sits under the static node, no collision
+	// with `:seg`.
 	api.GET("/stream/hls/:hash/:file/v/:variant/index.m3u8", handlers.StreamHLSVariant(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/v/:variant/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	// Renditions de áudio alternativas (EXT-X-MEDIA TYPE=AUDIO, HLS Phase 2 M2b).
-	// `a` é segmento estático (coexiste com `v` e o wildcard `:seg`); o segmento
-	// reusa StreamHLSSegment (a chave -ao{track} vem de hlsSessionKeyFromReq).
+	// Alternative audio renditions (EXT-X-MEDIA TYPE=AUDIO, HLS Phase 2 M2b).
+	// `a` is a static segment (coexists with `v` and the `:seg` wildcard); the
+	// segment reuses StreamHLSSegment (the -ao{track} key comes from hlsSessionKeyFromReq).
 	api.GET("/stream/hls/:hash/:file/a/:track/index.m3u8", handlers.StreamHLSAudio(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/a/:track/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	// Renditions de legenda WebVTT (EXT-X-MEDIA TYPE=SUBTITLES). A mini-playlist
-	// referencia o endpoint /stream/subtrack existente (ExtractSubtitle → VTT).
+	// WebVTT subtitle renditions (EXT-X-MEDIA TYPE=SUBTITLES). The mini-playlist
+	// references the existing /stream/subtrack endpoint (ExtractSubtitle → VTT).
 	api.GET("/stream/hls/:hash/:file/sub/:track/index.m3u8", handlers.StreamHLSSubtitle(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	gate := lh.LocalHiddenGate(deps.streamSrv)

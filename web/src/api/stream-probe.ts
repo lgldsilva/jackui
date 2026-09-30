@@ -1,4 +1,4 @@
-// ffprobe de tracks embutidos (áudio/legenda/capítulos). Extraído de stream.ts (R3).
+// ffprobe for embedded tracks (audio/subtitle/chapters). Extracted from stream.ts (R3).
 import { api } from './http'
 import { isLocalHash, localQS, parseLocalHash } from './local-base'
 import type { StreamProbe } from './stream-types'

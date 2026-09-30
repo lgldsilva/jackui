@@ -25,44 +25,44 @@ You should get an initial response within a week. Please allow a reasonable wind
 
 ### Route inventory
 
-**233 rotas** registradas em `cmd/server/routes.go` + `internal/transmissionrpc/handler.go`.
+**233 routes** registered in `cmd/server/routes.go` + `internal/transmissionrpc/handler.go`.
 
-| Categoria | Quantidade | Auth |
+| Category | Count | Auth |
 |---|---|---|
 | Admin (user management) | 9 | REQUIRED + ADMIN |
-| API (protegida) | ~207 | REQUIRED + GuestRestrict |
-| Auth self-service | 9 | Público (login/register/forgot) |
-| Public endpoints | 3 | Público (`/healthz`, `/status`, `/api/auth/config`) |
-| Especiais | 3 | Auth alternativo (static token / condicional) |
-| Transmission RPC | 2 | Session-token próprio |
+| API (protected) | ~207 | REQUIRED + GuestRestrict |
+| Auth self-service | 9 | Public (login/register/forgot) |
+| Public endpoints | 3 | Public (`/healthz`, `/status`, `/api/auth/config`) |
+| Special | 3 | Alternative auth (static token / conditional) |
+| Transmission RPC | 2 | Own session token |
 
-**Conclusão: zero rotas sensíveis sem autenticação** quando `JACKUI_AUTH_ENABLED=1`. A proteção é estrutural — todo o grupo `/api` recebe `auth.Required` + `auth.GuestRestrict` como middleware global (`cmd/server/routes.go:209-212`). Rotas administrativas têm `auth.AdminOnly()` adicional.
+**Conclusion: zero sensitive routes without authentication** when `JACKUI_AUTH_ENABLED=1`. The protection is structural — the whole `/api` group gets `auth.Required` + `auth.GuestRestrict` as global middleware (`cmd/server/routes.go:209-212`). Administrative routes additionally carry `auth.AdminOnly()`.
 
 ### CORS
 
-- `AllowAllOrigins = true` — aceitável para SPA server-less que pode ser acessada de qualquer reverse proxy.
-- Métodos limitados a GET/POST/PUT/DELETE/OPTIONS; headers controlados.
+- `AllowAllOrigins = true` — acceptable for a server-less SPA that can be reached from any reverse proxy.
+- Methods limited to GET/POST/PUT/DELETE/OPTIONS; headers are controlled.
 
 ### CSRF
 
-- **Não há CSRF genérico** — o app é SPA (não server-rendered) e usa autenticação via Bearer JWT (não cookies), portanto não é vulnerável a CSRF clássico.
-- O `?token=` fallback em media routes é estritamente restrito a paths de mídia (`isMediaPath`).
-- O único CSRF existente é o session-id do Transmission RPC para compatibilidade com *arr stack.
+- **There is no generic CSRF surface** — the app is an SPA (not server-rendered) and uses Bearer JWT authentication (not cookies), so it is not vulnerable to classic CSRF.
+- The `?token=` fallback on media routes is strictly restricted to media paths (`isMediaPath`).
+- The only CSRF in place is the Transmission RPC session-id, for *arr stack compatibility.
 
 ### Rate-limiting
 
-**Não há rate-limiting genérico nos endpoints `/api/*`.** Os únicos limitadores existentes são:
-- **Login lockout**: 5 tentativas → 15 min lock (`internal/auth/lockout.go`)
-- **Bandwidth throttling**: rate.Limiter do anacrolix (apenas bytes de torrent)
-- **AI client RPM cap**: opcional por model provider
+**There is no generic rate-limiting on the `/api/*` endpoints.** The only limiters in place are:
+- **Login lockout**: 5 attempts → 15 min lock (`internal/auth/lockout.go`)
+- **Bandwidth throttling**: anacrolix rate.Limiter (torrent bytes only)
+- **AI client RPM cap**: optional, per model provider
 
-**Decisão (CA-0.5.2):** Aceitar o risco de ausência de rate-limiting genérico, com as seguintes justificativas:
-1. O deployment suportado é atrás de reverse proxy em rede confiante; rate-limiting é mais bem implementado na camada de proxy (nginx/Caddy) para cenários de exposição externa.
-2. Adicionar rate-limiting no Go introduziria complexidade de configuração, estado compartilhado e decisões de sliding window vs. fixed window sem benefício claro para o modelo de deploy atual.
-3. Endpoints de auth (register, forgot, reset) têm lockout no login — o vetor mais crítico. Spam de email via register/forgot seria mitigado por um CAPTCHA no frontend quando necessário.
-4. Consumo de APIs externas (TMDB, Jackett, OpenSubtitles) já tem tratamento ad-hoc via RPM config por provider.
+**Decision (CA-0.5.2):** Accept the risk of having no generic rate-limiting, with the following justifications:
+1. The supported deployment is behind a reverse proxy on a trusted network; rate-limiting is best implemented at the proxy layer (nginx/Caddy) for external exposure scenarios.
+2. Adding rate-limiting in Go would introduce configuration complexity, shared state, and sliding-window vs. fixed-window decisions with no clear benefit for the current deployment model.
+3. Auth endpoints (register, forgot, reset) have login lockout — the most critical vector. Email spam via register/forgot would be mitigated by a frontend CAPTCHA when needed.
+4. External API consumption (TMDB, Jackett, OpenSubtitles) is already handled ad hoc via per-provider RPM config.
 
-**Riscos aceitos:**
-- Enumeração de usuários via `/api/auth/register`, `/api/auth/forgot`, `/api/auth/reset`
-- Abuso de `/api/search` e `/api/tmdb/*` sem throttle podendo sobrecarregar serviços externos
-- `/api/subtitles/download/:fileId` sem throttle
+**Accepted risks:**
+- User enumeration via `/api/auth/register`, `/api/auth/forgot`, `/api/auth/reset`
+- Abuse of `/api/search` and `/api/tmdb/*` without throttling, potentially overloading external services
+- `/api/subtitles/download/:fileId` without throttling

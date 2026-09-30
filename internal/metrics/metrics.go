@@ -42,7 +42,7 @@ var (
 	})
 )
 
-// StartWorker inicia o coletor periódico em background que consulta o streamer e o transcode.HLSSessionManager
+// StartWorker starts the periodic background collector that queries the streamer and transcode.HLSSessionManager
 // StartWorker returns a channel that is closed when the worker goroutine exits
 // (after ctx is cancelled); it is nil when no goroutine was started (nil
 // streamer). Callers may ignore it; tests use it to await a deterministic
@@ -69,10 +69,10 @@ func StartWorker(ctx context.Context, s *streamer.Streamer, hls *transcode.HLSSe
 	return done
 }
 
-// collect faz uma rodada de amostragem e atualiza os gauges. Os rates de rede
-// saem do PRÓPRIO ActiveList: chamar GlobalStats() logo em seguida (como era)
-// re-amostrava com <250ms de janela desde o sample do buildInfo e devolvia
-// sempre (0,0) — os gauges de download/upload ficavam zerados pra sempre.
+// collect takes one sampling round and updates the gauges. The network rates
+// come from the ActiveList itself: calling GlobalStats() right after (as it
+// used to) re-sampled within a <250ms window of buildInfo's sample and always
+// returned (0,0) — the download/upload gauges stayed zeroed forever.
 func collect(s *streamer.Streamer, hls *transcode.HLSSessionManager) {
 	active := s.ActiveList()
 	ActiveTorrents.Set(float64(len(active)))

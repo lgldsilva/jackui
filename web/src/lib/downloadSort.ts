@@ -1,9 +1,9 @@
 import type { DownloadEntry } from '../api/downloads'
 
-// Sort keys handled CLIENT-SIDE. downRate/upRate/seeders are live (não persistidos
-// no SQLite), então não podem ir no ORDER BY do backend — a ordenação por eles
-// acontece aqui sobre a lista já enriquecida pelo handler. As demais chaves
-// (created_at/name/size/...) continuam server-side.
+// Sort keys handled CLIENT-SIDE. downRate/upRate/seeders are live (not persisted
+// to SQLite), so they can't go into the backend's ORDER BY — sorting by them
+// happens here over the list already enriched by the handler. The other keys
+// (created_at/name/size/...) stay server-side.
 export const LIVE_SORT_KEYS = ['downRate', 'upRate', 'seeders'] as const
 export type LiveSortKey = (typeof LIVE_SORT_KEYS)[number]
 
@@ -21,8 +21,8 @@ function liveValue(d: DownloadEntry, key: LiveSortKey): number {
 
 // sortByLiveMetric returns a NEW array ordered by a live metric. Ties keep the
 // input order (stable) so rows with equal/zero metric stay in the backend's
-// created_at order. dir 'desc' = maior primeiro (o padrão útil: mais rápido /
-// mais seeds no topo).
+// created_at order. dir 'desc' = largest first (the useful default: fastest /
+// most seeds on top).
 export function sortByLiveMetric(
   items: readonly DownloadEntry[],
   key: LiveSortKey,
@@ -34,15 +34,15 @@ export function sortByLiveMetric(
     .sort((a, b) => {
       const diff = liveValue(a.d, key) - liveValue(b.d, key)
       if (diff !== 0) return sign * diff
-      return a.i - b.i // estável: preserva a ordem original nos empates
+      return a.i - b.i // stable: preserves the original order on ties
     })
     .map(x => x.d)
 }
 
-// applyDownloadSort é o ponto de entrada usado pela página: ordena client-side
-// quando sortCol é uma métrica ao vivo; caso contrário devolve a lista como veio
-// (a ordem server-side por data/nome/... é preservada). Encapsular aqui mantém a
-// DownloadsPage (god-file) sem ramificação extra.
+// applyDownloadSort is the entry point used by the page: sorts client-side
+// when sortCol is a live metric; otherwise returns the list as it came
+// (the server-side order by date/name/... is preserved). Encapsulating it here keeps
+// the DownloadsPage (god-file) free of extra branching.
 export function applyDownloadSort(
   items: DownloadEntry[],
   sortCol: string,

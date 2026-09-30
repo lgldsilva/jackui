@@ -10,10 +10,10 @@ export type CompletedGroup = {
   seeding: boolean
 }
 
-// Ordena arquivos do MESMO torrent em ordem natural (numérica) pelo caminho, pra
-// que episódios fiquem S01E01, S01E02, … S01E10 em vez de ordem alfabética crua
-// ou de chegada. A ordem ENTRE grupos segue o sort global (ordem de chegada da
-// lista já ordenada pelo backend).
+// Sorts files from the SAME torrent in natural (numeric) order by path, so
+// episodes read S01E01, S01E02, … S01E10 instead of raw alphabetical order
+// or arrival order. The order BETWEEN groups follows the global sort (arrival order of
+// the list already sorted by the backend).
 function naturalFileCompare(a: DownloadEntry, b: DownloadEntry): number {
   return (a.filePath || a.name).localeCompare(b.filePath || b.name, undefined, { numeric: true, sensitivity: 'base' })
 }
@@ -30,8 +30,8 @@ export function countTorrents(rows: readonly DownloadEntry[]): number {
 }
 
 // groupByHash groups downloads by infoHash, preserving first-seen order, with no
-// status filter — so it works for ANY lifecycle section (Baixando/Fila/Pausados/
-// Concluídos). A single-file torrent and a whole-torrent (-2) item each land in a
+// status filter — so it works for ANY lifecycle section (Downloading/Queue/Paused/
+// Completed). A single-file torrent and a whole-torrent (-2) item each land in a
 // group of one (rendered as a plain card, no wrapper). `seeding` is true when the
 // torrent is still live in the streamer. Pure + exported for unit tests.
 export function groupByHash(items: readonly DownloadEntry[], torrents: readonly TorrentInfo[]): CompletedGroup[] {
@@ -47,7 +47,7 @@ export function groupByHash(items: readonly DownloadEntry[], torrents: readonly 
     }
     g.files.push(d)
   }
-  // Episódios em ordem dentro de cada torrent multi-arquivo.
+  // Episodes in order within each multi-file torrent.
   for (const g of byKey.values()) {
     if (g.files.length > 1) g.files.sort(naturalFileCompare)
   }

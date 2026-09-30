@@ -28,8 +28,8 @@ export function resetIncognitoFlag(): void {
 }
 
 // clearIncognitoData calls the backend to delete all incognito entries for the user.
-// Fire-and-forget — UI should not block on this. Marcada como session-lifecycle:
-// um 401 aqui (sessão já morta) não deve disparar refresh→logout (recursão).
+// Fire-and-forget — UI should not block on this. Marked as session-lifecycle:
+// a 401 here (already-dead session) must not trigger refresh→logout (recursion).
 export async function clearIncognitoData(): Promise<void> {
   await api.delete('/user/incognito', sessionLifecycle())
 }

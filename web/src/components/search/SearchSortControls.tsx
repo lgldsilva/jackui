@@ -15,10 +15,10 @@ type Props = {
   readonly onUpdate: (patch: Partial<TabState>) => void
 }
 
-// Controle de ordenação dos resultados. No celular (sem espaço pro segmented
-// control de 5 opções, que gerava scroll horizontal no header) vira um dropdown
-// compacto + botão asc/desc; no desktop fica o segmented control. Extraído do
-// SearchPage (god-file), antes era a função sortControls.
+// Results sort control. On phones (no space for the 5-option segmented
+// control, which caused horizontal scroll on the header) it becomes a compact
+// dropdown + asc/desc button; on desktop the segmented control stays. Extracted
+// from SearchPage (god-file); it used to be the sortControls function.
 export function SearchSortControls({ tab, onUpdate }: Props) {
   const { t } = useTranslation()
   const toggleSort = (key: ResultSortKey) => {
@@ -48,7 +48,7 @@ export function SearchSortControls({ tab, onUpdate }: Props) {
           {tab.resultSortAsc ? <SortAsc className="w-3.5 h-3.5" /> : <SortDesc className="w-3.5 h-3.5" />}
         </button>
       </div>
-      {/* Desktop: segmented control (wrap em vez de scroll horizontal). */}
+      {/* Desktop: segmented control (wrap instead of horizontal scroll). */}
       <div className="hidden sm:flex items-center gap-1.5 max-w-full">
         <span className="text-xs text-text-muted flex-shrink-0">{t('search.sort_label')}</span>
         <div className="flex items-center gap-1 bg-surface-tertiary border border-strong rounded-lg p-1 flex-wrap">

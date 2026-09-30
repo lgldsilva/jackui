@@ -54,11 +54,11 @@ export default function FilePreviewModal({ infoHash, fileIdx, filePath, fileSize
     : [{ label: filePath, url: rawURL }]
 
   return (
-    // hideHeader: o preview é edge-to-edge com barra própria (download +
-    // fechar). zClass z-[60] preserva a sobreposição sobre o player.
+    // hideHeader: the preview is edge-to-edge with its own bar (download +
+    // close). zClass z-[60] preserves stacking above the player.
     <Sheet open onClose={onClose} size="4xl" zClass="z-[60]" hideHeader>
       <>
-        {/* Barra do preview — cola no topo do corpo (compensa o p-4 do Sheet) */}
+        {/* Preview bar — sticks to the top of the body (compensates the Sheet's p-4) */}
         <div className="-mx-4 -mt-4 mb-4 flex items-center justify-between p-3 border-b border-default">
           <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 min-w-0">
             <Icon className="w-4 h-4 text-blue-400 flex-shrink-0" />

@@ -306,8 +306,8 @@ func (c *Client) identifyWithSlot(ctx context.Context, s Slot, rawName string) (
 // metadataWithSlot runs one slot through the FULL rename prompt (title + year +
 // kind + season + episode), timed, bypassing the breaker. The benchmark scores
 // this richer extraction — not the title-only path — so accuracy reflects the
-// actual rename task (séries with the right season/episode), which is what the
-// "Renomear e Organizar via IA" feature depends on.
+// actual rename task (series with the right season/episode), which is what the
+// "Renomear e Organizar via IA" (Rename and Organize via AI) feature depends on.
 func (c *Client) metadataWithSlot(ctx context.Context, s Slot, rawName string) (*RenameMetadata, time.Duration, int, error) {
 	content, latency, tokens, err := c.chat(ctx, s, renameSystem, rawName, true)
 	if err != nil {

@@ -26,8 +26,8 @@ export default function PlaylistDetailPage() {
 
   const startAt = (idx: number) => {
     if (!playlist || items.length === 0) return
-    // expand=true: tocar a playlist abre o player MAXIMIZADO (não o dock), igual
-    // ao play de arquivos locais — o usuário clicou pra ver a experiência cheia.
+    // expand=true: playing the playlist opens the player MAXIMIZED (not the dock), same
+    // as local-file play — the user clicked to see the full experience.
     playPlaylist(playlist.name, items, idx, true)
   }
 
@@ -71,8 +71,8 @@ export default function PlaylistDetailPage() {
     await moveTo(from, to)
   }
 
-  // Núcleo do reorder (compartilhado por drag-drop e pelos botões ↑/↓ do mobile):
-  // move otimisticamente, persiste via PATCH, rola de volta no erro.
+  // Reorder core (shared by drag-drop and the mobile ↑/↓ buttons):
+  // moves optimistically, persists via PATCH, rolls back on error.
   const moveTo = async (from: number | null, to: number) => {
     if (from === null || from === to || !playlist) return
     if (to < 0 || to >= items.length) return
@@ -162,8 +162,8 @@ export default function PlaylistDetailPage() {
                 onDragEnd={() => setDragIdx(null)}
                 className={`card flex items-center gap-3 py-2.5 px-3 hover:bg-surface-secondary/60 transition-colors group w-full text-left ${dragIdx === idx ? 'opacity-50' : ''}`}
               >
-                {/* ↑/↓ — reorder por toque no mobile (a alça de drag é ruim no
-                    touch). No desktop fica a alça GripVertical de sempre. */}
+                {/* ↑/↓ — reorder by touch on mobile (the drag handle is poor on
+                    touch). On desktop the usual GripVertical handle stays. */}
                 <div className="md:hidden flex flex-col flex-shrink-0">
                   <button
                     onClick={(e) => { e.stopPropagation(); moveTo(idx, idx - 1) }}
@@ -186,11 +186,11 @@ export default function PlaylistDetailPage() {
                 </div>
                 <GripVertical className="hidden md:block w-4 h-4 text-text-muted flex-shrink-0 cursor-grab active:cursor-grabbing" />
                 <div className="flex-1 min-w-0">
-                  {/* A row é um container estático (drag & drop apenas); a ação
-                      primária vive neste botão-título (plain → startAt;
-                      ctrl/middle → nova aba via newTabProps). Assim os botões
-                      irmãos (↑/↓, Play, Trash) nunca ficam aninhados dentro de
-                      outro interativo. */}
+                  {/* The row is a static container (drag & drop only); the primary
+                      action lives on this title button (plain → startAt;
+                      ctrl/middle → new tab via newTabProps). This way the sibling
+                      buttons (↑/↓, Play, Trash) never end up nested inside
+                      another interactive. */}
                   <button
                     type="button"
                     {...newTabProps(it.infoHash ? playHref(it.infoHash, it.fileIndex) : `/playlists/${playlistID}`, () => startAt(idx))}
@@ -241,9 +241,9 @@ export default function PlaylistDetailPage() {
       <NavHeader />
 
       <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
-        {/* Voltar no topo do conteúdo. Antes ia no rightExtra do NavHeader, que
-            no desktop (sidebar) cai lá no rodapé do menu — posição ruim/perdida.
-            Aqui fica no fluxo natural da página, acima do cabeçalho da playlist. */}
+        {/* Back at the top of the content. It used to go in NavHeader's rightExtra, which
+            on desktop (sidebar) lands at the menu's footer — a bad/lost position.
+            Here it stays in the page's natural flow, above the playlist header. */}
         <button
           onClick={() => nav('/playlists')}
           className="self-start flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors"

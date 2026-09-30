@@ -204,8 +204,8 @@ func TestStreamSearch_EmptyIndexers(t *testing.T) {
 	}
 }
 
-// TestStreamSearch_BoundsConcurrency guards the fix for the "Jackett tem N
-// trackers mas o JackUI só mostra ~7" bug: StreamSearch must NOT fire every
+// TestStreamSearch_BoundsConcurrency guards the fix for the "Jackett has N
+// trackers but JackUI only shows ~7" bug: StreamSearch must NOT fire every
 // indexer at once (that saturates Jackett and the slow ones time out and are
 // dropped). With many configured indexers, the number of in-flight per-indexer
 // requests must never exceed maxConcurrentIndexerSearches.

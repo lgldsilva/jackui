@@ -22,7 +22,7 @@ func TestStoreAddListRemove(t *testing.T) {
 
 	list, err := s.List()
 	if err != nil || len(list) != 2 {
-		t.Fatalf("List = %d itens, err=%v", len(list), err)
+		t.Fatalf("List = %d items, err=%v", len(list), err)
 	}
 	if list[0].Kind != "promote" || list[0].Src != "/a/x.mkv" || list[0].Payload != `{"downloadID":1}` {
 		t.Errorf("item 0 = %+v", list[0])
@@ -33,7 +33,7 @@ func TestStoreAddListRemove(t *testing.T) {
 	}
 	list, _ = s.List()
 	if len(list) != 1 || list[0].ID != id2 {
-		t.Fatalf("após remove: %+v", list)
+		t.Fatalf("after remove: %+v", list)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestStoreNilSafe(t *testing.T) {
 	}
 }
 
-// Remove(0) é no-op (id 0 = store estava nil quando Add foi chamado).
+// Remove(0) is a no-op (id 0 = store was nil when Add was called).
 func TestStoreRemoveZero(t *testing.T) {
 	s, err := OpenStore(dbtest.NewDB(t))
 	if err != nil {
@@ -61,6 +61,6 @@ func TestStoreRemoveZero(t *testing.T) {
 		t.Fatalf("Remove(0): %v", err)
 	}
 	if l, _ := s.List(); len(l) != 1 {
-		t.Fatalf("Remove(0) não deveria apagar nada, got %d", len(l))
+		t.Fatalf("Remove(0) should not delete anything, got %d", len(l))
 	}
 }

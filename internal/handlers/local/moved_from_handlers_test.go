@@ -363,7 +363,7 @@ func TestLocalMoveEntry_PopulatesTracker(t *testing.T) {
 			}
 			return
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU à goroutine de move
+		<-time.After(2 * time.Millisecond) // yields the CPU to the move goroutine
 	}
 	t.Fatalf("tracker job did not reach done; list=%+v", tr.List(0, true))
 }
@@ -474,9 +474,9 @@ func Test_hgA_movePathJob_File(t *testing.T) {
 	}
 }
 
-// Regressão #2105: promover um whole-torrent (file_path = DIRETÓRIO) caía no
-// caminho cross-device e tratava o diretório como arquivo único, estourando
-// "read ...: is a directory". copyDirAndRemoveJob copia a árvore inteira.
+// Regression #2105: promoting a whole-torrent (file_path = DIRECTORY) fell into the
+// cross-device path and treated the directory as a single file, blowing up with
+// "read ...: is a directory". copyDirAndRemoveJob copies the whole tree.
 func Test_hgA_copyDirAndRemove_Tree(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "Brasiloirinha")
 	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
@@ -494,13 +494,13 @@ func Test_hgA_copyDirAndRemove_Tree(t *testing.T) {
 		t.Fatalf("copyDirAndRemoveJob: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "a.mp4")); err != nil {
-		t.Errorf("dst/a.mp4 ausente: %v", err)
+		t.Errorf("dst/a.mp4 missing: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dst, "sub", "b.mp4")); err != nil {
-		t.Errorf("dst/sub/b.mp4 ausente: %v", err)
+		t.Errorf("dst/sub/b.mp4 missing: %v", err)
 	}
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Errorf("src deveria ser removido após o move da árvore")
+		t.Errorf("src should have been removed after the tree move")
 	}
 }
 
@@ -1081,17 +1081,17 @@ func Test_hgC_CopyFileAndRemove_SrcMissing(t *testing.T) {
 	}
 }
 
-// Resume: o destino já tem o arquivo com o mesmo tamanho (uma transferência
-// anterior o copiou antes de ser interrompida). copyFileAndRemove deve PULAR a
-// cópia, preservar o destino e remover a origem — sem recopiar.
+// Resume: the destination already has the file with the same size (a previous
+// transfer copied it before being interrupted). copyFileAndRemove must SKIP the
+// copy, preserve the destination and remove the source — without re-copying.
 func Test_hgC_CopyFileAndRemove_ResumeSkipsExisting(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "src.bin")
 	dst := filepath.Join(dir, "dst.bin")
-	if err := os.WriteFile(src, []byte("conteudo-igual"), 0o644); err != nil {
+	if err := os.WriteFile(src, []byte("same-content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dst, []byte("conteudo-igual"), 0o644); err != nil {
+	if err := os.WriteFile(dst, []byte("same-content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stat, _ := os.Stat(src)
@@ -1099,16 +1099,16 @@ func Test_hgC_CopyFileAndRemove_ResumeSkipsExisting(t *testing.T) {
 		t.Fatalf("copyFileAndRemove (resume): %v", err)
 	}
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("origem deveria ser removida (move concluído via resume)")
+		t.Error("source should have been removed (move completed via resume)")
 	}
-	if b, _ := os.ReadFile(dst); string(b) != "conteudo-igual" {
-		t.Errorf("destino não deveria mudar no resume, got %q", b)
+	if b, _ := os.ReadFile(dst); string(b) != "same-content" {
+		t.Errorf("destination should not change on resume, got %q", b)
 	}
 }
 
-// Resume de diretório parcial: parte dos arquivos já está no destino (run
-// anterior interrompida). copyDirAndRemove completa só o que falta e remove a
-// origem inteira ao final.
+// Partial directory resume: part of the files is already at the destination
+// (previous run interrupted). copyDirAndRemove completes only what's missing and removes the
+// entire source at the end.
 func Test_hgC_CopyDirAndRemove_ResumePartial(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "Brasiloirinha")
@@ -1116,28 +1116,28 @@ func Test_hgC_CopyDirAndRemove_ResumePartial(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(src, "Fotos"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "Fotos", "1.jpg"), []byte("foto"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "Fotos", "1.jpg"), []byte("photo"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(src, "video.mp4"), []byte("video-grande"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(src, "video.mp4"), []byte("big-video"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Simula a run anterior: a foto já foi copiada pro destino, o vídeo não.
+	// Simulates the previous run: the photo was already copied to the destination, the video wasn't.
 	if err := os.MkdirAll(filepath.Join(dst, "Fotos"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dst, "Fotos", "1.jpg"), []byte("foto"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dst, "Fotos", "1.jpg"), []byte("photo"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stat, _ := os.Stat(src)
 	if err := copyDirAndRemove(src, dst, stat); err != nil {
 		t.Fatalf("copyDirAndRemove (resume): %v", err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(dst, "video.mp4")); string(b) != "video-grande" {
-		t.Errorf("vídeo faltante não foi copiado, got %q", b)
+	if b, _ := os.ReadFile(filepath.Join(dst, "video.mp4")); string(b) != "big-video" {
+		t.Errorf("missing video was not copied, got %q", b)
 	}
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
-		t.Error("origem deveria ser removida ao final do resume")
+		t.Error("source should have been removed at the end of the resume")
 	}
 }
 

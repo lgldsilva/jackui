@@ -1,5 +1,5 @@
-// Card placeholder animado exibido enquanto a busca ainda não trouxe resultados.
-// Vive em arquivo próprio para não engordar o SearchPage (god-file).
+// Animated placeholder card shown while the search hasn't returned results yet.
+// Lives in its own file to avoid bloating the SearchPage (god-file).
 export function SkeletonCard() {
   return (
     <div className="card animate-pulse flex flex-col gap-3">

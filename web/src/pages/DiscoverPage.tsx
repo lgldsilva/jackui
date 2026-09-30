@@ -129,7 +129,7 @@ function PosterCard({ m, onClick, badge, onTrailer, trailerMuted, onDismiss }: {
   )
 }
 
-// RecTopic renders one collapsible recommendations topic ("Porque você viu X").
+// RecTopic renders one collapsible recommendations topic ("Because you watched X").
 // The header is a real <button> (keyboard + aria-expanded + aria-controls) that
 // toggles the grid; the collapsed state is owned by the parent so it can persist
 // across visits. The grid stays MOUNTED when collapsed (height animation via
@@ -195,9 +195,9 @@ export default function DiscoverPage() {
   const { t } = useTranslation()
   const [items, setItems] = useState<TmdbMatch[] | null>(null)
   const [trendingError, setTrendingError] = useState<string | null>(null)
-  // Filtros do Discover na URL (sobrevivem a back/forward/reload/reabrir). year e
-  // genre são numéricos → glue string<->number ('' = sem filtro). filter/query
-  // são filtros client-side; year/genre disparam o fetch de trending.
+  // Discover filters in the URL (survive back/forward/reload/reopen). year and
+  // genre are numeric → glue string<->number ('' = no filter). filter/query
+  // are client-side filters; year/genre trigger the trending fetch.
   const [filter, setFilter] = useEnumQueryParam<Filter>('type', FILTERS, 'all')
   const [query, setQuery] = useQueryParam('q')
   const [yearStr, setYearStr] = useQueryParam('year')
@@ -215,17 +215,17 @@ export default function DiscoverPage() {
   const [collapsedKeys, setCollapsedKeys] = usePersistedState<string[]>('discover.collapsed', [])
   const [mediaMode] = useMediaMode()
   const navigate = useNavigate()
-  // Scroll restaurado quando o trending carrega (chamado antes do early-return).
+  // Scroll restored when trending loads (called before the early-return).
   useScrollRestoration(items !== null)
 
-  // O toggle Filme/Série filtra a tela TODA — incluindo as recomendações do topo,
-  // não só a grade "Em alta". Aplicado antes de agrupar (tópicos que ficam vazios
-  // somem naturalmente).
+  // The Movie/Series toggle filters the WHOLE screen — including the top recommendations,
+  // not just the "Trending" grid. Applied before grouping (topics left empty
+  // disappear naturally).
   const filteredRecs = useMemo(
     () => (filter === 'all' ? recs : recs.filter(r => r.kind === filter)),
     [recs, filter],
   )
-  // Group recommendations by their "Porque você viu X" source into collapsible
+  // Group recommendations by their "Because you watched X" source into collapsible
   // topics — client-side over the already-loaded list, so no extra requests.
   const recGroups = useMemo(() => groupRecommendations(filteredRecs), [filteredRecs])
   const collapsedSet = useMemo(() => new Set(collapsedKeys), [collapsedKeys])
@@ -287,8 +287,8 @@ export default function DiscoverPage() {
     m => (filter === 'all' || m.kind === filter) && (!q || m.title.toLowerCase().includes(q)),
   )
 
-  // Modo Música: troca o Discover de filmes (TMDB) pela grade de álbuns em alta
-  // (Apple RSS). Early-return DEPOIS de todos os hooks acima (ordem estável).
+  // Music mode: swaps the movie Discover (TMDB) for the trending albums grid
+  // (Apple RSS). Early-return AFTER all the hooks above (stable order).
   if (mediaMode === 'audio') return <MusicDiscoverView />
 
   return (
@@ -297,7 +297,7 @@ export default function DiscoverPage() {
       <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col gap-4">
         {/* Personalized recommendations — rendered only when the watched library
             yielded any (additive; absent for new users or with TMDB off). Grouped
-            into one collapsible topic per "Porque você viu X" source so the user
+            into one collapsible topic per "Because you watched X" source so the user
             can skip between topics; the collapsed state persists across visits. */}
         {recGroups.length > 0 && (
           <section className="flex flex-col gap-4">
@@ -365,7 +365,7 @@ export default function DiscoverPage() {
           </div>
         </div>
 
-        {/* Busca por título dentro da grade trending */}
+        {/* Title search inside the trending grid */}
         {items !== null && items.length > 0 && (
           <div className="relative w-full sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />

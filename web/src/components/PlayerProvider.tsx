@@ -91,7 +91,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const [playlist, setPlaylist] = useState<PlaylistState | null>(null)
   const [repeat, setRepeat] = useState<RepeatMode>('none')
   const [shuffle, setShuffle] = useState(false)
-  // Cinema/Música preference, reactive (shared store). Tie-breaker for ambiguous
+  // Cinema/Music preference, reactive (shared store). Tie-breaker for ambiguous
   // titles AND — via `forcedKind` — switches the ACTIVE player the instant the
   // user toggles it.
   const [mediaMode] = useMediaMode()
@@ -115,10 +115,10 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   playlistRef.current = playlist
   repeatRef.current = repeat
 
-  // Persiste a playlist ativa pra reabrir o app restaurando prev/next + posição
-  // (a URL só carrega o item atual). Salva enquanto há playlist; NÃO limpa ao
-  // fechar — reabrir DEVE ressuscitar a última lista (o TTL de 7d corta antigas;
-  // a restauração só dispara se o ?play=hash bater com um item da lista salva).
+  // Persist the active playlist so reopening the app restores prev/next + position
+  // (the URL only carries the current item). Save while there's a playlist; do NOT
+  // clear on close — reopening MUST resurrect the last list (a 7d TTL prunes old ones;
+  // restoration only fires if the ?play=hash matches an item of the saved list).
   useEffect(() => {
     if (!playlist) return
     savePlaylistSnapshot(playlist.name, playlist.items, playlist.order[playlist.position])
@@ -127,8 +127,8 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   const playSingle = useCallback((result: SearchResult, initialFileIndex?: number, initialSeek?: number, expand = false) => {
     setStartExpanded(expand)
     setPlaylist(null)
-    // Item único substitui o contexto de playlist — limpa o snapshot pra que o
-    // boot-frio não ressuscite uma lista velha em que o usuário não está mais.
+    // Single item replaces the playlist context — clears the snapshot so a
+    // cold boot doesn't resurrect an old list the user is no longer in.
     clearPlaylistSnapshot()
     setCurrent({ result, fileIdx: initialFileIndex, initialSeek })
   }, [])
@@ -160,7 +160,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const updated = { ...pl, position: pos }
     setPlaylist(updated)
     playlistRef.current = updated
-    // DIAGNÓSTICO: salto explícito de item (clique na lista agregada ou motor).
+    // DIAGNOSTIC: explicit item jump (aggregate list click or engine).
     clientLog('info', 'player', 'playlist jump', { itemIndex, pos, fileIndex })
     const base = playlistItemToResult(pl.items[itemIndex])
     setCurrent({ result: base.result, fileIdx: fileIndex ?? base.fileIdx })
@@ -174,14 +174,14 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     setCurrent(null)
     setPlaylist(null)
     setDeepLinkMode(false) // leaving the player exits full-viewport; later plays are modal
-    // Fechar (X) = dispensar: não restaurar no próximo boot. Matar o app NÃO passa
-    // por aqui (a playlist persiste no snapshot → é restaurada ao reabrir).
+    // Close (X) = dismiss: don't restore on the next boot. Killing the app does NOT
+    // go through here (the playlist persists in the snapshot → it's restored on reopen).
     clearPlaylistSnapshot()
   }, [])
 
   const goTo = useCallback((delta: number) => {
     const pl = playlistRef.current
-    // Diagnostic: helps debug "player fechou mid-playlist" reports — captures
+    // Diagnostic: helps debug "player closed mid-playlist" reports — captures
     // the exact state at the advance decision point. Inspect via DevTools when
     // reproducing.
     console.debug('[player] goTo', {
@@ -223,9 +223,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     const updated = { ...pl, position: next }
     setPlaylist(updated)
     playlistRef.current = updated
-    // DIAGNÓSTICO: toda mudança de item por avanço (gesto OU onEnded) fica no log
-    // do servidor — pra cravar trocas de faixa "fantasma" no iPhone.
-    clientLog('info', 'player', 'goTo muda item', { delta, from: pl.position, to: next, item: pl.order[next], repeat: repeatRef.current })
+    // DIAGNOSTIC: every item change by advance (gesture OR onEnded) lands in the
+    // server log — to pin down "ghost" track switches on the iPhone.
+    clientLog('info', 'player', 'goTo item change', { delta, from: pl.position, to: next, item: pl.order[next], repeat: repeatRef.current })
     setCurrent(playlistItemToResult(pl.items[pl.order[next]]))
   }, [])
 
@@ -280,7 +280,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     })
   }, [])
 
-  // Apply the Cinema/Música toggle to whatever is playing RIGHT NOW: when the
+  // Apply the Cinema/Music toggle to whatever is playing RIGHT NOW: when the
   // preference flips while a player is active, switch its mode immediately and
   // resume from the current playhead (the modal re-keys by kind, so we feed the
   // last reported time as initialSeek instead of restarting from zero). When
@@ -299,7 +299,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
 
   // A new item (or file) clears the explicit override so the detection /
   // tie-breaker decides the mode again for the next thing that plays. We also
-  // re-seed lastTimeRef from the item's start position, so a Cinema/Música
+  // re-seed lastTimeRef from the item's start position, so a Cinema/Music
   // toggle in the first moments (before the first onProgress tick) resumes from
   // the real start (e.g. a Continue-Watching resume) instead of snapping to 0.
   useEffect(() => {
@@ -355,8 +355,8 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // intra-session updates. The dep on `searchParams.get('play')` is enough — it
   // only fires when the URL itself changes, which is the trigger we actually want.
   const lastSyncedHashRef = useRef<string | null>(null)
-  // Garante que a restauração de playlist no boot frio (URL sem ?play) rode UMA vez.
-  // Depois disso, URL sem ?play = o usuário fechou o player → não re-abrir.
+  // Guarantees the playlist restoration on cold boot (URL without ?play) runs ONCE.
+  // After that, a URL without ?play = the user closed the player → don't re-open.
   const bootRestoredRef = useRef(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const playUrlParam = searchParams.get('play')
@@ -377,11 +377,12 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       parseLocalHash,
       setLastSynced: (h) => { lastSyncedHashRef.current = h },
     }
-    // Boot frio (1ª execução): restaura a última playlist ANTES do short-circuit
-    // abaixo. No mount, hash e lastSynced são ambos null, então `hash === lastSynced`
-    // pularia tudo — e o PWA standalone reabre no start_url SEM ?play, nunca
-    // restaurando. Só com nada tocando e sem ?play (nem na URL real, contra lag do
-    // router); roda 1x (fechar o player limpa o ?play e não deve re-abrir).
+    // Cold boot (1st run): restore the last playlist BEFORE the short-circuit
+    // below. On mount, hash and lastSynced are both null, so `hash === lastSynced`
+    // would skip everything — and the PWA standalone reopens on start_url WITHOUT
+    // ?play, never restoring. Only with nothing playing and no ?play (not in the real
+    // URL either, guarding against router lag); runs once (closing the player clears
+    // ?play and it must not re-open).
     if (!bootRestoredRef.current) {
       bootRestoredRef.current = true
       if (tryBootRestorePlaylist(hash, realHash(), deps)) return
@@ -432,16 +433,16 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // For SINGLE-ITEM playback we use the item's own kind detection.
   const currentKind = (() => {
     if (!current) return null
-    // Explicit Cinema/Música toggle on the active item wins over everything.
+    // Explicit Cinema/Music toggle on the active item wins over everything.
     if (forcedKind) return forcedKind
     if (playlist && playlist.items.length > 0) {
       // Aggregate over playlist — any video → video mode.
       const anyVideo = playlist.items.some(it => detectKind(it.title, 0, mediaMode) === 'video')
       return anyVideo ? 'video' : 'audio'
     }
-    // Prefer backend-resolved mediaKind quando presente; cai na heurística
-    // local pra syntheticResult/deep-links que constroem SearchResult sem
-    // o campo. 'other' do backend coalesce no fallback (Cinema/Música).
+    // Prefer backend-resolved mediaKind when present; fall back to the heuristic
+    // locally for syntheticResult/deep-links that build SearchResult without
+    // the field. The backend's 'other' coalesces into the fallback (Cinema/Music).
     if (current.result.mediaKind === 'audio') return 'audio'
     if (current.result.mediaKind === 'video') return 'video'
     return detectKind(current.result.title, current.result.categoryId, mediaMode)

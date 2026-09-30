@@ -13,9 +13,9 @@ type Props = {
   readonly adminUsers: AdminUser[]
 }
 
-// Sidebar — desktop é coluna fixa à esquerda. No mobile some por completo
-// (hidden) e dá lugar a um dropdown de mount na barra do breadcrumb, que
-// não rouba altura nem força scroll horizontal de chips.
+// Sidebar — desktop is a fixed left column. On mobile it disappears entirely
+// (hidden) and gives way to a mount dropdown on the breadcrumb bar, which
+// doesn't steal height nor force horizontal chip scrolling.
 export function LocalSidebar({ mounts, activeMount, onSelectMount, canViewAsUser, viewAsUser, onViewAsUser, adminUsers }: Props) {
   const { t } = useTranslation()
   return (

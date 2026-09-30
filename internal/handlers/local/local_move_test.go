@@ -157,8 +157,8 @@ func TestIsValidRenameName(t *testing.T) {
 	}
 }
 
-// sanitizeRenameName é a barreira de path-injection do Join do rename: só o
-// retorno limpo chega ao filepath.Join.
+// sanitizeRenameName is the rename Join's path-injection barrier: only the
+// cleaned return value reaches filepath.Join.
 func TestSanitizeRenameName(t *testing.T) {
 	for _, bad := range []string{"", ".", "..", "a/b", `a\b`, "../bad"} {
 		if clean, ok := sanitizeRenameName(bad); ok || clean != "" {
@@ -232,5 +232,20 @@ func TestMovePathJob_Rename(t *testing.T) {
 	}
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
 		t.Fatal("source must be removed")
+	}
+}
+
+func TestResolveRenameDest_InvalidName(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.txt")
+	writeFile(t, src, []byte("x"))
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	_, ok := resolveRenameDest(c, src, "../b.txt")
+	if ok {
+		t.Fatal("name with a path separator must not be ok")
+	}
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid name") {
+		t.Fatalf("status = %d; body=%s", w.Code, w.Body.String())
 	}
 }

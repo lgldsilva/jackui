@@ -99,7 +99,7 @@ func (t *BenchmarkRunTracker) Status() (running bool, startedAt time.Time) {
 func CancelAIBenchmark(tracker *BenchmarkRunTracker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if tracker == nil || !tracker.Stop() {
-			httpshared.RespondErrorMessage(c, http.StatusNotFound, "nenhum benchmark em execução")
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "no benchmark running")
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"cancelled": true})
@@ -311,7 +311,7 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore, tracker *Benchm
 		defer cancel()
 		if tracker != nil {
 			if !tracker.start(cancel) {
-				httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um benchmark em execução")
+				httpshared.RespondErrorMessage(c, http.StatusConflict, "a benchmark is already running")
 				return
 			}
 			defer tracker.finish()
@@ -351,7 +351,7 @@ func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore, track
 		defer cancel()
 		if tracker != nil {
 			if !tracker.start(cancel) {
-				httpshared.RespondErrorMessage(c, http.StatusConflict, "já existe um benchmark em execução")
+				httpshared.RespondErrorMessage(c, http.StatusConflict, "a benchmark is already running")
 				return
 			}
 			defer tracker.finish()
@@ -414,7 +414,7 @@ func PutAICostConfig(client *ai.Client, store *ai.BenchmarkStore) gin.HandlerFun
 			return
 		}
 		if cc.MaxCostPer1M < 0 || cc.KWhPrice < 0 || cc.LocalWatts < 0 {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "valores não podem ser negativos")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "values cannot be negative")
 			return
 		}
 		client.SetCostConfig(cc)

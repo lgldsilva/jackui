@@ -1,4 +1,4 @@
-// Núcleo do streaming: add, metadata, info, drop, queue. Extraído de stream.ts (R3).
+// Streaming core: add, metadata, info, drop, queue. Extracted from stream.ts (R3).
 import { api } from './http'
 import { BATCH_CAPS, runChunked } from '../lib/batchChunk'
 import { extractBtihFromMagnet } from '../lib/magnet'

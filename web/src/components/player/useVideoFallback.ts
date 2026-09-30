@@ -40,11 +40,11 @@ export function useVideoFallback(deps: {
     setVideoError, setLastErrorDiag,
   } = deps
 
-  // Auto-transcode do áudio quando o codec da faixa DEFAULT não é decodável pelo
-  // browser (AC3/E-AC3/DDP/DTS/TrueHD/Atmos/PCM/WMA) — senão o vídeo toca MUDO
-  // (ex: MKV DDP5.1 Atmos). O Safari vai pelo caminho HLS, que já resolve isso →
-  // só não-Safari. Dispara uma vez por arquivo; o seletor de faixa ainda permite
-  // o usuário trocar.
+  // Auto-transcodes the audio when the DEFAULT track's codec isn't decodable by the
+  // browser (AC3/E-AC3/DDP/DTS/TrueHD/Atmos/PCM/WMA) — otherwise the video plays MUTED
+  // (e.g. MKV DDP5.1 Atmos). Safari goes through the HLS path, which already handles this →
+  // non-Safari only. Fires once per file; the track selector still lets
+  // the user switch.
   useEffect(() => {
     if (audioAutoRef.current || !probe || isSafariBrowser() || transcodeAudio !== null) return
     const INCOMPATIBLE = /^(ac-?3|e-?ac-?3|eac3|ddp?|dts|dca|truehd|mlp|pcm|wmav?)/i

@@ -1,37 +1,37 @@
 #!/usr/bin/env bash
-# Calcula a PRÓXIMA versão semver a partir dos Conventional Commits desde a
-# última tag vX.Y.Z — e SÓ bumpa quando há mudança "releasable":
+# Computes the NEXT semver version from the Conventional Commits since the last
+# vX.Y.Z tag — and only bumps when there is a "releasable" change:
 #
-#   feat:                  → bump MINOR
-#   fix: / perf: / security: → bump PATCH
-#   <tipo>!: / BREAKING    → bump MINOR enquanto major==0 (0.x), MAJOR a partir de 1.0
-#   só chore/ci/docs/test/build/style/refactor (ou nada convencional) → SEM bump
+#   feat:                  → MINOR bump
+#   fix: / perf: / security: → PATCH bump
+#   <type>!: / BREAKING    → MINOR bump while major==0 (0.x), MAJOR from 1.0 on
+#   only chore/ci/docs/test/build/style/refactor (or nothing conventional) → NO bump
 #
-# Quando NÃO há nada releasable (ou o HEAD já está exatamente numa tag), imprime
-# a ÚLTIMA tag inalterada. O chamador (release.yml) trata "computado == tag que já
-# existe" como "não criar tag/Release nova" — build+deploy seguem, sem inflar a
-# versão a cada merge trivial (era 1 tag por merge → 173 tags).
+# When there is nothing releasable (or HEAD is exactly on a tag), prints the
+# unchanged LAST tag. The caller (release.yml) treats "computed == existing tag"
+# as "do not create a new tag/Release" — build+deploy still run, without inflating
+# the version on every trivial merge (it used to be 1 tag per merge → 173 tags).
 #
-# Robusto a merge commits (GitHub/Gitea): o assunto do merge carrega o título do PR
-# ("Merge pull request 'fix(x): ...'" / "Merge pull request #N …"), então o tipo é
-# detectado tanto no início do assunto quanto logo após o prefixo de merge.
+# Robust to merge commits (GitHub/Gitea): the merge subject carries the PR title
+# ("Merge pull request 'fix(x): ...'" / "Merge pull request #N …"), so the type is
+# detected both at the start of the subject and right after the merge prefix.
 #
-# Uso:  scripts/semver.sh          → imprime "vX.Y.Z" no stdout (só isso).
-# Não cria nem dá push de tag — quem decide isso é o chamador.
+# Usage:  scripts/semver.sh          → prints "vX.Y.Z" to stdout (nothing else).
+# Does not create or push a tag — the caller decides that.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 semver_tag_glob='v[0-9]*.[0-9]*.[0-9]*'
 
-# HEAD já tagueado? reusa a maior tag semver que aponta pra ele (rebuild idempotente).
+# HEAD already tagged? Reuse the largest semver tag pointing at it (idempotent rebuild).
 head_tag=$(git tag --points-at HEAD --list "$semver_tag_glob" 2>/dev/null | sort -V | tail -1 || true)
 if [ -n "$head_tag" ]; then
   echo "$head_tag"
   exit 0
 fi
 
-# Última tag semver e o range de commits desde ela.
+# Last semver tag and the commit range since it.
 last=$(git tag --list "$semver_tag_glob" --sort=-v:refname 2>/dev/null | head -1 || true)
 if [ -n "$last" ]; then
   range="$last..HEAD"
@@ -40,22 +40,22 @@ else
   range="HEAD"
 fi
 
-# TODOS os assuntos (inclui merges: o título do PR mora no assunto do merge) + os
-# corpos (pra "BREAKING CHANGE" no rodapé, que os commits reais carregam).
+# ALL subjects (includes merges: the PR title lives in the merge subject) + the
+# bodies (for the "BREAKING CHANGE" footer, which real commits carry).
 subjects=$(git log "$range" --format='%s' 2>/dev/null || true)
 bodies=$(git log "$range" --format='%B' 2>/dev/null || true)
 
-# match_type <alternação-de-tipos> → sucesso se algum commit é daquele(s) tipo(s),
-# aceitando o tipo no início do assunto OU dentro do título de um merge do Gitea.
+# match_type <type-alternation> → succeeds if any commit is of that/those type(s),
+# accepting the type at the start of the subject OR inside a Gitea merge title.
 match_type() {
   printf '%s\n' "$subjects" | grep -qiE \
     "^($1)(\([^)]*\))?!?:|^Merge pull request '($1)(\([^)]*\))?!?:"
 }
 
-# breaking: "<tipo>!:" no assunto (qualquer forma) OU "BREAKING CHANGE" como FOOTER
-# do corpo. Ancorado em início de linha + ":" e case-sensitive (a spec exige o
-# footer em maiúsculas) pra NÃO casar a frase citada em prosa — um commit que só
-# MENCIONA "BREAKING CHANGE" no meio de uma explicação não é um breaking change.
+# breaking: "<type>!:" in the subject (any form) OR "BREAKING CHANGE" as a body
+# FOOTER. Anchored at start of line + ":" and case-sensitive (the spec requires the
+# footer in uppercase) so it does NOT match the phrase quoted in prose — a commit that
+# only MENTIONS "BREAKING CHANGE" in the middle of an explanation is not a breaking change.
 is_breaking() {
   printf '%s\n' "$subjects" | grep -qE \
     "^[a-zA-Z]+(\([^)]*\))?!:|^Merge pull request '[a-zA-Z]+(\([^)]*\))?!:" \
@@ -68,7 +68,7 @@ if match_type 'feat';     then bump=minor; fi
 if is_breaking;           then bump=break; fi
 
 if [ "$bump" = none ]; then
-  # Nada releasable → não bumpa; devolve a última tag (o chamador não cria Release).
+  # Nothing releasable → no bump; return the last tag (the caller creates no Release).
   echo "$last"
   exit 0
 fi
@@ -78,7 +78,7 @@ major=${v%%.*}; rest=${v#*.}; minor=${rest%%.*}; patch=${rest#*.}
 case "$bump" in
   break)
     if [ "$major" -eq 0 ]; then
-      # Convenção 0.x: breaking bumpa MINOR (não pula pra 1.0.0 sozinho).
+      # 0.x convention: breaking bumps MINOR (does not jump to 1.0.0 on its own).
       minor=$((minor + 1)); patch=0
     else
       major=$((major + 1)); minor=0; patch=0

@@ -14,15 +14,15 @@ const mk = (over: Partial<AISlotScore>): AISlotScore => ({
 })
 
 describe('runStatus', () => {
-  it('prefere o outcome registrado pelo backend', () => {
+  it('prefers the backend-recorded outcome', () => {
     expect(runStatus(mk({ lastOutcome: 'ok' }))).toBe('ok')
     expect(runStatus(mk({ lastOutcome: 'error' }))).toBe('error')
     expect(runStatus(mk({ lastOutcome: 'incomplete' }))).toBe('incomplete')
   })
-  it('outcome inválido cai no fallback da medição ao vivo', () => {
+  it('invalid outcome falls back to the live measurement', () => {
     expect(runStatus(mk({ lastOutcome: 'garbage' }))).not.toBe('garbage')
   })
-  it('fallback legado (sem histórico): incomplete > samples > failure > unknown', () => {
+  it('legacy fallback (no history): incomplete > samples > failure > unknown', () => {
     expect(runStatus(mk({ incomplete: true }))).toBe('incomplete')
     expect(runStatus(mk({ samples: 5 }))).toBe('ok')
     expect(runStatus(mk({ failureReason: 'boom' }))).toBe('error')
@@ -31,42 +31,42 @@ describe('runStatus', () => {
 })
 
 describe('lastSuccessLabel', () => {
-  it('mostra a data relativa quando houve sucesso', () => {
+  it('shows the relative date when there was a success', () => {
     const iso = new Date(Date.now() - 3 * 3_600_000).toISOString()
-    expect(lastSuccessLabel(mk({ lastSuccessAt: iso, lastOutcome: 'error' }))).toMatch(/^último OK: /)
+    expect(lastSuccessLabel(mk({ lastSuccessAt: iso, lastOutcome: 'error' }))).toMatch(/^last OK: /)
   })
-  it('"nunca deu certo" quando rodou mas nunca teve sucesso', () => {
-    expect(lastSuccessLabel(mk({ lastOutcome: 'error' }))).toBe('nunca deu certo')
+  it('"never worked" when it ran but never succeeded', () => {
+    expect(lastSuccessLabel(mk({ lastOutcome: 'error' }))).toBe('never worked')
   })
-  it('vazio para linha legada sem histórico algum', () => {
+  it('empty for a legacy row without any history', () => {
     expect(lastSuccessLabel(mk({ samples: 3 }))).toBe('')
   })
-  it('vazio para "incomplete" com score real — não é "nunca deu certo"', () => {
+  it('empty for "incomplete" with a real score — it is not "never worked"', () => {
     expect(lastSuccessLabel(mk({ lastOutcome: 'incomplete', samples: 4, composite: 0.7 }))).toBe('')
   })
 })
 
 describe('persistenceLabel', () => {
-  it('só aparece com erro atual e streak >= 2', () => {
+  it('only shows with a current error and streak >= 2', () => {
     expect(persistenceLabel(mk({ lastOutcome: 'error', consecutiveFailures: 1 }))).toBe('')
     expect(persistenceLabel(mk({ lastOutcome: 'ok', consecutiveFailures: 5 }))).toBe('')
-    expect(persistenceLabel(mk({ lastOutcome: 'error', consecutiveFailures: 3 }))).toMatch(/3 falhas seguidas/)
+    expect(persistenceLabel(mk({ lastOutcome: 'error', consecutiveFailures: 3 }))).toMatch(/3 failures in a row/)
   })
-  it('inclui "desde <data>" quando firstFailureAt está presente', () => {
+  it('includes "since <date>" when firstFailureAt is present', () => {
     const iso = new Date(Date.now() - 5 * 86_400_000).toISOString()
-    expect(persistenceLabel(mk({ lastOutcome: 'error', consecutiveFailures: 4, firstFailureAt: iso }))).toMatch(/desde /)
+    expect(persistenceLabel(mk({ lastOutcome: 'error', consecutiveFailures: 4, firstFailureAt: iso }))).toMatch(/since /)
   })
-  it('sem firstFailureAt não acrescenta "desde"', () => {
-    expect(persistenceLabel(mk({ lastOutcome: 'error', consecutiveFailures: 2 }))).not.toMatch(/desde/)
+  it('without firstFailureAt it doesn\'t add "since"', () => {
+    expect(persistenceLabel(mk({ lastOutcome: 'error', consecutiveFailures: 2 }))).not.toMatch(/since/)
   })
 })
 
 describe('absoluteDateTime', () => {
-  it('vazio para entrada ausente ou inválida', () => {
+  it('empty for missing or invalid input', () => {
     expect(absoluteDateTime(undefined)).toBe('')
     expect(absoluteDateTime('not-a-date')).toBe('')
   })
-  it('formata uma data válida', () => {
+  it('formats a valid date', () => {
     expect(absoluteDateTime('2020-01-01T00:00:00Z')).not.toBe('')
   })
 })

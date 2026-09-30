@@ -197,8 +197,8 @@ func TestLocalFile_NotFound(t *testing.T) {
 	}
 }
 
-// O container não tem /etc/mime.types, então sem o Content-Type explícito o iOS
-// recebe tipo errado/sniffado (com nosniff confia) e não decodifica o áudio.
+// The container has no /etc/mime.types, so without an explicit Content-Type iOS
+// receives the wrong/sniffed type (and trusts it with nosniff) and won't decode the audio.
 func TestLocalFile_MediaContentType(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mountDir := t.TempDir()

@@ -13,23 +13,23 @@ import (
 
 func TestRedactToken(t *testing.T) {
 	cases := []struct{ name, in, want string }{
-		{"token no fim da query",
+		{"token at end of query",
 			"/api/stream/hls/abc/0/master.m3u8?token=eyJhbGciOi.PAYLOAD.SIG",
 			"/api/stream/hls/abc/0/master.m3u8?token=REDACTED"},
-		{"token no meio da query",
+		{"token mid query",
 			"/api/local/file?token=SECRET123&path=movie.mkv",
 			"/api/local/file?token=REDACTED&path=movie.mkv"},
-		{"sem token", "/api/search?q=matrix", "/api/search?q=matrix"},
-		{"múltiplos params token",
+		{"no token", "/api/search?q=matrix", "/api/search?q=matrix"},
+		{"multiple token params",
 			"/x?token=AAA&y=1&token=BBB",
 			"/x?token=REDACTED&y=1&token=REDACTED"},
-		{"native_hls preservado",
+		{"native_hls preserved",
 			"/seg_00001.ts?token=JWT&native_hls=1",
 			"/seg_00001.ts?token=REDACTED&native_hls=1"},
-		{"dentro de texto livre (diag)",
+		{"inside free-form text (diag)",
 			`data=map[src:/api/stream/x?token=ABC.DEF]`,
 			`data=map[src:/api/stream/x?token=REDACTED]`},
-		{"string vazia", "", ""},
+		{"empty string", "", ""},
 	}
 	for _, c := range cases {
 		if got := RedactToken(c.in); got != c.want {

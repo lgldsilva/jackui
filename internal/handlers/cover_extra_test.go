@@ -113,9 +113,9 @@ func TestPurgeIncognito_Extra(t *testing.T) {
 
 func TestStartIncognitoReaper_CallsDeleteAll(t *testing.T) {
 	mc := &mockCleanable2{}
-	StartIncognitoReaper(mc) // purga síncrona no boot antes do ticker
+	StartIncognitoReaper(mc) // synchronous purge at boot before the ticker
 	if mc.deleteAllCalls != 1 {
-		t.Errorf("DeleteAllIncognito chamado %d vezes, queria 1 (purga de boot)", mc.deleteAllCalls)
+		t.Errorf("DeleteAllIncognito called %d times, want 1 (boot purge)", mc.deleteAllCalls)
 	}
 }
 
@@ -124,7 +124,7 @@ func TestStartIncognitoReaper_MultipleCleaners(t *testing.T) {
 	mc2 := &mockCleanable2{}
 	StartIncognitoReaper(mc1, mc2)
 	if mc1.deleteAllCalls != 1 || mc2.deleteAllCalls != 1 {
-		t.Errorf("cada cleaner deveria ser purgado 1x no boot: mc1=%d mc2=%d", mc1.deleteAllCalls, mc2.deleteAllCalls)
+		t.Errorf("each cleaner should be purged 1x at boot: mc1=%d mc2=%d", mc1.deleteAllCalls, mc2.deleteAllCalls)
 	}
 }
 
@@ -431,9 +431,9 @@ func TestStreamFavorites_WithFavs_Extra(t *testing.T) {
 	}
 }
 
-// StreamFavorites enriquece cada favorito com totalSize/seeders do metadata
-// cache (DB separado). Favorito com snapshot → campos preenchidos; sem snapshot
-// → ausentes do JSON (omitempty).
+// StreamFavorites enriches each favorite with totalSize/seeders from the metadata
+// cache (separate DB). Favorite with a snapshot → fields filled; without one
+// → absent from the JSON (omitempty).
 func TestStreamFavorites_SortMetaEnrichment_Extra(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := streamer.NewForTesting()
@@ -494,13 +494,13 @@ func TestStreamFavorites_SortMetaEnrichment_Extra(t *testing.T) {
 	}
 	noMeta := byHash[hashNoMeta]
 	if noMeta == nil {
-		t.Fatalf("favorito sem meta ausente")
+		t.Fatalf("favorite without meta missing")
 	}
 	if _, ok := noMeta["totalSize"]; ok {
-		t.Errorf("totalSize não deveria estar presente sem meta: %v", noMeta["totalSize"])
+		t.Errorf("totalSize should not be present without meta: %v", noMeta["totalSize"])
 	}
 	if _, ok := noMeta["seeders"]; ok {
-		t.Errorf("seeders não deveria estar presente sem probe: %v", noMeta["seeders"])
+		t.Errorf("seeders should not be present without probe: %v", noMeta["seeders"])
 	}
 }
 

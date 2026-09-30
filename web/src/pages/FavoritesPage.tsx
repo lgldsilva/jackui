@@ -49,15 +49,15 @@ export default function FavoritesPage() {
   const { notify } = useToast()
   const mountedRef = useRef(true)
   useEffect(() => () => { mountedRef.current = false }, [])
-  // Favorito sendo enviado ao modal de download (destino + seleção de arquivos).
+  // Favorite being sent to the download modal (destination + file selection).
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
-  // Dropdown de pasta no mobile (a sidebar é hidden md:block — sem isto não dá
-  // pra trocar de pasta no celular).
+  // Mobile folder dropdown (the sidebar is hidden md:block — without this there's
+  // no way to switch folders on the phone).
   const [folderSheetOpen, setFolderSheetOpen] = useState(false)
 
   // Tree UI state
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null)
-  const ALL_VIEW = -1 as number  // sentinel for "Todos" view (no filter)
+  const ALL_VIEW = -1 as number  // sentinel for the "All" view (no filter)
   const [viewMode, setViewMode] = useState<number | null>(ALL_VIEW)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -152,7 +152,7 @@ export default function FavoritesPage() {
 
   const handleToggleHidden = async (id: number, hidden: boolean) => {
     await folderSetHidden(id, hidden)
-    // Quando esconde a pasta selecionada sem o modo revelado, volta pra raiz.
+    // When hiding the selected folder without reveal mode, go back to the root.
     if (hidden && !revealHidden && viewMode === id) { setSelectedFolderId(null); setViewMode(ALL_VIEW) }
     load()
   }
@@ -177,13 +177,13 @@ export default function FavoritesPage() {
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [dragOverDrop, setDragOverDrop] = useState(false)
-  // Quando true, importar também enfileira o download (FileIndexAuto). Default
-  // FALSE: baixar precisa ser escolha explícita — o default ligado poluía a
-  // lista de downloads com favoritos que o usuário nunca marcou pra baixar.
-  // A última escolha persiste.
+  // When true, importing also enqueues the download (FileIndexAuto). Default
+  // FALSE: downloading must be an explicit choice — the on-by-default polluted
+  // the downloads list with favorites the user never checked for download.
+  // The last choice persists.
   const [alsoDownload, setAlsoDownload] = usePersistedState('favorites.alsoDownload', false)
 
-  // lifecycleRank: maior = mais "pronto" — usado pra decidir qual row mostrar no badge.
+  // lifecycleRank: higher = more "done" — used to decide which row the badge shows.
   const lifecycleRank = (status: DownloadEntry['status']) => {
     switch (status) {
       case 'completed': return 5
@@ -196,7 +196,7 @@ export default function FavoritesPage() {
     }
   }
 
-  // Downloads atuais para mostrar status em cada favorito (hash match).
+  // Current downloads to show a status on each favorite (hash match).
   const [downloadMap, setDownloadMap] = useState<Map<string, DownloadEntry>>(new Map())
   const favLoadSeqRef = useRef(0)
   const loadDownloadsForFavs = async () => {
@@ -207,8 +207,8 @@ export default function FavoritesPage() {
       const map = new Map<string, DownloadEntry>()
       for (const d of list) {
         if (!d.infoHash) continue
-        // Se houver múltiplas rows pro mesmo hash, preferimos a de maior
-        // progresso de lifecycle (completed > downloading > paused > queued > failed).
+        // If there are multiple rows for the same hash, we prefer the one with the
+        // highest lifecycle progress (completed > downloading > paused > queued > failed).
         const existing = map.get(d.infoHash)
         if (!existing || lifecycleRank(d.status) > lifecycleRank(existing.status)) {
           map.set(d.infoHash, d)
@@ -221,9 +221,9 @@ export default function FavoritesPage() {
     }
   }
 
-  // Enfileira download para cada favorito importado quando alsoDownload está ativo.
-  // Usa FileIndexAuto (-1) para que o worker escolha o melhor arquivo — nunca
-  // hardcoded 0, que em packs adult/scene costuma ser um .nfo de dezenas de bytes.
+  // Enqueues a download for each imported favorite when alsoDownload is active.
+  // Uses FileIndexAuto (-1) so the worker picks the best file — never
+  // hardcoded 0, which in adult/scene packs is usually a tens-of-bytes .nfo.
   const enqueueImported = async (imported: ImportResult[]): Promise<{ enqueued: number; enqueueFails: string[] }> => {
     if (!alsoDownload || imported.length === 0) return { enqueued: 0, enqueueFails: [] }
     const enqueueFails: string[] = []
@@ -331,8 +331,8 @@ export default function FavoritesPage() {
     playSingle(favToResult(f))
   }
 
-  // "Baixar": abre o modal unificado (destino + seleção de arquivos/árvore),
-  // como na busca. Antes baixava o torrent inteiro direto, sem perguntar nada.
+  // "Download": opens the unified modal (destination + file/tree selection),
+  // like search. It used to download the whole torrent directly, without asking anything.
   const downloadFavorite = (fav: StreamFavorite) => {
     if (!favHasValidMagnet(fav)) {
       notify(t('favorites.magnetInvalidDownload'), 'error')
@@ -371,7 +371,7 @@ export default function FavoritesPage() {
     if (!ok) return
     await folderDelete(id)
     setFolders(folders.filter(f => f.id !== id))
-    // Favoritos: server fez SET NULL, recarrego pra refletir
+    // Favorites: the server did SET NULL, re-fetch to reflect it
     const fresh = await favoritesList()
     setFavs(fresh || [])
     if (selectedFolderId === id) setViewMode(ALL_VIEW)
@@ -383,8 +383,8 @@ export default function FavoritesPage() {
     setFavs(favs.map(f => f.name === favoriteName ? { ...f, folderId } : f))
   }
 
-  // Versões prompt-based pro sheet do mobile (sem a sidebar/edição inline do
-  // desktop): criar pasta raiz e renomear via prompt nativo (usável no iOS).
+  // Prompt-based versions for the mobile sheet (without the desktop's sidebar/inline
+  // editing): create root folder and rename via native prompt (usable on iOS).
   const handleCreateRootPrompt = async () => {
     const name = prompt(t('favorites.promptNewFolderName'))?.trim()
     if (!name) return
@@ -439,7 +439,7 @@ export default function FavoritesPage() {
       <NavHeader />
 
       <main id="main-content" tabIndex={-1} className="flex-1 max-w-7xl 2xl:max-w-[min(95vw,1600px)] mx-auto w-full px-4 py-6 flex flex-col md:flex-row gap-4">
-        {/* Sidebar — folder tree (oculta no mobile pra não comprimir o conteúdo) */}
+        {/* Sidebar — folder tree (hidden on mobile so it doesn't squeeze the content) */}
         <FolderSidebar
           revealHidden={revealHidden}
           viewMode={viewMode}
@@ -468,7 +468,7 @@ export default function FavoritesPage() {
 
         {/* Main — favorites grid */}
         <section className="flex-1 min-w-0">
-          {/* Dropdown de pasta — só no mobile (a sidebar é hidden md:block). */}
+          {/* Folder dropdown — mobile only (the sidebar is hidden md:block). */}
           <button
             onClick={() => setFolderSheetOpen(true)}
             className="md:hidden w-full flex items-center gap-2 px-3 min-h-[44px] mb-3 rounded-lg bg-surface-secondary border border-default text-sm text-text-primary"
@@ -599,8 +599,8 @@ export default function FavoritesPage() {
       </main>
 
       {/* Import modal — paste magnet(s) or drop a .torrent file.
-          Usa o Sheet (mesmo padrão dos demais modais): centraliza certo no
-          desktop/Safari e vira bottom-sheet no mobile. */}
+          Uses the Sheet (same pattern as the other modals): centers properly on
+          desktop/Safari and becomes a bottom-sheet on mobile. */}
       <ImportSheet
         open={showImport}
         onClose={() => { if (!importing) { setShowImport(false); setAlsoDownload(false) } }}
@@ -638,7 +638,7 @@ export default function FavoritesPage() {
         onDownload={(r) => { setContentsTarget(null); setDownloadTarget(r) }}
       />
 
-      {/* Download modal — destino + seleção de arquivos (árvore), igual à busca. */}
+      {/* Download modal — destination + file (tree) selection, same as search. */}
       <DownloadModal
         result={downloadTarget}
         onClose={() => {
@@ -648,7 +648,7 @@ export default function FavoritesPage() {
         }}
       />
 
-      {/* Dropdown de pastas no mobile — navega entre pastas sem a sidebar. */}
+      {/* Mobile folder dropdown — navigate between folders without the sidebar. */}
       <MobileFolderSheet
         open={folderSheetOpen}
         onClose={() => setFolderSheetOpen(false)}

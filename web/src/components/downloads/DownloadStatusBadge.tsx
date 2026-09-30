@@ -2,8 +2,8 @@ import { AlertCircle, CheckCircle2, Clock, Loader2, Pause } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DownloadEntry } from '../../api/client'
 
-// DownloadStatusBadge — pílula de status de um background download (fila/baixando/
-// movendo/concluído/falhou/pausado).
+// DownloadStatusBadge — status pill of a background download (queued/downloading/
+// moving/completed/failed/paused).
 export function DownloadStatusBadge({ status }: { readonly status: DownloadEntry['status'] }) {
   const { t } = useTranslation()
   const map: Record<DownloadEntry['status'], { label: string; cls: string; icon: React.ReactNode }> = {

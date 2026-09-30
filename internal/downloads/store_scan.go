@@ -26,9 +26,9 @@ func scanGeneric(r rowScanner) (*Download, error) {
 	return d, nil
 }
 
-// scanGenericInto escaneia a linha diretamente num *Download existente,
-// sem alocação — usado pelo scanSlice para popular o slice in-place
-// (elimina 1 heap alloc + cópia de ~400 B por linha nos polls).
+// scanGenericInto scans the row directly into an existing *Download, with no
+// allocation — used by scanSlice to populate the slice in-place
+// (eliminates 1 heap alloc + ~400 B copy per row on polls).
 func scanGenericInto(r rowScanner, d *Download) error {
 	var startedAt, completedAt, queuedSince, seedStoppedAt sql.NullTime
 	var linkedInt int // SMALLINT 0/1 → bool (keeps the schema's int-flag convention)

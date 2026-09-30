@@ -142,7 +142,7 @@ func NewHLSManager(baseDir string) (*HLSSessionManager, error) {
 	if err := os.RemoveAll(root); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
@@ -237,11 +237,11 @@ func (m *HLSSessionManager) gcLoop() {
 			s.mu.Lock()
 			idle := now.Sub(s.LastAccess)
 			s.mu.Unlock()
-			// NÃO reapar só por `closed`: em VOD o ffmpeg pode ter TERMINADO de
-			// transcodificar (segmentos válidos no disco) e o player ainda assiste
-			// — ou pode seekar pra um buraco e ressuscitar o encoder via
-			// EnsureSegment. Reapa só por inatividade real; qualquer requisição de
-			// segmento renova o LastAccess (ver WaitForSegment).
+			// Do NOT reap just because of `closed`: in VOD the ffmpeg may have
+			// FINISHED transcoding (valid segments on disk) while the player is
+			// still watching — or may seek into a hole and resurrect the encoder
+			// via EnsureSegment. Reap only on real inactivity; any segment
+			// request refreshes LastAccess (see WaitForSegment).
 			if idle > hlsIdleReapAfter {
 				log.Printf("hls: reaping idle session %s (idle=%s)", k, idle)
 				reaped = append(reaped, s)
@@ -293,15 +293,15 @@ type HLSStartOpts struct {
 	// since the video pipeline's unconditional `-map 0:v:0` would fail on a file
 	// with no video stream.
 	AudioOnly bool
-	// AudioTrack é o índice ABSOLUTO da faixa de áudio a mapear no vídeo (>0 =
-	// escolhida; <=0 = primeira/default). A sessão é keyed pela faixa (ver
-	// hlsSessionKey) pra que trocar o áudio gere um transcode novo, não reuse o cache.
+	// AudioTrack is the ABSOLUTE index of the audio track to map in video mode (>0 =
+	// chosen; <=0 = first/default). The session is keyed by track (see
+	// hlsSessionKey) so switching audio spawns a new transcode instead of reusing the cache.
 	AudioTrack int
-	// Variant é a rung do ladder ABR que esta sessão codifica (HLS master, Phase
-	// 2). O zero-value (Height 0) é o caminho single-variant legado (cap 1080p,
-	// L5.2, sem cap de bitrate). A variante entra na session key (hlsSessionKey
-	// `-vN`) → Dir/segmentos próprios por rung, então só uma toca por vez e o
-	// seek-restart funciona idêntico ao atual, sem coordenação entre variantes.
+	// Variant is the ABR ladder rung this session encodes (HLS master, Phase
+	// 2). The zero-value (Height 0) is the legacy single-variant path (1080p cap,
+	// L5.2, no bitrate cap). The variant goes into the session key (hlsSessionKey
+	// `-vN`) → per-rung Dir/segments, so only one rung plays at a time and
+	// seek-restart works identically to today, with no cross-variant coordination.
 	Variant Variant
 }
 
@@ -335,7 +335,7 @@ func ffprobePathFrom(ffmpegPath string) string {
 func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) float64 {
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(cctx, ffprobePathFrom(ffmpegPath),
 		ffHideBanner, ffLogLevel, "error",
 		ffSeekable, "1", ffMultipleReq, "1",

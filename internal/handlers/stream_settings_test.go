@@ -40,14 +40,14 @@ func TestStreamGetSettings_ReturnsDefaults(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if resp.Defaults.MaxConnsPerTorrent != defMaxConnsPerTorrent || resp.Defaults.ReadaheadMB != defReadaheadMB {
-		t.Errorf("defaults não preenchidos: %+v", resp.Defaults)
+		t.Errorf("defaults not filled in: %+v", resp.Defaults)
 	}
 	if resp.StorageBackend != config.StorageBackendFile {
-		t.Errorf("backend = %q, queria file", resp.StorageBackend)
+		t.Errorf("backend = %q, want file", resp.StorageBackend)
 	}
 }
 
-// GET com streamer presente reflete os rate limits AO VIVO (fonte da verdade).
+// GET with a streamer present reflects the LIVE rate limits (source of truth).
 func TestStreamGetSettings_LiveRateLimitsFromStreamer(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg, _ := newTestConfig(t)
@@ -62,7 +62,7 @@ func TestStreamGetSettings_LiveRateLimitsFromStreamer(t *testing.T) {
 	var resp streamSettingsResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.MaxDownloadRate != 7<<20 || resp.MaxUploadRate != 3<<20 {
-		t.Errorf("rate limits ao vivo = down %d up %d, queria %d/%d", resp.MaxDownloadRate, resp.MaxUploadRate, 7<<20, 3<<20)
+		t.Errorf("live rate limits = down %d up %d, want %d/%d", resp.MaxDownloadRate, resp.MaxUploadRate, 7<<20, 3<<20)
 	}
 }
 
@@ -82,7 +82,7 @@ func TestStreamUpdateSettings_RejectsNegative(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	w := putSettings(t, cfg, path, nil, `{"maxDownloadRate":-1,"storageBackend":"file"}`)
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("rate negativo: status = %d, want 400; body %s", w.Code, w.Body.String())
+		t.Errorf("negative rate: status = %d, want 400; body %s", w.Code, w.Body.String())
 	}
 }
 
@@ -90,7 +90,7 @@ func TestStreamUpdateSettings_RejectsBadBackend(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	w := putSettings(t, cfg, path, nil, `{"storageBackend":"bogus"}`)
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("backend inválido: status = %d, want 400", w.Code)
+		t.Errorf("invalid backend: status = %d, want 400", w.Code)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestStreamUpdateSettings_RejectsNegativeInt(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	w := putSettings(t, cfg, path, nil, `{"readaheadMB":-5,"storageBackend":"file"}`)
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("readahead negativo: status = %d, want 400", w.Code)
+		t.Errorf("negative readahead: status = %d, want 400", w.Code)
 	}
 }
 
@@ -106,11 +106,11 @@ func TestStreamUpdateSettings_RejectsInvalidJSON(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	w := putSettings(t, cfg, path, nil, `not json`)
 	if w.Code != http.StatusBadRequest {
-		t.Errorf("json inválido: status = %d, want 400", w.Code)
+		t.Errorf("invalid json: status = %d, want 400", w.Code)
 	}
 }
 
-// PUT que muda só rate limits/readahead NÃO exige reinício e persiste na config.
+// A PUT that changes only rate limits/readahead does NOT require a restart and persists to the config.
 func TestStreamUpdateSettings_LiveFieldsNoRestart(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	s := streamer.NewForTesting()
@@ -121,23 +121,23 @@ func TestStreamUpdateSettings_LiveFieldsNoRestart(t *testing.T) {
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["restartRequired"] != false {
-		t.Errorf("restartRequired = %v, queria false", resp["restartRequired"])
+		t.Errorf("restartRequired = %v, want false", resp["restartRequired"])
 	}
-	// Persistiu na config.
+	// Persisted to the config.
 	if cfg.Stream.MaxDownloadRate != 1048576 || cfg.Stream.ReadaheadMB != 16 {
-		t.Errorf("config não persistiu: %+v", cfg.Stream)
+		t.Errorf("config did not persist: %+v", cfg.Stream)
 	}
-	// Aplicou ao vivo no streamer.
+	// Applied live to the streamer.
 	if down, _ := s.RateLimits(); down != 1048576 {
-		t.Errorf("rate limit ao vivo = %d, queria 1048576", down)
+		t.Errorf("live rate limit = %d, want 1048576", down)
 	}
 	if s.StreamReadaheadForTesting() != 16<<20 {
-		t.Errorf("readahead ao vivo = %d, queria %d", s.StreamReadaheadForTesting(), 16<<20)
+		t.Errorf("live readahead = %d, want %d", s.StreamReadaheadForTesting(), 16<<20)
 	}
 }
 
-// PUT com hlsMediaRenditions persiste no cfg (lido ao vivo pelo StreamHLSMaster)
-// e volta no GET; não exige reinício.
+// A PUT with hlsMediaRenditions persists to the cfg (read live by StreamHLSMaster)
+// and comes back on GET; no restart required.
 func TestStreamUpdateSettings_HLSMediaRenditions(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	s := streamer.NewForTesting()
@@ -148,12 +148,12 @@ func TestStreamUpdateSettings_HLSMediaRenditions(t *testing.T) {
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["restartRequired"] != false {
-		t.Errorf("restartRequired = %v, queria false", resp["restartRequired"])
+		t.Errorf("restartRequired = %v, want false", resp["restartRequired"])
 	}
 	if !cfg.Stream.HLSMediaRenditions {
-		t.Error("cfg.Stream.HLSMediaRenditions não persistiu true")
+		t.Error("cfg.Stream.HLSMediaRenditions did not persist true")
 	}
-	// GET reflete o valor.
+	// GET reflects the value.
 	gr := gin.New()
 	gr.GET("/s", StreamGetSettings(cfg, s))
 	gw := httptest.NewRecorder()
@@ -161,26 +161,26 @@ func TestStreamUpdateSettings_HLSMediaRenditions(t *testing.T) {
 	var got map[string]any
 	json.Unmarshal(gw.Body.Bytes(), &got)
 	if got["hlsMediaRenditions"] != true {
-		t.Errorf("GET hlsMediaRenditions = %v, queria true", got["hlsMediaRenditions"])
+		t.Errorf("GET hlsMediaRenditions = %v, want true", got["hlsMediaRenditions"])
 	}
 }
 
-// PUT com seedTrackers persiste a lista limpa (sem linhas em branco) e não
-// exige reinício (aplicado ao vivo).
+// A PUT with seedTrackers persists the cleaned list (no blank lines) and does not
+// require a restart (applied live).
 func TestStreamUpdateSettings_SeedTrackers(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	s := streamer.NewForTesting()
-	w := putSettings(t, cfg, path, s, `{"storageBackend":"file","seedTrackers":["amigos-share","  ","outro"]}`)
+	w := putSettings(t, cfg, path, s, `{"storageBackend":"file","seedTrackers":["amigos-share","  ","other"]}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", w.Code, w.Body.String())
 	}
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["restartRequired"] != false {
-		t.Errorf("restartRequired = %v, queria false", resp["restartRequired"])
+		t.Errorf("restartRequired = %v, want false", resp["restartRequired"])
 	}
-	if len(cfg.Stream.SeedTrackers) != 2 || cfg.Stream.SeedTrackers[0] != "amigos-share" || cfg.Stream.SeedTrackers[1] != "outro" {
-		t.Errorf("seedTrackers não limpos/persistidos: %#v", cfg.Stream.SeedTrackers)
+	if len(cfg.Stream.SeedTrackers) != 2 || cfg.Stream.SeedTrackers[0] != "amigos-share" || cfg.Stream.SeedTrackers[1] != "other" {
+		t.Errorf("seedTrackers not cleaned/persisted: %#v", cfg.Stream.SeedTrackers)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestCleanSeedTrackers(t *testing.T) {
 	}
 }
 
-// PUT que muda backend/conns/cache EXIGE reinício.
+// A PUT that changes backend/conns/cache REQUIRES a restart.
 func TestStreamUpdateSettings_BootFieldsRequireRestart(t *testing.T) {
 	cfg, path := newTestConfig(t)
 	w := putSettings(t, cfg, path, nil, `{"storageBackend":"mmap","maxConnsPerTorrent":120,"maxCacheGB":50}`)
@@ -201,9 +201,9 @@ func TestStreamUpdateSettings_BootFieldsRequireRestart(t *testing.T) {
 	var resp map[string]any
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp["restartRequired"] != true {
-		t.Errorf("restartRequired = %v, queria true", resp["restartRequired"])
+		t.Errorf("restartRequired = %v, want true", resp["restartRequired"])
 	}
 	if cfg.Stream.StorageBackend != config.StorageBackendMmap || cfg.Stream.MaxConnsPerTorrent != 120 {
-		t.Errorf("config não persistiu campos de boot: %+v", cfg.Stream)
+		t.Errorf("config did not persist boot fields: %+v", cfg.Stream)
 	}
 }

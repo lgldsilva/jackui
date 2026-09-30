@@ -26,7 +26,7 @@ func waitForStatus(t *testing.T, store *Store, userID, id int, want string, time
 		if got, _ := store.Get(userID, id); got != nil && got.Status == want {
 			return
 		}
-		<-time.After(2 * time.Millisecond) // cede a CPU ao worker/move assíncrono
+		<-time.After(2 * time.Millisecond) // yield the CPU to the async worker/move
 	}
 	got, _ := store.Get(userID, id)
 	status := "<nil>"

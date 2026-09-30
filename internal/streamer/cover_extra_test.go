@@ -76,9 +76,9 @@ func TestAugmentNameToHashFromMetainfo_InvalidFile_Extra(t *testing.T) {
 
 func TestStats_NonExistentDataDir_Extra(t *testing.T) {
 	s := NewForTesting()
-	// Per-test temp subpath (não existe) — isolado e seguro mesmo rodando como
-	// root no CI, onde um path absoluto compartilhado (/nonexistent) poluía
-	// entre testes.
+	// Per-test temp subpath (doesn't exist) — isolated and safe even when running
+	// as root on CI, where a shared absolute path (/nonexistent) leaked state
+	// between tests.
 	s.cfg.DataDir = filepath.Join(t.TempDir(), "nonexistent")
 
 	stats, err := s.Stats()

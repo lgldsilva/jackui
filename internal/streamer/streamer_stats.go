@@ -7,7 +7,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 )
 
-// Stats/peers/rate por torrent — extraído de streamer.go.
+// Stats/peers/rate per torrent — extracted from streamer.go.
 // Get returns the current TorrentInfo for an active torrent. Counts as "use":
 // refreshes lastAccess, so the activeReadGuard and the idle reaper treat the
 // torrent as freshly watched.
@@ -40,7 +40,7 @@ func (s *Streamer) GetUntouched(hash metainfo.Hash) (*TorrentInfo, error) {
 }
 
 // errTorrentGone — Get/GetUntouched on a hash no longer in the active set.
-var errTorrentGone = errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
+var errTorrentGone = errors.New("torrent not found (expired or never added)")
 
 // LiveStats returns a torrent's current down/up rate + connected seeders WITHOUT
 // building the full file list. buildInfo (used by Get) iterates t.Files() — a
@@ -78,7 +78,7 @@ func (s *Streamer) Peers(hash metainfo.Hash) ([]PeerInfo, error) {
 	e, ok := s.active[hash]
 	s.mu.Unlock()
 	if !ok {
-		return nil, errors.New("torrent não encontrado (expirou ou nunca foi adicionado)")
+		return nil, errors.New("torrent not found (expired or never added)")
 	}
 	t := e.t
 	numPieces := t.NumPieces()

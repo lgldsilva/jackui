@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { bootRouteTarget } from './bootRoute'
 
 describe('bootRouteTarget', () => {
-  it('restaura a rota salva quando em "/" sem player', () => {
+  it('restores the saved route when on "/" without a player', () => {
     expect(bootRouteTarget('/', '', '/downloads?tab=paused')).toBe('/downloads?tab=paused')
   })
-  it('não age fora de "/" (deep-link direto cuida de si)', () => {
+  it('does nothing outside "/" (a direct deep-link takes care of itself)', () => {
     expect(bootRouteTarget('/library', '', '/downloads')).toBeNull()
   })
   it('nunca sequestra um player deep-link (?play=)', () => {

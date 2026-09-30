@@ -8,7 +8,7 @@ import (
 	"github.com/anacrolix/torrent"
 )
 
-// Completion: destino/paths/naming dos downloads concluídos — extraído de worker.go.
+// Completion: destination/paths/naming of completed downloads — extracted from worker.go.
 // wholeTorrentRelPaths returns the content files' torrent-relative paths, skipping
 // BEP 47 pad files (attr "p") — piece-alignment filler, never materialized.
 func wholeTorrentRelPaths(files []*torrent.File) []string {

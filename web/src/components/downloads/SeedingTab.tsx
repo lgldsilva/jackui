@@ -64,9 +64,9 @@ export function SeedingTab({ torrents, liveTorrents, downloads, completedFilter,
   })
   const empty = torrents.length === 0 && downloads.length === 0 && !loading
 
-  // Quantos downloads compartilham cada infoHash → distingue torrent multi-arquivo
-  // (>1) de single-file. Vale pra TODAS as seções (baixando/fila/concluídos/…),
-  // então o arquivo "que ficou sem baixar" também aparece com o nome do episódio.
+  // How many downloads share each infoHash → distinguishes multi-file torrent
+  // (>1) from single-file. Applies to ALL sections (downloading/queue/completed/…),
+  // so the file "left undownloaded" also shows up with the episode name.
   const dlCountByHash = new Map<string, number>()
   for (const d of downloads) {
     if (d.infoHash) dlCountByHash.set(d.infoHash, (dlCountByHash.get(d.infoHash) ?? 0) + 1)
@@ -163,10 +163,10 @@ export function SeedingTab({ torrents, liveTorrents, downloads, completedFilter,
   const sectionCount = [downloadingGroups.length, queuedGroups.length, seedingCount, onDiskGroups.length, otherGroups.length]
     .filter(n => n > 0).length
   const showHeaders = sectionCount > 1
-  // Filtro Semeando/No disco: 'seeding' isola os que estão semeando ao vivo,
-  // 'ondisk' os parados no disco, 'all' mostra tudo (incluindo baixando/fila/pausados).
+  // Seeding/On-disk filter: 'seeding' isolates what's live-seeding,
+  // 'ondisk' what's parked on disk, 'all' shows everything (including downloading/queue/paused).
   const hasCompleted = seedingCount > 0 || onDiskGroups.length > 0
-  // Sem concluídos, o filtro não se aplica (não esconde baixando/fila/pausados).
+  // Without completed items, the filter doesn't apply (doesn't hide downloading/queue/paused).
   const cf = hasCompleted ? completedFilter : 'all'
   const showSeeding = cf !== 'ondisk'
   const showOnDisk = cf !== 'seeding'
@@ -225,7 +225,7 @@ export function SeedingTab({ torrents, liveTorrents, downloads, completedFilter,
         </>
       )}
 
-      {/* No disco (concluído, seed parado) */}
+      {/* On disk (completed, seed stopped) */}
       {showOnDisk && onDiskGroups.length > 0 && (
         <>
           {showHeaders && <GroupHeader icon={<HardDrive className="w-3.5 h-3.5" />} label={t('downloads.page.onDisk')} color="text-text-muted" />}

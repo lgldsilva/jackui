@@ -74,9 +74,15 @@ func ValidateTOTP(secret, code string) bool {
 	if len(code) != 6 || secret == "" {
 		return false
 	}
-	// #nosec G115 -- conversao limitada (statfs/tempo Unix/id/rune ASCII/fs magic); sem overflow real
-	now := uint64(time.Now().Unix() / int64(totpStep.Seconds()))
-	for _, c := range []uint64{now - 1, now, now + 1} {
+	now := time.Now().Unix() / int64(totpStep.Seconds())
+	if now < 0 {
+		// Clocks set before the Unix epoch have no meaningful TOTP window.
+		return false
+	}
+	// now >= 0, so the widening conversion to the counter space is exact; the
+	// ±1 skew window below wraps in uint64 space exactly as before.
+	u := uint64(now)
+	for _, c := range []uint64{u - 1, u, u + 1} {
 		if hmac.Equal([]byte(totpAt(secret, c)), []byte(code)) {
 			return true
 		}

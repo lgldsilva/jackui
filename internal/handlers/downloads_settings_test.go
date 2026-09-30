@@ -96,6 +96,20 @@ func TestValidateDownloadsQueue(t *testing.T) {
 	if msg := validateDownloadsQueue(&invalid); msg == "" {
 		t.Error("bogus transfer mode must be rejected")
 	}
+
+	invalid = downloadsQueueBody{MaxActive: 1, PerUserMaxActive: -1, MaxConcurrentVerify: 1, StallThresholdMin: 1, MaxStalls: 1}
+	if msg := validateDownloadsQueue(&invalid); !strings.Contains(msg, "perUserMaxActive") {
+		t.Errorf("negative perUserMaxActive must be rejected, got %q", msg)
+	}
+
+	invalid = downloadsQueueBody{MaxActive: 1, MaxConcurrentVerify: 1, StallThresholdMin: 1, MaxStalls: 1, AgingStepMin: -1}
+	if msg := validateDownloadsQueue(&invalid); !strings.Contains(msg, "aging") {
+		t.Errorf("negative agingStepMin must be rejected, got %q", msg)
+	}
+	invalid = downloadsQueueBody{MaxActive: 1, MaxConcurrentVerify: 1, StallThresholdMin: 1, MaxStalls: 1, AgingCap: -1}
+	if msg := validateDownloadsQueue(&invalid); !strings.Contains(msg, "aging") {
+		t.Errorf("negative agingCap must be rejected, got %q", msg)
+	}
 }
 
 func TestDownloadsUpdateSettings_ValidationError_NewCode(t *testing.T) {

@@ -28,13 +28,13 @@ func (s *Streamer) UnregisterDownload(name string) {
 // IsDownloadProtected reports whether `name` is currently in the download
 // protection set. Used by tests + the cache eviction code.
 //
-// anacrolix grava arquivos SINGLE-FILE como "<name>.part" enquanto o download
-// não terminou — ao mesmo tempo `t.Name()` (que o worker registra) NÃO inclui
-// o sufixo. Sem essa tolerância o enforceCacheLimit passa "<name>.part" e
-// consulta um set que só tem "<name>", então conclui que o arquivo NÃO está
-// protegido e o LRU deleta o .part — anacrolix perde os pieces no disco e
-// recomeça do zero. (Multi-file torrents não sofrem porque o entry é o
-// diretório, cujo nome casa com t.Name() exatamente.)
+// anacrolix writes SINGLE-FILE downloads as "<name>.part" until the download
+// finishes — while `t.Name()` (which the worker registers) does NOT include
+// the suffix. Without this tolerance, enforceCacheLimit passes "<name>.part"
+// and looks it up in a set that only has "<name>", then concludes the file is
+// NOT protected and the LRU deletes the .part — anacrolix loses the pieces on
+// disk and starts over from zero. (Multi-file torrents don't suffer because the
+// entry is the directory, whose name matches t.Name() exactly.)
 func (s *Streamer) IsDownloadProtected(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

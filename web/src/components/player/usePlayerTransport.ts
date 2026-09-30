@@ -66,9 +66,9 @@ export function usePlayerTransport(deps: {
   // as the current file. Generalises the old video-only navigation so audio
   // albums get ⏮⏭ too. Hook keeps the logic out of this god-file (gate).
   const mediaQueue = useMediaQueue(info, selectedFile, displayFiles)
-  // Ordem de reprodução das faixas do MESMO torrent, respeitando shuffle (bag) e
-  // servindo de base pro repeat. O picker/sidebar segue usando mediaQueue (ordem
-  // de exibição); o transporte (prev/next/onEnded) segue trackOrder.
+  // Play order of the tracks of the SAME torrent, honoring shuffle (bag) and
+  // serving as the base for repeat. The picker/sidebar keeps using mediaQueue (display
+  // order); the transport (prev/next/onEnded) follows trackOrder.
   const trackOrder = useTrackOrder(mediaQueue.indices, selectedFile, shuffle, info?.infoHash)
 
   const playFile = (idx: number) => {
@@ -80,8 +80,8 @@ export function usePlayerTransport(deps: {
   // over into the user's playlist (next/prev torrent) at the boundary — one
   // logical timeline (Spotify/VLC style). Reused by the buttons, MediaSession
   // (lock-screen/headphones) and onEnded auto-advance. nextTrack/prevTrack
-  // decidem faixa vs. spill vs. wrap (repeat-all sem playlist) — shuffle e
-  // repeat passam a valer DENTRO do álbum, não só entre torrents.
+  // decide track vs. spill vs. wrap (repeat-all without playlist) — shuffle and
+  // repeat now apply WITHIN the album, not only across torrents.
   const handleNext = () => {
     const step = nextTrack(trackOrder.order, selectedFile, repeat, !!onPlaylistAdvance)
     if (step.kind === 'track') { playFile(step.fileIndex); return }
@@ -101,30 +101,30 @@ export function usePlayerTransport(deps: {
   const hasPrev = trackOrder.hasPrev || !!onPlaylistPrevious || repeat === 'all'
 
   const handleVideoEnded = () => {
-    // Elemento ATIVO: em áudio o <audio> do SimpleAudioPlayer (espelhado em
-    // audioRef via elementRef), em vídeo o <video>. Antes lia só videoRef →
-    // em áudio era null e o repeat-one nunca religava a faixa.
+    // ACTIVE element: for audio it's SimpleAudioPlayer's <audio> (mirrored into
+    // audioRef via elementRef), for video the <video>. Used to read videoRef only →
+    // for audio it was null and repeat-one never replayed the track.
     const v = audioMode ? audioRef.current : videoRef.current
-    // iOS/WebKit dispara 'ended' ESPÚRIO quando o <video> direct-play TRAVA no
-    // início (stall em readyState 2, playhead ~0) em vez de realmente terminar.
-    // Tratar isso como fim auto-avançaria pro próximo item (na ordem/shuffle) e
-    // trocaria o src no meio do start, abortando o play() pendente — era o
-    // "trocou de faixa sozinho + sem som" no iPhone. Só é fim de verdade quando o
-    // playhead chegou perto da duração; com duração desconhecida (0/NaN) avança
-    // normal (não há como distinguir).
-    // Fim de verdade ⇒ o playhead chegou perto da duração. Dois padrões de espúrio:
-    //  (a) duração conhecida e o playhead longe do fim;
-    //  (b) duração 0/NaN (elemento recém-trocado, ainda não estabilizou) com o
-    //      playhead ainda no começo — o stall cross-item (mp3↔m4a) que ANTES
-    //      escapava do guard e fazia a lista "pular" faixas sozinha (churn). Sem
-    //      isto, ao destravar o auto-avanço, a 2ª faixa estalava e avançava em loop.
+    // iOS/WebKit fires a SPURIOUS 'ended' when the direct-play <video> STALLS at
+    // the start (stuck at readyState 2, playhead ~0) instead of actually ending.
+    // Treating that as end would auto-advance to the next item (in order/shuffle) and
+    // swap the src mid-start, aborting the pending play() — that was the
+    // "switched track by itself + no sound" on the iPhone. It's only a real end when the
+    // playhead got near the duration; with unknown duration (0/NaN) it advances
+    // normally (there's no way to tell).
+    // Real end ⇒ the playhead got near the duration. Two spurious patterns:
+    //  (a) known duration and the playhead far from the end;
+    //  (b) duration 0/NaN (freshly swapped element, not yet settled) with the
+    //      playhead still at the beginning — the cross-item stall (mp3↔m4a) that PREVIOUSLY
+    //      escaped the guard and made the list "skip" tracks on its own (churn). Without
+    //      this, when unlocking auto-advance, the 2nd track crackled and advanced in a loop.
     const knownFarFromEnd = !!v && Number.isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 2
     const unknownDurAtStart = !!v && !(Number.isFinite(v.duration) && v.duration > 0) && v.currentTime < 1
     if (knownFarFromEnd || unknownDurAtStart) {
-      clientLog('warn', 'player', 'ended espúrio ignorado', { currentTime: v?.currentTime, duration: v?.duration, readyState: v?.readyState })
+      clientLog('warn', 'player', 'spurious ended ignored', { currentTime: v?.currentTime, duration: v?.duration, readyState: v?.readyState })
       return
     }
-    clientLog('info', 'player', 'video ended → avança', { repeat, nextIdx: mediaQueue.nextIdx, hasPlaylistAdvance: !!onPlaylistAdvance, audioMode })
+    clientLog('info', 'player', 'video ended → advance', { repeat, nextIdx: mediaQueue.nextIdx, hasPlaylistAdvance: !!onPlaylistAdvance, audioMode })
     if (repeat === 'one') {
       if (v) { v.currentTime = 0; v.play().catch(() => {}) }
       return
@@ -133,28 +133,28 @@ export function usePlayerTransport(deps: {
     handleNext()
   }
 
-  // ─── Áudio simplificado ───────────────────────────────────────────────────
-  // Player de áudio "pelado": <audio controls> com src DIRECT, sem Web Audio,
-  // sem gapless/crossfade, sem HLS.js, sem <track>. A única diferença entre
-  // origem local (rclone/disco) e torrent é a URL.
+  // ─── Simplified audio ─────────────────────────────────────────────────────
+  // "Bare" audio player: <audio controls> with DIRECT src, no Web Audio,
+  // no gapless/crossfade, no HLS.js, no <track>. The only difference between
+  // a local source (rclone/disk) and torrent is the URL.
   const inPlaylist = !!playlist && playlist.items.length > 1
   const audioDirectSrc = useAudioDirectUrl(info, selectedFile, mediaToken)
   const activeMediaRef = audioMode ? audioRef : videoRef
 
-  // Sidebar agregada da playlist (lista de faixas de vários itens). O esqueleto
-  // persiste ao fechar a sidebar (não re-resolve ~47 faixas ao reabrir); a rajada
-  // de resolução é gateada por `sidebarOpen`. O antigo `resolveEnabled`/blessed foi
-  // removido: com preload='none' no iOS não há byte-stream pra sufocar.
+  // Aggregated playlist sidebar (track list across items). The skeleton
+  // persists when the sidebar closes (doesn't re-resolve ~47 tracks on reopen); the
+  // resolution burst is gated by `sidebarOpen`. The old `resolveEnabled`/blessed was
+  // removed: with preload='none' on iOS there's no byte-stream to choke.
   const aggregate = usePlaylistTracks(playlist?.items ?? [], playlist?.currentIndex ?? -1, info, inPlaylist && sidebarOpen)
 
-  // Espelha currentTime/duration/onProgress do <audio> no estado do player.
+  // Mirrors the <audio>'s currentTime/duration/onProgress into the player state.
   const handleAudioTimeUpdate = useCallback((currentTime: number, duration: number) => {
     setCurrentTime(currentTime)
     setDuration(duration)
     onProgress?.(currentTime)
   }, [onProgress])
 
-  // Atalhos de teclado controlam o elemento ativo (<audio> ou <video>).
+  // Keyboard shortcuts control the active element (<audio> or <video>).
   useKeyboardShortcuts({
     videoRef: activeMediaRef,
     minimized,
@@ -166,9 +166,9 @@ export function usePlayerTransport(deps: {
     playbackSpeed,
   })
 
-  // Media Session API — expõe metadata + controles de lock-screen/AirPods.
-  // Capa pra tela de bloqueio (Now Playing) — URL ABSOLUTA porque o iOS busca a
-  // imagem fora do contexto da página. Cobre local e torrent (audioCoverURL).
+  // Media Session API — exposes metadata + lock-screen/AirPods controls.
+  // Artwork for the lock screen (Now Playing) — ABSOLUTE URL because iOS fetches the
+  // image outside the page's context. Covers local and torrent (audioCoverURL).
   const mediaArtworkURL = info ? `${globalThis.location?.origin ?? ''}${audioCoverURL(info, selectedFile, mediaToken)}` : ''
   useMediaSession({ videoRef: activeMediaRef, info, selectedFile, playlistName: playlist?.name, onNext: handleNext, onPrev: handlePrev, artworkURL: mediaArtworkURL })
 

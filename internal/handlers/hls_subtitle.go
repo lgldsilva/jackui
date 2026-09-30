@@ -14,8 +14,8 @@ import (
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
 
-// subFallbackDurationSec cobre a EXTINF quando a duração é desconhecida (o VTT
-// tem seus próprios timestamps; a duração do segmento é só um hint).
+// subFallbackDurationSec covers the EXTINF when the duration is unknown (the VTT
+// carries its own timestamps; the segment duration is just a hint).
 const subFallbackDurationSec = 10800 // 3h
 
 // StreamHLSSubtitle serves the WebVTT rendition mini-playlist for ONE text
@@ -47,8 +47,8 @@ func StreamHLSSubtitle(s *streamer.Streamer, mgr *transcode.HLSSessionManager, s
 
 // buildSubtitlePlaylist synthesises the single-segment WebVTT VOD playlist for a
 // subtitle track. The segment URI is the ABSOLUTE subtrack VTT endpoint (carries
-// the token so <video>/hls.js can fetch it). NOTE: Safari native é sensível a
-// WebVTT-HLS (X-TIMESTAMP-MAP) — validar no Safari real antes do merge.
+// the token so <video>/hls.js can fetch it). NOTE: native Safari is sensitive to
+// WebVTT-HLS (X-TIMESTAMP-MAP) — validate on real Safari before merging.
 func buildSubtitlePlaylist(hash string, fileIdx, track int, durationSec float64, token string) []byte {
 	tq := ""
 	if token != "" {

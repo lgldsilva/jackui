@@ -7,7 +7,7 @@ import { TmdbRecommendation } from '../api/client'
 
 // A topic bundles every recommendation that shares the same `becauseOf` source.
 // `key` is a stable identifier (used for the localStorage collapse set);
-// `label` is the human-readable "Porque você viu X" header. `items` keeps the
+// `label` is the human-readable "Because you watched X" header. `items` keeps the
 // order in which the recs arrived (the server already ranks them).
 export type RecGroup = {
   readonly key: string
@@ -19,12 +19,12 @@ export type RecGroup = {
 // UI never silently drops them. The key is reserved (no real title collides with
 // it because real keys are prefixed with "because:").
 export const OTHER_GROUP_KEY = 'other'
-export const OTHER_GROUP_LABEL = 'Outras recomendações'
+export const OTHER_GROUP_LABEL = 'Other recommendations'
 
 // groupRecommendations folds the flat list into topics keyed by `becauseOf`,
 // preserving first-seen order both for the groups and the items within them.
-// Recs lacking a `becauseOf` are collected into a single trailing "Outras
-// recomendações" group. Returns [] for an empty/falsy input.
+// Recs lacking a `becauseOf` are collected into a single trailing "Other
+// recommendations" group. Returns [] for an empty/falsy input.
 export function groupRecommendations(recs: readonly TmdbRecommendation[] | null | undefined): RecGroup[] {
   if (!recs || recs.length === 0) return []
 
@@ -47,7 +47,7 @@ export function groupRecommendations(recs: readonly TmdbRecommendation[] | null 
     if (existing) {
       existing.items.push(r)
     } else {
-      byKey.set(key, { label: `Porque você viu ${source}`, items: [r] })
+      byKey.set(key, { label: `Because you watched ${source}`, items: [r] })
       order.push(key)
     }
   }

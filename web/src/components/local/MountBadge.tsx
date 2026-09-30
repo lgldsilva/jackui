@@ -3,8 +3,8 @@ import { Lock, Users } from 'lucide-react'
 import { formatBytes } from '../../lib/format'
 import { LocalMount } from '../../api/client'
 
-// Barra de espaço livre/total do filesystem do mount (discos físicos, rclone).
-// Some quando o backend não conseguiu medir (mount quebrado → totalBytes 0).
+// Mount filesystem free/total space bar (physical disks, rclone).
+// Hidden when the backend couldn't measure it (broken mount → totalBytes 0).
 // MountBadge flags a mount's visibility: 🔒 per-user (private subdir) or
 // 👥 restricted (visible only to specific users). Shared mounts get no badge.
 export function MountBadge({ m }: { readonly m: LocalMount }) {

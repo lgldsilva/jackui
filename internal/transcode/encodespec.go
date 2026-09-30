@@ -22,7 +22,7 @@ type encodeSpec struct {
 	ffmpegPath string
 	vod        bool // duration known → finite VOD: forced keyframes + seekable restart
 	audioOnly  bool // pure-audio source → `-vn`, no video map, AAC HLS
-	audioTrack int  // absolute stream index pra `-map 0:<n>` quando >0 (faixa escolhida); 0/-1 = primeira faixa de áudio (0:a:0?)
+	audioTrack int  // absolute stream index for `-map 0:<n>` when >0 (chosen track); 0/-1 = first audio track (0:a:0?)
 	// swDecode forces SOFTWARE video decode even for a HW encoder (e.g.
 	// h264_nvenc): the `-hwaccel cuda` decode flags are suppressed so the decode
 	// runs on CPU while NVENC still does the encode. Set when the GPU-decode
@@ -113,9 +113,9 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// or before the requested time instead of decoding from byte 0.
 		args = append(args, "-ss", strconv.Itoa(startSeg*hlsSegDur))
 	}
-	// Faixa de áudio: default = primeira (0:a:0?). Quando o cliente escolhe uma
-	// faixa (índice absoluto > 0; em vídeo o áudio nunca é o stream 0), mapeia
-	// 0:<n> — o WebKit/HLS hardcodava a primeira e ignorava a escolha.
+	// Audio track: default = first (0:a:0?). When the client picks a track
+	// (absolute index > 0; in video the audio is never stream 0), maps
+	// 0:<n> — WebKit/HLS hardcoded the first one and ignored the choice.
 	audioMap := "0:a:0?"
 	if e.audioTrack > 0 {
 		audioMap = fmt.Sprintf("0:%d?", e.audioTrack)
@@ -161,7 +161,7 @@ func (e *encodeSpec) args(startSeg int) []string {
 		// Cap output at 1080p. Source 4K (2160p) MKVs would otherwise emit
 		// H.264 Main @ 2160p — browsers' built-in H.264 decoders typically max
 		// out at 1080p and silently refuse the stream (segments load but
-		// nothing renders; user-visible symptom: "aparece tudo mas não toca").
+		// nothing renders; user-visible symptom: "shows everything but doesn't play").
 		// scale=-2:min(1080,ih) preserves aspect ratio (width auto, multiple of
 		// 2 required by yuv420p) and is a near no-op for sub-1080p sources.
 		// setpts MUST come FIRST (on the decoded frames) — after scale_vaapi it
@@ -175,20 +175,20 @@ func (e *encodeSpec) args(startSeg int) []string {
 			args = append(args, "-output_ts_offset", strconv.Itoa(startSeg*hlsSegDur))
 		}
 	} else {
-		// EVENT/live: zera o PTS inicial AQUI também (mesmo motivo do ramo VOD —
-		// fontes HEVC/MKV com PTS≠0 deixam um buraco [0,offset] e o Safari trava
-		// no currentTime 0). setpts antes do scale; asetpts no áudio.
+		// EVENT/live: zeroes the initial PTS HERE too (same reason as the VOD
+		// branch — HEVC/MKV sources with PTS≠0 leave a [0,offset] hole and Safari
+		// freezes at currentTime 0). setpts before scale; asetpts on audio.
 		args = append(args, "-g", "60", "-bf", "0",
 			"-vf", "setpts=PTS-STARTPTS,"+videoScaleFilterH(e.encoder, e.scaleHeight()), "-af", ffAfAsetptsZero)
 	}
 	args = append(args,
 		"-c:a", "aac", "-b:a", "192k", "-ac", "2",
-		// CAUSA RAIZ do stall do Safari no t=0: o muxer MPEG-TS do ffmpeg adiciona
-		// um initial_offset default de ~1.4s, então o seg_00000 sai começando em
-		// 1.4s (não 0) — buraco [0,1.4] e o Safari/iOS travam em currentTime 0.
-		// O setpts zera o FILTRO, mas o muxer re-adiciona o offset DEPOIS; só
-		// -muxdelay 0 -muxpreload 0 zera no muxer. (Verificado por ffprobe:
-		// seg0 start_time 1.423s → 0.) Resolve o VOD no Safari — não precisa live.
+		// ROOT CAUSE of the Safari stall at t=0: ffmpeg's MPEG-TS muxer adds a
+		// default initial_offset of ~1.4s, so seg_00000 comes out starting at
+		// 1.4s (not 0) — a [0,1.4] hole and Safari/iOS freeze at currentTime 0.
+		// setpts zeroes the FILTER, but the muxer re-adds the offset AFTER; only
+		// -muxdelay 0 -muxpreload 0 zeroes it at the muxer. (Verified with ffprobe:
+		// seg0 start_time 1.423s → 0.) Fixes Safari VOD — live doesn't need it.
 		"-muxdelay", "0", "-muxpreload", "0",
 		"-f", "hls",
 		"-hls_time", strconv.Itoa(hlsSegDur),
@@ -221,9 +221,9 @@ func (e *encodeSpec) audioArgs(startSeg int) []string {
 	if e.vod && startSeg > 0 {
 		args = append(args, "-ss", strconv.Itoa(startSeg*hlsSegDur))
 	}
-	// Faixa de áudio: default = primeira (0:a:0). Uma rendition alternativa
-	// (EXT-X-MEDIA TYPE=AUDIO com URI) passa o índice ABSOLUTO do stream via
-	// audioTrack (>0) → mapeia 0:<n>, gerando um TS só-áudio daquela faixa.
+	// Audio track: default = first (0:a:0). An alternative rendition
+	// (EXT-X-MEDIA TYPE=AUDIO with URI) passes the ABSOLUTE stream index via
+	// audioTrack (>0) → maps 0:<n>, producing an audio-only TS of that track.
 	audioMap := "0:a:0"
 	if e.audioTrack > 0 {
 		audioMap = fmt.Sprintf("0:%d", e.audioTrack)

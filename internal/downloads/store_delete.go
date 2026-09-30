@@ -10,7 +10,7 @@ import (
 // streamer cache LRU once the torrent is no longer protected.
 //
 // IDEMPOTENT: a row that is already gone returns nil, not an error. The
-// previous "download não encontrado" error turned every double-delete (and
+// previous "download not found" error turned every double-delete (and
 // every admin delete of another user's row before DeleteScoped existed) into a
 // 500 the frontend swallowed silently — the 2s poll then re-showed the row, so
 // the user saw "clicked Remove, nothing happened". The DELETE is now

@@ -54,9 +54,9 @@ declare global {
   interface Window {
     electronAPI?: ElectronAPI
   }
-  // Também no globalThis: no renderer `window === globalThis`, e o preload expõe
-  // via contextBridge. Tipar aqui deixa `globalThis.electronAPI` acessível sem
-  // disparar o S7764 ("prefira globalThis a window").
+  // Also on globalThis: in the renderer `window === globalThis`, and the preload exposes
+  // it via contextBridge. Typing it here keeps `globalThis.electronAPI` accessible without
+  // triggering S7764 ("prefer globalThis over window").
   // eslint-disable-next-line no-var, vars-on-top
   var electronAPI: ElectronAPI | undefined
 }

@@ -1,45 +1,45 @@
-// Lógica pura de visibilidade do overlay de "carregando" no início de uma faixa.
-// Extraída do VideoPlayerElement pra (a) manter a complexidade cognitiva do
-// componente abaixo do gate (a cadeia && pesava no corpo) e (b) ser testável.
+// Pure visibility logic for the "loading" overlay at the start of a track.
+// Extracted from VideoPlayerElement to (a) keep the component's cognitive complexity
+// below the gate (the && chain weighed on the body) and (b) be testable.
 
 export type StartOverlayInput = {
-  // erro de mídia → a UI de erro assume, não mostra spinner.
+  // media error → the error UI takes over, don't show the spinner.
   videoError: boolean
-  // motor gapless ativo → o <video> está mudo/sem-src (bufferedEnd fica 0 sempre),
-  // então o spinner não reflete carregamento real.
+  // gapless engine active → the <video> is muted/src-less (bufferedEnd stays 0 always),
+  // so the spinner doesn't reflect real loading.
   engineActive: boolean
-  // troca de faixa numa sessão já populada (warm switch) → a capa/seekbar
-  // continuam; suprime o spinner que piscava a cada faixa.
+  // track switch in an already-populated session (warm switch) → the cover/seekbar
+  // stay; suppresses the spinner that flashed on every track.
   suppressStartOverlay: boolean
-  // iOS-áudio (tap-to-play): nada bufferiza sem gesto, então o spinner giraria pra
-  // sempre. Suprime o spinner e dá lugar ao overlay "Tocar".
+  // iOS-audio (tap-to-play): nothing buffers without a gesture, so the spinner would spin
+  // forever. Suppresses the spinner in favor of the "Play" overlay.
   disableNativeAutoplay: boolean
   currentTime: number
   bufferedEnd: number
 }
 
-// O spinner de start só aparece numa abertura FRIA (primeira faixa da instância),
-// enquanto nada tocou nem bufferizou ainda — e nunca no iOS-áudio (lá o overlay
-// "Tocar" assume, senão o spinner giraria eternamente à espera de um gesto).
+// The start spinner only appears on a COLD open (the instance's first track),
+// while nothing has played or buffered yet — and never on iOS-audio (there the
+// "Play" overlay takes over, otherwise the spinner would spin forever waiting for a gesture).
 export function shouldShowStartOverlay(o: StartOverlayInput): boolean {
   return !o.videoError && !o.engineActive && !o.suppressStartOverlay && !o.disableNativeAutoplay
     && o.currentTime === 0 && o.bufferedEnd === 0
 }
 
 export type StartAudioOverlayInput = {
-  // iOS-áudio: a Apple exige gesto pra tocar; o overlay "Tocar" é o gatilho.
+  // iOS-audio: Apple requires a gesture to play; the "Play" overlay is the trigger.
   disableNativeAutoplay: boolean
-  // o usuário já tocou no overlay (dispensa imediata, antes do playhead andar).
+  // the user already tapped the overlay (immediate dismissal, before the playhead moves).
   startOverlayDismissed: boolean
   videoError: boolean
-  // prompt de resume tem seus próprios botões (continuar/recomeçar) — não sobrepor.
+  // the resume prompt has its own buttons (continue/restart) — don't overlay it.
   showResumePrompt: boolean
   currentTime: number
 }
 
-// O overlay "Tocar" (iOS-áudio) aparece quando a faixa abriu mas ainda não tocou:
-// só no iOS-áudio, antes do tap (não dispensado), sem erro, sem prompt de resume e
-// com o playhead em 0. O tap nele (gesto) é o que de fato inicia no iPhone/iPad.
+// The "Play" overlay (iOS-audio) appears when the track opened but hasn't played yet:
+// iOS-audio only, before the tap (not dismissed), no error, no resume prompt and
+// playhead at 0. Tapping it (gesture) is what actually starts playback on iPhone/iPad.
 export function shouldShowStartAudioOverlay(o: StartAudioOverlayInput): boolean {
   return o.disableNativeAutoplay && !o.startOverlayDismissed
     && !o.videoError && !o.showResumePrompt && o.currentTime === 0

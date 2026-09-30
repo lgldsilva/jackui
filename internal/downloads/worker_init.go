@@ -13,7 +13,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-// Init: arranque do torrent (initDownload/ensureActive/fallback) — extraído de worker.go.
+// Init: torrent bootstrap (initDownload/ensureActive/fallback) — extracted from worker.go.
 // initDownload resolves the magnet, waits for metadata, marks the target file
 // for full download, and (on success) promotes the row into `tracked`. Runs in
 // its own goroutine so a slow swarm never blocks the tick loop. Transient
@@ -41,11 +41,11 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	if !ok {
 		return
 	}
-	// Snapshot inicial dos bytes já completos. Sem isso, o usuário que clica
-	// Download enquanto está streamando vê 0% nos primeiros 2-4s (entre o
-	// init terminar e o primeiro tick rodar UpdateProgress) — interpreta como
-	// "recomeçou". VerifyFile acima já reconciliou o estado de pieces, então
-	// BytesCompleted aqui reflete a realidade do disco.
+	// Snapshot of the bytes already complete. Without it, a user who clicks
+	// Download while streaming sees 0% for the first 2-4s (between init finishing
+	// and the first tick running UpdateProgress) — and reads it as "it restarted".
+	// VerifyFile above already reconciled the piece state, so BytesCompleted here
+	// reflects the reality on disk.
 	initialBytes, totalBytes, _ := td.progress()
 	if initialBytes > 0 {
 		if err := w.store.UpdateProgress(d.UserID, d.ID, initialBytes); err != nil {
@@ -77,7 +77,7 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 	select {
 	case <-t.GotInfo():
 	case <-ctx.Done():
-		w.failOrRetry(d, "timeout aguardando metadados")
+		w.failOrRetry(d, "timeout waiting for metadata")
 		return nil, "", false
 	}
 
@@ -88,14 +88,14 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 
 	name := t.Name()
 	w.streamer.RegisterDownload(name)
-	// Persist resolved torrent metadata. file_path GRAVA ABSOLUTO (dataDir + path
-	// dentro do torrent) — não relativo. Antes guardava só `f.Path()` (relativo,
-	// ex.: "Folder/file.mkv"); se o move pós-completion falhava (cross-mount,
-	// container OOM no meio do copy), o file_path ficava inválido pra qualquer
-	// consumer (Local browser, Promote, etc.). Absoluto: se move sucede,
-	// SetFilePath sobrescreve com o destino; se falha, ainda dá pra achar o
-	// arquivo na cache pelo path. Whole-torrent: a raiz do torrent na cache e o
-	// tamanho agregado.
+	// Persist resolved torrent metadata. file_path STORES ABSOLUTE (dataDir + path
+	// inside the torrent) — not relative. It used to keep only `f.Path()`
+	// (relative, e.g. "Folder/file.mkv"); if the post-completion move failed
+	// (cross-mount, container OOM mid-copy), file_path was invalid for any
+	// consumer (Local browser, Promote, etc.). Absolute: if the move succeeds,
+	// SetFilePath overwrites it with the destination; if it fails, the file can
+	// still be found in the cache by path. Whole-torrent: the torrent root in the
+	// cache and the aggregated size.
 	filePath, fileSize := w.initFilePath(d, t, f, name)
 	if err := w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize); err != nil {
 		log.Printf("downloads: failed to update metadata for download %d: %v", d.ID, err)
@@ -163,12 +163,12 @@ func (w *Worker) promoteOrAbort(d Download, td *trackedDL, name string) bool {
 // (as a wholeTarget) for FileIndexWholeTorrent rows. ok=false means the row was
 // already flipped to failed (no files in torrent).
 //
-// Both paths hash-check pieces no disco ANTES de marcar como wanted. Sem isso,
-// se o shutdown anterior foi ungraceful (SIGKILL pelo Docker antes do
-// graceful-shutdown ficar pronto), o bolt DB do anacrolix está stale — pieces
-// existem no disco mas anacrolix os marca como incompletos e pediria esses
-// bytes do swarm de novo. VerifyFile/VerifyTorrent hasheiam cada piece e marcam
-// como Complete os que casam (idempotente, dedupe por processo).
+// Both paths hash-check pieces ON DISK BEFORE marking them wanted. Without it,
+// if the previous shutdown was ungraceful (SIGKILL by Docker before
+// graceful-shutdown was ready), the anacrolix bolt DB is stale — pieces exist on
+// disk but anacrolix marks them incomplete and would re-request those bytes from
+// the swarm. VerifyFile/VerifyTorrent hash every piece and mark the matching ones
+// Complete (idempotent, deduped per process).
 func (w *Worker) initTarget(ctx context.Context, d *Download, hash metainfo.Hash, t wholeTarget) (*torrent.File, wholeTarget, bool) {
 	if d.IsWholeTorrent() {
 		if err := w.streamer.VerifyTorrent(ctx, hash); err != nil {
@@ -247,7 +247,7 @@ func (w *Worker) ensureActiveWithFallback(ctx context.Context, d *Download) (met
 	log.Printf("downloads: #%d source failed (%v) — retrying via info_hash magnet", d.ID, err)
 	h2, err2 := w.ensureActive(ctx, *d, alt)
 	if err2 != nil {
-		return hash, fmt.Errorf("%v; fallback por info_hash também falhou: %w", err, err2)
+		return hash, fmt.Errorf("%v; info_hash fallback also failed: %w", err, err2)
 	}
 	if uerr := w.store.SetActiveMagnet(d.UserID, d.ID, alt); uerr != nil {
 		log.Printf("downloads: #%d persist fallback magnet failed: %v", d.ID, uerr)

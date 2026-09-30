@@ -1,4 +1,4 @@
-// Swarm health (peek batch + probe) e tracker scrape. Extraído de stream.ts (R3).
+// Swarm health (peek batch + probe) and tracker scrape. Extracted from stream.ts (R3).
 import { api } from './http'
 import type { StreamHealth, TrackerScrape } from './stream-types'
 

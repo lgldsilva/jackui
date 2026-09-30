@@ -143,8 +143,8 @@ func TestBuildSession_AcceptsValidKey(t *testing.T) {
 	_, _ = m.buildSession(context.Background(), "0123456789abcdef0123456789abcdef01234567", HLSStartOpts{Source: bytes.NewReader(nil)})
 }
 
-// sessionDir é a barreira de path-injection das leituras de playlist/segmentos:
-// nenhuma chave consegue escapar do baseDir.
+// sessionDir is the path-injection barrier for playlist/segment reads:
+// no key can escape baseDir.
 func TestSessionDir(t *testing.T) {
 	base := t.TempDir()
 	m, err := NewHLSManager(base)

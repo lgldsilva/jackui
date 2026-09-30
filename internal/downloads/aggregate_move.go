@@ -148,7 +148,7 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 	var err error
 	for attempt := 1; attempt <= moveMaxAttempts; attempt++ {
 		if job.Canceled() {
-			err = fmt.Errorf("transferência cancelada")
+			err = fmt.Errorf("transfer canceled")
 			break
 		}
 		err = w.moveGroupFiles(g, name, movers, job)
@@ -188,8 +188,8 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 	// Whole-torrent groups skip AI-rename (renamed=false): the rename chain targets
 	// a single media file, not a tree — so there's no moved-file handle to release.
 	go w.reseedAfterCompletion(g.Members[0], false)
-	body := fmt.Sprintf("%s · %d arquivos · %.2f MB", name, len(movers), float64(total)/1048576)
-	go w.sendNtfy(context.Background(), "Download concluído: "+name, body, "white_check_mark,torrent")
+	body := fmt.Sprintf("%s · %d files · %.2f MB", name, len(movers), float64(total)/1048576)
+	go w.sendNtfy(context.Background(), "Download completed: "+name, body, "white_check_mark,torrent")
 }
 
 // moveGroupFiles relocates each selected file from the cache into its per-torrent
@@ -206,7 +206,7 @@ func (w *Worker) moveGroupFiles(g Group, name string, movers []groupMover, job *
 	}
 	for _, mv := range movers {
 		if job.Canceled() {
-			return fmt.Errorf("transferência cancelada")
+			return fmt.Errorf("transfer canceled")
 		}
 		moved, err := moveTreeEntry(job.Context(), w.dataDir, destDir, name, mv.relPath, job.AddBytesFunc())
 		if err != nil {

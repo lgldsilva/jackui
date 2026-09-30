@@ -149,7 +149,7 @@ describe('useDownloadActions', () => {
     expect(state.setSelected).toHaveBeenCalledWith(new Set())
   })
 
-  it('runBatchDelete notifica falhas parciais e restaura só os falhos', async () => {
+  it('runBatchDelete notifies about partial failures and restores only the failed ones', async () => {
     mocks.downloadBatchDelete.mockResolvedValue({ failed: [1] })
     const { result, state } = setup({ selected: new Set([1]) })
     await act(async () => { await result.current.onBatchDelete() })
@@ -158,7 +158,7 @@ describe('useDownloadActions', () => {
     expect(notifyMock).toHaveBeenCalled()
   })
 
-  it('busy flags são setados e resetados mesmo em erro', async () => {
+  it('busy flags are set and reset even on error', async () => {
     mocks.downloadPause.mockRejectedValue(new Error('boom'))
     const { result, state } = setup()
     await act(async () => {
@@ -169,11 +169,11 @@ describe('useDownloadActions', () => {
     expect(state.setBusyID).toHaveBeenLastCalledWith(null)
   })
 
-  // "Parar" precisa remover o item da lista na hora (otimista) e blindá-lo
-  // contra polls stale de 2s — mesmo mecanismo do delete. O bug original: o
-  // stop-seed não tocava em setItems/pendingDeletes e o card continuava na
-  // lista até o backend parar de retorná-lo.
-  it('onStopSeed remove otimistamente da lista', async () => {
+  // "Stop" must remove the item from the list immediately (optimistic) and shield it
+  // against stale 2s polls — same mechanism as delete. The original bug: stop-seed
+  // didn't touch setItems/pendingDeletes and the card stayed on the
+  // list until the backend stopped returning it.
+  it('onStopSeed optimistically removes from the list', async () => {
     const { result, state } = setup()
     await act(async () => { await result.current.onStopSeed(1, 'x') })
 
@@ -194,11 +194,11 @@ describe('useDownloadActions', () => {
     expect(notifyErrorMock).toHaveBeenCalled()
   })
 
-  // Remover um torrent de streaming ("Parar" no card) — o backend agora
-  // responde 409 com o motivo quando o drop é recusado (player aberto); o
-  // hook precisa mostrar esse motivo em vez de engolir o erro em silêncio,
-  // e liberar o busy flag em qualquer desfecho.
-  it('onTorrentDelete dropa o stream, recarrega e libera o busy flag', async () => {
+  // Removing a streaming torrent ("Stop" on the card) — the backend now
+  // replies 409 with the reason when the drop is refused (open player); the
+  // hook must surface that reason instead of swallowing the error silently,
+  // and release the busy flag on every outcome.
+  it('onTorrentDelete drops the stream, reloads and releases the busy flag', async () => {
     const { result, state } = setup()
     await act(async () => { await result.current.onTorrentDelete('a') })
 
@@ -209,8 +209,8 @@ describe('useDownloadActions', () => {
     expect(notifyErrorMock).not.toHaveBeenCalled()
   })
 
-  it('onTorrentDelete mostra o motivo da recusa (409) e não recarrega', async () => {
-    const refusal = Object.assign(new Error('torrent em uso'), { response: { status: 409 } })
+  it('onTorrentDelete surfaces the refusal reason (409) and skips the reload', async () => {
+    const refusal = Object.assign(new Error('torrent in use'), { response: { status: 409 } })
     mocks.streamDrop.mockRejectedValue(refusal)
     const { result, state } = setup()
     await act(async () => { await result.current.onTorrentDelete('a') })
@@ -220,7 +220,7 @@ describe('useDownloadActions', () => {
     expect(state.setBusyHash).toHaveBeenLastCalledWith(null)
   })
 
-  it('onTorrentDelete não faz nada quando o usuário cancela a confirmação', async () => {
+  it('onTorrentDelete does nothing when the user cancels the confirmation', async () => {
     confirmMock.mockResolvedValue(false)
     const { result, state } = setup()
     await act(async () => { await result.current.onTorrentDelete('a') })

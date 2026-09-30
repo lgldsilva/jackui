@@ -123,18 +123,18 @@ func (d *appDeps) runCleanup() {
 	select {
 	case <-done:
 	case <-time.After(cleanupHardDeadline):
-		log.Printf("cleanup excedeu %s (anacrolix/DHT travado, rede caída?) — forçando saída; o próximo boot reconcilia", cleanupHardDeadline)
+		log.Printf("cleanup exceeded %s (anacrolix/DHT stuck, network down?) — forcing exit; the next boot reconciles", cleanupHardDeadline)
 		os.Exit(0)
 	}
 }
 
-// setSoftMemoryLimit aplica um limite suave de heap ao coletor de lixo
-// (runtime/debug.SetMemoryLimit) a partir de JACKUI_GOMEMLIMIT. Em hosts
-// pequenos (Raspberry Pi, containers com teto de RAM) o GC padrão só reage à
-// razão GOGC e pode deixar o heap crescer até o OOM-killer agir; o soft limit
-// faz o GC intensificar antes do teto. Formatos aceitos: "off" (desativa),
-// inteiro em bytes ("536870912") ou com sufixo binário KiB/MiB/GiB ("512MiB").
-// Vazio/inválido = comportamento padrão do Go.
+// setSoftMemoryLimit applies a soft heap limit to the garbage collector
+// (runtime/debug.SetMemoryLimit) from JACKUI_GOMEMLIMIT. On small hosts
+// (Raspberry Pi, containers with a RAM ceiling) the default GC only reacts to
+// the GOGC ratio and can let the heap grow until the OOM-killer steps in; the
+// soft limit makes the GC intensify before the ceiling. Accepted formats: "off"
+// (disables), integer bytes ("536870912") or a binary suffix KiB/MiB/GiB
+// ("512MiB"). Empty/invalid = Go default behaviour.
 func setSoftMemoryLimit(v string) {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -142,20 +142,20 @@ func setSoftMemoryLimit(v string) {
 	}
 	if strings.EqualFold(v, "off") {
 		debug.SetMemoryLimit(-1)
-		slog.Info("JACKUI_GOMEMLIMIT=off — soft limit desativado")
+		slog.Info("JACKUI_GOMEMLIMIT=off — soft limit disabled")
 		return
 	}
 	limit, ok := parseMemLimit(v)
 	if !ok {
-		slog.Warn("JACKUI_GOMEMLIMIT inválido — ignorado", "valor", v,
-			"esperado", "bytes inteiros ou sufixo KiB/MiB/GiB")
+		slog.Warn("JACKUI_GOMEMLIMIT invalid — ignored", "value", v,
+			"expected", "integer bytes or a KiB/MiB/GiB suffix")
 		return
 	}
 	prev := debug.SetMemoryLimit(limit)
 	if prev == math.MaxInt64 {
 		slog.Info("soft memory limit aplicado", "limit", limit)
 	} else {
-		slog.Info("soft memory limit atualizado", "limit", limit, "anterior", prev)
+		slog.Info("soft memory limit updated", "limit", limit, "previous", prev)
 	}
 }
 
@@ -235,7 +235,7 @@ func bootstrapApp() *appDeps {
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
 	if err := config.CheckWritable(deps.configPath); err != nil {
-		log.Printf("WARNING: config %s não é gravável (%v) — alterações em Settings/Mounts não vão persistir; ajuste dono/permissão no host para o uid do container", deps.configPath, err)
+		log.Printf("WARNING: config %s is not writable (%v) — changes from Settings/Mounts will not persist; fix the owner/permissions on the host for the container uid", deps.configPath, err)
 	}
 	deps.jackettClient = jackett.New(deps.cfg.Jackett.URL, deps.cfg.Jackett.APIKey)
 	deps.localBrowser = local.NewBrowser(deps.cfg.External.Mounts)
@@ -330,12 +330,12 @@ func serveUntilShutdown(deps *appDeps, srv *http.Server) {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	select {
 	case err := <-serverErr:
-		deps.runCleanup() // explícito antes de fatal (defer não roda em log.Fatalf)
+		deps.runCleanup() // explicit before fatal (defer does not run on log.Fatalf)
 		log.Fatalf("HTTP server failed: %v", err)
 	case sig := <-quit:
-		log.Printf("Signal %s recebido — graceful shutdown iniciado...", sig)
+		log.Printf("Signal %s received — graceful shutdown started...", sig)
 	case <-deps.restart:
-		log.Printf("VPN forwarded port mudou — graceful shutdown para rebind (restart policy recria o processo)...")
+		log.Printf("VPN forwarded port changed — graceful shutdown for rebind (restart policy recreates the process)...")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
@@ -344,7 +344,7 @@ func serveUntilShutdown(deps *appDeps, srv *http.Server) {
 		log.Printf("HTTP shutdown error: %v", err)
 	}
 	waitInFlightTransfers(deps)
-	log.Printf("HTTP server encerrado — rodando cleanups (anacrolix, stores, worker)...")
+	log.Printf("HTTP server stopped — running cleanups (anacrolix, stores, worker)...")
 }
 
 // waitInFlightTransfers gives active moves a bounded drain window before stores close.
@@ -353,12 +353,12 @@ func waitInFlightTransfers(deps *appDeps) {
 	if n == 0 {
 		return
 	}
-	log.Printf("Aguardando %d transferência(s) em andamento (até 20s)...", n)
+	log.Printf("Waiting for %d in-flight transfer(s) (up to 20s)...", n)
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer waitCancel()
 	if deps.transferTracker.WaitIdle(waitCtx) {
-		log.Printf("Transferências concluídas.")
+		log.Printf("Transfers completed.")
 		return
 	}
-	log.Printf("Timeout — %d transferência(s) ainda ativa(s); serão retomadas no próximo boot.", deps.transferTracker.ActiveCount())
+	log.Printf("Timeout — %d transfer(s) still active; they will be resumed on the next boot.", deps.transferTracker.ActiveCount())
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/config"
 )
 
-// Descoberta de modelos/provedores (DiscoverModels/listModels/healProvider…) — extraído de benchmark.go.
+// Model/provider discovery (DiscoverModels/listModels/healProvider…) — extracted from benchmark.go.
 // DiscoverOllamaModels queries the local Ollama (/api/tags) for models it serves and
 // returns a Slot per model that isn't already in the chain — so the benchmark can test
 // EVERY available model, not just the one wired into the chain. This includes Ollama
@@ -249,8 +249,7 @@ func (c *Client) listOllamaModels(ctx context.Context, base string) []string {
 	resp, err := c.http.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}
@@ -280,8 +279,7 @@ func (c *Client) listOpenAIModels(ctx context.Context, base, apiKey string) []st
 	resp, err := c.http.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
-			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		return nil
 	}

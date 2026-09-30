@@ -1,26 +1,26 @@
-// trackTransport: núcleo PURO da navegação de faixa DENTRO de um torrent
-// (álbum com vários arquivos / série com vários episódios). Decide o próximo
-// passo dado a ordem de reprodução das faixas (já embaralhada ou não), o
-// fileIndex atual, o modo de repetição e se há um contexto de playlist
-// multi-torrent para "transbordar" (spill) ao chegar na borda.
+// trackTransport: PURE core of track navigation WITHIN a torrent
+// (multi-file album / multi-episode show). Decides the next
+// step given the tracks' play order (already shuffled or not), the
+// current fileIndex, the repeat mode and whether there is a multi-torrent playlist
+// context to "spill" into when hitting the edge.
 //
-// repeat-one NÃO é tratado aqui: o replay da mesma faixa acontece no onEnded
-// (replay no mesmo elemento <audio>). Os botões prev/next pulam a faixa
-// normalmente mesmo em repeat-one — é o comportamento de UX esperado.
+// repeat-one is NOT handled here: replaying the same track happens in onEnded
+// (replay on the same <audio> element). The prev/next buttons skip the track
+// normally even in repeat-one — that's the expected UX behavior.
 export type RepeatMode = 'none' | 'one' | 'all'
 
 export type TrackStep =
-  // Tocar esta faixa do MESMO torrent.
+  // Play this track from the SAME torrent.
   | { readonly kind: 'track'; readonly fileIndex: number }
-  // Borda do álbum → delegar para o nível PLAYLIST (próximo/anterior torrent).
+  // Album edge → delegate to the PLAYLIST level (next/previous torrent).
   | { readonly kind: 'spill' }
-  // repeat-all SEM playlist → re-embaralhar e tocar a 1ª da nova passada.
+  // repeat-all WITHOUT playlist → re-shuffle and play the 1st of the new pass.
   | { readonly kind: 'wrap-rebuild' }
 
-// stepAtEnd resolve a borda (fim no next, início no prev): a prioridade do
-// spill para a playlist evita "wrap duplo" — num contexto multi-torrent o fim
-// do álbum transborda para o próximo torrent e o wrap de repeat-all acontece
-// só no nível playlist (goTo). Sem playlist, o wrap-rebuild da faixa é o único.
+// stepAtEnd resolves the edge (end on next, start on prev): spill's
+// priority for the playlist avoids "double wrap" — in a multi-torrent context the end
+// of the album spills into the next torrent and the repeat-all wrap happens
+// only at the playlist level (goTo). Without a playlist, track wrap-rebuild is the only option.
 function stepAtEnd(repeat: RepeatMode, hasPlaylistNeighbor: boolean): TrackStep {
   if (hasPlaylistNeighbor) return { kind: 'spill' }
   if (repeat === 'all') return { kind: 'wrap-rebuild' }
@@ -35,7 +35,7 @@ export function nextTrack(
 ): TrackStep {
   if (order.length === 0) return { kind: 'spill' }
   const cursor = order.indexOf(currentFileIndex)
-  // Faixa atual fora da ordem (filtro mudou, etc.) → começa pela 1ª.
+  // Current track out of the order (filter changed, etc.) → start from the 1st.
   if (cursor < 0) return { kind: 'track', fileIndex: order[0] }
   if (cursor < order.length - 1) return { kind: 'track', fileIndex: order[cursor + 1] }
   return stepAtEnd(repeat, hasPlaylistNext)
@@ -51,7 +51,7 @@ export function prevTrack(
   const cursor = order.indexOf(currentFileIndex)
   if (cursor < 0) return { kind: 'track', fileIndex: order[0] }
   if (cursor > 0) return { kind: 'track', fileIndex: order[cursor - 1] }
-  // Início do álbum: spill pro torrent anterior; senão repeat-all volta pra última.
+  // Album start: spill to the previous torrent; otherwise repeat-all wraps to the last.
   if (hasPlaylistPrev) return { kind: 'spill' }
   if (repeat === 'all') return { kind: 'track', fileIndex: order[order.length - 1] }
   return { kind: 'spill' }

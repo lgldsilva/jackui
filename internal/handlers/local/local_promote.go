@@ -20,7 +20,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
-// Promote (mover arquivos locais pra biblioteca) + preview — extraído de local.go.
+// Promote (moving local files to the library) + preview — extracted from local.go.
 // LocalPromoteDeps bundles the dependencies of the LocalPromote handler so its
 // factory stays within the ≤7-parameter limit (S107). Injected by cmd/server.
 type LocalPromoteDeps struct {
@@ -56,7 +56,7 @@ func LocalPromote(d LocalPromoteDeps) gin.HandlerFunc {
 		orig := originalLocalPaths(req)
 		paths := resolveLocalPaths(d.Browser, req, username)
 		if len(paths) == 0 {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "nenhum arquivo para promover")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "no files to promote")
 			return
 		}
 		deps := &promoteDstDeps{
@@ -149,7 +149,7 @@ func startPromoteJob(tr *transfer.Tracker, b *lb.Browser, req *localPromoteReq, 
 	return tr.StartFor(userID, label, "promote", files, total)
 }
 
-// promoteJobLabel names the dock entry: the single file's name, or "N itens".
+// promoteJobLabel names the dock entry: the single file's name, or "N items".
 func promoteJobLabel(req *localPromoteReq, paths []string) string {
 	if len(paths) == 1 {
 		return filepath.Base(paths[0])
@@ -157,7 +157,7 @@ func promoteJobLabel(req *localPromoteReq, paths []string) string {
 	if req.Path != "" {
 		return filepath.Base(req.Path)
 	}
-	return fmt.Sprintf("%d itens", len(paths))
+	return fmt.Sprintf("%d items", len(paths))
 }
 
 // promoteOnePath moves one already-scoped relative path into targetDir, applying
@@ -174,27 +174,27 @@ func promoteOnePath(b *lb.Browser, deps *promoteDstDeps, mount, scopedRel, targe
 	}
 	stat, err := os.Stat(src)
 	if err != nil {
-		return gin.H{"path": scopedRel, httpshared.ErrorField: "arquivo de origem não existe"}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: "source file does not exist"}
 	}
 	baseName := filepath.Base(src)
 	dst, _ := computePromoteDst(deps, baseName, scopedRel, targetDir)
-	// dir ≡ Dir(dst) em todo branch de computePromoteDst; derivar do dst já
-	// clampado (barreira de path-injection) mantém o MkdirAll fora do fluxo
-	// taintado — o model cobre o primeiro retorno, não o segundo.
+	// dir ≡ Dir(dst) in every branch of computePromoteDst; deriving from the already
+	// clamped dst (path-injection barrier) keeps the MkdirAll out of the tainted
+	// flow — the model covers the first return, not the second.
 	dir := filepath.Dir(dst)
 	if src == dst {
 		return nil
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return gin.H{"path": scopedRel, httpshared.ErrorField: "criar destino: " + err.Error()}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: "create destination: " + err.Error()}
 	}
 	files, bytes := CountTree(src)
 	if err := MovePathJob(src, dst, stat, deps.job, files, bytes); err != nil {
 		// Remove the empty dir we created if the move failed — avoids orphan dirs
 		// (e.g. FUSE mounts that reject cross-device writes).
 		_ = os.Remove(filepath.Dir(dst))
-		return gin.H{"path": scopedRel, httpshared.ErrorField: "mover arquivo: " + err.Error()}
+		return gin.H{"path": scopedRel, httpshared.ErrorField: "move file: " + err.Error()}
 	}
 	relinkMovedTorrents(deps.dls, deps.s, src, dst)
 	return nil
@@ -446,7 +446,7 @@ func previewItem(d *localPreviewDeps, p, key string) gin.H {
 	}
 
 	if _, err := os.Stat(src); err != nil {
-		return gin.H{"path": key, httpshared.ErrorField: "arquivo não existe"}
+		return gin.H{"path": key, httpshared.ErrorField: "file does not exist"}
 	}
 
 	baseName := filepath.Base(src)

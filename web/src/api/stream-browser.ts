@@ -1,5 +1,5 @@
-// Detecção de browser para roteamento HLS vs MP4 (Safari/iOS exigem HLS).
-// Extraído de stream.ts (R3 follow-up).
+// Browser detection for routing HLS vs MP4 (Safari/iOS require HLS).
+// Extracted from stream.ts (R3 follow-up).
 
 export function isIOS(): boolean {
   if (typeof navigator === 'undefined') return false

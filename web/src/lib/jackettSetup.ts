@@ -1,5 +1,5 @@
 /**
- * Pure decision for the first-run "Jackett não configurado" prompt, extracted
+ * Pure decision for the first-run "Jackett not configured" prompt, extracted
  * from SearchPage so it can be unit-tested without a DOM (vitest runs in node).
  *
  * Two signals feed it:
@@ -19,7 +19,7 @@ export function shouldPromptJackettSetup(
 ): boolean {
   if (statusJackett === 'ok') return false
   // A ping TIMEOUT means reachable-but-slow, not unconfigured — never prompt on
-  // it. This is the common false "Jackett não configurado": a slow indexer
+  // it. This is the common false "Jackett not configured": a slow indexer
   // pushes the 5s status ping over the edge on an already-working server.
   if (statusJackett?.startsWith('timeout')) return false
   // Only prompt on a positively-read empty/default config — never when the

@@ -58,7 +58,7 @@ func TestDurationRetryUnlocksVODOnNextSession(t *testing.T) {
 	// resulting cache write (deterministic completion, exits the moment it lands).
 	deadline := time.Now().Add(3 * time.Second)
 	for m.cachedDuration("raw") == 0 && time.Now().Before(deadline) {
-		<-time.After(time.Millisecond) // cede a CPU à escrita do cache pós-probe
+		<-time.After(time.Millisecond) // yield CPU to the post-probe cache write
 	}
 	if got := m.cachedDuration("raw"); got != 60 {
 		t.Fatalf("cachedDuration=%v want 60 (background retry should populate it)", got)

@@ -56,7 +56,7 @@ func computeOSHash(r io.ReadSeeker, size int64) (string, error) {
 
 // ComputeFileOSHash opens a file on disk and returns its OpenSubtitles hash.
 // Used by the /local subtitle endpoints — bypasses the torrent-only OSHash()
-// path so legendas funcionam pra arquivos fora do streamer.
+// path so subtitles work for files outside the streamer.
 func ComputeFileOSHash(f io.ReadSeeker, size int64) (HashResult, error) {
 	h, err := computeOSHash(f, size)
 	if err != nil {
@@ -147,8 +147,7 @@ func (s *Streamer) OSHash(ctx context.Context, hash metainfo.Hash, fileIdx int) 
 	go func() {
 		select {
 		case <-ctx.Done():
-			// #nosec G104 -- Close best-effort no cleanup; erro no teardown irrelevante
-			r.Close()
+			_ = r.Close()
 		case <-done:
 		}
 	}()

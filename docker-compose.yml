@@ -78,35 +78,36 @@ services:
       # Piece cache (torrent pieces) lives on the LVM disk; not a database.
       - JACKUI_STREAM_DIR=/data/streams
       - JACKUI_STREAM_MAX_GB=${JACKUI_STREAM_MAX_GB:-50}
-      # HLS VOD finito (seekbar): off | hlsjs | all. Vazio = "all" (VOD para
-      # TODOS os clientes, Safari/iOS nativo incluso — causa raiz do stall #61
-      # corrigida). Rollback instantâneo se o Safari regredir: defina
-      # JACKUI_HLS_VOD_MODE=hlsjs no .env (Chrome/Firefox mantêm o seekbar).
+      # Finite VOD HLS (seekbar): off | hlsjs | all. Empty = "all" (VOD for
+      # ALL clients, native Safari/iOS included — the root cause of stall #61
+      # fixed). Instant rollback if Safari regresses: set
+      # JACKUI_HLS_VOD_MODE=hlsjs in .env (Chrome/Firefox keep the seekbar).
       - JACKUI_HLS_VOD_MODE=${JACKUI_HLS_VOD_MODE:-}
-      # Fuso do processo. O scheduler de banda (bandwidth_schedules) compara as
-      # janelas HH:MM com a hora LOCAL do container — sem TZ ele roda em UTC e
-      # uma janela "23:00-06:00" pensada em Brasília vale 3h adiantada. tzdata
-      # já está na imagem.
+      # Process timezone. The bandwidth scheduler (bandwidth_schedules) compares
+      # HH:MM windows against the container's LOCAL time — without TZ it runs in
+      # UTC and a "23:00-06:00" window meant as UTC-3 shifts by 3h. tzdata
+      # is already in the image.
       - TZ=${TZ:-America/Sao_Paulo}
-      # Logs estruturados: "json" ou texto (padrão).
+      # Structured logs: "json" or text (default).
       - JACKUI_LOG_FORMAT=${JACKUI_LOG_FORMAT:-}
-      # Token estático pro scraper do Prometheus quando JACKUI_AUTH_ENABLED=1
-      # (JWTs expiram; scrape configs não fazem refresh). Vazio = só admin JWT.
+      # Static token for the Prometheus scraper when JACKUI_AUTH_ENABLED=1
+      # (JWTs expire; scrape configs don't refresh). Empty = admin JWT only.
       - JACKUI_METRICS_TOKEN=${JACKUI_METRICS_TOKEN:-}
-      # Profiling sob demanda: /debug/pprof só existe com JACKUI_PPROF_ENABLED=1
-      # e sempre autenticado (token estático abaixo ou JWT de admin).
+      # On-demand profiling: /debug/pprof only exists with JACKUI_PPROF_ENABLED=1
+      # and is always authenticated (static token below or admin JWT).
       - JACKUI_PPROF_ENABLED=${JACKUI_PPROF_ENABLED:-}
       - JACKUI_PPROF_TOKEN=${JACKUI_PPROF_TOKEN:-}
-      # ── Perfil de baixo consumo (auditoria de perf, perfil "Balanceado") ───
-      # Memória: GOGC=75 aperta o heap-alvo entre GCs (de 100 → menos RSS gordo
-      # esperando o próximo GC); GOMEMLIMIT é o teto rígido (~1.6 GiB, ~400 MB de
-      # folga p/ stacks de goroutine, mmap do BoltDB e off-heap do ffmpeg) que
-      # evita OOM-kill perto do limite de 2 GiB. GOMAXPROCS=2 casa com cpus=2.0.
-      # Caps de peers (de 50/500 da lib anacrolix) cortam buffers residentes por
-      # conexão sem matar o seed/leech caseiro — JackUI já injeta 20 trackers
-      # públicos, então a descoberta de peers não depende de um swarm enorme.
-      # ⚠ PROD: estes valores vivem no compose hand-maintained do servidor (este
-      # bloco é a referência versionada; ao mudar em prod, edite o hand-file também).
+      # ── Low-footprint profile (perf audit, "Balanced" profile) ─────────────
+      # Memory: GOGC=75 tightens the heap target between GCs (from 100 → less
+      # fat RSS waiting for the next GC); GOMEMLIMIT is the hard ceiling
+      # (~1.6 GiB, ~400 MB of headroom for goroutine stacks, BoltDB mmap and
+      # ffmpeg's off-heap) that avoids OOM-kill near the 2 GiB limit.
+      # GOMAXPROCS=2 matches cpus=2.0. Peer caps (from the anacrolix 50/500)
+      # trim resident buffers per connection without killing casual
+      # seed/leech — JackUI already injects 20 public trackers, so peer
+      # discovery doesn't depend on a huge swarm.
+      # ⚠ PROD: these values live in the server's hand-maintained compose (this
+      # block is the versioned reference; when changing prod, edit the hand-file too).
       - GOGC=${GOGC:-75}
       - GOMEMLIMIT=${GOMEMLIMIT:-1600MiB}
       - GOMAXPROCS=${GOMAXPROCS:-2}
@@ -170,16 +171,17 @@ services:
     image: postgres:16-alpine
     container_name: jackui-postgres
     restart: unless-stopped
-    # Graceful shutdown: o default (10s) não é suficiente para o fast shutdown do
-    # Postgres quando há conexões ativas no pool do jackui — o Docker manda SIGKILL
-    # e o próximo boot faz recovery WAL ("not properly shut down"). 30s dá folga
-    # para o checkpoint completar. Crítico em prod, onde o gluetun recria este
-    # container junto consigo a cada rotação de porta VPN (vpn-gateway compose).
+    # Graceful shutdown: the default (10s) is not enough for Postgres' fast
+    # shutdown when there are active connections in the jackui pool — Docker
+    # sends SIGKILL and the next boot does WAL recovery ("not properly shut
+    # down"). 30s gives the checkpoint room to finish. Critical in prod, where
+    # gluetun recreates this container along with itself on every VPN port
+    # rotation (vpn-gateway compose).
     stop_grace_period: 30s
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-jackui}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       - POSTGRES_DB=${POSTGRES_DB:-jackui}
       # Subdir so a non-root user owns PGDATA without fighting lost+found.
       - PGDATA=/var/lib/postgresql/data/pgdata

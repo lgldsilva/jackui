@@ -5,14 +5,14 @@ import { isRetryableGet, retryDelayMs, RETRY_MAX } from './retry'
 
 export const MAGNET_PREFIX = 'magnet:?xt=urn:btih:'
 
-// sessionLifecycle marca chamadas best-effort do ciclo de sessão (logout,
-// limpeza/heartbeat de incognito) com skipAuthRefresh. O interceptor de
-// 401→refresh do AuthContext ignora 401 dessas chamadas: sem o marcador,
-// logout() reentra no interceptor via seu próprio DELETE /user/incognito
-// (que 401a numa sessão já morta) → refresh → 401 → logout() → … recursão
-// mútua infinita (storm de requisições nos logs do proxy; a UI nunca chega na
-// tela de login). Essas chamadas devem falhar direto pro try/catch do chamador
-// (são fire-and-forget por design).
+// sessionLifecycle marks best-effort session-lifecycle calls (logout,
+// incognito cleanup/heartbeat) with skipAuthRefresh. The AuthContext's
+// 401→refresh interceptor ignores 401s from those calls: without the marker,
+// logout() re-enters the interceptor via its own DELETE /user/incognito
+// (which 401s on an already-dead session) → refresh → 401 → logout() → … infinite
+// mutual recursion (request storm in the proxy logs; the UI never reaches the
+// login screen). These calls must fail straight into the caller's try/catch
+// (they are fire-and-forget by design).
 export function sessionLifecycle(config: AxiosRequestConfig = {}): AxiosRequestConfig {
   return { ...config, skipAuthRefresh: true } as AxiosRequestConfig
 }
@@ -74,16 +74,16 @@ function stripMediaCredentials(url: string): string {
   return params.length ? `${base}?${params.join('&')}` : base
 }
 
-// withToken appends an access token as ?token= query param. Used em URLs que
-// vão pra <video src>/<track src> onde headers Authorization não podem ser
-// setados — middleware aceita ?token= como fallback. IDEMPOTENTE para token e
-// para o estado da cortina (stripMediaCredentials).
+// withToken appends an access token as ?token= query param. Used on URLs that
+// go to <video src>/<track src> where Authorization headers cannot be
+// set — the middleware accepts ?token= as a fallback. IDEMPOTENT for token and
+// for the curtain state (stripMediaCredentials).
 //
-// override: quando presente, usa esse token em vez do access token regular.
-// Caso de uso: o PlayerModal pega um media token (scope="media", TTL longo)
-// uma vez ao abrir e passa aqui — se usássemos o access token regular, o
-// refresh em background trocaria a query string e o <video> resetaria o
-// playback pra 0 (mesmo path, src "novo" do ponto de vista do browser).
+// override: when present, uses that token instead of the regular access token.
+// Use case: PlayerModal fetches a media token (scope="media", long TTL)
+// once on open and passes it here — if we used the regular access token, a
+// background refresh would swap the query string and the <video> would reset
+// playback to 0 (same path, "new" src from the browser's point of view).
 export function withToken(url: string, override?: string): string {
   const raw = override ?? localStorage.getItem('jackui:auth.access')
   let result = stripMediaCredentials(url)
@@ -100,20 +100,20 @@ export function withToken(url: string, override?: string): string {
   return result
 }
 
-// fetchMediaToken pede ao backend um JWT scope="media" com TTL longo (6h por
-// default). O PlayerModal chama isso ao montar e passa o token retornado pros
-// URL builders via o param override do withToken — assim a URL do <video src>
-// permanece estável durante toda a sessão de playback, sobrevivendo a
-// refreshes do access token regular (que trocariam a query string e
-// derrubariam o playback pra 0).
+// fetchMediaToken asks the backend for a scope="media" JWT with a long TTL (6h by
+// default). PlayerModal calls it on mount and passes the returned token to the
+// URL builders via withToken's override param — so the <video src> URL
+// stays stable for the whole playback session, surviving
+// refreshes of the regular access token (which would swap the query string and
+// knock playback back to 0).
 //
-// CACHEADO na sessão (module-level) + single-flight: o token de mídia vale pra
-// TODA a sessão (não é por-faixa), então re-buscá-lo retornaria um JWT NOVO
-// (iat/exp diferentes) → mudaria o `?token=` da URL → o browser recarregaria o
-// <video> (loadstart) e ABORTARIA o play() pendente (AbortError) — era a causa
-// do "play não toca no iPhone": uma re-init do player re-buscava o token e
-// derrubava a reprodução. Com o cache, qualquer re-busca retorna o MESMO token
-// → streamURL byte-idêntico → sem reload. Invalidado em clearMediaToken (logout).
+// SESSION-CACHED (module-level) + single-flight: the media token is valid for
+// the WHOLE session (not per-track), so re-fetching it would return a NEW JWT
+// (different iat/exp) → the URL's `?token=` would change → the browser would reload the
+// <video> (loadstart) and ABORT the pending play() (AbortError) — that was the cause
+// of "play doesn't play on iPhone": a player re-init re-fetched the token and
+// killed playback. With the cache, any re-fetch returns the SAME token
+// → byte-identical streamURL → no reload. Invalidated in clearMediaToken (logout).
 let mediaTokenCache = ''
 let mediaTokenInFlight: Promise<string> | null = null
 export async function fetchMediaToken(): Promise<string> {
@@ -125,8 +125,8 @@ export async function fetchMediaToken(): Promise<string> {
   return mediaTokenInFlight
 }
 
-// clearMediaToken invalida o cache acima — chamado no logout/limpeza de auth
-// (clearTokens) pra que a próxima sessão pegue um token fresco.
+// clearMediaToken invalidates the cache above — called on logout/auth cleanup
+// (clearTokens) so the next session gets a fresh token.
 export function clearMediaToken() {
   mediaTokenCache = ''
   mediaTokenInFlight = null

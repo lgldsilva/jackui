@@ -65,9 +65,9 @@ export function ActiveStreamView(props: Readonly<{
   fileTypeFilter: FileType
   fileSortBySize: boolean
   fileSizeDesc: boolean
-  // Fase 8: áudio unificado. activeAudioIndex = faixa ativa (seamless OU legado);
-  // selectAudio bifurca (hls.audioTrack seamless × ?audio= reload); seamlessAudioOn
-  // indica o modo. seamlessAudioIndex/onHlsAudioCount ligam o VideoPlayerElement.
+  // Phase 8: unified audio. activeAudioIndex = active track (seamless OR legacy);
+  // selectAudio branches (hls.audioTrack seamless × ?audio= reload); seamlessAudioOn
+  // indicates the mode. seamlessAudioIndex/onHlsAudioCount wire the VideoPlayerElement.
   activeAudioIndex: number | null
   selectAudio: (v: number | null) => void
   seamlessAudioOn: boolean
@@ -139,13 +139,13 @@ export function ActiveStreamView(props: Readonly<{
   const { serverDownloadLoading, serverDownloadSuccess, localDownloadLoading, handleServerDownload, handleLocalDownload, downloadFolderFromPlayer, downloadDirFromPlayer } = downloads
   const parseEpisode = parseEpisodeTag
 
-  // Corpo do player de ÁUDIO (capa + <audio> nativo + transporte). Extraído como
-  // render fn aninhada (igual renderActiveStream) para não inflar a complexidade
-  // cognitiva de renderActiveStream — todos os ternários de layout vivem aqui.
+  // AUDIO player body (cover + native <audio> + transport). Extracted as a
+  // nested render fn (same as renderActiveStream) to avoid inflating renderActiveStream's
+  // cognitive complexity — all the layout ternaries live here.
   const renderAudioBody = () => (
     <>
-      {/* Capa do álbum preenche a caixa; a barra <audio controls> nativa fica
-          LOGO ABAIXO (não esticada por cima da capa). */}
+      {/* The album cover fills the box; the native <audio controls> bar sits
+          RIGHT BELOW (not stretched over the cover). */}
       <div className={minimized
         ? 'relative w-12 h-12 lg:w-14 lg:h-14 flex-shrink-0 bg-gradient-to-br from-gray-800 to-gray-900 rounded overflow-hidden'
         : 'relative w-full max-w-xl mx-auto h-44 sm:h-56 lg:h-72 xl:h-80 bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden'}>
@@ -160,9 +160,9 @@ export function ActiveStreamView(props: Readonly<{
         elementRef={(el) => { audioRef.current = el }}
         className={minimized ? 'flex-1 min-w-0 basis-[55%] lg:basis-0' : 'max-w-xl mx-auto mt-2'}
       />
-      {/* Controles ⏮⏭ + shuffle/repeat: a AudioTransportBar foi removida na
-          simplificação e os controls nativos do <audio> não têm prev/next.
-          Só botões que trocam a FAIXA (handlePrev/handleNext) — sem Web Audio. */}
+      {/* ⏮⏭ + shuffle/repeat controls: AudioTransportBar was removed in the
+          simplification and the <audio>'s native controls have no prev/next.
+          Only buttons that switch the TRACK (handlePrev/handleNext) — no Web Audio. */}
       <SimpleAudioControls
         onPrev={handlePrev}
         onNext={handleNext}
@@ -195,9 +195,9 @@ export function ActiveStreamView(props: Readonly<{
       <div className={audioMode && minimized
         ? 'flex flex-row flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 min-w-0 lg:flex-nowrap lg:gap-x-4 lg:px-4'
         : ['flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden', audioMode ? 'lg:justify-center' : ''].join(' ')}>
-      {/* Player de áudio simplificado ou vídeo completo. Áudio usa <audio>
-          controls> com src DIRECT, espelhando o audiotest.html que toca no iOS.
-          Vídeo mantém o player existente com HLS/transcode. */}
+      {/* Simplified audio player or full video. Audio uses <audio
+          controls> with a DIRECT src, mirroring the audiotest.html that plays on iOS.
+          Video keeps the existing player with HLS/transcode. */}
       {audioMode ? renderAudioBody() : (
         <VideoPlayerElement
           videoRef={videoRef}

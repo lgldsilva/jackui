@@ -41,12 +41,12 @@ const renderCard = (props: Partial<Parameters<typeof FavoriteCard>[0]> = {}) => 
 }
 
 describe('FavoriteCard', () => {
-  it('mostra badge "Not downloaded" quando não há download', () => {
+  it('shows the "Not downloaded" badge when there is no download', () => {
     renderCard()
     expect(screen.getByText('Not downloaded')).toBeInTheDocument()
   })
 
-  it('renderiza badge correto para cada status de download', () => {
+  it('renders the right badge for each download status', () => {
     const statuses: DownloadEntry['status'][] = ['queued', 'downloading', 'moving', 'paused', 'completed', 'failed']
     const textMap: Record<typeof statuses[number], string> = {
       queued: 'Queued',
@@ -63,14 +63,14 @@ describe('FavoriteCard', () => {
     }
   })
 
-  it('desabilita botões Play/Download/Contents quando magnet é inválido', () => {
+  it('disables Play/Download/Contents buttons when the magnet is invalid', () => {
     renderCard({ fav: fav({ magnet: '' }) })
     expect(screen.getByTitle('Magnet not saved — re-favorite')).toBeDisabled()
     expect(screen.getByTitle('Download (choose destination and files)')).toBeDisabled()
     expect(screen.getByTitle('View contents and details')).toBeDisabled()
   })
 
-  it('chama onToggleSelected ao clicar no checkbox', async () => {
+  it('calls onToggleSelected when the checkbox is clicked', async () => {
     const onToggleSelected = vi.fn()
     renderCard({ anySelected: true, onToggleSelected })
     const checkbox = screen.getByRole('checkbox', { name: /select/i })
@@ -78,7 +78,7 @@ describe('FavoriteCard', () => {
     expect(onToggleSelected).toHaveBeenCalledTimes(1)
   })
 
-  it('chama onDownload ao clicar no botão de download', async () => {
+  it('calls onDownload when the download button is clicked', async () => {
     const onDownload = vi.fn()
     renderCard({ onDownload })
     const btn = screen.getByTitle('Download (choose destination and files)')

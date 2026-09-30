@@ -3,7 +3,7 @@ import { savePlaylistSnapshot, loadPlaylistSnapshot, clearPlaylistSnapshot, snap
 import type { PlaylistItem } from '../../api/client'
 import { save } from '../../lib/storage'
 
-// O ambiente node do vitest não tem localStorage — polyfill mínimo em memória.
+// The vitest node environment has no localStorage — minimal in-memory polyfill.
 const store = new Map<string, string>()
 const mockStorage: Storage = {
   getItem: k => store.get(k) ?? null,

@@ -1,5 +1,5 @@
-// Tipos compartilhados dos módulos /api/stream*. Fica isolado aqui pra que
-// stream.ts, local.ts e os módulos irmãos importem sem ciclos (R3 follow-up).
+// Shared types for the /api/stream* modules. Isolated here so
+// stream.ts, local.ts and the sibling modules import without cycles (R3 follow-up).
 
 export type StreamFile = {
   index: number

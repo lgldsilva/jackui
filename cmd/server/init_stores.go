@@ -29,8 +29,7 @@ func initHistoryStore(deps *appDeps) {
 	go func() {
 		for {
 			time.Sleep(24 * time.Hour)
-			// #nosec G104 -- limpeza periodica best-effort em background
-			store.Cleanup(90 * 24 * time.Hour)
+			_ = store.Cleanup(90 * 24 * time.Hour)
 		}
 	}()
 }
@@ -240,7 +239,7 @@ func logMigrationResult(mount string, res local.MigrationResult) {
 	for _, e := range res.Moved {
 		suffix := ""
 		if e.Fallback {
-			suffix = " (sem dono → admin)"
+			suffix = " (no owner → admin)"
 		}
 		log.Printf("  • %s → %s/%s", e.Name, e.ToUser, e.Name+suffix)
 	}

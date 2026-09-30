@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# CA-3.2 — mede pass-rate de go test + vitest em N execuções consecutivas (sem retry).
-# Uso: scripts/ci-stability-audit.sh [runs]   (default: 20)
-# Requer: go, npm (cwd na raiz do repo). Postgres NÃO é necessário (testes usam mocks
-# ou skipam quando JACKUI_TEST_DATABASE_URL ausente — igual ao CI local sem PG).
+# CA-3.2 — measures the pass-rate of go test + vitest over N consecutive runs (no retry).
+# Usage: scripts/ci-stability-audit.sh [runs]   (default: 20)
+# Requires: go, npm (cwd at the repo root). Postgres is NOT required (tests use mocks
+# or skip when JACKUI_TEST_DATABASE_URL is absent — same as local CI without PG).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUNS="${1:-20}"
@@ -42,10 +42,10 @@ WEB_RATE=$(awk "BEGIN {printf \"%.1f\", ($WEB_PASSED/$RUNS)*100}")
 TARGET=99.0
 
 echo
-echo "=== Resultado ==="
+echo "=== Result ==="
 echo "Go:       $GO_PASSED/$RUNS passed (${GO_RATE}%)"
 echo "Vitest:   $WEB_PASSED/$RUNS passed (${WEB_RATE}%)"
-echo "Meta CA-3.2: ≥${TARGET}%"
+echo "CA-3.2 target: ≥${TARGET}%"
 
 FAIL=0
 awk -v r="$GO_RATE" -v t="$TARGET" 'BEGIN { exit (r+0 >= t+0) ? 0 : 1 }' || FAIL=1

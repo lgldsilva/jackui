@@ -216,7 +216,7 @@ func persistEmitted(c *gin.Context, store *history.Store, query string, results 
 //
 // Why a pinger: a slow indexer can leave a long gap with no bytes flowing,
 // and a reverse proxy (NPM) may cut the SSE stream on read-timeout before the
-// `done` event — the client then reports "Conexão perdida". A periodic comment
+// `done` event — the client then reports "Connection lost". A periodic comment
 // frame keeps the connection warm. Writes share state.mu with handleHit so the
 // ResponseWriter is never written concurrently.
 func startKeepAlive(c *gin.Context, state *liveSearchState) (stop func()) {
@@ -299,7 +299,7 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		}
 
 		if err != nil {
-			msg := "Jackett indisponível, mostrando apenas cache"
+			msg := "Jackett unavailable, showing cache only"
 			if cachedCount == 0 && state.liveCount == 0 {
 				msg = err.Error()
 			}

@@ -3,7 +3,7 @@ package local
 import (
 	"bytes"
 	"context"
-	// #nosec G505 -- import de sha1 p/ hash de conteudo (dedup/oshash), nao cripto de seguranca
+	// #nosec G505 -- sha1 import is for content hashing (dedup/oshash), not security crypto
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -27,7 +27,7 @@ import (
 // localSessionKey derives a stable, filesystem-safe HLS session key from
 // (mount, relPath). sha1 keeps the key short and avoids leaking the path.
 func localSessionKey(mount, relPath string) string {
-	// #nosec G401 -- sha1/md5 p/ hash de conteudo (dedup/oshash), nao uso criptografico de seguranca
+	// #nosec G401 -- sha1/md5 for content hashing (dedup/oshash), not a security-cryptographic use
 	sum := sha1.Sum([]byte(mount + "|" + relPath))
 	return "local-" + hex.EncodeToString(sum[:])
 }
@@ -92,10 +92,10 @@ func appendTokenToURL(token, base string) string {
 // the shared context concurrently. LocalPlay passes c.Request.Context() +
 // c.Query("transcode")=="hls".
 func localPlayVideoResp(ctx context.Context, forceHLS bool, abs, mount, path, token string) LocalPlayResp {
-	// iOS/Safari WebKit trava em MP4 progressive servido por HTTP (estaciona em
-	// readyState 2). O cliente iOS pede transcode=hls pra vídeo local; H264/AAC vira
-	// só REMUX (sem re-encode, barato). Assim o vídeo local vai pelo MESMO caminho HLS
-	// confiável do torrent, em vez do direct/progressive que o iOS não toca.
+	// iOS/Safari WebKit stalls on progressive MP4 served over HTTP (parks at
+	// readyState 2). The iOS client asks for transcode=hls for local video; H264/AAC becomes
+	// REMUX only (no re-encode, cheap). That way local video goes through the SAME reliable HLS
+	// path as torrents, instead of the direct/progressive path iOS won't play.
 	if forceHLS {
 		return LocalPlayResp{
 			Kind:   "hls",

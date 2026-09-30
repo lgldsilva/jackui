@@ -1,5 +1,5 @@
-// Promote/reclassify de arquivos locais (mover pra biblioteca com rename via IA)
-// e upload multipart. Extraído de local.ts (#417 follow-up).
+// Promote/reclassify for local files (move to library with AI rename)
+// and multipart upload. Extracted from local.ts (#417 follow-up).
 import { api } from './http'
 import { localQS, withViewAs } from './local-base'
 

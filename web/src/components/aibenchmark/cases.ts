@@ -2,8 +2,8 @@ import type { AIBenchmarkCase } from '../../api/client'
 
 // The cases editor uses a plain textarea (one "raw => expected" per line) — far
 // less fiddly on mobile than a grid of paired inputs, and trivially round-trips.
-// The expected label encodes the structure: "Filme - Ano", "Série - S03E07",
-// "Série - E01", or just a bare title (then only the title is scored).
+// The expected label encodes the structure: "Movie - Year", "Series - S03E07",
+// "Series - E01", or just a bare title (then only the title is scored).
 //
 // Multi-task: an optional leading "[task]" token (e.g. "[schedule]") selects which
 // AI task the case measures — rename (default, no prefix), schedule or identify. A

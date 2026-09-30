@@ -1,11 +1,11 @@
-# Reproduz LOCALMENTE o gate de new-code do Sonar antes do push (um ciclo de CI
-# custa ~12min). Uso documentado (docs/CICD.md → "Running the gates locally"):
+# Reproduces the Sonar new-code gate LOCALLY before pushing (a CI cycle costs
+# ~12min). Documented usage (docs/CICD.md → "Running the gates locally"):
 #
 #   golangci-lint run --new-from-rev=gitea/main ./...
 #
-# --new-from-rev reporta só as linhas do SEU diff (espelha o "new code" do Sonar,
-# sem falso-positivo de código pré-existente). Não roda no pipeline — o CI cobre
-# gofmt/vet e o Sonar aplica S3776 na main.
+# --new-from-rev only reports the lines in YOUR diff (mirrors Sonar's "new code",
+# with no false positives from pre-existing code). Not run in the pipeline — CI
+# covers gofmt/vet and Sonar enforces S3776 on main.
 version: "2"
 run:
   tests: false
@@ -17,5 +17,5 @@ linters:
     - staticcheck
   settings:
     gocognit:
-      # >15 é o que o Sonar (S3776) reprova em código novo.
+      # >15 is what Sonar (S3776) flags in new code.
       min-complexity: 16

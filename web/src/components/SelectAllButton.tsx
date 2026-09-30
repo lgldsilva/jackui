@@ -1,10 +1,10 @@
 import { CheckCheck, Square } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-// SelectAllButton — controle padronizado para listas com multi-seleção.
-// Toggle: quando nem tudo está marcado → "Selecionar todos"; quando tudo está
-// marcado → "Limpar". Usado no Downloads e na BatchActionBar (Local) para um
-// affordance consistente (ícone + rótulo, não só ícone).
+// SelectAllButton — standardized control for lists with multi-selection.
+// Toggle: when not everything is checked → "Select all"; when everything is
+// checked → "Clear". Used in Downloads and BatchActionBar (Local) for a
+// consistent affordance (icon + label, not just an icon).
 export function SelectAllButton({
   allSelected, onToggle, className,
 }: {

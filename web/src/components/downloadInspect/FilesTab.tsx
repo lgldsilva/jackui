@@ -8,9 +8,9 @@ import { formatBytes } from '../../lib/format'
 // the component's `t` without pulling the full i18next type surface.
 type TFn = (key: string, opts?: Record<string, unknown>) => string
 
-// Distingue o file que o download representa (highlight verde) dos outros
-// arquivos do torrent (listados em cinza). Em torrents single-file os dois
-// coincidem; em multi-file isso ajuda o user a ver o que tinha junto.
+// Distinguishes the file the download represents (green highlight) from the other
+// torrent files (listed in gray). On single-file torrents the two
+// coincide; on multi-file it helps the user see what came along.
 export function fileIcon(f: StreamFile, primary: boolean) {
   const color = primary ? 'text-green-400' : 'text-text-muted'
   if (f.isVideo) return <FileVideo className={`w-4 h-4 ${color} flex-shrink-0`} />
@@ -88,9 +88,9 @@ export function renderFilesTab(props: FilesTabProps): React.ReactNode {
       <ul className="bg-surface border border-default rounded-lg divide-y divide-default overflow-hidden">
         {torrent.files.map(f => {
           const isPrimary = f.index === fileIndex
-          // Marca claramente o que falta baixar: completo (>=99.9%) vs incompleto
-          // (mostra o % em âmbar + barra, mesmo a 0%) — assim dá pra ver qual
-          // arquivo do torrent ficou pra trás.
+          // Clearly marks what's left to download: complete (>=99.9%) vs incomplete
+          // (shows the % in amber + bar, even at 0%) — so you can tell which
+          // torrent file was left behind.
           const hasProgress = typeof f.progress === 'number'
           const done = hasProgress && f.progress >= 0.999
           const pct = hasProgress ? Math.round(f.progress * 100) : null
@@ -106,8 +106,8 @@ export function renderFilesTab(props: FilesTabProps): React.ReactNode {
                   </div>
                 )}
               </div>
-              {/* Arquivo sem registro de download = está só em streaming (cache).
-                  Botão adota como download: reusa o cache e move ao concluir. */}
+              {/* File without a download record = it's streaming-only (cache).
+                  Button adopts it as a download: reuses the cache and moves on completion. */}
               {tracked ? trackedStatusCell(done, pct, t) : (
                 <button
                   onClick={() => onAdopt(f)}

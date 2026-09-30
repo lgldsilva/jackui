@@ -52,9 +52,9 @@ type DownloadCardProps = {
   readonly live?: TorrentInfo
   readonly busy: boolean
   readonly selected?: boolean
-  /** True quando o download é UM arquivo de um torrent multi-arquivo (há irmãos
-      com o mesmo infoHash). Aí o título mostra o NOME DO ARQUIVO, não o nome do
-      torrent — senão todos os episódios de "Euphoria" aparecem idênticos. */
+  /** True when the download is ONE file of a multi-file torrent (there are siblings
+      with the same infoHash). Then the title shows the FILE NAME, not the torrent's
+      name — otherwise every episode of "Euphoria" looks identical. */
   readonly multiFile?: boolean
   readonly onToggleSelected?: () => void
   readonly onPause: () => void
@@ -73,15 +73,15 @@ type DownloadCardProps = {
 export const DownloadCard = memo(function DownloadCard({ d, live, busy, selected, multiFile, onToggleSelected, onPause, onResume, onDelete, onPromote, onStopSeed, onPlay, onInspect, onSetPriority, onOpenLocal }: DownloadCardProps) {
   const { isGuest } = useAuth()
   const { t } = useTranslation()
-  // Item de torrent INTEIRO (sentinel): UM card com progresso agregado.
+  // WHOLE torrent item (sentinel): ONE card with aggregate progress.
   const isWholeTorrent = d.fileIndex === WHOLE_TORRENT_FILE_INDEX
   const wholeFileCount = live?.files?.length ?? 0
-  // Em torrent multi-arquivo o `name` é o nome do torrent (igual pra todos os
-  // arquivos), então o que distingue é o basename do filePath (ex: o episódio).
+  // On a multi-file torrent the `name` is the torrent name (same for all
+  // files), so what distinguishes them is the filePath's basename (e.g. the episode).
   const fileBase = d.filePath ? d.filePath.split('/').pop() || '' : ''
   const titleText = multiFile && fileBase ? fileBase : (d.name || d.filePath)
-  // Subtítulo: no multi-arquivo mostra o torrent (contexto, já que o título virou
-  // o arquivo); no single-arquivo mantém o caminho como antes.
+  // Subtitle: on multi-file it shows the torrent (context, since the title became
+  // the file); on single-file it keeps the path as before.
   const subtitleText = multiFile && fileBase ? d.name : d.filePath
   const pct = Math.max(0, Math.min(1, d.progress || 0)) * 100
   const isCompleted = d.status === 'completed'
@@ -152,9 +152,9 @@ export const DownloadCard = memo(function DownloadCard({ d, live, busy, selected
         </div>
       </div>
 
-      {/* Live activity chips — só quando o anacrolix tem o torrent ativo (ou
-          baixando, ou seedando depois de concluído). Mesmo formato visual do
-          TorrentCard pra consistência. */}
+      {/* Live activity chips — only when anacrolix has the torrent active (either
+          downloading, or seeding after completion). Same visual format as
+          TorrentCard for consistency. */}
       {live && (live.downRate > 0 || live.upRate > 0 || live.peers > 0) && (
         <div className="flex items-center gap-2 flex-wrap text-sm">
           <span

@@ -57,36 +57,36 @@ type ProbeResult struct {
 	// couldn't determine it (e.g. MP4 with moov-at-end whose tail isn't
 	// downloaded yet). Callers must treat 0 as "unknown" and fall back.
 	DurationSec float64 `json:"durationSec"`
-	// VideoCodec / Container / AudioCodec são os fatos da fonte; NeedsTranscode é
-	// a DECISÃO (navegador-agnóstica): MKV/HEVC/AV1/AC3/DTS não tocam direto em
-	// browser nenhum → tem que transcodificar pra HLS. O front decide por isto
-	// (não mais pelo NOME do arquivo, que errava e mandava incompatível pro
-	// direct-play → errorCode 4 no Safari). Mesma lógica do classifyForBrowser
-	// dos arquivos locais. Vazio até o ffprobe rodar.
+	// VideoCodec / Container / AudioCodec are the source facts; NeedsTranscode is
+	// the DECISION (browser-agnostic): MKV/HEVC/AV1/AC3/DTS don't direct-play in
+	// any browser → must be transcoded to HLS. The frontend decides based on this
+	// (no longer on the file NAME, which misfired and sent incompatible files to
+	// direct-play → errorCode 4 on Safari). Same logic as classifyForBrowser for
+	// local files. Empty until ffprobe runs.
 	VideoCodec      string `json:"videoCodec"`
 	Container       string `json:"container"`
 	AudioCodec      string `json:"audioCodec"`
 	NeedsTranscode  bool   `json:"needsTranscode"`
 	TranscodeReason string `json:"transcodeReason,omitempty"`
-	// VideoWidth / VideoHeight são as dimensões do primeiro stream de vídeo, 0
-	// quando desconhecidas (ffprobe não rodou, stream sem vídeo, ou header ainda
-	// não baixado). O ladder de variantes do HLS master (Phase 2) usa a altura;
-	// 0 → single-variant (não dá pra montar tiers sem saber a resolução da fonte).
+	// VideoWidth / VideoHeight are the dimensions of the first video stream, 0
+	// when unknown (ffprobe didn't run, stream without video, or header not yet
+	// downloaded). The HLS master variant ladder (Phase 2) uses the height;
+	// 0 → single-variant (can't build tiers without knowing the source resolution).
 	VideoWidth  int `json:"videoWidth,omitempty"`
 	VideoHeight int `json:"videoHeight,omitempty"`
 }
 
-// Conjuntos que o <video> dos browsers toca DIRETO (sem transcode). Fora deles →
-// HLS. Espelha browserSafe* do internal/handlers/local_play.go.
+// Sets the browser <video> element plays DIRECTLY (no transcode). Anything else →
+// HLS. Mirrors browserSafe* from internal/handlers/local_play.go.
 var (
 	browserSafeContainers  = map[string]bool{"mp4": true, "m4v": true, "mov": true, "webm": true, "isom": true, "mp42": true, "qt": true}
 	browserSafeVideoCodecs = map[string]bool{"h264": true, "vp8": true, "vp9": true}
 	browserSafeAudioCodecs = map[string]bool{"aac": true, "mp3": true, "opus": true, "vorbis": true}
 )
 
-// classifyTranscode decide se a fonte precisa de transcode→HLS (true) ou pode
-// tocar direto, e o porquê. Navegador-agnóstico: os codecs/containers "unsafe"
-// falham em todos os browsers.
+// classifyTranscode decides whether the source needs transcode→HLS (true) or can
+// play directly, and why. Browser-agnostic: the "unsafe" codecs/containers fail
+// in every browser.
 func classifyTranscode(container, vcodec, acodec string) (bool, string) {
 	if container != "" && !browserSafeContainers[container] {
 		return true, "container=" + container
@@ -171,7 +171,7 @@ func ProbeLocal(ctx context.Context, path string) (ProbeResult, error) {
 }
 
 func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, error) {
-	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, "ffprobe",
 		ffHideBanner, ffLogLevel, "error",
 		"-of", "json",
@@ -197,8 +197,8 @@ type ffprobeStream struct {
 	CodecType   string            `json:"codec_type"`
 	CodecName   string            `json:"codec_name"`
 	Channels    int               `json:"channels"`
-	Width       int               `json:"width"`  // pixels; só em streams de vídeo (0 caso contrário)
-	Height      int               `json:"height"` // idem — fonte do ladder de variantes (HLS Phase 2)
+	Width       int               `json:"width"`  // pixels; video streams only (0 otherwise)
+	Height      int               `json:"height"` // same — source of the variant ladder (HLS Phase 2)
 	Tags        map[string]string `json:"tags"`
 	Disposition struct {
 		Default int `json:"default"`
@@ -258,8 +258,8 @@ func streamToTrack(st ffprobeStream) Track {
 	return t
 }
 
-// classifyStreams separa as faixas por tipo e captura o codec + dimensões do
-// primeiro stream de vídeo (ignora capa/thumbnail anexada depois).
+// classifyStreams separates tracks by type and captures the codec + dimensions of
+// the first video stream (ignores an attached cover/thumbnail later on).
 func classifyStreams(streams []ffprobeStream) (audio, subs []Track, videoCodec string, videoW, videoH int) {
 	audio, subs = []Track{}, []Track{}
 	for _, st := range streams {
@@ -282,7 +282,7 @@ func classifyStreams(streams []ffprobeStream) (audio, subs []Track, videoCodec s
 	return audio, subs, videoCodec, videoW, videoH
 }
 
-// defaultAudioCodec devolve o codec da faixa de áudio default (ou a primeira).
+// defaultAudioCodec returns the codec of the default audio track (or the first one).
 func defaultAudioCodec(audio []Track) string {
 	codec := ""
 	for _, a := range audio {
@@ -314,7 +314,7 @@ func parseProbeOutput(out []byte) (*ProbeResult, error) {
 			result.DurationSec = d
 		}
 	}
-	// Container = primeiro nome do format_name (ex: "matroska,webm" → "matroska").
+	// Container = first name in format_name (e.g. "matroska,webm" → "matroska").
 	if fn := parsed.Format.FormatName; fn != "" {
 		result.Container = strings.ToLower(strings.SplitN(fn, ",", 2)[0])
 	}
@@ -380,7 +380,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	bucket := atSeconds / 10 // quantize to 10s — keeps hover responsive without spamming ffmpeg
 	cacheDir := filepath.Join(s.cfg.DataDir, ".thumbs", hash.HexString(), fmt.Sprintf("%d", fileIdx))
 	cachePath := filepath.Join(cacheDir, fmt.Sprintf("%d.jpg", bucket))
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config
 	if data, err := os.ReadFile(cachePath); err == nil {
 		return data, true, nil
 	}
@@ -395,7 +395,7 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 
 	// -ss before -i is "fast seek" via container index; less accurate but much faster.
 	// We're only producing a preview tooltip image — pixel-accuracy is overkill.
-	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-ss", fmt.Sprintf("%d", bucket*10),
@@ -414,9 +414,9 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	if err != nil || len(out) == 0 {
 		return nil, false, nil
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(cacheDir, 0o755); err == nil {
-		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(cachePath, out, 0o644)
 	}
 	return out, false, nil
@@ -436,7 +436,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 	if _, err := os.Stat(emptyMarker); err == nil {
 		return nil, true, nil
 	}
-	// #nosec G304 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna
+	// #nosec G304 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config
 	if data, err := os.ReadFile(cachePath); err == nil {
 		return data, true, nil
 	}
@@ -453,7 +453,7 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 
 	// `-map 0:v -map -0:V` selects attached pictures only, excluding regular
 	// video streams (e.g. a music-video stream baked into the same file).
-	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", pi.input,
@@ -471,15 +471,15 @@ func (s *Streamer) ExtractArtwork(ctx context.Context, hash metainfo.Hash, fileI
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		// Negative-cache so we don't burn ffmpeg again next time.
-		// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+		// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 		_ = os.MkdirAll(cacheDir, 0o755)
-		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(emptyMarker, []byte{}, 0o644)
 		return nil, false, nil
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(cacheDir, 0o755); err == nil {
-		// #nosec G306 -- arquivo de midia/cache; 0644 intencional p/ leitura
+		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(cachePath, out, 0o644)
 	}
 	return out, false, nil
@@ -522,7 +522,7 @@ func (s *Streamer) ExtractSubtitle(ctx context.Context, hash metainfo.Hash, file
 		defer closeFn()
 	}
 
-	// #nosec G204 -- binario fixo/de config; valores de usuario sao operandos de -i ou inteiros; exec sem shell
+	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, ffBinary,
 		ffHideBanner, ffLogLevel, "error",
 		"-i", input,

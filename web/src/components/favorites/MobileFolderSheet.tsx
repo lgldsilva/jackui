@@ -32,8 +32,8 @@ export default function MobileFolderSheet(p: MobileFolderSheetProps) {
       icon={<Folder className="w-4 h-4 text-pink-400 flex-shrink-0" />}
       size="sm"
     >
-      {/* Criar/editar/excluir categorias direto no mobile (a sidebar com isso
-          é hidden md:block). */}
+      {/* Create/edit/delete categories right on mobile (the sidebar with that
+          is hidden md:block). */}
       <button
         onClick={p.onCreateRoot}
         className="w-full flex items-center justify-center gap-2 mb-2 px-3 min-h-[44px] rounded-lg text-sm bg-pink-500/15 text-pink-700 dark:text-pink-200 border border-pink-500/30 hover:bg-pink-500/25 transition-colors"
@@ -82,8 +82,8 @@ export default function MobileFolderSheet(p: MobileFolderSheetProps) {
               {folder.hidden && <EyeOff className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" aria-label={t('favorites.folderHiddenAria')} />}
               <span className="text-[10px] text-text-muted">{favs.filter(f => f.folderId === folder.id).length}</span>
             </button>
-            {/* Ações da categoria — ocultar / subpasta / renomear / excluir.
-                Pastas ocultas só aparecem aqui com o modo revelado ativo. */}
+            {/* Category actions — hide / subfolder / rename / delete.
+                Hidden folders only show up here with reveal mode active. */}
             <button onClick={() => p.onToggleHidden(folder.id, !folder.hidden)} title={folder.hidden ? t('favorites.showFolder') : t('favorites.hideFolder')} className="p-2 text-text-muted hover:text-amber-400 flex-shrink-0">
               {folder.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
             </button>

@@ -9,9 +9,9 @@
 //   1. randomUUID()      — native, secure contexts (best).
 //   2. getRandomValues() — STILL cryptographically strong and, unlike randomUUID,
 //                          available in insecure contexts too. We build a proper
-//                          RFC-4122 v4 UUID from it. Nunca caímos em Math.random()
-//                          (que é PRNG fraco) — getRandomValues existe desde IE11,
-//                          inclusive em contexto inseguro (HTTP de LAN).
+//                          RFC-4122 v4 UUID from it. We never fall back to Math.random()
+//                          (a weak PRNG) — getRandomValues has existed since IE11,
+//                          even in an insecure context (LAN HTTP).
 function uuidFromBytes(b: Uint8Array): string {
   b[6] = (b[6] & 0x0f) | 0x40 // version 4
   b[8] = (b[8] & 0x3f) | 0x80 // variant 10xx

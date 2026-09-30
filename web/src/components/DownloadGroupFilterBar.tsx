@@ -6,9 +6,9 @@ import type {
   GroupFileSortDir,
 } from '../lib/groupFileView'
 
-// Barra de filtro/ordenação DENTRO de um torrent multi-arquivo expandido. Só é
-// montada para grupos com 2+ arquivos (um arquivo único não tem o que ordenar).
-// Lógica pura mora em lib/groupFileView; aqui é só a UI dos controles.
+// Filter/sort bar WITHIN an expanded multi-file torrent. Only mounted
+// for groups with 2+ files (a single file has nothing to sort).
+// Pure logic lives in lib/groupFileView; here it's just the controls UI.
 export default function DownloadGroupFilterBar({
   counts, statusFilter, onStatusFilter, sortKey, sortDir, onSort,
 }: Readonly<{
@@ -52,7 +52,7 @@ export default function DownloadGroupFilterBar({
       </div>
 
       <span className="text-text-muted ml-auto">{t('downloads.groupFilter.sortLabel')}</span>
-      {/* Ordenação: clicar na chave ativa alterna a direção */}
+      {/* Sorting: clicking the active key flips the direction */}
       <div className="flex items-center gap-1">
         {sorts.map((s) => (
           <button

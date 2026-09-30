@@ -45,7 +45,7 @@ describe('groupRecommendations', () => {
 
   it('builds a human label from the source title', () => {
     const groups = groupRecommendations([mk(1, 'The Matrix')])
-    expect(groups[0].label).toBe('Porque você viu The Matrix')
+    expect(groups[0].label).toBe('Because you watched The Matrix')
   })
 
   it('is case-insensitive on the key but keeps the first-seen label casing', () => {
@@ -55,7 +55,7 @@ describe('groupRecommendations', () => {
     ])
     expect(groups).toHaveLength(1)
     expect(groups[0].key).toBe('because:matrix')
-    expect(groups[0].label).toBe('Porque você viu Matrix')
+    expect(groups[0].label).toBe('Because you watched Matrix')
     expect(ids(groups, 'because:matrix')).toEqual([1, 2])
   })
 

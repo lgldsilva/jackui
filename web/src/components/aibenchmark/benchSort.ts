@@ -18,12 +18,12 @@ export const BENCH_DESC_FIRST: readonly BenchSortKey[] = ['accuracy', 'score']
 // formatCost renders $/1M; small local-energy costs (cents) keep 3 decimals so
 // they don't round to "$0.00".
 export function formatCost(c?: number): string {
-  if (!c || c <= 0) return 'grátis'
+  if (!c || c <= 0) return 'free'
   const decimals = c < 0.1 ? 3 : 2
   return `$${c.toFixed(decimals)}/1M`
 }
 
-// A result is worth re-running ("Rodar faltantes") when it was left incomplete OR
+// A result is worth re-running ("Run missing") when it was left incomplete OR
 // failed with a rate limit — the latter also covers results saved before the
 // incomplete flag existed, so the button shows for pre-existing rate-limited rows.
 export function needsRerun(s: AISlotScore): boolean {

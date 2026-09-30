@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Start/build de sessão HLS (GetOrStart, buildSession, reserva de GPU) — extraído de hls.go.
+// HLS session start/build (GetOrStart, buildSession, GPU reservation) — extracted from hls.go.
 // GetOrStart returns an existing session keyed by opts.Key or starts a new one.
 // On new-session, ffmpeg begins encoding immediately; the caller should poll
 // for index.m3u8 to appear via WaitForMaster.
@@ -132,13 +132,13 @@ func startSourceServer(opts HLSStartOpts) (*http.Server, string, error) {
 	return srv, fmt.Sprintf("http://%s/source", listener.Addr().String()), nil
 }
 
-// sessionDir resolve o diretório de sessão sob baseDir. A chave deriva de
-// conteúdo do caller (infohash hex ou path local validado por ResolvePath),
-// mas um traversal aqui escaparia do baseDir — qualquer chave que tente é
-// rejeitada. É a barreira de path-injection das leituras de playlist/segmentos.
+// sessionDir resolves the session directory under baseDir. The key derives from
+// caller content (infohash hex or a local path validated by ResolvePath),
+// but a traversal here would escape baseDir — any key that tries is
+// rejected. It is the path-injection barrier for playlist/segment reads.
 func (m *HLSSessionManager) sessionDir(effKey string) (string, error) {
-	// Chaves legítimas são hex de infohash ou sufixos relativos — uma chave
-	// absoluta nunca é intencional e Join a absorveria como relativa.
+	// Legitimate keys are infohash hex or relative suffixes — an absolute key is
+	// never intentional and Join would absorb it as relative.
 	if effKey == "" || strings.HasPrefix(effKey, "/") || strings.HasPrefix(effKey, `\`) {
 		return "", fmt.Errorf("invalid HLS session key")
 	}
@@ -162,7 +162,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	if dirErr != nil {
 		return nil, dirErr
 	}
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir hls dir: %w", err)
 	}

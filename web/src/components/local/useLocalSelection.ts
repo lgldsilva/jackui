@@ -8,8 +8,8 @@ import { formatCount } from './entryFormat'
 
 type Setter = React.Dispatch<React.SetStateAction<string>>
 
-// Seleção múltipla / lote: modo de seleção, conjunto selecionado e as operações
-// em lote (apagar, promover). Sai do modo seleção ao trocar de mount/pasta.
+// Multi-selection / batch: selection mode, selected set and the batch
+// operations (delete, promote). Leaves selection mode when switching mount/folder.
 export function useLocalSelection(
   entries: LocalEntry[],
   visible: LocalEntry[],
@@ -26,8 +26,8 @@ export function useLocalSelection(
   const [batchRunning, setBatchRunning] = useState(false)
   const [batchMoveOpen, setBatchMoveOpen] = useState(false)
 
-  // Sair do modo seleção ao trocar de mount/pasta — evita lote acidental
-  // cross-folder (as APIs são scoped a mount+path relativo).
+  // Leave selection mode when switching mount/folder — avoids an accidental
+  // cross-folder batch (the APIs are scoped to a relative mount+path).
   useEffect(() => {
     setSelectMode(false)
     setSelected(new Set())
@@ -46,7 +46,7 @@ export function useLocalSelection(
     return next
   }), [])
   const enterSelect = useCallback((e: LocalEntry) => { setSelectMode(true); setSelected(new Set([e.path])) }, [])
-  // "Selecionar tudo" age sobre a lista visível (respeita filtro/busca atuais).
+  // "Select all" acts on the visible list (respects the current filter/search).
   const selectAllVisible = () => setSelected(new Set(visible.map((e) => e.path)))
 
   const runBatchDelete = async () => {
@@ -86,11 +86,11 @@ export function useLocalSelection(
     return out
   }
 
-  // Promover em lote = um único modal para TODOS os arquivos selecionados
-  // (destino + renomeação IA escolhidos uma vez, uma chamada só). Pastas
-  // selecionadas são varridas (localWalk, media_only) em seus arquivos de mídia
-  // ANTES de abrir o modal; seleção mista junta os arquivos soltos + os de
-  // dentro das pastas, deduplicados por path.
+  // Batch promote = a single modal for ALL the selected files
+  // (destination + AI rename chosen once, one call only). Selected folders
+  // are walked (localWalk, media_only) into their media files
+  // BEFORE opening the modal; mixed selection joins the loose files + the ones
+  // inside the folders, deduplicated by path.
   const runBatchPromote = async () => {
     const looseFiles = selectedEntries.filter((e) => !e.isDir)
     const dirs = selectedEntries.filter((e) => e.isDir)

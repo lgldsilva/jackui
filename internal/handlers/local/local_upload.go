@@ -15,7 +15,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
-// Upload de arquivos locais — extraído de local.go.
+// Local file upload — extracted from local.go.
 func LocalUpload(b *lb.Browser, maxUploadBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
@@ -33,8 +33,8 @@ func LocalUpload(b *lb.Browser, maxUploadBytes int64) gin.HandlerFunc {
 			return
 		}
 
-		// Teto de tamanho (anti disk-fill): MaxBytesReader corta a leitura do
-		// corpo inteiro (multipart incluso) antes de escrever no disco.
+		// Size ceiling (anti disk-fill): MaxBytesReader cuts reading the whole
+		// body (multipart included) before anything is written to disk.
 		if maxUploadBytes > 0 {
 			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBytes)
 		}
@@ -57,20 +57,20 @@ func LocalUpload(b *lb.Browser, maxUploadBytes int64) gin.HandlerFunc {
 	}
 }
 
-// streamUploadToDisk abre o arquivo enviado, garante o diretório de destino e
-// grava em disco com claim atômico (createUploadFile faz o auto-rename em
-// colisão). Em erro responde o JSON apropriado e retorna ok=false.
+// streamUploadToDisk opens the uploaded file, guarantees the destination directory
+// and writes to disk with an atomic claim (createUploadFile does the auto-rename on
+// collision). On error it responds with the appropriate JSON and returns ok=false.
 func streamUploadToDisk(c *gin.Context, fileHeader *multipart.FileHeader, absDir, absPath, filename string) (string, bool) {
 	srcFile, err := fileHeader.Open()
 	if err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "erro ao abrir arquivo enviado: "+err.Error())
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to open uploaded file: "+err.Error())
 		return "", false
 	}
 	defer srcFile.Close()
 
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(absDir, 0o755); err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "erro ao criar diretório: "+err.Error())
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to create directory: "+err.Error())
 		return "", false
 	}
 
@@ -82,12 +82,12 @@ func streamUploadToDisk(c *gin.Context, fileHeader *multipart.FileHeader, absDir
 	if _, err = io.Copy(dstFile, srcFile); err != nil {
 		_ = dstFile.Close()
 		_ = os.Remove(finalPath)
-		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "erro ao gravar arquivo: "+err.Error())
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to write file: "+err.Error())
 		return "", false
 	}
 	if err := dstFile.Close(); err != nil {
 		_ = os.Remove(finalPath)
-		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "erro ao finalizar arquivo: "+err.Error())
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to finalize file: "+err.Error())
 		return "", false
 	}
 	return filepath.Base(finalPath), true
@@ -110,14 +110,15 @@ func validateUpload(c *gin.Context, maxUploadBytes int64) (fileHeader *multipart
 	}
 
 	if !allowedUploadExts[strings.ToLower(filepath.Ext(filename))] {
-		httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "tipo de arquivo não permitido (apenas vídeo/legenda)")
+		httpshared.RespondErrorMessage(c, http.StatusUnsupportedMediaType, "file type not allowed (video/subtitle only)")
 		return nil, "", false
 	}
 
-	// Rejeição amigável e barata antes de ler o corpo (o MaxBytesReader
-	// acima é a garantia dura; isto evita gravar parcial p/ um Size já grande).
+	// Friendly, cheap rejection before reading the body (the MaxBytesReader
+	// above is the hard guarantee; this avoids writing a partial for an
+	// already-too-large Size).
 	if maxUploadBytes > 0 && fileHeader.Size > maxUploadBytes {
-		httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("arquivo excede o limite de %d MB", maxUploadBytes/(1<<20)))
+		httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds the %d MB limit", maxUploadBytes/(1<<20)))
 		return nil, "", false
 	}
 
@@ -131,13 +132,13 @@ func resolveUploadDest(c *gin.Context, b *lb.Browser, mount, path, filename stri
 	scoped := b.UserScopedPath(mount, path, scopeUser(c))
 	absDir, err := b.ResolvePath(mount, scoped)
 	if err != nil {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "caminho de destino inválido: "+err.Error())
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid destination path: "+err.Error())
 		return "", "", false
 	}
 
 	absPath = filepath.Join(absDir, filename)
 	if !strings.HasPrefix(absPath, absDir) {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "path traversal detectado")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "path traversal detected")
 		return "", "", false
 	}
 
@@ -154,17 +155,17 @@ func createUploadFile(c *gin.Context, absDir, absPath, filename string) (dstFile
 	stem := strings.TrimSuffix(filename, ext)
 	finalPath = absPath
 	for i := 1; ; i++ {
-		// #nosec G304 G302 -- path validado por Browser.ResolvePath (guarda traversal/symlink) ou derivado de hash/config interna; arquivo de midia; 0644 intencional p/ leitura
+		// #nosec G304 G302 -- path validated by Browser.ResolvePath (traversal/symlink guard) or derived from internal hash/config; media file; 0644 intentional for readability
 		f, err := os.OpenFile(finalPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644)
 		if err == nil {
 			return f, finalPath, true
 		}
 		if !os.IsExist(err) {
-			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "erro ao criar arquivo no servidor: "+err.Error())
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to create file on server: "+err.Error())
 			return nil, "", false
 		}
 		if i > 9999 {
-			httpshared.RespondErrorMessage(c, http.StatusConflict, "muitos arquivos com o mesmo nome neste diretório")
+			httpshared.RespondErrorMessage(c, http.StatusConflict, "too many files with the same name in this directory")
 			return nil, "", false
 		}
 		finalPath = filepath.Join(absDir, fmt.Sprintf("%s (%d)%s", stem, i, ext))

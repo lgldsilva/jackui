@@ -10,20 +10,20 @@ import { formatRate } from '../../lib/format'
 export function buildErrorInfo(peers: number, starving: boolean, info: TorrentInfo | null): { title: string; detail: string } {
   if (peers === 0) {
     return {
-      title: 'Sem seeds disponíveis',
-      detail: 'Ninguém está compartilhando este torrent agora. Não há de onde baixar os dados para reproduzir.',
+      title: 'No seeds available',
+      detail: 'Nobody is sharing this torrent right now. There is nowhere to download the data to play it.',
     }
   }
   if (starving) {
     const suffix = peers === 1 ? '' : 's'
     return {
-      title: 'Download muito lento para streaming',
-      detail: `Baixando a ${formatRate(info?.downRate ?? 0)} de ${peers} peer${suffix} — lento demais para assistir em tempo real (4K precisa de ~3,7 MB/s). Baixe o arquivo completo antes de assistir.`,
+      title: 'Download too slow for streaming',
+      detail: `Downloading at ${formatRate(info?.downRate ?? 0)} from ${peers} peer${suffix} — too slow to watch in real time (4K needs ~3.7 MB/s). Download the full file before watching.`,
     }
   }
   return {
-    title: 'Formato não suportado pelo browser',
-    detail: 'Codec ou container não compatível (provavelmente HEVC/x265 ou MKV). Use o link "Abrir no VLC" abaixo para reproduzir local.',
+    title: 'Format not supported by the browser',
+    detail: 'Incompatible codec or container (probably HEVC/x265 or MKV). Use the "Open in VLC" link below to play locally.',
   }
 }
 

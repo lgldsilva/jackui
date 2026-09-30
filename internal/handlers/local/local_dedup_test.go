@@ -176,3 +176,38 @@ func TestGroupBySize(t *testing.T) {
 		t.Errorf("groups = %v", groups)
 	}
 }
+
+// deleteDuplicates reports (never panics on) every rejected path: escapes and
+// the mount root are "access denied", directories and missing files are "not a
+// file"; only real files inside the base are removed.
+func TestDeleteDuplicates_RejectsBadPaths(t *testing.T) {
+	b, dir := testDedupBrowser(t)
+	s := streamer.NewForTesting()
+	writeFile(t, filepath.Join(dir, "dup.txt"), []byte("x"))
+	if err := os.MkdirAll(filepath.Join(dir, "folder"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	baseAbs, _ := filepath.Abs(dir)
+
+	deleted, errs := deleteDuplicates(b, nil, s, "Downloads", baseAbs, []string{
+		"../escape.txt", // ResolvePath rejects the traversal
+		"",              // resolves to the mount root itself
+		"folder",        // a directory
+		"missing.txt",   // stat fails
+		"dup.txt",       // the only legit target
+	})
+	if deleted != 1 {
+		t.Errorf("deleted = %d, want 1", deleted)
+	}
+	if len(errs) != 4 {
+		t.Fatalf("errs = %d %v, want 4", len(errs), errs)
+	}
+	for _, want := range []string{"../escape.txt: access denied", ": access denied", "folder: not a file", "missing.txt: not a file"} {
+		if !strings.Contains(strings.Join(errs, "\n"), want) {
+			t.Errorf("errs %v missing %q", errs, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "dup.txt")); !os.IsNotExist(err) {
+		t.Errorf("dup.txt should have been removed, stat err=%v", err)
+	}
+}

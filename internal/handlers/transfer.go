@@ -33,7 +33,7 @@ func TransfersCancel(tr *transfer.Tracker) gin.HandlerFunc {
 		id := c.Param("id")
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if id == "" || !tr.Cancel(id, userID, isAdmin) {
-			httpshared.RespondErrorMessage(c, http.StatusNotFound, "transferência não encontrada")
+			httpshared.RespondErrorMessage(c, http.StatusNotFound, "transfer not found")
 			return
 		}
 		c.Status(http.StatusNoContent)

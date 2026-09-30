@@ -25,9 +25,9 @@ describe('countTorrents', () => {
     expect(countTorrents(rows)).toBe(3)
   })
 
-  it('linhas sem infoHash (pré-metadata) contam individualmente', () => {
+  it('rows without infoHash (pre-metadata) count individually', () => {
     const rows = [dl({ id: 1, infoHash: '' }), dl({ id: 2, infoHash: '' }), dl({ id: 3, infoHash: 'x' })]
-    expect(countTorrents(rows)).toBe(3) // 2 hashless distintas + 1 com hash
+    expect(countTorrents(rows)).toBe(3) // 2 distinct hashless + 1 with hash
   })
 
   it('lista vazia = 0', () => {

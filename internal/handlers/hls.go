@@ -28,12 +28,12 @@ type hlsCtx struct {
 	store   *downloads.Store
 	h       metainfo.Hash
 	fileIdx int
-	// variant é a rung do ladder ABR que ESTA sessão codifica (HLS master, Phase
-	// 2). Zero-value (Height 0) = single-variant legado; o handler da variante
-	// (v/:variant) resolve srcHeight→ladder e popula isto antes de startHLSSession.
+	// variant is the ABR ladder rung THIS session encodes (HLS master, Phase
+	// 2). Zero-value (Height 0) = legacy single-variant; the variant handler
+	// (v/:variant) resolves srcHeight→ladder and populates this before startHLSSession.
 	variant transcode.Variant
-	// mediaRenditions liga as renditions EXT-X-MEDIA (áudio/legenda) no master
-	// (config JACKUI_HLS_MEDIA_RENDITIONS). false = comportamento M2a.
+	// mediaRenditions wires the EXT-X-MEDIA renditions (audio/subtitle) into the
+	// master (config JACKUI_HLS_MEDIA_RENDITIONS). false = M2a behavior.
 	mediaRenditions bool
 }
 
@@ -68,11 +68,11 @@ func mediaSegQueryWithPlayback(token string, nativeHLS bool, playback string) st
 	return q
 }
 
-// withSegAudio anexa `audio=<n>` a cada linha de SEGMENTO da playlist quando o
-// cliente escolheu uma faixa de áudio. Assim as requisições de segmento carregam
-// a faixa e batem na MESMA sessão (keyed por áudio) que o master — senão o
-// segmento cairia na sessão default. Feito por pós-processamento pra não alterar
-// as assinaturas (testadas) de mediaSegQuery/buildVODPlaylist.
+// withSegAudio appends `audio=<n>` to each SEGMENT line of the playlist when the
+// client picked an audio track. That way segment requests carry the track and hit
+// the SAME session (keyed by audio) as the master — otherwise the segment would
+// fall into the default session. Done via post-processing so the (tested)
+// signatures of mediaSegQuery/buildVODPlaylist stay unchanged.
 func withSegAudio(data []byte, audio string) []byte {
 	if audio == "" {
 		return data
@@ -183,13 +183,13 @@ func serveHLSMediaPlaylist(hc *hlsCtx) {
 	serveHLSPlaylist(hc.c, sess)
 }
 
-// hlsSessionKey separa sessões HLS por VARIANTE (rung do ladder ABR) e por faixa
-// de áudio escolhida. Cada dimensão que muda o transcode entra na chave → Dir/
-// segmentos próprios (o EffectiveKey ainda anexa -vod/-evt). Sem a faixa, trocar
-// o áudio reusava a sessão em cache (faixa antiga). variant/audioTrack < 0 =
-// dimensão ausente (nenhum sufixo) → a chave single-variant legada permanece
-// idêntica. Master e segmentos DEVEM derivar a MESMA chave (o segmento carrega
-// ?audio= e a variante no path, e native_hls, pra reconstruir o EffectiveKey).
+// hlsSessionKey separates HLS sessions by VARIANT (ABR ladder rung) and by the
+// chosen audio track. Every dimension that changes the transcode goes into the
+// key → its own Dir/segments (EffectiveKey still appends -vod/-evt). Without the
+// track, switching audio reused the cached session (old track). variant/audioTrack < 0 =
+// missing dimension (no suffix) → the legacy single-variant key stays
+// identical. Master and segments MUST derive the SAME key (the segment carries
+// ?audio= and the variant in the path, plus native_hls, to rebuild the EffectiveKey).
 func hlsSessionKey(h metainfo.Hash, fileIdx, variant, audioTrack int) string {
 	k := fmt.Sprintf("%s-%d", h.HexString(), fileIdx)
 	if variant >= 0 {
@@ -201,28 +201,28 @@ func hlsSessionKey(h metainfo.Hash, fileIdx, variant, audioTrack int) string {
 	return k
 }
 
-// hlsVariantParam lê o índice da variante do path (`v/:variant/...`); -1 quando
-// ausente (rota legada single-variant) ou inválido.
+// hlsVariantParam reads the variant index from the path (`v/:variant/...`); -1 when
+// missing (legacy single-variant route) or invalid.
 func hlsVariantParam(c *gin.Context) int {
 	return httpshared.ParseIntOr(c.Param("variant"), -1)
 }
 
-// hlsAudioTrackParam lê o índice ABSOLUTO da faixa de uma rendition audio-only
-// do path (`a/:track/...`); -1 quando ausente.
+// hlsAudioTrackParam reads the ABSOLUTE track index of an audio-only rendition
+// from the path (`a/:track/...`); -1 when missing.
 func hlsAudioTrackParam(c *gin.Context) int {
 	return httpshared.ParseIntOr(c.Param("track"), -1)
 }
 
-// hlsAudioOnlyKey é a chave de uma sessão audio-only (rendition EXT-X-MEDIA
-// TYPE=AUDIO alternativa): `{hash}-{file}-ao{track}`. Prefixo `-ao` distinto do
-// `-a` do remux AV legado pra NÃO colidir Dir/encodeSpec.
+// hlsAudioOnlyKey is the key of an audio-only session (standalone EXT-X-MEDIA
+// TYPE=AUDIO rendition): `{hash}-{file}-ao{track}`. The distinct `-ao` prefix
+// (vs the legacy AV remux `-a`) avoids Dir/encodeSpec collisions.
 func hlsAudioOnlyKey(h metainfo.Hash, fileIdx, track int) string {
 	return fmt.Sprintf("%s-%d-ao%d", h.HexString(), fileIdx, track)
 }
 
-// hlsSessionKeyFromReq deriva a chave do request: rendition audio-only
-// (`a/:track`) → -ao{track}; senão o path de vídeo (-v{variant}[-a{audio}]).
-// Master, playlist e segmentos DEVEM usar esta MESMA função pra bater o Dir.
+// hlsSessionKeyFromReq derives the key from the request: audio-only rendition
+// (`a/:track`) → -ao{track}; otherwise the video path (-v{variant}[-a{audio}]).
+// Master, playlist and segments MUST use this SAME function to match the Dir.
 func hlsSessionKeyFromReq(c *gin.Context, h metainfo.Hash, fileIdx int) string {
 	var key string
 	if t := hlsAudioTrackParam(c); t >= 0 {
@@ -248,7 +248,7 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 		KnownDurationSec: pickKnownDuration(probeSource(hc)),
 	}
 	if t := hlsAudioTrackParam(hc.c); t >= 0 {
-		// Rendition audio-only (a/:track): sessão só-áudio da faixa t, sem vídeo.
+		// Audio-only rendition (a/:track): audio-only session for track t, no video.
 		opts.AudioOnly = true
 		opts.AudioTrack = t
 	} else {
@@ -320,12 +320,12 @@ func StreamHLSSegment(s *streamer.Streamer, mgr *transcode.HLSSessionManager, st
 	}
 }
 
-// resolveHLSSession busca a sessão ativa; se ela sumiu (reapada/fechada),
-// RESSUSCITA-A a partir do segmento pedido em vez de retornar 404. Sem isso, o
-// Safari (VOD, playlist estática) responde ao 404 percorrendo a playlist INTEIRA
-// em 404 — um burst de centenas de requisições — antes de refetchar a playlist.
-// Respawnar no servidor torna a recuperação transparente: o segmento pedido é
-// gerado e servido (200) na própria requisição.
+// resolveHLSSession looks up the active session; if it is gone (reaped/closed),
+// RESURRECTS it from the requested segment instead of returning 404. Without this,
+// Safari (VOD, static playlist) responds to the 404 by walking the ENTIRE playlist
+// into 404s — a burst of hundreds of requests — before refetching the playlist.
+// Respawning server-side makes the recovery transparent: the requested segment is
+// generated and served (200) within the same request.
 func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSSessionManager, store *downloads.Store, h metainfo.Hash, fileIdx int, segName string) *transcode.HLSSession {
 	// EffectiveKey must match the one the master used — hence native_hls is
 	// carried on every segment URL (see mediaSegQuery).
@@ -333,16 +333,16 @@ func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSS
 	if sess, err := getSession(mgr, key); err == nil {
 		return sess
 	}
-	// Sem streamer (caminho degradado/teste) não há como respawnar → 404 e o
-	// cliente refetcha a playlist.
+	// Without a streamer (degraded path/test) there is no way to respawn → 404 and
+	// the client refetches the playlist.
 	if s == nil {
 		httpshared.RespondErrorMessage(c, http.StatusNotFound, "session not active — request the playlist again")
 		return nil
 	}
-	// Sessão ausente → respawn. resolveTranscodeSource resolve do store ou do
-	// torrent (e já responde 404 se a fonte sumiu de vez). resolveVariant fixa a
-	// rung a partir de v/:variant pra que o respawn de um segmento de variante
-	// re-encode na RESOLUÇÃO certa (senão codificaria 1080 default no dir -vN).
+	// Missing session → respawn. resolveTranscodeSource resolves from the store or
+	// the torrent (and already answers 404 if the source is gone for good). resolveVariant
+	// pins the rung from v/:variant so that respawning a variant segment re-encodes
+	// at the RIGHT resolution (otherwise it would encode default 1080 in the -vN dir).
 	hc := &hlsCtx{c: c, s: s, mgr: mgr, store: store, h: h, fileIdx: fileIdx}
 	if !resolveVariant(hc) {
 		httpshared.RespondErrorMessage(c, http.StatusNotFound, "variant out of range")
@@ -356,8 +356,9 @@ func resolveHLSSession(c *gin.Context, s *streamer.Streamer, mgr *transcode.HLSS
 	if err != nil {
 		return nil
 	}
-	// O respawn começa no segmento 0; reposiciona o encoder no segmento pedido
-	// pra não obrigar o player a esperar o transcode chegar lá sequencialmente.
+	// The respawn starts at segment 0; repositions the encoder at the requested
+	// segment so the player doesn't have to wait for the transcode to get there
+	// sequentially.
 	if idx, ok := transcode.ParseSegIndex(segName); ok && idx > 0 && sess.IsVOD() {
 		_ = sess.RestartAt(idx)
 	}

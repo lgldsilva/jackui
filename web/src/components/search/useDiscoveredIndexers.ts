@@ -3,10 +3,10 @@ import type { Indexer } from '../../api/client'
 import { load, save } from '../../lib/storage'
 import type { TabState } from '../../lib/searchTabs'
 
-// Coleta e persiste indexadores autodescobertos a partir dos resultados de busca
-// e devolve a lista unificada (configurados + descobertos, deduplicada por nome).
-// Extraído do SearchPage (god-file): mantém o estado + os dois effects + o memo
-// num só lugar, recebendo as abas e os indexadores configurados por parâmetro.
+// Collects and persists auto-discovered indexers from the search results
+// and returns the unified list (configured + discovered, deduplicated by name).
+// Extracted from SearchPage (god-file): keeps the state + the two effects + the memo
+// in one place, receiving the tabs and configured indexers as parameters.
 export function useDiscoveredIndexers(tabs: TabState[], indexers: Indexer[]): Indexer[] {
   const [discoveredIndexers, setDiscoveredIndexers] = useState<Indexer[]>([])
 

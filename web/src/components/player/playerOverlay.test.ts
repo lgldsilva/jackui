@@ -11,31 +11,31 @@ const base = {
 }
 
 describe('shouldShowStartOverlay', () => {
-  it('mostra na abertura fria (nada tocou/bufferizou)', () => {
+  it('shows on cold open (nothing played/buffered yet)', () => {
     expect(shouldShowStartOverlay(base)).toBe(true)
   })
 
-  it('NÃO mostra em warm switch (troca de faixa)', () => {
+  it('does NOT show on warm switch (track change)', () => {
     expect(shouldShowStartOverlay({ ...base, suppressStartOverlay: true })).toBe(false)
   })
 
-  it('NÃO mostra quando o motor gapless está ativo', () => {
+  it('does NOT show when the gapless engine is active', () => {
     expect(shouldShowStartOverlay({ ...base, engineActive: true })).toBe(false)
   })
 
-  it('NÃO mostra em erro de mídia', () => {
+  it('does NOT show on media error', () => {
     expect(shouldShowStartOverlay({ ...base, videoError: true })).toBe(false)
   })
 
-  it('NÃO mostra depois que algo já tocou (currentTime > 0)', () => {
+  it('does NOT show once something has played (currentTime > 0)', () => {
     expect(shouldShowStartOverlay({ ...base, currentTime: 12 })).toBe(false)
   })
 
-  it('NÃO mostra quando já há buffer à frente', () => {
+  it('does NOT show when there is already buffer ahead', () => {
     expect(shouldShowStartOverlay({ ...base, bufferedEnd: 5 })).toBe(false)
   })
 
-  it('NÃO mostra o spinner no iOS-áudio (dá lugar ao overlay "Tocar")', () => {
+  it('does NOT show the spinner on iOS-audio (the "Play" overlay takes over)', () => {
     expect(shouldShowStartOverlay({ ...base, disableNativeAutoplay: true })).toBe(false)
   })
 })
@@ -49,23 +49,23 @@ const audioBase = {
 }
 
 describe('shouldShowStartAudioOverlay', () => {
-  it('mostra no iOS-áudio antes do tap (faixa aberta, parada)', () => {
+  it('shows on iOS-audio before the tap (track opened, paused)', () => {
     expect(shouldShowStartAudioOverlay(audioBase)).toBe(true)
   })
 
-  it('NÃO mostra fora do iOS-áudio', () => {
+  it('does NOT show outside iOS-audio', () => {
     expect(shouldShowStartAudioOverlay({ ...audioBase, disableNativeAutoplay: false })).toBe(false)
   })
 
-  it('NÃO mostra depois de dispensado (usuário tocou)', () => {
+  it('does NOT show once dismissed (user tapped)', () => {
     expect(shouldShowStartAudioOverlay({ ...audioBase, startOverlayDismissed: true })).toBe(false)
   })
 
-  it('NÃO mostra quando já tocou (currentTime > 0)', () => {
+  it('does NOT show once it has played (currentTime > 0)', () => {
     expect(shouldShowStartAudioOverlay({ ...audioBase, currentTime: 8 })).toBe(false)
   })
 
-  it('NÃO mostra sobre o prompt de resume nem em erro', () => {
+  it('does NOT show over the resume prompt or on error', () => {
     expect(shouldShowStartAudioOverlay({ ...audioBase, showResumePrompt: true })).toBe(false)
     expect(shouldShowStartAudioOverlay({ ...audioBase, videoError: true })).toBe(false)
   })

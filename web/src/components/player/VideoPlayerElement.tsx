@@ -19,33 +19,33 @@ import type { MediaChapter } from '../../api/stream-types'
 type VideoPlayerElementProps = {
   readonly videoRef: React.RefObject<HTMLVideoElement | null>
   readonly streamURL: string
-  // engineActive: o motor gapless assumiu o áudio (toca em <audio> próprios). O
-  // <video> então fica SEM src e mudo (a capa continua), pra não dobrar o áudio.
+  // engineActive: the gapless engine took over the audio (plays on its own <audio> elements). The
+  // <video> then stays WITHOUT src and muted (the cover remains), so the audio isn't doubled.
   readonly engineActive?: boolean
-  // disableNativeAutoplay: iOS-áudio AINDA não iniciado. A Apple proíbe play() de
-  // mídia-com-áudio fora de um gesto, então NÃO disparamos autoplay/nudge não-gesto
-  // (travariam o elemento em readyState 1, loop de AbortError). Mostramos o overlay
-  // "Tocar"; o tap inicia. Vira false após o 1º play (blessed) → auto-avanço.
+  // disableNativeAutoplay: iOS-audio NOT yet started. Apple forbids play() of
+  // audio-bearing media outside a gesture, so we do NOT fire non-gesture autoplay/nudge
+  // (it would wedge the element at readyState 1, AbortError loop). We show the
+  // "Play" overlay; the tap starts it. Flips false after the 1st play (blessed) → auto-advance.
   readonly disableNativeAutoplay?: boolean
-  // onPlaybackStarted: disparado no 1º evento 'playing' do elemento. No iOS marca o
-  // "blessed" (usuário iniciou via gesto) → libera o auto-avanço das próximas faixas.
+  // onPlaybackStarted: fired on the element's 1st 'playing' event. On iOS it marks
+  // "blessed" (user started via gesture) → unlocks auto-advance for the following tracks.
   readonly onPlaybackStarted?: () => void
-  // suppressStartOverlay: já houve uma faixa nesta instância (troca de faixa de
-  // música, não abertura fria). Suprime o spinner de "carregando" no início da
-  // nova faixa — a capa/seekbar continuam; sem isso o spinner piscava a cada troca.
+  // suppressStartOverlay: there was already a track in this instance (music track
+  // switch, not a cold open). Suppresses the "loading" spinner at the start of the
+  // new track — the cover/seekbar stay; without this the spinner flashed on every switch.
   readonly suppressStartOverlay?: boolean
   readonly audioMode: boolean
   readonly subtitleVttURL: string
-  // Fase 8 (HLS master multi-áudio): índice ABSOLUTO da faixa escolhida via troca
-  // SEAMLESS (null = default). Aplicado por hls.audioTrack / video.audioTracks sem
-  // recriar o player. Só tem efeito quando o master expõe >1 rendition; senão a
-  // troca vai pelo caminho legado ?audio=N (streamURL) e este fica null.
+  // Phase 8 (multi-audio HLS master): ABSOLUTE index of the track chosen via the
+  // SEAMLESS switch (null = default). Applied by hls.audioTrack / video.audioTracks without
+  // recreating the player. Only takes effect when the master exposes >1 rendition; otherwise
+  // the switch goes through the legacy ?audio=N path (streamURL) and this stays null.
   readonly seamlessAudioIndex?: number | null
-  // probeAudioTracks: faixas do probe (em ordem) p/ mapear índice absoluto →
-  // posição na lista de renditions do hls.js/WebKit. Ver hlsAudioTracks.ts.
+  // probeAudioTracks: probe tracks (in order) to map absolute index →
+  // position in the hls.js/WebKit rendition list. See hlsAudioTracks.ts.
   readonly probeAudioTracks?: readonly { index: number }[]
-  // onHlsAudioCount reporta quantas faixas de áudio a engine expôs (hls.js ou
-  // AudioTrackList nativa) p/ o pai decidir seamless × reload. 0 quando não há HLS.
+  // onHlsAudioCount reports how many audio tracks the engine exposed (hls.js or
+  // native AudioTrackList) so the parent can decide seamless × reload. 0 when there's no HLS.
   readonly onHlsAudioCount?: (n: number) => void
   readonly videoError: boolean
   readonly serverReady: boolean
@@ -130,31 +130,31 @@ function AudioCoverArt({ audioMode, info, selectedFile, mediaToken }: {
   )
 }
 
-// shouldAttachHlsJs: usar hls.js (MSE) pra este src? Só pra HLS (.m3u8) em browser
-// que NÃO toca HLS nativo (Chrome/Firefox/Edge) e que suporta MSE. Safari/iOS
-// tocam o .m3u8 nativo; fontes diretas vão direto no <video src>. Extraído pra
-// fora do componente pra manter a complexidade cognitiva do VideoPlayerElement
-// bem abaixo do gate (a cadeia && pesava no corpo do componente).
+// shouldAttachHlsJs: use hls.js (MSE) for this src? Only for HLS (.m3u8) in a browser
+// that does NOT play HLS natively (Chrome/Firefox/Edge) and supports MSE. Safari/iOS
+// play the .m3u8 natively; direct sources go straight into <video src>. Extracted out
+// of the component to keep VideoPlayerElement's cognitive complexity
+// well below the gate (the && chain weighed on the component body).
 function shouldAttachHlsJs(streamURL: string): boolean {
   return !!streamURL && streamURL.includes('.m3u8') && !canPlayNativeHls() && Hls.isSupported()
 }
 
-// audioPreload: iOS/Safari (WebKit) não busca dados de áudio direct-play sem gesto
-// quando preload é o default mobile ('metadata') → o evento 'canplay' nunca dispara
-// e o autoplay (preso a onCanPlay) trava o elemento em readyState 2. 'auto' no caso
-// WebKit-áudio força o fetch. Vídeo e Chrome/Firefox mantêm o default. (Helper fora
-// do componente p/ manter a complexidade cognitiva do VideoPlayerElement no limite.)
+// audioPreload: iOS/Safari (WebKit) doesn't fetch direct-play audio data without a gesture
+// when preload is the mobile default ('metadata') → the 'canplay' event never fires
+// and autoplay (tied to onCanPlay) wedges the element at readyState 2. 'auto' in the
+// WebKit-audio case forces the fetch. Video and Chrome/Firefox keep the default. (Helper outside
+// the component to keep VideoPlayerElement's cognitive complexity at the limit.)
 function audioPreload(audioMode: boolean): 'auto' | undefined {
   return audioMode && canPlayNativeHls() ? 'auto' : undefined
 }
 
-// handleMetaLoaded: 'loadedmetadata' SEMPRE dispara (iOS incluso). No WebKit
-// (iOS/Safari) o vídeo direct PARADO estaciona em readyState 2 e o 'canplay'
-// (readyState ≥3) NUNCA chega → o autoplay nunca era acionado e o vídeo "carregava
-// mas não tocava" (confirmado nos logs: loadedmetadata → stalled rs2 → sem 'autoplay
-// try'). Chamamos o kick aqui (= onVideoCanPlay, idempotente via autoplayTriedRef +
-// seek/resume): o play()→fallback-mudo destrava o rs2. Desktop/Chrome seguem no
-// 'canplay' (que lá dispara normal, então o kick aqui é no-op idempotente).
+// handleMetaLoaded: 'loadedmetadata' ALWAYS fires (iOS included). On WebKit
+// (iOS/Safari) a stalled direct video parks at readyState 2 and 'canplay'
+// (readyState ≥3) NEVER arrives → autoplay was never triggered and the video "loaded
+// but didn't play" (confirmed in the logs: loadedmetadata → stalled rs2 → no 'autoplay
+// try'). We call the kick here (= onVideoCanPlay, idempotent via autoplayTriedRef +
+// seek/resume): the play()→muted-fallback unlocks rs2. Desktop/Chrome keep going on
+// 'canplay' (which fires normally there, so the kick here is an idempotent no-op).
 function handleMetaLoaded(v: HTMLVideoElement, onTimeUpdate: () => void, kickAutoplay: () => void, disableNativeAutoplay: boolean) {
   clientLog('info', 'player', 'loadedmetadata', { duration: v.duration, videoWidth: v.videoWidth, videoHeight: v.videoHeight, currentSrc: v.currentSrc })
   onTimeUpdate()
@@ -163,7 +163,7 @@ function handleMetaLoaded(v: HTMLVideoElement, onTimeUpdate: () => void, kickAut
 
 function playerShellClass(audioMode: boolean): string {
   const base = 'bg-black relative w-full mx-auto flex items-center justify-center '
-  // Áudio: capa contida (max-w-xl). Vídeo: aspect 16:9 via style.
+  // Audio: contained cover (max-w-xl). Video: 16:9 aspect via style.
   return base + (audioMode ? 'h-44 sm:h-56 lg:h-72 xl:h-80 max-w-xl' : 'max-h-[70dvh] sm:max-h-[58dvh]')
 }
 
@@ -179,8 +179,8 @@ function attachHlsJs(
   hlsRef: React.MutableRefObject<Hls | null>,
   onHls: (hls: Hls | null) => void,
 ): () => void {
-  // Buffer dianteiro modesto: transcode on-demand + seek-restart — pedir
-  // fragmentos longe do transcoder força restart caro.
+  // Modest forward buffer: on-demand transcode + seek-restart — requesting
+  // fragments far from the transcoder forces an expensive restart.
   const hls = new Hls({
     enableWorker: true,
     lowLatencyMode: false,
@@ -259,8 +259,8 @@ export function VideoPlayerElement({
   onNext,
 }: VideoPlayerElementProps) {
   const { t } = useTranslation()
-  // HLS (.m3u8) toca nativo só no WebKit. Chrome/Firefox/Edge usam hls.js.
-  // Com motor gapless o <video> fica sem src → nunca anexa hls.js.
+  // HLS (.m3u8) plays natively only on WebKit. Chrome/Firefox/Edge use hls.js.
+  // With the gapless engine the <video> has no src → hls.js never attaches.
   const useHlsJs = !engineActive && shouldAttachHlsJs(streamURL)
   const hlsRef = useRef<Hls | null>(null)
   const [hlsInstance, setHlsInstance] = useState<Hls | null>(null)
@@ -296,10 +296,10 @@ export function VideoPlayerElement({
     const v = videoRef.current
     if (!v) return
     setStartOverlayDismissed(true)
-    clientLog('info', 'player', 'tap "Tocar" (gesto) → src+play()', { readyState: v.readyState })
+    clientLog('info', 'player', 'tap "Play" (gesture) → src+play()', { readyState: v.readyState })
     if (streamURL) { attachedSrcRef.current = streamURL; v.src = streamURL }
     v.play()
-      .then(() => clientLog('info', 'player', 'tap-to-play ok (som)', { readyState: v.readyState }))
+      .then(() => clientLog('info', 'player', 'tap-to-play ok (sound)', { readyState: v.readyState }))
       .catch((e) => {
         setStartOverlayDismissed(false)
         clientLog('warn', 'player', 'tap-to-play falhou', { name: (e as { name?: string })?.name, err: String(e) })

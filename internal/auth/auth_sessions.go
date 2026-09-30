@@ -55,13 +55,13 @@ func (s *Store) ValidateRefreshToken(plain string) (*User, bool, error) {
 		hash,
 	).Scan(&userID, &exp, &remember)
 	if err == sql.ErrNoRows {
-		return nil, false, errors.New("refresh token inválido")
+		return nil, false, errors.New("invalid refresh token")
 	}
 	if err != nil {
 		return nil, false, err
 	}
 	if time.Now().UTC().After(exp) {
-		return nil, false, errors.New("refresh token expirado")
+		return nil, false, errors.New("refresh token expired")
 	}
 	u, err := s.GetUserByID(userID)
 	return u, remember == 1, err

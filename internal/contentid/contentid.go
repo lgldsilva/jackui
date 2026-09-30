@@ -19,7 +19,7 @@ package contentid
 
 import (
 	"bytes"
-	// #nosec G505 -- import de sha1 p/ hash de pieces do BitTorrent v1 (protocolo), nao cripto de seguranca
+	// #nosec G505 -- sha1 import for BitTorrent v1 piece hashing (protocol), not security crypto
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
@@ -38,7 +38,7 @@ const v1PieceHashLen = sha1.Size // 20
 // the file's declared length; it is folded into the hash so length alone always
 // distinguishes, and it bounds the head/tail reads.
 func Fingerprint(abs string, size int64) (string, error) {
-	// #nosec G304 -- path fornecido ja resolvido/validado pelo caller (Browser.ResolvePath); biblioteca de content-id
+	// #nosec G304 -- path already resolved/validated by the caller (Browser.ResolvePath); content-id library
 	f, err := os.Open(abs)
 	if err != nil {
 		return "", err
@@ -151,7 +151,7 @@ func VerifyInteriorPieces(ra io.ReaderAt, pc PieceCheck) (interior, matched int,
 		if rerr := readAtFull(ra, buf, off); rerr != nil {
 			return interior, matched, rerr
 		}
-		// #nosec G401 -- sha1 e o hash de pieces do BitTorrent v1 (protocolo), nao uso criptografico de seguranca
+		// #nosec G401 -- sha1 is the BitTorrent v1 piece hash (protocol), not a security-crypto use
 		sum := sha1.Sum(buf)
 		if bytes.Equal(sum[:], pc.PieceHashes[i]) {
 			matched++
@@ -170,7 +170,7 @@ func CertainMatch(interior, matched int) bool {
 // torrent file described by pc, verifying every interior piece. A missing or
 // unreadable file, or one with no interior pieces, is not a match.
 func FileMatchesPieces(path string, pc PieceCheck) bool {
-	// #nosec G304 -- path fornecido ja resolvido/validado pelo caller (Browser.ResolvePath); biblioteca de content-id
+	// #nosec G304 -- path already resolved/validated by the caller (Browser.ResolvePath); content-id library
 	f, err := os.Open(path)
 	if err != nil {
 		return false

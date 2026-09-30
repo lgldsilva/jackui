@@ -3,13 +3,13 @@ import { SearchResult } from '../api/client'
 import { groupByInfoHash } from './group'
 import { isPlayable, isAudioResult } from './playable'
 
-// Subset de SearchResult que o filtro/ordenação realmente lê. Restringe o
-// genérico pra qualquer SearchResult-like (ex.: CachedSearchResult que estende
-// com `query`) — assim o hook preserva o tipo original e não derruba campos
-// extras nos consumers.
+// Subset of SearchResult that the filter/sorting actually reads. Restricts the
+// generic to any SearchResult-like (e.g. CachedSearchResult which extends
+// it with `query`) — this way the hook preserves the original type and doesn't drop
+// extra fields on consumers.
 
-// SortKey aceita ambas as variantes históricas ('date' em History, 'age' em
-// Search) — coladas internamente porque significam a mesma coisa (ordenar por
+// SortKey accepts both historical variants ('date' in History, 'age' in
+// Search) — glued internally because they mean the same thing (sort by
 // publishDate).
 export type SortKey = 'seeders' | 'leechers' | 'size' | 'title' | 'date' | 'age'
 
@@ -20,8 +20,8 @@ export type ResultFilters = {
   readonly trackerFilter?: string
   readonly titleFilter?: string
   readonly onlyPlayable?: boolean
-  readonly audioOnly?: boolean   // modo Música: mantém só resultados de áudio
-  // Quality filters (onda 3). Empty/false = "qualquer".
+  readonly audioOnly?: boolean   // Music mode: keeps only audio results
+  // Quality filters (wave 3). Empty/false = "any".
   readonly resolution?: string // exact match against quality.resolution ('2160p'…)
   readonly hdrOnly?: boolean    // keep only HDR or Dolby Vision releases
   readonly codecGroup?: string  // normalized family: 'hevc' | 'h264' | 'av1'
@@ -55,7 +55,7 @@ type MatchFilters = {
   codecGroup: string
 }
 
-// -1 = contagem DESCONHECIDA: não filtrar. Só rejeita valores CONHECIDOS abaixo do min.
+// -1 = UNKNOWN count: don't filter. Only rejects KNOWN values below the min.
 function belowMinCount(n: number, min: number): boolean {
   return n >= 0 && n < min
 }
@@ -97,8 +97,8 @@ function compareResults(a: SearchResult, b: SearchResult, sortKey: SortKey, sort
   return sortAsc ? -diff : diff
 }
 
-// Aplica groupByInfoHash + filtros + sort. Retorna também groupedCount pra
-// distinguir "reduzido por filtro" de "reduzido por dedup".
+// Applies groupByInfoHash + filters + sort. Also returns groupedCount to
+// distinguish "reduced by filter" from "reduced by dedup".
 export function useFilteredResults<T extends SearchResult>(
   input: T[],
   opts: UseFilteredResultsOpts,

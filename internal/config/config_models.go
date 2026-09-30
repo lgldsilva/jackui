@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Descoberta/seleção de modelos de IA (fetchModels/pickModel/match*) — extraído de config.go.
+// AI model discovery/selection (fetchModels/pickModel/match*) — extracted from config.go.
 // fetchModels queries an OpenAI-compatible /v1/models endpoint and returns
 // the list of model IDs. Returns nil on any failure (timeout, network error,
 // non-200) so callers fall back to defaults transparently.

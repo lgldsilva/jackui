@@ -12,16 +12,16 @@ export function usePlayRouting(mounts: readonly LocalMount[]) {
   const { playSingle } = usePlayer()
   const { user } = useAuth()
 
-  // Roteia play: se file_path está dentro de algum mount navegável → player
-  // local (sem tocar no anacrolix); senão → player do torrent (cache em
-  // /data/streams ou ainda baixando). Mantém a UX consistente com os outros
-  // pontos do app onde clicar em Play "simplesmente toca".
+  // Routes play: if file_path is inside any browsable mount → local
+  // player (without touching anacrolix); otherwise → torrent player (cache in
+  // /data/streams or still downloading). Keeps the UX consistent with the other
+  // spots in the app where clicking Play "just plays".
   const onPlay = (d: DownloadEntry) => {
     const fp = d.filePath
     if (!fp) return
-    // Item de torrent INTEIRO: file_path é a PASTA do torrent (não um arquivo)
-    // e fileIndex é o sentinel — abre o player sem índice pra ele resolver o
-    // arquivo principal e listar os demais.
+    // WHOLE torrent item: file_path is the torrent's FOLDER (not a file)
+    // and fileIndex is the sentinel — opens the player without an index so it resolves the
+    // primary file and lists the rest.
     if (d.fileIndex === WHOLE_TORRENT_FILE_INDEX) {
       const synthetic: SearchResult = {
         title: d.name || fp,
@@ -36,9 +36,9 @@ export function usePlayRouting(mounts: readonly LocalMount[]) {
     const m = mounts.find(mt => fp === mt.path || fp.startsWith(mt.path + '/'))
     if (m) {
       let rel = fp.slice(m.path.length).replaceAll(/^\/+/g, '')
-      // Mounts user_subpath isolam o download fisicamente em /{username}/ E o
-      // backend re-escopa pelo subdir do usuário ao resolver. Removemos o
-      // prefixo do username aqui pra não duplicar (espelha StripUserScope).
+      // user_subpath mounts physically isolate the download under /{username}/ and the
+      // backend re-scopes by the user subdir when resolving. We remove the
+      // username prefix here to avoid duplicating it (mirrors StripUserScope).
       const uname = user?.username
       if (m.userSubpath && uname && (rel === uname || rel.startsWith(uname + '/'))) {
         rel = rel.slice(uname.length).replaceAll(/^\/+/g, '')
@@ -54,9 +54,9 @@ export function usePlayRouting(mounts: readonly LocalMount[]) {
       playSingle(synthetic, 0)
       return
     }
-    // Não está num mount navegável → assume cache (anacrolix). Toca via hash
-    // do torrent + fileIndex. Funciona pra downloads em curso E pra completos
-    // que ainda não foram movidos pra fora do cache.
+    // Not in a browsable mount → assume cache (anacrolix). Plays via torrent
+    // hash + fileIndex. Works for in-progress downloads AND completed ones
+    // that haven't been moved out of the cache yet.
     const synthetic: SearchResult = {
       title: d.name || fp.split('/').pop() || fp,
       tracker: '', categoryId: 0, category: '', size: d.fileSize,
@@ -69,7 +69,7 @@ export function usePlayRouting(mounts: readonly LocalMount[]) {
 
   // Play a STREAMING torrent card (TorrentInfo, no download row). Opens the player
   // by info_hash WITHOUT a file index, so it resolves the main file and lists the
-  // rest — the same "ver arquivos + tocar" the whole-torrent download case gets.
+  // rest — the same "view files + play" the whole-torrent download case gets.
   const onTorrentPlay = (t: TorrentInfo) => {
     const synthetic: SearchResult = {
       title: t.name || t.infoHash,
@@ -83,7 +83,7 @@ export function usePlayRouting(mounts: readonly LocalMount[]) {
 
   // Returns a handler that opens this download in the local-files browser (at the
   // folder its file lives in), or undefined when the file isn't under a browsable
-  // mount (e.g. a cache-only completion) — so the "Abrir no local" button never
+  // mount (e.g. a cache-only completion) — so the "Open locally" button never
   // shows a dead action. Maps file_path → mount + relpath, stripping the per-user
   // subdir like the player does.
   const openLocalFor = (d: DownloadEntry): (() => void) | undefined => {

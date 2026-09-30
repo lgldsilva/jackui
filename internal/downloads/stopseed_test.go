@@ -8,11 +8,11 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-// StopSeedByInfoHash é usado pelo "remover torrent" dos cards de streaming
-// (StreamDrop/StreamDropBatch): precisa marcar a row mesmo quando ela está
-// pausada, senão o auto-seed do próximo boot traz o torrent de volta. O bug
-// original: o SQL filtrava AND status='completed' e a row pausada ficava sem a
-// marcação.
+// StopSeedByInfoHash is used by the streaming cards' "remove torrent" action
+// (StreamDrop/StreamDropBatch): it must mark the row even when it is paused,
+// otherwise the next boot's auto-seed brings the torrent back. The original
+// bug: the SQL filtered AND status='completed' and the paused row ended up
+// unmarked.
 func TestStopSeedByInfoHash_MarksPausedRow(t *testing.T) {
 	s := newTestStore(t)
 	d, err := s.Create(Download{UserID: 1, InfoHash: testHashHex, Magnet: "magnet:?xt=urn:btih:" + testHashHex, Name: "Movie"})
@@ -34,11 +34,11 @@ func TestStopSeedByInfoHash_MarksPausedRow(t *testing.T) {
 	}
 }
 
-// Worker.Remove precisa limpar o seed PERSISTIDO (semântica DropSeed, não a do
-// Drop genérico): sem isso o resumeSeeding do próximo boot ressuscita o torrent
-// removido pela lixeira como card "Semeando" — exatamente o comentário de
-// streamer.DropSeed ("usar nas ações explícitas: parar de seedar / remover
-// torrent / excluir download").
+// Worker.Remove must clear the PERSISTED seed (DropSeed semantics, not the
+// generic Drop's): without it the next boot's resumeSeeding resurrects the
+// trash-removed torrent as a "Seeding" card — exactly streamer.DropSeed's
+// comment ("use in explicit actions: stop seeding / remove torrent / delete
+// download").
 func TestWorkerRemove_ClearsPersistedSeed(t *testing.T) {
 	pool := dbtest.NewDB(t)
 	seeds, err := streamer.NewSeeds(pool)

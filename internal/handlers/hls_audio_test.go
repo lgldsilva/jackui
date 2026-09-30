@@ -14,8 +14,8 @@ import (
 
 const testHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-// hlsSessionKeyFromReq: a/:track → -ao{track}; v/:variant → -v{variant}; nu → base.
-// Testado via gin real pra exercitar a leitura dos path params.
+// hlsSessionKeyFromReq: a/:track → -ao{track}; v/:variant → -v{variant}; neither → base.
+// Exercised through a real gin router to work out the path-param reading.
 func TestHlsSessionKeyFromReqRouting(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -54,8 +54,8 @@ func mustHash(t *testing.T) []byte {
 	return b
 }
 
-// StreamHLSAudio (a/:track) casa a rota e roda o glue audio-only sem torrent
-// (fonte não resolve → não-200, mas não é 'variant out of range' nem NoRoute).
+// StreamHLSAudio (a/:track) matches the route and runs the audio-only glue without a
+// torrent (source doesn't resolve → non-200, but not 'variant out of range' nor NoRoute).
 func TestStreamHLSAudioResolves(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mgr, err := transcode.NewHLSManager(t.TempDir())
@@ -69,15 +69,15 @@ func TestStreamHLSAudioResolves(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+testHash+"/0/a/2/index.m3u8", nil))
 	if w.Code == 599 {
-		t.Errorf("rota a/:track não casou (NoRoute)")
+		t.Errorf("a/:track route did not match (NoRoute)")
 	}
 	if w.Code == http.StatusOK {
-		t.Errorf("sem torrent não deveria dar 200; got %d", w.Code)
+		t.Errorf("without a torrent it should not be 200; got %d", w.Code)
 	}
 }
 
-// StreamHLSSubtitle serve a mini-playlist WebVTT (probe falha → duração
-// fallback, mas o corpo é válido e aponta pro subtrack com token).
+// StreamHLSSubtitle serves the WebVTT mini-playlist (probe fails → fallback
+// duration, but the body is valid and points at the subtrack with the token).
 func TestStreamHLSSubtitle(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mgr, err := transcode.NewHLSManager(t.TempDir())
@@ -95,13 +95,13 @@ func TestStreamHLSSubtitle(t *testing.T) {
 	body := w.Body.String()
 	for _, want := range []string{"#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-ENDLIST", "/api/stream/subtrack/" + testHash + "/0/3?token=T"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("sub playlist sem %q:\n%s", want, body)
+			t.Errorf("sub playlist without %q:\n%s", want, body)
 		}
 	}
 }
 
-// StreamHLSMaster sem torrent: passa por serveMasterIfMultiVariant (probe falha
-// → fallback) + serveHLSMediaPlaylist. Cobre o glue single-variant.
+// StreamHLSMaster without a torrent: goes through serveMasterIfMultiVariant (probe
+// fails → fallback) + serveHLSMediaPlaylist. Covers the single-variant glue.
 func TestStreamHLSMasterFallbackNoTorrent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	mgr, err := transcode.NewHLSManager(t.TempDir())
@@ -113,6 +113,6 @@ func TestStreamHLSMasterFallbackNoTorrent(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/stream/hls/"+testHash+"/0/index.m3u8", nil))
 	if w.Code == http.StatusOK {
-		t.Errorf("sem torrent não deveria dar 200; got %d", w.Code)
+		t.Errorf("without a torrent it should not be 200; got %d", w.Code)
 	}
 }

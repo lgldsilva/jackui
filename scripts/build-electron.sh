@@ -36,4 +36,4 @@ echo "  ✓ ui/dist/"
 echo "▶ [3/3] Packaging Electron app..."
 cd "$ROOT"
 npx electron-builder --config electron/builder.config.ts
-echo "  ✓ Package pronto em $DIST_ELECTRON/"
+echo "  ✓ Package ready in $DIST_ELECTRON/"

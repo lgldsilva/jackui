@@ -131,8 +131,8 @@ describe('openSearchStream', () => {
 
   it('surfaces the backend named-error event without reconnecting', () => {
     const { sources, cb, last } = makeHarness()
-    last().emit('error', '{"message":"Jackett indisponível"}')
-    expect(cb.onServerError).toHaveBeenCalledWith('Jackett indisponível')
+    last().emit('error', '{"message":"Jackett unavailable"}')
+    expect(cb.onServerError).toHaveBeenCalledWith('Jackett unavailable')
     expect(sources).toHaveLength(1) // no reconnect — stream is still alive
     expect(cb.onGiveUp).not.toHaveBeenCalled()
   })

@@ -18,8 +18,8 @@ type Props = {
   readonly onAddTab: () => void
 }
 
-// Faixa de abas de busca (arrastar-pra-reordenar + fechar + nova aba). Extraído
-// do SearchPage (god-file) mantendo o mesmo comportamento de drag/drop e refs.
+// Search tab strip (drag-to-reorder + close + new tab). Extracted
+// from SearchPage (god-file) keeping the same drag/drop behavior and refs.
 export function SearchTabStrip({
   tabs, activeId, onSelect, stripRef, activeTabRef, dragIndexRef,
   dragOverIndex, setDragOverIndex, onMoveTab, onCloseTab, onAddTab,

@@ -67,7 +67,7 @@ func TestMountSourceAndCloseSource(t *testing.T) {
 
 // TestClassifyForBrowser pins the direct-play vs HLS decision so a future tweak
 // to the codec/container whitelist doesn't accidentally route MKV/HEVC through
-// the browser (which would resurface the "Hobbit em mkv não toca" failure mode
+// the browser (which would resurface the "Hobbit in mkv won't play" failure mode
 // the local-HLS path was added to fix).
 func TestClassifyForBrowser(t *testing.T) {
 	cases := []struct {

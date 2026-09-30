@@ -1,5 +1,5 @@
-// "Cache mark" de arquivos locais: pré-busca whole-file de mounts lentos/remotos
-// (rclone/NFS/CIFS) pro disco local, e o toggle de "hidden". Extraído de
+// "Cache mark" for local files: whole-file pre-fetch of slow/remote mounts
+// (rclone/NFS/CIFS) to local disk, plus the "hidden" toggle. Extracted from
 // local.ts (#417 follow-up).
 import { api } from './http'
 import { localQS } from './local-base'

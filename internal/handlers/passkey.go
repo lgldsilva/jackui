@@ -24,7 +24,7 @@ func PasskeyRegisterBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc
 			return
 		}
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfigF)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfigF)
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -46,7 +46,7 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 			return
 		}
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfig)
 			return
 		}
 		creds, _ := store.Credentials(claims.UserID)
@@ -59,7 +59,7 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "passkey adicionada"})
+		c.JSON(http.StatusOK, gin.H{"message": "passkey added"})
 	}
 }
 
@@ -67,14 +67,14 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfig)
 			return
 		}
 		var req struct {
 			Username string `json:"username"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Username == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username obrigatório")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username required")
 			return
 		}
 		user, err := store.GetUserByUsername(req.Username)
@@ -82,12 +82,12 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 		// build the assertion challenge — so an unknown user / no-passkey can't be
 		// fully hidden here. Return a generic error without leaking which case it is.
 		if err != nil || user == nil {
-			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey indisponível para este usuário")
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey unavailable for this user")
 			return
 		}
 		creds, _ := store.Credentials(user.ID)
 		if len(creds) == 0 {
-			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey indisponível para este usuário")
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey unavailable for this user")
 			return
 		}
 		opts, session, err := wa.BeginLogin(user.ID, user.Username, creds)
@@ -103,28 +103,28 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if wa == nil {
-			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrPasskeysNotConfig)
+			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfig)
 			return
 		}
 		// The assertion JSON is the body go-webauthn parses (we must NOT consume it
 		// with ShouldBindJSON), so the username + flags ride in the query string.
 		user, err := store.GetUserByUsername(c.Query("username"))
 		if err != nil || user == nil {
-			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "falha na autenticação por passkey")
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey authentication failed")
 			return
 		}
 		switch user.Status {
 		case auth.StatusPending:
-			httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta aguardando aprovação", gin.H{"status": "pending"})
+			httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "account awaiting approval", gin.H{"status": "pending"})
 			return
 		case auth.StatusDisabled:
-			httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta desabilitada", gin.H{"status": "disabled"})
+			httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "account disabled", gin.H{"status": "disabled"})
 			return
 		}
 		creds, _ := store.Credentials(user.ID)
 		cred, err := wa.FinishLogin(user.ID, user.Username, creds, c.Query("session"), c.Request)
 		if err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "falha na autenticação por passkey")
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey authentication failed")
 			return
 		}
 		// Persist the advanced sign counter (clone-detection state).

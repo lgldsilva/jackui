@@ -54,8 +54,8 @@ export function LocalEntryList({
           onToggleHidden={onToggleHidden}
         />
       ))}
-      {/* Sentinela do windowing: revela mais um lote ao rolar até aqui;
-          o botão é o fallback (clique) — mesmo padrão de Search/Favorites. */}
+      {/* Windowing sentinel: reveals one more batch when scrolled to it;
+          the button is the fallback (click) — same pattern as Search/Favorites. */}
       {reveal.hasMore && (
         <li className="px-2 pt-1 pb-2">
           <div ref={reveal.sentinelRef}>

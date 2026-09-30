@@ -76,15 +76,15 @@ export function FilePickerSidebar({
     filter: fileFilter, typeFilter: fileTypeFilter,
     sortBySize: fileSortBySize, sizeDesc: fileSizeDesc,
   })
-  // Renderiza em lotes (revela mais ao rolar/clicar) — antes cortava em 100 e
-  // escondia o resto atrás do filtro. Reseta o lote quando torrent/filtro/ordem muda.
+  // Renders in batches (reveals more on scroll/click) — it used to cut at 100 and
+  // hide the rest behind the filter. Resets the batch when torrent/filter/order changes.
   const reveal = useIncrementalReveal(
     filteredFiles.length,
     `${info.infoHash}|${fileFilter}|${fileTypeFilter}|${fileSortBySize}|${fileSizeDesc}`,
   )
 
-  // A estrutura de arquivos é estável por torrent — key no infoHash (não em
-  // info.files, cuja referência muda a cada poll de progresso de 2s).
+  // The file structure is stable per torrent — key on infoHash (not on
+  // info.files, whose reference changes on every 2s progress poll).
   const selectedPath = useMemo(() => {
     const f = info.files.find(x => x.index === selectedFile)
     return f?.path ?? null
@@ -94,10 +94,10 @@ export function FilePickerSidebar({
   // (or the first file when none is selected). Filter changes rebuild the tree,
   // so re-derive the reveal set against the CURRENT filter too.
   //
-  // Dep no info.infoHash (NÃO info.files): o poll de 2s recria info.files, e
-  // depender dele reabria a cada tick a pasta do item em reprodução — desfazendo
-  // a navegação do usuário. Assim só roda ao abrir a árvore / mudar filtro / trocar
-  // de item (selectedPath), e o setExpanded só cria Set novo quando algo muda.
+  // Dep on info.infoHash (NOT info.files): the 2s poll recreates info.files, and
+  // depending on it re-opened the playing item's folder on every tick — undoing
+  // the user's navigation. This way it only runs when opening the tree / changing filter / switching
+  // items (selectedPath), and setExpanded only creates a new Set when something changes.
   useEffect(() => {
     if (view !== 'tree' || !treeable) return
     const tree = buildFileTree(info.files, { filter: fileFilter, typeFilter: fileTypeFilter })
@@ -123,8 +123,8 @@ export function FilePickerSidebar({
 
   return (
     <aside className="flex flex-col flex-1 lg:flex-initial lg:flex-shrink-0 lg:w-80 xl:w-96 border-t lg:border-t-0 lg:border-l border-default bg-surface-elevated/50 min-h-0 lg:overflow-hidden">
-      {/* A barra inteira retrai a lista — clicar em qualquer parte funciona,
-          não só no chevron (o botão vira só indicador via pointer-events-none). */}
+      {/* The whole bar collapses the list — clicking anywhere works,
+          not just the chevron (the button becomes just an indicator via pointer-events-none). */}
       <button
         type="button"
         onClick={() => setSidebarOpen(false)}
@@ -201,8 +201,8 @@ export function FilePickerSidebar({
           </div>
         )}
         {(view === 'list' || !treeable) && (
-          // Combo de ordenação — só uma ordem por vez, então um <select> (nativo,
-          // usável no iOS) em vez de botões soltos que quebravam pra outra linha.
+          // Sort combo — one order at a time, so a <select> (native,
+          // usable on iOS) instead of loose buttons that wrapped to another line.
           <select
             value={sortValue}
             onChange={e => {

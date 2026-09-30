@@ -6,9 +6,9 @@ import { audioTrackTitle } from './playerFormat'
 type EmbeddedTracksPanelProps = {
   readonly probe: StreamProbe
   readonly sidecars: SidecarSubtitle[]
-  // Fase 8: activeAudioIndex = faixa ativa (índice absoluto do probe, null=default),
-  // seamless OU legado; selectAudio bifurca (hls.audioTrack × ?audio= reload);
-  // seamlessAudioOn = a troca é sem reencode (sem badge "GPU encoding").
+  // Phase 8: activeAudioIndex = active track (absolute probe index, null=default),
+  // seamless OR legacy; selectAudio branches (hls.audioTrack × ?audio= reload);
+  // seamlessAudioOn = the switch is re-encode-free (no "GPU encoding" badge).
   readonly activeAudioIndex: number | null
   readonly selectAudio: (v: number | null) => void
   readonly seamlessAudioOn: boolean
@@ -56,9 +56,9 @@ export function EmbeddedTracksPanel({
           <p className="text-xs text-text-muted mb-1.5 flex items-center gap-2">
             <Volume2 className="w-3 h-3" />
             {t('player.embeddedTracks.audioTracks', { count: probe.audio.length })}
-            {/* "GPU encoding" só no caminho legado (troca por reencode/reload). No
-                modo seamless (master multi-áudio) trocar de faixa não reencoda o
-                vídeo — a rendition já existe — então o badge sairia enganoso. */}
+            {/* "GPU encoding" only on the legacy path (switch via re-encode/reload). In
+                seamless mode (multi-audio master) switching tracks doesn't re-encode the
+                video — the rendition already exists — so the badge would be misleading. */}
             {activeAudioIndex !== null && !seamlessAudioOn && (
               <span className="text-[10px] text-purple-700 dark:text-purple-300 bg-purple-500/15 border border-purple-500/30 px-1.5 py-0.5 rounded">
                 <Cpu className="w-2.5 h-2.5 inline mr-0.5" />GPU encoding
@@ -180,10 +180,10 @@ export function EmbeddedTracksPanel({
               </span>
             )}
           </p>
-          {/* Seletor único (dropdown) em vez de N botões: arquivos com dezenas de
-              faixas (ex.: 34 subs sem rótulo) enchiam a tela de botões. Legendas
-              image-based (PGS/DVD) ficam como <option disabled> — o HLS atual roda
-              -sn (sem burn-in), então selecioná-las só silenciava a legenda (#411). */}
+          {/* Single selector (dropdown) instead of N buttons: files with dozens of
+              tracks (e.g. 34 unlabeled subs) filled the screen with buttons. Image
+              subtitles (PGS/DVD) stay as <option disabled> — the current HLS runs
+              -sn (no burn-in), so selecting them only silenced the subtitle (#411). */}
           <select
             value={embeddedSub ?? ''}
             onChange={(e) => {
@@ -202,8 +202,8 @@ export function EmbeddedTracksPanel({
           >
             <option value="">{t('player.embeddedTracks.none')}</option>
             {probe.subtitles.map((s, i) => {
-              // Sem tag de língua (comum em releases tipo MeGusta com N subs sem
-              // rótulo), usa o título ou um ordinal "Faixa N" p/ distinguir.
+              // Without a language tag (common in MeGusta-style releases with N unlabeled
+              // subs), uses the title or an ordinal "Track N" to distinguish.
               const subLabel = s.language ? s.language.toUpperCase() : (s.title || t('player.embeddedTracks.trackN', { n: i + 1 }))
               const tags = [s.codec, s.forced ? 'FORCED' : '', s.image ? 'IMG' : ''].filter(Boolean).join(' · ')
               return (

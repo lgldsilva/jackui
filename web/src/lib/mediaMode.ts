@@ -1,4 +1,4 @@
-// Cinema/Música preference. Two jobs:
+// Cinema/Music preference. Two jobs:
 //   1) Tie-breaker for ambiguous titles (no clear audio/video signal) on the
 //      NEXT playback — see playable.detectKind / PlayerProvider.currentKind.
 //   2) When toggled WHILE something is playing, it switches the active player

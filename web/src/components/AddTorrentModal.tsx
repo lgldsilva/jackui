@@ -180,7 +180,7 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
 
     setView('configure')
     const newItems: TorrentItem[] = lines.map(line => {
-      // Tenta extrair um hash ou nome amigável do magnet
+      // Tries to extract a hash or friendly name from the magnet
       const btihMatch = /btih:([a-f0-9]{40})/i.exec(line)
       const nameMatch = /dn=([^&]+)/i.exec(line)
       const hash = btihMatch ? btihMatch[1].toLowerCase() : ''
@@ -210,8 +210,8 @@ export default function AddTorrentModal({ isOpen, onClose, onAdded, preloadFiles
     setItems(prev => prev.map(item => item.id === id ? { ...item, expanded: !item.expanded } : item))
   }
 
-  // FileSelectionSection já calcula o próximo Set (toggle de arquivo OU de pasta
-  // recursiva, "Todos"/"Nenhum"); aqui só persistimos no item certo.
+  // FileSelectionSection already computes the next Set (file toggle OR recursive
+  // folder toggle, "All"/"None"); here we just persist it on the right item.
   const updateItemSelection = (itemId: string, next: Set<number>) => {
     setItems(prev => prev.map(item => item.id === itemId ? { ...item, selectedFiles: next } : item))
   }

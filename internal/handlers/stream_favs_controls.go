@@ -42,8 +42,8 @@ func StreamPrefetch(s *streamer.Streamer) gin.HandlerFunc {
 }
 
 // StreamDrop handles DELETE /api/stream/:hash — manually stop a torrent.
-// Também encerra as sessões HLS daquele torrent (#17): fechar o player não pode
-// deixar o ffmpeg do transcode órfão consumindo CPU até o idle-reaper.
+// Also tears down that torrent's HLS sessions (#17): closing the player must
+// not leave an orphan transcode ffmpeg burning CPU until the idle reaper.
 // When the dropped hash backs a completed download row, we also mark that row
 // seed-stopped so the next boot's autoSeedCompleted does not resurrect it.
 //
@@ -58,9 +58,9 @@ func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, store
 		if !ok {
 			return
 		}
-		// DropSeed (não Drop): remover o torrent é uma ação explícita do usuário,
-		// então também limpa o auto-seed persistido — senão ele voltaria a seedar
-		// no próximo boot e reapareceria como "ativo".
+		// DropSeed (not Drop): removing the torrent is an explicit user action,
+		// so the persisted auto-seed is cleared too — otherwise it would seed
+		// again on the next boot and reappear as "active".
 		if err := dropStreamHash(s, hlsMgr, h); streamer.IsDropRefusal(err) {
 			httpshared.RespondErrorMessage(c, http.StatusConflict, err.Error())
 			return

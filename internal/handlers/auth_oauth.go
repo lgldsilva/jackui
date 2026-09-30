@@ -15,9 +15,9 @@ import (
 )
 
 // errOAuthUsernameExhausted guards the (paranoid) auto-provision collision loop.
-var errOAuthUsernameExhausted = errors.New("não foi possível derivar um username único")
+var errOAuthUsernameExhausted = errors.New("could not derive a unique username")
 
-// ─── Google OAuth login ("Entrar com Google") ───────────────────────────────
+// ─── Google OAuth login ("Sign in with Google") ─────────────────────────────
 //
 // Browser flow: GET /oauth/google/start → Google → GET /oauth/google/callback
 // (matches an account by e-mail, same rule as the Gitea SSO) → 302 to the SPA
@@ -202,18 +202,18 @@ func (h *GoogleOAuthHandlers) Exchange() gin.HandlerFunc {
 			Totp string `json:"totp"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil || req.Code == "" {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "código de troca obrigatório")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "exchange code required")
 			return
 		}
 		userID, remember, ok := h.flow.PeekPending(req.Code)
 		if !ok {
-			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "código de troca inválido ou expirado")
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid or expired exchange code")
 			return
 		}
 		user, err := h.store.GetUserByID(userID)
 		if err != nil || user == nil {
 			h.flow.ConsumePending(req.Code)
-			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "sessão de login inválida")
+			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid login session")
 			return
 		}
 		// Status may have changed between callback and exchange.
@@ -243,12 +243,12 @@ func (h *GoogleOAuthHandlers) rejectOAuthMFA(c *gin.Context, user *auth.User, to
 		return false
 	}
 	if totp == "" {
-		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA obrigatório", gin.H{"mfaRequired": true})
+		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "MFA code required", gin.H{"mfaRequired": true})
 		return true
 	}
 	secret, _, _ := h.store.GetTOTPSecret(user.ID)
 	if !auth.ValidateTOTP(secret, totp) && !h.store.ConsumeBackupCode(user.ID, totp) {
-		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "código MFA inválido", gin.H{"mfaRequired": true})
+		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "invalid MFA code", gin.H{"mfaRequired": true})
 		return true
 	}
 	return false

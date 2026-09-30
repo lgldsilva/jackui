@@ -1,5 +1,5 @@
-// Metadata de áudio local (tags ID3/Vorbis/MP4), capa embarcada e letras
-// (proxy LrcLib). Extraído de local.ts (#417 follow-up).
+// Local audio metadata (ID3/Vorbis/MP4 tags), embedded cover art and lyrics
+// (LrcLib proxy). Extracted from local.ts (#417 follow-up).
 import { api, withToken } from './http'
 import { appendViewAs, withViewAs } from './local-base'
 

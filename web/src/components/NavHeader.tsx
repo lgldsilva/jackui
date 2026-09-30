@@ -154,7 +154,7 @@ export default function NavHeader({ rightExtra }: Props) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(STORAGE_KEY) === '1')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [incognito, setIncognito] = useIncognito()
-  // Media-mode preference (Cinema/Música). Tie-breaker for ambiguous titles AND
+  // Media-mode preference (Cinema/Music). Tie-breaker for ambiguous titles AND
   // — via the shared store — an immediate switch of whatever is playing right
   // now (PlayerProvider listens and re-keys the active player). Default 'video'.
   const [mediaMode, setMediaMode] = useMediaMode()
@@ -165,8 +165,8 @@ export default function NavHeader({ rightExtra }: Props) {
   // Easter egg: 7 taps on the JackUI logo (within 1.5s) flip the global "hidden
   // curtain" for this session — revealing hidden favourites/Continue Watching/
   // downloads/local everywhere. Works on mobile and desktop (the logo shows on
-  // both). A logo NÃO navega mais (era <Link to="/"> — o usuário não quer ir pra
-  // home ao tocar): é só o gatilho do easter egg.
+  // both). The logo does NOT navigate anymore (it was <Link to="/"> — the user doesn't
+  // want to go home on tap): it's only the easter-egg trigger.
   const tapCount = useRef(0)
   const tapTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onLogoTap = () => {
@@ -318,14 +318,14 @@ export default function NavHeader({ rightExtra }: Props) {
           there (they're back on expand); keep the user badge, which shrinks to
           its icon. md:hidden only affects desktop, so the mobile drawer (always
           expanded) still shows everything. */}
-      {/* SEM overflow-hidden: o dropdown do UserBadge abre pra cima (bottom-full)
-          e era clipado por aqui; os toggles, quando colapsados, empilham na
-          vertical (md:flex-col abaixo) em vez de vazar a rail estreita. */}
+      {/* NO overflow-hidden: UserBadge's dropdown opens upward (bottom-full)
+          and was clipped by it; the toggles, when collapsed, stack
+          vertically (md:flex-col below) instead of leaking out of the narrow rail. */}
       <div className={`flex-shrink-0 border-t border-default/60 p-2 flex flex-col gap-2 safe-bottom ${collapsed ? 'md:items-center' : ''}`}>
-        {/* Tema + incógnito: só na sidebar do DESKTOP. No mobile a barra de topo
-            já tem esses toggles, então escondemos a linha aqui (hidden) p/ não
-            duplicar no drawer; md:flex traz de volta no desktop, que não tem topo.
-            Colapsado: empilha vertical (md:flex-col) p/ caber na rail de 64px. */}
+        {/* Theme + incognito: DESKTOP sidebar only. On mobile the top bar
+            already has these toggles, so we hide the row here (hidden) to avoid
+            duplicating it in the drawer; md:flex brings it back on desktop, which has no top bar.
+            Collapsed: stacks vertically (md:flex-col) to fit the 64px rail. */}
         <div className={`hidden md:flex items-center gap-2 ${collapsed ? 'md:flex-col md:justify-center' : ''}`}>
           <ThemeToggle variant="sidebar" />
           <NotificationsBell />

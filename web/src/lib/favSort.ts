@@ -6,10 +6,10 @@ export type SortKey = 'date' | 'name' | 'seeds' | 'size'
 export type SortDir = 'asc' | 'desc'
 
 export const SORT_LABELS: Record<SortKey, string> = {
-  date: 'Data de adição',
-  name: 'Nome',
+  date: 'Date added',
+  name: 'Name',
   seeds: 'Seeds',
-  size: 'Tamanho',
+  size: 'Size',
 }
 
 // Raw comparator (ascending). Unknown seeds (never probed) and size (never

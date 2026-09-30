@@ -7,9 +7,9 @@ import { api, type AppConfig } from '../../api/client'
 // Minimal shapes for the boot probe (only the fields the prompt decision reads).
 type StatusProbe = { readonly jackett?: string }
 
-// Estado + lógica do prompt de configuração do Jackett (primeira execução).
-// Extraído do SearchPage (god-file): agrupa o estado do formulário, o probe de
-// /api/status e o runner compartilhado dos botões "Testar" / "Salvar e Testar".
+// State + logic of the Jackett setup prompt (first run).
+// Extracted from SearchPage (god-file): groups the form state, the /api/status
+// probe and the shared runner of the "Test" / "Save & Test" buttons.
 export function useJackettSetup() {
   const { t } = useTranslation()
   // Jackett connection status — for first-run / config prompt
@@ -48,7 +48,7 @@ export function useJackettSetup() {
       .catch(() => {}) // network error — don't prompt, config might be saved
   }, [])
 
-  // Shared runner for the Jackett setup prompt's "Testar" / "Salvar e Testar"
+  // Shared runner for the Jackett setup prompt's "Test" / "Save & Test"
   // buttons: validates the URL, runs `action` (test-only or save+test) with one
   // transient-network retry, and manages the shared setup* UI state — so the two
   // buttons stay a single skeleton instead of duplicating the retry/try-catch.

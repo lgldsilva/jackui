@@ -7,7 +7,7 @@ type RetryPanelProps = {
   readonly className?: string
 }
 
-/** Botão de retry padronizado (UX-2). */
+/** Standardized retry button (UX-2). */
 export function RetryPanel({ onRetry, label, className = '' }: RetryPanelProps) {
   const { t } = useTranslation()
   return (

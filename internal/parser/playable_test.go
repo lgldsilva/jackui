@@ -8,16 +8,16 @@ func TestDetectKind(t *testing.T) {
 		categoryID int
 		want       MediaKind
 	}{
-		// Extensão ganha sobre categoria
+		// Extension wins over category
 		{"song.flac", 5000, KindAudio},
 		{"movie.mkv", 3000, KindVideo},
-		// Categoria quando ext ausente
+		// Category when extension is absent
 		{"Album Name 2024", 3010, KindAudio},
 		{"Show S01E02", 5010, KindVideo},
-		// Hint textual
+		// Textual hint
 		{"Artist - Album FLAC", 0, KindAudio},
 		{"Movie 1080p WEBRip", 0, KindVideo},
-		// Default cai em video
+		// Default falls back to video
 		{"Random.thing", 9999, KindVideo},
 	}
 	for _, tc := range cases {
@@ -38,15 +38,15 @@ func TestIsPlayable(t *testing.T) {
 		resolution string
 		want       bool
 	}{
-		{"sem magnet", "Movie 1080p", 5000, "", "1080p", false},
-		{"ebook PDF rejeitado", "Book.pdf", 0, magnet, "", false},
-		{"zip rejeitado", "Pack.zip", 0, magnet, "", false},
-		{"tag ebook rejeitada", "Foo Bar Ebook", 0, magnet, "", false},
-		{"categoria filme aceita", "Whatever", 2000, magnet, "", true},
-		{"resolução aceita", "Foo 2024", 9999, magnet, "1080p", true},
-		{"ext vídeo aceita", "Foo.mkv", 9999, magnet, "", true},
-		{"hint áudio aceita", "Artist FLAC Discography", 9999, magnet, "", true},
-		{"desconhecido cai em true (fallback)", "Just a title", 9999, magnet, "", true},
+		{"no magnet", "Movie 1080p", 5000, "", "1080p", false},
+		{"ebook PDF rejected", "Book.pdf", 0, magnet, "", false},
+		{"zip rejected", "Pack.zip", 0, magnet, "", false},
+		{"ebook tag rejected", "Foo Bar Ebook", 0, magnet, "", false},
+		{"movie category accepted", "Whatever", 2000, magnet, "", true},
+		{"resolution accepted", "Foo 2024", 9999, magnet, "1080p", true},
+		{"video extension accepted", "Foo.mkv", 9999, magnet, "", true},
+		{"audio hint accepted", "Artist FLAC Discography", 9999, magnet, "", true},
+		{"unknown falls back to true", "Just a title", 9999, magnet, "", true},
 	}
 	for _, tc := range cases {
 		got := IsPlayable(tc.title, tc.categoryID, tc.magnet, tc.resolution)

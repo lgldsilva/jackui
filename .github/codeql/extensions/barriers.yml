@@ -1,26 +1,26 @@
-# Barreiras de data-flow do JackUI para o CodeQL (data extensions).
+# JackUI data-flow barriers for CodeQL (data extensions).
 #
-# Cada entrada abaixo declara uma função que JÁ É uma barreira real de
-# segurança no código — o CodeQL apenas não reconhece funções próprias como
-# sanitizers. A regra do projeto proíbe supressão de achado (#nosec &c.);
-# este arquivo não suprime nada: ensina o scanner onde uma validação de
-# verdade já acontece, para que o achado fechado signifique "validado", e um
-# achado que sobreviva signifique "falta de guard de verdade".
+# Each entry below declares a function that IS already a real security
+# barrier in the code — CodeQL simply does not recognize its own functions as
+# sanitizers. The project rule forbids finding suppression (#nosec &c.);
+# this file suppresses nothing: it teaches the scanner where a real
+# validation already happens, so that a closed finding means "validated", and a
+# finding that survives means "a real guard is missing".
 #
-# Contrato de manutenção: TODA função listada aqui tem teste de unidade
-# provando a garantia (ver arquivos *_test.go correspondentes). Se a função
-# mudar de semântica, o teste quebra antes do model virar mentira.
+# Maintenance contract: EVERY function listed here has a unit test
+# proving the guarantee (see the corresponding *_test.go files). If the function
+# changes semantics, the test breaks before the model becomes a lie.
 #
-# Nota: o query Go de log-injection (CWE-117) NÃO consome barriers com kind —
-# os sanitizers dele são classes tipadas (strings.ReplaceAll no próprio
-# argumento, ou operando %q). Logs com input externo usam %q no verbo;
-# barreiras de log não são modeláveis aqui.
+# Note: the Go log-injection query (CWE-117) does NOT consume barriers with kind —
+# its sanitizers are typed classes (strings.ReplaceAll on the very
+# argument, or an operand of %q). Logs with external input use %q in the verb;
+# log barriers cannot be modeled here.
 extensions:
   - addsTo:
       pack: codeql/go-all
       extensible: barrierModel
     data:
-      # ── path-injection: validação de caminho dentro do mount ──
+      # ── path-injection: path validation inside the mount ──
       - ["github.com/lgldsilva/jackui/internal/handlers/httpshared", "", True, "SanitizeSubdir", "", "", "ReturnValue", "path-injection", "manual"]
       - ["github.com/lgldsilva/jackui/internal/local", "Browser", True, "ResolvePath", "", "", "ReturnValue", "path-injection", "manual"]
       - ["github.com/lgldsilva/jackui/internal/local", "Browser", True, "ResolvePathFor", "", "", "ReturnValue", "path-injection", "manual"]
@@ -28,5 +28,5 @@ extensions:
       - ["github.com/lgldsilva/jackui/internal/handlers/local", "", True, "sanitizeRenameName", "", "", "ReturnValue", "path-injection", "manual"]
       - ["github.com/lgldsilva/jackui/internal/handlers/local", "", True, "clampPromoteDst", "", "", "ReturnValue", "path-injection", "manual"]
       - ["github.com/lgldsilva/jackui/internal/transcode", "HLSSessionManager", True, "sessionDir", "", "", "ReturnValue", "path-injection", "manual"]
-      # ── request-forgery: URL de proxy validada contra o Jackett ──
+      # ── request-forgery: proxy URL validated against the Jackett ──
       - ["github.com/lgldsilva/jackui/internal/handlers", "", True, "sanitizeJackettURL", "", "", "ReturnValue", "request-forgery", "manual"]

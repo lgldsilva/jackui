@@ -3,14 +3,14 @@ import { useTranslation } from 'react-i18next'
 import { FolderX, ChevronDown, Home, MapPin } from 'lucide-react'
 
 type Props = {
-  /** true quando o usuário já está na raiz do mount (as duas opções coincidem). */
+  /** true when the user is already at the mount root (both options coincide). */
   readonly atRoot: boolean
   readonly onClean: (scope: 'here' | 'root') => void
 }
 
-// Botão "Limpar vazias" com dois alcances: a pasta atual (recursivo a partir
-// dela) ou o mount inteiro (desde a raiz). Na raiz vira um botão simples — as
-// duas opções dariam no mesmo. O menu fecha ao clicar fora / Esc.
+// "Clean empty" button with two scopes: the current folder (recursive from
+// it) or the whole mount (from the root). At the root it becomes a simple button —
+// both options would amount to the same. The menu closes on outside click / Esc.
 export default function CleanEmptyButton({ atRoot, onClean }: Props) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)

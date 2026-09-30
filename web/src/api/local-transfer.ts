@@ -1,5 +1,5 @@
-// Throughput snapshot de um arquivo local em reprodução (caso rclone/Drive: o
-// play busca silenciosamente pela rede). Extraído de local.ts (#417 follow-up).
+// Throughput snapshot for a playing local file (rclone/Drive case: the
+// play silently fetches over the network). Extracted from local.ts (#417 follow-up).
 import { api } from './http'
 import { localQS } from './local-base'
 

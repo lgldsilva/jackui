@@ -333,7 +333,7 @@ func TestLooksPaymentErrorProperties(t *testing.T) {
 
 func testPaymentError402or403(t *testing.T) {
 	t.Helper()
-	t.Run("402 e 403 sempre sao pagamento", func(t *testing.T) {
+	t.Run("402 and 403 are always payment", func(t *testing.T) {
 		bodies := []string{"", "ok", "forbidden", "payment required", "{}", "random text"}
 		for _, b := range bodies {
 			if !looksPaymentError(http.StatusPaymentRequired, b) {
@@ -348,7 +348,7 @@ func testPaymentError402or403(t *testing.T) {
 
 func testPaymentErrorNot2xx5xx(t *testing.T) {
 	t.Helper()
-	t.Run("2xx e 5xx (exceto 402/403) nunca sao pagamento", func(t *testing.T) {
+	t.Run("2xx and 5xx (except 402/403) are never payment", func(t *testing.T) {
 		for code := 200; code < 600; code++ {
 			if code == 402 || code == 403 {
 				continue
@@ -362,7 +362,7 @@ func testPaymentErrorNot2xx5xx(t *testing.T) {
 
 func testPaymentErrorKnownMessages(t *testing.T) {
 	t.Helper()
-	t.Run("mensagens de erro conhecidas", func(t *testing.T) {
+	t.Run("known error messages", func(t *testing.T) {
 		cases := []string{
 			`{"error":"insufficient_quota"}`,
 			`{"error":"quota exceeded"}`,
@@ -385,7 +385,7 @@ func testPaymentErrorKnownMessages(t *testing.T) {
 
 func testPaymentErrorNormalMessages(t *testing.T) {
 	t.Helper()
-	t.Run("mensagens normais nao sao pagamento", func(t *testing.T) {
+	t.Run("normal messages are not payment", func(t *testing.T) {
 		cases := []string{
 			`{"choices":[{"message":{"content":"ok"}}]}`,
 			`The model does not exist`,
@@ -411,7 +411,7 @@ func TestLooksModelNotFoundProperties(t *testing.T) {
 
 func testModelNotFound404(t *testing.T) {
 	t.Helper()
-	t.Run("404 sempre e model-not-found", func(t *testing.T) {
+	t.Run("404 is always model-not-found", func(t *testing.T) {
 		bodies := []string{"", "not found", "{}", "anything", "model xyz not found"}
 		for _, b := range bodies {
 			if !looksModelNotFound(http.StatusNotFound, b) {
@@ -423,7 +423,7 @@ func testModelNotFound404(t *testing.T) {
 
 func testModelNotFound2xx(t *testing.T) {
 	t.Helper()
-	t.Run("2xx nunca e model-not-found", func(t *testing.T) {
+	t.Run("2xx is never model-not-found", func(t *testing.T) {
 		bodies := []string{"", "ok", `{"choices":[{"message":{"content":"hello"}}]}`, "200 OK success"}
 		for code := 200; code < 300; code++ {
 			for _, b := range bodies {
@@ -437,7 +437,7 @@ func testModelNotFound2xx(t *testing.T) {
 
 func testModelNotFoundMessages(t *testing.T) {
 	t.Helper()
-	t.Run("mensagens de modelo inexistente", func(t *testing.T) {
+	t.Run("model-not-found messages", func(t *testing.T) {
 		cases := []string{
 			`model_not_found`,
 			`does not exist`,

@@ -1,4 +1,4 @@
-// Settings, cache LRU e taxa global do streamer. Extraído de stream.ts (R3).
+// Streamer settings, LRU cache and global rate. Extracted from stream.ts (R3).
 import { api } from './http'
 import type {
   StreamCacheStats,

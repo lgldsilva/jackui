@@ -39,7 +39,7 @@ const defaultParams = {
 }
 
 describe('useDownloadsView', () => {
-  it('aba downloading contém apenas downloading + queued, nunca paused/failed', () => {
+  it('downloading tab contains only downloading + queued, never paused/failed', () => {
     const items = [
       dl({ id: 1, status: 'downloading' }),
       dl({ id: 2, status: 'queued' }),
@@ -52,7 +52,7 @@ describe('useDownloadsView', () => {
     expect(result.current.tabDownloads.failed.map(d => d.id)).toEqual([4])
   })
 
-  it('torrents de streaming pausados aparecem na aba paused, não em downloading', () => {
+  it('paused streaming torrents show up in the paused tab, not downloading', () => {
     const torrents = [
       torrent({ infoHash: 'a', status: 'downloading' }),
       torrent({ infoHash: 'b', status: 'paused' }),

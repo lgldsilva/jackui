@@ -15,8 +15,8 @@ export function Breadcrumbs({
   const { t } = useTranslation()
   const segments = useMemo(() => (path === '' ? [] : path.split('/')), [path])
   const isMobile = useIsMobile()
-  // No mobile, paths profundos poluem a barra. Colapsa pra Home › … › atual
-  // (o … sobe um nível). No desktop mostra o caminho inteiro.
+  // On mobile, deep paths pollute the bar. Collapses to Home › … › current
+  // (the … goes up one level). On desktop it shows the whole path.
   const collapsed = isMobile && segments.length > 2
   const shown = collapsed ? segments.slice(-1) : segments
 
@@ -27,8 +27,8 @@ export function Breadcrumbs({
         className="flex items-center gap-1 hover:text-green-400 transition-colors min-w-0"
       >
         <Home className="w-4 h-4 flex-shrink-0" />
-        {/* No mobile o dropdown de mount já mostra o nome — exibir de novo aqui
-            duplicava o texto e estourava a linha por cima dos botões. */}
+        {/* On mobile the mount dropdown already shows the name — showing it again here
+            duplicated the text and overflowed the line over the buttons. */}
         <span className="truncate hidden md:inline">{mountName}</span>
       </button>
       {collapsed && (

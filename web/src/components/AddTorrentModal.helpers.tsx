@@ -53,18 +53,18 @@ export function renderItemStatus(item: TorrentItem, t: TFn) {
   </span>
 }
 
-// Enfileira UM item no cliente interno da JackUI (whole-torrent vs subconjunto
-// vs sentinela sem-arquivos). Extraído de confirmDownloads p/ manter ambas as
-// funções com complexidade cognitiva <=15 (CA-1.2).
+// Enqueues ONE item on JackUI's internal client (whole-torrent vs subset
+// vs no-files sentinel). Extracted from confirmDownloads to keep both
+// functions at cognitive complexity <=15 (CA-1.2).
 async function submitInternalItem(item: TorrentItem, infoHash: string, magnet: string): Promise<void> {
   const all = item.files ?? []
   if (all.length === 0) {
-    // Sem lista de arquivos: auto-pick no backend. Nunca 0 (costuma ser .nfo spam).
+    // Without a file list: auto-pick on the backend. Never 0 (usually .nfo spam).
     await downloadCreate(createParamsWhenFilesUnknown({ infoHash, magnet, name: item.name }))
     return
   }
   if (isWholeTorrentSelection(all, item.selectedFiles)) {
-    // Todos marcados → 1 linha "torrent inteiro" (-2), não N por-arquivo.
+    // All selected → 1 "whole torrent" row (-2), not N per-file.
     await downloadCreate({ infoHash, fileIndex: WHOLE_TORRENT_FILE_INDEX, magnet, name: item.name, filePath: '', fileSize: all.reduce((s, f) => s + (f.size || 0), 0) })
     return
   }

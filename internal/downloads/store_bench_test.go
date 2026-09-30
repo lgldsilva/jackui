@@ -9,8 +9,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// benchSchema cria uma tabela downloads mínima compatível com dlSelect
-// (sqlite in-memory — o driver modernc registra "sqlite").
+// benchSchema creates a minimal downloads table compatible with dlSelect
+// (in-memory sqlite — the modernc driver registers "sqlite").
 func benchSchema(b *testing.B) *Store {
 	b.Helper()
 	pool, err := sql.Open("sqlite", ":memory:")
@@ -97,7 +97,7 @@ func benchSeedRows(b *testing.B, s *Store, n int) {
 	}
 }
 
-// BenchmarkStoreList mede o caminho completo do poll do frontend:
+// BenchmarkStoreList measures the frontend poll's full path:
 // GET /api/downloads → Store.List → scanSlice (5000 = ListMaxResults).
 func BenchmarkStoreList(b *testing.B) {
 	for _, n := range []int{100, 1000, 5000} {
@@ -119,8 +119,8 @@ func BenchmarkStoreList(b *testing.B) {
 	}
 }
 
-// BenchmarkMarshalDownloadsList mede a serialização JSON da resposta do poll
-// (c.JSON no handler usa encoding/json por baixo).
+// BenchmarkMarshalDownloadsList measures the JSON serialization of the poll
+// response (c.JSON in the handler uses encoding/json under the hood).
 func BenchmarkMarshalDownloadsList(b *testing.B) {
 	s := benchSchema(b)
 	benchSeedRows(b, s, 5000)

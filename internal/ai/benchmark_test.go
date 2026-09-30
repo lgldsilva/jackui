@@ -73,7 +73,7 @@ func TestCaseAccuracy(t *testing.T) {
 		t.Fatalf("perfect TV extraction should be 1.0, got %v", a)
 	}
 	// Right title but WRONG episode must score below a title-only match — that's
-	// the whole point of measuring série/temporada/episódio.
+	// the whole point of measuring series/season/episode.
 	wrongEp := caseAccuracy(tv("Breaking Bad", 3, 9), "Breaking Bad - S03E07")
 	if !(wrongEp > 0.5 && wrongEp < 1) {
 		t.Fatalf("right title + wrong episode should be in (0.5,1), got %v", wrongEp)
@@ -166,7 +166,7 @@ func TestPropScoreIncreasesWithAccuracy(t *testing.T) {
 		for acc := 0.1; acc <= 1.0; acc += 0.1 {
 			cur := compositeScore(acc, lat, 0)
 			if cur < prev {
-				t.Fatalf("score decresceu acc=%.1f lat=%d: %.4f < %.4f", acc, lat, cur, prev)
+				t.Fatalf("score decreased acc=%.1f lat=%d: %.4f < %.4f", acc, lat, cur, prev)
 			}
 			prev = cur
 		}
@@ -179,7 +179,7 @@ func TestPropScoreDecreasesWithLatency(t *testing.T) {
 		for lat := int64(200); lat <= 10000; lat += 500 {
 			cur := compositeScore(acc, lat, 0)
 			if cur > prev {
-				t.Fatalf("score subiu com latencia maior acc=%.1f lat=%d: %.4f > %.4f", acc, lat, cur, prev)
+				t.Fatalf("score went up with higher latency acc=%.1f lat=%d: %.4f > %.4f", acc, lat, cur, prev)
 			}
 			prev = cur
 		}
@@ -191,7 +191,7 @@ func TestPropScoreAlwaysFinite(t *testing.T) {
 		for lat := int64(0); lat <= 30000; lat += 1000 {
 			s := compositeScore(acc, lat, 0)
 			if s < 0 || math.IsInf(s, 0) || math.IsNaN(s) {
-				t.Fatalf("score invalido acc=%.1f lat=%d: %v", acc, lat, s)
+				t.Fatalf("invalid score acc=%.1f lat=%d: %v", acc, lat, s)
 			}
 		}
 	}
@@ -206,7 +206,7 @@ func TestPropTitleAccuracy(t *testing.T) {
 
 func testPropTitleAccuracyRange(t *testing.T) {
 	t.Helper()
-	t.Run("resultado sempre em [0,1]", func(t *testing.T) {
+	t.Run("result always in [0,1]", func(t *testing.T) {
 		cases := []struct{ a, b string }{
 			{"The Matrix", "The Matrix"},
 			{"", "The Matrix"},
@@ -223,7 +223,7 @@ func testPropTitleAccuracyRange(t *testing.T) {
 		for _, tc := range cases {
 			a := titleAccuracy(tc.a, tc.b)
 			if a < 0 || a > 1 {
-				t.Errorf("titleAccuracy(%q, %q) = %v, fora de [0,1]", tc.a, tc.b, a)
+				t.Errorf("titleAccuracy(%q, %q) = %v, outside [0,1]", tc.a, tc.b, a)
 			}
 		}
 	})
@@ -231,7 +231,7 @@ func testPropTitleAccuracyRange(t *testing.T) {
 
 func testPropTitleAccuracyExact(t *testing.T) {
 	t.Helper()
-	t.Run("exato apos normalizacao = 1", func(t *testing.T) {
+	t.Run("exact after normalization = 1", func(t *testing.T) {
 		pairs := [][2]string{
 			{"The.Matrix.1999", "the matrix 1999"},
 			{"Dune.Part.Two.2024", "Dune Part Two 2024"},
@@ -241,7 +241,7 @@ func testPropTitleAccuracyExact(t *testing.T) {
 		for _, p := range pairs {
 			a := titleAccuracy(p[0], p[1])
 			if a != 1.0 {
-				t.Errorf("titleAccuracy(%q, %q) = %v, esperado 1.0", p[0], p[1], a)
+				t.Errorf("titleAccuracy(%q, %q) = %v, want 1.0", p[0], p[1], a)
 			}
 		}
 	})
@@ -249,19 +249,19 @@ func testPropTitleAccuracyExact(t *testing.T) {
 
 func testPropTitleAccuracyNoOverlap(t *testing.T) {
 	t.Helper()
-	t.Run("sem overlap = 0", func(t *testing.T) {
+	t.Run("no overlap = 0", func(t *testing.T) {
 		if a := titleAccuracy("Matrix", "Inception"); a != 0 {
-			t.Errorf("sem overlap deveria ser 0, got %v", a)
+			t.Errorf("no overlap should be 0, got %v", a)
 		}
 		if a := titleAccuracy("The", "X Y Z"); a != 0 {
-			t.Errorf("sem overlap deveria ser 0, got %v", a)
+			t.Errorf("no overlap should be 0, got %v", a)
 		}
 	})
 }
 
 func testPropTitleAccuracySymmetry(t *testing.T) {
 	t.Helper()
-	t.Run("simetria aproximada", func(t *testing.T) {
+	t.Run("approximate symmetry", func(t *testing.T) {
 		cases := [][2]string{
 			{"The Matrix", "Matrix"},
 			{"Dune Part Two", "Dune"},
@@ -271,7 +271,7 @@ func testPropTitleAccuracySymmetry(t *testing.T) {
 			ab := titleAccuracy(tc[0], tc[1])
 			ba := titleAccuracy(tc[1], tc[0])
 			if ab != ba {
-				t.Errorf("titleAccuracy nao simetrica: %q vs %q: %.4f != %.4f", tc[0], tc[1], ab, ba)
+				t.Errorf("titleAccuracy not symmetric: %q vs %q: %.4f != %.4f", tc[0], tc[1], ab, ba)
 			}
 		}
 	})
@@ -294,8 +294,8 @@ func TestScoreSlotPaymentError(t *testing.T) {
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
 	}
-	if scores[0].FailureReason != "pago — sem saldo" {
-		t.Fatalf("expected 'pago — sem saldo', got %q", scores[0].FailureReason)
+	if scores[0].FailureReason != "paid — no balance" {
+		t.Fatalf("expected 'paid — no balance', got %q", scores[0].FailureReason)
 	}
 	if scores[0].Composite != -1 {
 		t.Fatalf("expected composite -1 for paid model, got %v", scores[0].Composite)
@@ -449,9 +449,9 @@ func TestRunSlotsBadOutputCountsAsZero(t *testing.T) {
 	}
 }
 
-// TestRunSlotsRetriesRateLimitForCompleteScore pins Pendência 1: a case that gets
+// TestRunSlotsRetriesRateLimitForCompleteScore pins pending item 1: a case that gets
 // a transient 429 is RETRIED (not skipped), so the model is scored on the full set
-// — no misleading 100% over a partial sample count, no spurious "Falha".
+// — no misleading 100% over a partial sample count, no spurious "Falha" (failure).
 func TestRunSlotsRetriesRateLimitForCompleteScore(t *testing.T) {
 	var n int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -533,7 +533,7 @@ func TestAffordableSlots(t *testing.T) {
 }
 
 // TestScoreSlotMarksIncompleteOnRateLimit: a model throttled on every case (cases
-// skipped) is flagged Incomplete so "Rodar faltantes" can pick it up later.
+// skipped) is flagged Incomplete so "Rodar faltantes" (run missing) can pick it up later.
 func TestScoreSlotMarksIncompleteOnRateLimit(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "999") // > cap → metadataWithRetry gives up at once (no wait)

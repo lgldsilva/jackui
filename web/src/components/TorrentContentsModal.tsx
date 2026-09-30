@@ -19,8 +19,8 @@ type Props = {
   readonly onClose: () => void
   readonly onPlayFile: (result: SearchResult, fileIndex: number) => void
   readonly onAddFileToPlaylist?: (result: SearchResult, fileIndex: number, fileTitle: string) => void
-  // Quando presente, "Baixar todos" roteia pro modal unificado (destino +
-  // seleção de arquivos) em vez de enfileirar o torrent inteiro direto.
+  // When present, "Download all" routes to the unified modal (destination +
+  // file selection) instead of enqueuing the whole torrent directly.
   readonly onDownload?: (result: SearchResult) => void
 }
 
@@ -118,8 +118,8 @@ function DownloadAllButton({ info, result, onDownload }: { readonly info: Torren
   const confirm = useConfirm()
   const { notify, notifyError } = useToast()
   const { t } = useTranslation()
-  // Roteia pro modal unificado quando o pai oferece (destino + seleção); senão
-  // mantém o fluxo legado (confirma + enfileira o torrent inteiro direto).
+  // Routes to the unified modal when the parent offers it (destination + selection); otherwise
+  // keeps the legacy flow (confirm + enqueue the whole torrent directly).
   if (onDownload) {
     return (
       <button
@@ -225,10 +225,10 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
   let fileSortValue: 'default' | 'size-desc' | 'size-asc' = 'default'
   if (sortBySize) fileSortValue = sizeDesc ? 'size-desc' : 'size-asc'
 
-  // O backdrop fixo (inset-0) continua sendo um <div> — quem captura o clique-fora
-  // e o Escape. O painel interno é o <dialog> semântico: o `w-full` anula a UA
-  // `width: fit-content` (que sozinha estourava o viewport de ~390px no mobile),
-  // e `p-0 m-0` neutralizam padding/margin default do user-agent.
+  // The fixed backdrop (inset-0) remains a <div> — the one capturing outside-click
+  // and Escape. The inner panel is the semantic <dialog>: `w-full` overrides the UA
+  // `width: fit-content` (which alone overflowed the ~390px mobile viewport),
+  // and `p-0 m-0` neutralize the user-agent's default padding/margin.
   return (
     <>
       <Sheet
@@ -323,12 +323,12 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
             )}
           </div>
 
-          {/* Per-tracker real swarm size (BEP 48 scrape) — answers "qual tracker
-              tem os seeds". Loads once when the panel opens. */}
+          {/* Per-tracker real swarm size (BEP 48 scrape) — answers "which tracker
+              has the seeds". Loads once when the panel opens. */}
           <TrackerStatsList infoHash={result.infoHash} magnet={result.magnetUri} />
         </div>
 
-        {/* Body — o Sheet já provê o container rolável (flex-1 overflow-y-auto p-4) */}
+        {/* Body — the Sheet already provides the scrollable container (flex-1 overflow-y-auto p-4) */}
         <>
           {loading && (
             <div className="flex flex-col items-center justify-center py-12 text-text-secondary">
@@ -383,7 +383,7 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         </button>
                       ))}
                     <div className="flex-1" />
-                    {/* Combo de ordenação — só uma ordem por vez (vide FilePickerSidebar). */}
+                    {/* Sort combo — one order at a time (see FilePickerSidebar). */}
                     <select
                       value={fileSortValue}
                       onChange={e => {
@@ -441,9 +441,9 @@ export default function TorrentContentsModal({ result, onClose, onPlayFile, onAd
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          {/* A área ícone+nome é tocável: no mobile o alvo de play
-                              vira a linha inteira (não só o botãozinho verde à
-                              direita, difícil de mirar). min-w-0 mantém o truncate. */}
+                          {/* The icon+name area is touchable: on mobile the play target
+                              becomes the whole row (not just the small green button on
+                              the right, hard to aim at). min-w-0 keeps the truncate. */}
                           <button
                             type="button"
                             onClick={() => {

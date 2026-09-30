@@ -12,9 +12,9 @@ type Props = {
   readonly sentinelRef: RefObject<HTMLDivElement>
 }
 
-// Grade de resultados paginada por infinite-scroll. Extraído do SearchPage
-// (god-file): ramifica entre a visão agrupada por série e a lista plana, ambas
-// paginando por RESULTADOS (mesma janela `visible` + sentinela).
+// Results grid paginated by infinite scroll. Extracted from SearchPage
+// (god-file): branches between the series-grouped view and the flat list, both
+// paginating by RESULTS (same `visible` window + sentinel).
 export function SearchResultsGrid({ filteredResults, visible, groupSeries, renderCard, sentinelRef }: Props) {
   const { t } = useTranslation()
   if (groupSeries) {

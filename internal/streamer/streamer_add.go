@@ -16,7 +16,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/httpretry"
 )
 
-// Add/resolve de torrents (magnet/.torrent/cache) — extraído de streamer.go.
+// Torrent add/resolve (magnet/.torrent/cache) — extracted from streamer.go.
 // Add loads a magnet OR an HTTP(S) URL to a .torrent file and waits for metadata.
 // Returns the torrent info once available.
 //
@@ -144,7 +144,7 @@ func waitForMetadata(ctx context.Context, t *torrent.Torrent, timeout time.Durat
 	case <-t.GotInfo():
 		return nil
 	case <-waitCtx.Done():
-		return fmt.Errorf("timeout aguardando metadados do torrent (%s)", timeout)
+		return fmt.Errorf("timeout waiting for torrent metadata (%s)", timeout)
 	}
 }
 

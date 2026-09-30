@@ -3,10 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { Subtitle } from '../../api/client'
 import { SubtitleResultsList } from './SubtitleResultsList'
 
-// Conteúdo do seletor de legendas. Extraído do painel inline do PlayerControlsPanel
-// pra ser renderizado dentro de um Sheet (bottom-sheet no mobile) — assim a lista E
-// o filtro ficam acessíveis no celular, o que o painel embutido abaixo da dobra não
-// permitia (a coluna do player só rola em telas grandes).
+// Subtitle picker content. Extracted from PlayerControlsPanel's inline panel
+// to be rendered inside a Sheet (bottom-sheet on mobile) — that way the list AND
+// the filter are reachable on a phone, which the embedded panel below the fold didn't
+// allow (the player column only scrolls on large screens).
 export type SubtitlePickerProps = {
   readonly handleCustomSubtitleUpload: (e: React.ChangeEvent<HTMLInputElement>) => void
   readonly customSubName: string | null

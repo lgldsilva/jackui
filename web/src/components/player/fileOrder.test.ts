@@ -4,9 +4,9 @@ import { buildMediaQueue } from './playerHooks'
 import { chapterSeekTargets } from './ChaptersPanel'
 import type { MediaChapter, StreamFile } from '../../api/client'
 
-// Torrent com episódios FORA de ordem nos índices — o caso real que fazia o
-// botão "Próx." pular episódios: a lista exibida ordena por SxxEyy, mas a fila
-// antiga seguia a ordem crua dos files.
+// Torrent with episodes OUT of order in the indices — the real case that made the
+// "Next" button skip episodes: the displayed list sorts by SxxEyy, but the old
+// queue followed the raw file order.
 const mk = (index: number, path: string, size: number, isVideo: boolean): StreamFile =>
   ({ index, path, size, isVideo, downloaded: 0, progress: 0, priority: 'normal' })
 
@@ -19,26 +19,26 @@ const files = [
 ]
 
 describe('filterAndSortFiles', () => {
-  it('ordena por episódio com extras no fim (a ordem da lista visível)', () => {
+  it('sorts by episode with extras at the end (the visible list order)', () => {
     const out = filterAndSortFiles(files, { filter: '', typeFilter: 'all', sortBySize: false, sizeDesc: true })
     expect(out.map(f => f.index)).toEqual([1, 3, 0, 4, 2])
   })
 
-  it('respeita o sort por tamanho quando ativado', () => {
+  it('respects the size sort when enabled', () => {
     const out = filterAndSortFiles(files, { filter: '', typeFilter: 'video', sortBySize: true, sizeDesc: true })
     expect(out.map(f => f.index)).toEqual([0, 3, 1, 2])
   })
 
-  it('filtra por texto e por tag de episódio', () => {
+  it('filters by text and by episode tag', () => {
     const out = filterAndSortFiles(files, { filter: 's01e02', typeFilter: 'all', sortBySize: false, sizeDesc: true })
     expect(out.map(f => f.index)).toEqual([3])
   })
 })
 
-describe('buildMediaQueue sobre a ordem exibida', () => {
+describe('buildMediaQueue over the displayed order', () => {
   const ordered = filterAndSortFiles(files, { filter: '', typeFilter: 'all', sortBySize: false, sizeDesc: true })
 
-  it('next segue a lista visível: E01 → E02 → E03 (não a ordem dos índices)', () => {
+  it('next follows the visible list: E01 → E02 → E03 (not index order)', () => {
     const fromE01 = buildMediaQueue(ordered, 1)
     expect(fromE01.nextIdx).toBe(3) // E02
     const fromE02 = buildMediaQueue(ordered, 3)
@@ -46,12 +46,12 @@ describe('buildMediaQueue sobre a ordem exibida', () => {
     expect(fromE02.nextIdx).toBe(0) // E03
   })
 
-  it('exclui arquivos não-reproduzíveis da fila', () => {
+  it('excludes non-playable files from the queue', () => {
     const q = buildMediaQueue(ordered, 1)
-    expect(q.indices).not.toContain(4) // poster.jpg fora
+    expect(q.indices).not.toContain(4) // poster.jpg out
   })
 
-  it('arquivo fora da fila → cursor -1 e sem next/prev', () => {
+  it('file outside the queue → cursor -1 and no next/prev', () => {
     const q = buildMediaQueue(ordered, 4)
     expect(q.cursor).toBe(-1)
     expect(q.nextIdx).toBe(-1)
@@ -60,7 +60,7 @@ describe('buildMediaQueue sobre a ordem exibida', () => {
 })
 
 describe('parseEpisodeTag', () => {
-  it('normaliza variações de SxxEyy', () => {
+  it('normalizes SxxEyy variations', () => {
     expect(parseEpisodeTag('Show.s1e2.mkv')).toBe('S01E02')
     expect(parseEpisodeTag('Show S01 E10.mkv')).toBe('S01E10')
     expect(parseEpisodeTag('Filme.2024.mkv')).toBeNull()
@@ -74,28 +74,28 @@ describe('chapterSeekTargets', () => {
     { index: 2, startSec: 180, endSec: 300 },
   ]
 
-  it('avança para o início do próximo capítulo', () => {
+  it('advances to the start of the next chapter', () => {
     expect(chapterSeekTargets(chapters, 30).nextSec).toBe(60)
     expect(chapterSeekTargets(chapters, 60).nextSec).toBe(180)
   })
 
-  it('no último capítulo não há próximo', () => {
+  it('on the last chapter there is no next', () => {
     expect(chapterSeekTargets(chapters, 200).nextSec).toBeNull()
   })
 
-  it('>3s dentro do capítulo, prev volta ao início DELE', () => {
+  it('>3s into the chapter, prev goes back to ITS start', () => {
     expect(chapterSeekTargets(chapters, 70).prevSec).toBe(60)
   })
 
-  it('no início do capítulo, prev vai ao capítulo anterior', () => {
+  it('at the chapter start, prev goes to the previous chapter', () => {
     expect(chapterSeekTargets(chapters, 61).prevSec).toBe(0)
   })
 
-  it('no começo do vídeo não há anterior', () => {
+  it('at the video start there is no previous', () => {
     expect(chapterSeekTargets(chapters, 1).prevSec).toBeNull()
   })
 
-  it('lista vazia desabilita os dois', () => {
+  it('empty list disables both', () => {
     expect(chapterSeekTargets([], 10)).toEqual({ prevSec: null, nextSec: null })
   })
 })

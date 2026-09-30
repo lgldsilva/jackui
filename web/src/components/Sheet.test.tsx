@@ -3,60 +3,60 @@ import { render, screen, within, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Sheet } from './Sheet'
 
-// Nota sobre i18n no ambiente de teste:
-// jsdom usa navigator.language="en-US" por padrão, então
-// t('misc.close') → "Close" (não "Fechar").
-// Usamos toHaveAccessibleName() e nomes em inglês para acertar.
+// Note on i18n in the test environment:
+// jsdom uses navigator.language="en-US" by default, so
+// t('misc.close') → "Close" (not "Fechar").
+// We use toHaveAccessibleName() and English names to match.
 
 afterEach(cleanup)
 
 function renderSheet(overrides: Record<string, unknown> = {}) {
   return render(
-    <Sheet open onClose={vi.fn()} title="Modal de teste" {...overrides}>
-      <p>Conteudo do modal</p>
+    <Sheet open onClose={vi.fn()} title="Test modal" {...overrides}>
+      <p>Modal content</p>
     </Sheet>,
   )
 }
 
-describe('Sheet — acessibilidade', () => {
-  it('renderiza com role="dialog" e aria-modal="true"', () => {
+describe('Sheet — accessibility', () => {
+  it('renders with role="dialog" and aria-modal="true"', () => {
     renderSheet()
     const dialog = screen.getByRole('dialog')
     expect(dialog).toHaveAttribute('aria-modal', 'true')
   })
 
-  it('aria-labelledby aponta para o id do título', () => {
+  it('aria-labelledby points to the title id', () => {
     renderSheet()
     const dialog = screen.getByRole('dialog')
     const labelledby = dialog.getAttribute('aria-labelledby')
     expect(labelledby).toBeTruthy()
     const titleEl = document.getElementById(labelledby!)
     expect(titleEl).toBeInTheDocument()
-    expect(titleEl).toHaveTextContent('Modal de teste')
+    expect(titleEl).toHaveTextContent('Test modal')
   })
 
-  it('botão de fechar tem aria-label traduzido', () => {
+  it('close button has a translated aria-label', () => {
     renderSheet()
     const closeBtn = screen.getByRole('button', { name: 'Close' })
     expect(closeBtn).toBeInTheDocument()
     expect(closeBtn).toHaveAccessibleName('Close')
   })
 
-  it('foca o primeiro elemento focável ao abrir', () => {
+  it('focuses the first focusable element on open', () => {
     renderSheet()
     const closeBtn = screen.getByRole('button', { name: 'Close' })
     expect(closeBtn).toHaveFocus()
   })
 
-  it('restaura o foco ao elemento anterior quando fecha', async () => {
+  it('restores focus to the previous element when closed', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
 
     const { rerender } = render(
       <>
-        <button data-testid="trigger">Abrir</button>
+        <button data-testid="trigger">Open</button>
         <Sheet open={false} onClose={onClose} title="Modal">
-          <p>conteudo</p>
+          <p>content</p>
         </Sheet>
       </>,
     )
@@ -65,12 +65,12 @@ describe('Sheet — acessibilidade', () => {
     await user.click(trigger)
     expect(trigger).toHaveFocus()
 
-    // Abre o modal
+    // Opens the modal
     rerender(
       <>
-        <button data-testid="trigger">Abrir</button>
+        <button data-testid="trigger">Open</button>
         <Sheet open onClose={onClose} title="Modal">
-          <p>conteudo</p>
+          <p>content</p>
         </Sheet>
       </>,
     )
@@ -78,28 +78,28 @@ describe('Sheet — acessibilidade', () => {
     const closeBtn = screen.getByRole('button', { name: 'Close' })
     expect(closeBtn).toHaveFocus()
 
-    // Fecha o modal
+    // Closes the modal
     rerender(
       <>
-        <button data-testid="trigger">Abrir</button>
+        <button data-testid="trigger">Open</button>
         <Sheet open={false} onClose={onClose} title="Modal">
-          <p>conteudo</p>
+          <p>content</p>
         </Sheet>
       </>,
     )
 
-    // Foco restaurou para o trigger
+    // Focus was restored to the trigger
     expect(trigger).toHaveFocus()
   })
 
-  it('cicla foco com Tab dentro do modal (focus trap)', async () => {
+  it('cycles focus with Tab inside the modal (focus trap)', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
 
     render(
-      <Sheet open onClose={onClose} title="Modal foco">
-        <button data-testid="btn-1">Botão 1</button>
-        <button data-testid="btn-2">Botão 2</button>
+      <Sheet open onClose={onClose} title="Focus modal">
+        <button data-testid="btn-1">Button 1</button>
+        <button data-testid="btn-2">Button 2</button>
         <a data-testid="link-1" href="https://example.com/">Link</a>
       </Sheet>,
     )
@@ -107,14 +107,14 @@ describe('Sheet — acessibilidade', () => {
     const dialog = screen.getByRole('dialog')
     const closeBtn = within(dialog).getByRole('button', { name: 'Close' })
 
-    // Foco começa no close button (primeiro focável)
+    // Focus starts on the close button (first focusable)
     expect(closeBtn).toHaveFocus()
 
-    // Tab → Botão 1
+    // Tab → Button 1
     await user.tab()
     expect(within(dialog).getByTestId('btn-1')).toHaveFocus()
 
-    // Tab → Botão 2
+    // Tab → Button 2
     await user.tab()
     expect(within(dialog).getByTestId('btn-2')).toHaveFocus()
 
@@ -122,30 +122,30 @@ describe('Sheet — acessibilidade', () => {
     await user.tab()
     expect(within(dialog).getByTestId('link-1')).toHaveFocus()
 
-    // Tab → volta ao close button (ciclo)
+    // Tab → back to the close button (cycle)
     await user.tab()
     expect(closeBtn).toHaveFocus()
   })
 
-  it('Shift+Tab cicla foco reverso', async () => {
+  it('Shift+Tab cycles focus in reverse', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
 
     render(
-      <Sheet open onClose={onClose} title="Modal shift tab">
-        <button data-testid="btn-1">Botão 1</button>
-        <button data-testid="btn-2">Botão 2</button>
+      <Sheet open onClose={onClose} title="Shift tab modal">
+        <button data-testid="btn-1">Button 1</button>
+        <button data-testid="btn-2">Button 2</button>
       </Sheet>,
     )
 
     const dialog = screen.getByRole('dialog')
     const closeBtn = within(dialog).getByRole('button', { name: 'Close' })
 
-    // Shift+Tab no primeiro focável → vai pro último (btn-2)
+    // Shift+Tab on the first focusable → goes to the last (btn-2)
     await user.tab({ shift: true })
     expect(within(dialog).getByTestId('btn-2')).toHaveFocus()
 
-    // Shift+Tab → Botão 1
+    // Shift+Tab → Button 1
     await user.tab({ shift: true })
     expect(within(dialog).getByTestId('btn-1')).toHaveFocus()
 
@@ -154,19 +154,19 @@ describe('Sheet — acessibilidade', () => {
     expect(closeBtn).toHaveFocus()
   })
 
-  it('não renderiza nada quando open=false', () => {
+  it('renders nothing when open=false', () => {
     const { container } = render(
-      <Sheet open={false} onClose={vi.fn()} title="Invisivel">
-        <p>nao deve aparecer</p>
+      <Sheet open={false} onClose={vi.fn()} title="Invisible">
+        <p>should not appear</p>
       </Sheet>,
     )
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('não tem aria-labelledby quando hideHeader=true', () => {
+  it('has no aria-labelledby when hideHeader=true', () => {
     render(
-      <Sheet open onClose={vi.fn()} title="Sem header" hideHeader>
-        <p>conteudo</p>
+      <Sheet open onClose={vi.fn()} title="No header" hideHeader>
+        <p>content</p>
       </Sheet>,
     )
     const dialog = screen.getByRole('dialog')

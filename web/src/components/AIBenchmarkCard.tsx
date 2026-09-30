@@ -16,9 +16,9 @@ import { casesToText, textToCases } from './aibenchmark/cases'
 // the "modifiable benchmark" the product needs: tune it to the releases you
 // actually grab and the chain re-orders for them.
 //
-// The benchmark measures the FULL rename extraction (título + ano for movies,
-// série + temporada/episódio for TV), so the expected label carries that
-// structure inline — coherent with what "Renomear e Organizar via IA" produces.
+// The benchmark measures the FULL rename extraction (title + year for movies,
+// series + season/episode for TV), so the expected label carries that
+// structure inline — coherent with what "Rename and Organize via AI" produces.
 
 // The cases editor (textarea round-trip) lives in ./aibenchmark/cases for
 // unit-testing the multi-task "[task]" prefix parsing without rendering the card.
@@ -39,7 +39,7 @@ export default function AIBenchmarkCard() {
   // serverRunning tracks the BACKEND's run tracker — distinct from `running`
   // (this tab's own in-flight POST). A run keeps going server-side even after
   // this tab's request errors out (proxy/browser timeout) or after a reload,
-  // so this is what actually decides whether "Cancelar" should show.
+  // so this is what actually decides whether "Cancel" should show.
   const [serverRunning, setServerRunning] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -245,8 +245,8 @@ export default function AIBenchmarkCard() {
     <section className="card flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-semibold text-text-primary flex items-center gap-2"><Cpu className="w-5 h-5" /> {t('ai.title')}</h2>
-        {/* w-full + flex-wrap no mobile: o grupo de ações (select + botões)
-            quebra dentro do card em vez de vazar pra fora da borda. */}
+        {/* w-full + flex-wrap on mobile: the action group (select + buttons)
+            wraps inside the card instead of leaking past the border. */}
         <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
           {status.providers && status.providers.length > 0 && (
             <select

@@ -23,9 +23,9 @@ import { defaultSelectedFiles } from '../lib/torrentSelect'
 // as opposed to handing the torrent to an external qBittorrent/Transmission.
 const INTERNAL_ID = '__internal__'
 
-// Seleção inicial dos arquivos resolvidos: a pré-seleção explícita (ex: a pasta
-// vinda do player) tem prioridade, filtrada contra o que realmente resolveu
-// (defensivo: cache vs streamAdd); cai na heurística se vazia/ausente.
+// Initial selection of the resolved files: the explicit pre-selection (e.g. the folder
+// coming from the player) takes priority, filtered against what actually resolved
+// (defensive: cache vs streamAdd); falls back to the heuristic when empty/absent.
 function pickInitialSelection(files: StreamFile[], initial?: readonly number[]): Set<number> {
   if (initial) {
     const preset = new Set(files.filter(f => initial.includes(f.index)).map(f => f.index))
@@ -81,11 +81,11 @@ async function downloadInternal(
     const all = files ?? []
     const picks = all.filter(f => selectedFiles.has(f.index))
     if (picks.length === 0) throw new Error(t('downloads.modal.selectAtLeastOne'))
-    // Todos os arquivos marcados → UMA linha "torrent inteiro" (fileIndex=-2):
-    // o anacrolix baixa o torrent inteiro via file priorities, não N downloads.
-    // Um pack de 778 arquivos vira 1 linha → acaba a explosão que inflava a
-    // lista e fazia /api/downloads demorar. Subconjunto cai no batch (1 linha
-    // por arquivo escolhido), preservando a granularidade.
+    // All files selected → ONE "whole torrent" row (fileIndex=-2):
+    // anacrolix downloads the whole torrent via file priorities, not N downloads.
+    // A 778-file pack becomes 1 row → ends the explosion that inflated the
+    // list and made /api/downloads slow. A subset falls to the batch (1 row
+    // per chosen file), preserving granularity.
     if (isWholeTorrentSelection(all, selectedFiles)) {
       await downloadCreate({
         infoHash, fileIndex: WHOLE_TORRENT_FILE_INDEX, magnet, name: result.title,
@@ -95,8 +95,8 @@ async function downloadInternal(
       })
       return null
     }
-    // UMA request batch (antes: 1 POST por arquivo). O backend insere tudo numa
-    // transação tudo-ou-nada — não há mais sucesso parcial pra reportar.
+    // ONE batch request (before: 1 POST per file). The backend inserts everything in an
+    // all-or-nothing transaction — no more partial success to report.
     const res = await downloadBatchCreate({
       infoHash, magnet, name: result.title,
       tracker: result.tracker || undefined, category: result.category || undefined,
@@ -107,8 +107,8 @@ async function downloadInternal(
       return t('downloads.modal.partialQueued', { created: res.created.length, total: picks.length })
     }
   } else {
-    // Sem lista de arquivos: auto-pick no backend (pickBestFile). Nunca fileIndex 0
-    // (costuma ser .nfo spam) — ver createParamsWhenFilesUnknown + testes.
+    // Without a file list: auto-pick on the backend (pickBestFile). Never fileIndex 0
+    // (usually .nfo spam) — see createParamsWhenFilesUnknown + tests.
     await downloadCreate(createParamsWhenFilesUnknown({
       infoHash, magnet, name: result.title,
       tracker: result.tracker || undefined, category: result.category || undefined,
@@ -121,11 +121,11 @@ async function downloadInternal(
 type DownloadModalProps = {
   readonly result: SearchResult | null
   readonly onClose: () => void
-  // Pré-seleção opcional (ex: "baixar esta pasta" no player passa os índices da
-  // pasta). Quando ausente, o modal aplica a heurística defaultSelected.
+  // Optional pre-selection (e.g. "download this folder" in the player passes the folder's
+  // indices). When absent, the modal applies the defaultSelected heuristic.
   readonly initialFileIndices?: readonly number[]
-  // Modal aninhado (dentro do player): não trava o scroll de novo (o player já
-  // segura o lock; useScrollLock não é refcounted) e sobe o z-index.
+  // Nested modal (inside the player): doesn't lock scroll again (the player already
+  // holds the lock; useScrollLock isn't refcounted) and raises the z-index.
   readonly nested?: boolean
 }
 
@@ -145,9 +145,9 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   const [success, setSuccess] = useState(false)
   const [successInfo, setSuccessInfo] = useState<SuccessInfo | null>(null)
   const [showRecent, setShowRecent] = useState(false)
-  // Files preview do torrent — quando destino = JackUI interno, picker mostra
-  // a lista pro user marcar/desmarcar o que baixar. null = ainda carregando
-  // ou destino externo (cliente externo baixa tudo, não tem como filtrar).
+  // Torrent files preview — when destination = internal JackUI, the picker shows
+  // the list for the user to check/uncheck what to download. null = still loading
+  // or external destination (an external client downloads everything, no way to filter).
   const [files, setFiles] = useState<StreamFile[] | null>(null)
   const [filesLoading, setFilesLoading] = useState(false)
   const [filesError, setFilesError] = useState('')
@@ -155,7 +155,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   // Chosen destination for the internal download (#16); empty = default dir.
   const [dest, setDest] = useState<{ destBase: string; destSubdir: string }>({ destBase: '', destSubdir: '' })
   const pathInputRef = useRef<HTMLInputElement>(null)
-  // clientsLoaded evita o flash do modal enquanto a lista de clientes carrega.
+  // clientsLoaded avoids the modal flash while the client list loads.
   const [clientsLoaded, setClientsLoaded] = useState(false)
   // Cross-torrent dedup (#23): set when /dedup-check finds files the user already
   // has → the DedupPrompt asks whether to link them instead of re-downloading.
@@ -192,10 +192,10 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
       .finally(() => setClientsLoaded(true))
   }, [result])
 
-  // Carrega lista de arquivos quando o destino vira interno. Tenta cache de
-  // metadata primeiro (instantâneo se o torrent já foi tocado/baixado antes);
-  // se vazio, faz streamAdd p/ resolver. Falhas viram aviso amigável — o user
-  // ainda pode clicar Confirmar e o worker tenta resolver no backend.
+  // Loads the file list when the destination becomes internal. Tries the metadata
+  // cache first (instant if the torrent was played/downloaded before);
+  // if empty, does streamAdd to resolve. Failures become a friendly notice — the user
+  // can still click Confirm and the worker tries to resolve on the backend.
   useEffect(() => {
     if (!result || selectedClientId !== INTERNAL_ID) {
       setFiles(null)
@@ -338,9 +338,9 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   }
 
   if (!result) return null
-  // Ainda decidindo (carregando clientes) — não pisca o modal.
+  // Still deciding (loading clients) — don't flash the modal.
   if (!clientsLoaded) return null
-  // Dedup: o torrent tem arquivos que o usuário já tem → pergunta antes de baixar.
+  // Dedup: the torrent has files the user already has → ask before downloading.
   if (dedup) {
     return (
       <DedupPrompt
@@ -424,8 +424,8 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
             )}
           </div>
 
-          {/* File picker — só pro destino interno. Externo manda o torrent
-              inteiro pro cliente, sem como filtrar arquivos. */}
+          {/* File picker — internal destination only. External hands the whole
+              torrent to the client, no way to filter files. */}
           {selectedClientId === INTERNAL_ID && (
             <div>
               {filesLoading && (

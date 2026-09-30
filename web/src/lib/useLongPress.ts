@@ -20,11 +20,11 @@ type LongPressOptions = {
 }
 
 /**
- * Toque-longo (~500ms) que dispara `onLongPress`. Cancela se o dedo se move além
- * de `moveTolerance` (= é scroll, não hold). Também mapeia `onContextMenu` no
- * desktop (right-click) pro mesmo callback. Os listeners são `passive` por serem
- * React synthetic handlers; não chamamos preventDefault pra não atrapalhar o
- * scroll nativo — o cancelamento por movimento já evita disparos acidentais.
+ * Long-press (~500ms) that fires `onLongPress`. Cancels if the finger moves beyond
+ * `moveTolerance` (= it's a scroll, not a hold). Also maps `onContextMenu` on
+ * desktop (right-click) to the same callback. The listeners are `passive` because they are
+ * React synthetic handlers; we don't call preventDefault so as not to disturb native
+ * scrolling — the movement-based cancellation already avoids accidental triggers.
  */
 export function useLongPress(onLongPress: () => void, opts: LongPressOptions = {}): LongPressHandlers {
   const { delay = 500, moveTolerance = 10, enabled = true, contextMenu = true } = opts

@@ -1,17 +1,17 @@
-// Base compartilhada dos módulos /api/local*: o "pseudo info-hash"
-// (`local-<b64>`) que faz um arquivo de disco passar por torrent no PlayerModal,
-// e o estado "view as user" (admin) que reescreve as queries mount/path.
-// Fica isolado aqui pra que local.ts e os módulos irmãos (local-cache,
-// local-audio, …) importem sem ciclos. Extraído de local.ts (#417 follow-up).
+// Shared base for the /api/local* modules: the "pseudo info-hash"
+// (`local-<b64>`) that lets a disk file pass as a torrent in PlayerModal,
+// and the "view as user" (admin) state that rewrites mount/path queries.
+// Isolated here so local.ts and the sibling modules (local-cache,
+// local-audio, …) import without cycles. Extracted from local.ts (#417 follow-up).
 
 // ─── Local file source (pseudo-hash routing) ─────────────────────────────
 //
-// Arquivos locais usam um "pseudo info-hash" no formato `local-<base64url(json{mount,path})>`.
-// PlayerModal e demais consumers continuam achando que estão lidando com um torrent
-// normal — as funções abaixo (streamProbe, streamSidecars, subtitlesAuto, etc.)
-// detectam o prefixo e roteiam pro `/api/local/*` em vez do `/api/stream/*`.
+// Local files use a "pseudo info-hash" in the format `local-<base64url(json{mount,path})>`.
+// PlayerModal and the other consumers keep thinking they're dealing with a normal
+// torrent — the functions below (streamProbe, streamSidecars, subtitlesAuto, etc.)
+// detect the prefix and route to `/api/local/*` instead of `/api/stream/*`.
 //
-// Vantagem: PlayerModal não precisa mudar (zero risco no caminho torrent que já funciona).
+// Benefit: PlayerModal needs no changes (zero risk on the torrent path that already works).
 
 const LOCAL_PREFIX = 'local-'
 
@@ -76,8 +76,8 @@ export function withViewAs(url: string): string {
   return `${url}${sep}user=${encodeURIComponent(localViewAsUser)}`
 }
 
-// localQS monta a query mount/path (+?user= quando "view as user"). Exportada
-// porque stream.ts/subtitles.ts reusam pra rotear o branch local.
+// localQS builds the mount/path query (+?user= when "view as user"). Exported
+// because stream.ts/subtitles.ts reuse it to route the local branch.
 export function localQS(mount: string, path: string): string {
   const base = `mount=${encodeURIComponent(mount)}&path=${encodeURIComponent(path)}`
   return localViewAsUser ? `${base}&user=${encodeURIComponent(localViewAsUser)}` : base

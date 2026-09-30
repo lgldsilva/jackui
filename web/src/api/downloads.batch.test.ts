@@ -110,7 +110,7 @@ describe('buildBatchFiles', () => {
 describe('isWholeTorrentSelection', () => {
   const files = [sf({ index: 0 }), sf({ index: 1 }), sf({ index: 2 })]
 
-  it('true quando TODOS os arquivos estão marcados (→ enfileira -2, 1 linha)', () => {
+  it('true when ALL files are selected (→ enqueues -2, 1 row)', () => {
     expect(isWholeTorrentSelection(files, new Set([0, 1, 2]))).toBe(true)
   })
 
@@ -119,12 +119,12 @@ describe('isWholeTorrentSelection', () => {
     expect(isWholeTorrentSelection(files, new Set([1]))).toBe(false)
   })
 
-  it('false p/ seleção vazia e p/ lista vazia', () => {
+  it('false for empty selection and empty list', () => {
     expect(isWholeTorrentSelection(files, new Set())).toBe(false)
     expect(isWholeTorrentSelection([], new Set())).toBe(false)
   })
 
-  it('pack tipo Morgpie: 778 arquivos todos marcados = whole torrent', () => {
+  it('Morgpie-style pack: 778 files all selected = whole torrent', () => {
     const pack = Array.from({ length: 778 }, (_, i) => sf({ index: i }))
     expect(isWholeTorrentSelection(pack, new Set(pack.map(f => f.index)))).toBe(true)
   })

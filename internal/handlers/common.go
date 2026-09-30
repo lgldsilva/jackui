@@ -16,10 +16,9 @@ const (
 	ErrFileIdxOutOfRange = "file index out of range"
 	ErrNotPausable       = "cannot pause a finished download"
 	ErrTMDBDisabled      = "tmdb disabled"
-	// #nosec G101 -- falso-positivo: constante de mensagem de erro, nao credencial
-	ErrPasskeysNotConfig = "passkeys não configuradas"
-	// #nosec G101 -- falso-positivo: constante de mensagem de erro, nao credencial
-	ErrPasskeysNotConfigF = "passkeys não configuradas (defina JACKUI_BASE_URL)"
+	// User-facing error messages for the WebAuthn (passkey) endpoints.
+	ErrWebAuthnNotConfig  = "passkeys not configured"
+	ErrWebAuthnNotConfigF = "passkeys not configured (set JACKUI_BASE_URL)"
 
 	MagnetPrefix = "magnet:?xt=urn:btih:"
 )

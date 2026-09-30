@@ -1,11 +1,11 @@
-// Streaming de torrents (anacrolix → HTTP com Range): add/probe/info/health/art,
-// favoritos, controles estilo Transmission e os URL builders (/api/stream/*).
-// Arquivos locais são detectados pelo pseudo info-hash e roteados pro ./local —
-// o PlayerModal não distingue torrent de local. Extraído de client.ts (#417).
+// Torrent streaming (anacrolix → HTTP with Range): add/probe/info/health/art,
+// favorites, Transmission-style controls and the URL builders (/api/stream/*).
+// Local files are detected by the pseudo info-hash and routed to ./local —
+// PlayerModal doesn't distinguish torrent from local. Extracted from client.ts (#417).
 //
-// Este arquivo continua sendo o ponto de entrada único (`client.ts` faz
-// `export * from './stream'`): re-exporta os módulos irmãos abaixo pra que NENHUM
-// import externo quebre.
+// This file remains the single entry point (`client.ts` does
+// `export * from './stream'`): it re-exports the sibling modules below so NO
+// external import breaks.
 export * from './stream-types'
 export * from './stream-browser'
 export * from './stream-core'

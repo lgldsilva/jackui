@@ -51,28 +51,28 @@ func TestMigrateToUserSubpath(t *testing.T) {
 
 	// alice.mkv → alice/alice.mkv
 	if !fileExists(filepath.Join(root, "alice", "alice.mkv")) {
-		t.Error("alice.mkv não foi movido para alice/")
+		t.Error("alice.mkv was not moved to alice/")
 	}
 	// orphan.mkv → admin/orphan.mkv (fallback)
 	if !fileExists(filepath.Join(root, "admin", "orphan.mkv")) {
-		t.Error("orphan.mkv não foi para o fallback admin/")
+		t.Error("orphan.mkv did not go to the admin/ fallback")
 	}
 	// bob/ untouched
 	if !fileExists(filepath.Join(root, "bob", "keep.mkv")) {
-		t.Error("bob/keep.mkv foi mexido indevidamente")
+		t.Error("bob/keep.mkv was touched unexpectedly")
 	}
 	// originals gone from root
 	if fileExists(filepath.Join(root, "alice.mkv")) || fileExists(filepath.Join(root, "orphan.mkv")) {
-		t.Error("arquivos originais ainda estão na raiz")
+		t.Error("original files still exist in the root")
 	}
 
 	// fallback flag is set only for the orphan
 	for _, m := range res.Moved {
 		if m.Name == "orphan.mkv" && !m.Fallback {
-			t.Error("orphan.mkv deveria estar marcado como fallback")
+			t.Error("orphan.mkv should be flagged as fallback")
 		}
 		if m.Name == "alice.mkv" && m.Fallback {
-			t.Error("alice.mkv não deveria ser fallback")
+			t.Error("alice.mkv should not be fallback")
 		}
 	}
 
@@ -82,7 +82,7 @@ func TestMigrateToUserSubpath(t *testing.T) {
 		t.Fatalf("migrate (2nd): %v", err)
 	}
 	if len(res2.Moved) != 0 {
-		t.Errorf("2nd run moved %d, want 0 (idempotência): %+v", len(res2.Moved), res2.Moved)
+		t.Errorf("2nd run moved %d, want 0 (idempotency): %+v", len(res2.Moved), res2.Moved)
 	}
 }
 
@@ -100,7 +100,7 @@ func TestMigrateToUserSubpath_SharedMountIsNoop(t *testing.T) {
 		t.Errorf("shared mount moved %d, want 0", len(res.Moved))
 	}
 	if !fileExists(filepath.Join(root, "x.mkv")) {
-		t.Error("arquivo não deveria ter sido movido num mount compartilhado")
+		t.Error("file should not have been moved on a shared mount")
 	}
 }
 
@@ -129,13 +129,13 @@ func TestMigrateToUserSubpath_Collision(t *testing.T) {
 	}
 	// Existing file preserved, incoming left at root, NO numbered duplicate.
 	if existing, _ := os.ReadFile(filepath.Join(root, "alice", "movie.mkv")); string(existing) != "existing" {
-		t.Errorf("arquivo existente foi sobrescrito: %q", existing)
+		t.Errorf("existing file was overwritten: %q", existing)
 	}
 	if incoming, _ := os.ReadFile(filepath.Join(root, "movie.mkv")); string(incoming) != "incoming" {
-		t.Errorf("entrada da raiz deveria permanecer intacta: %q", incoming)
+		t.Errorf("root entry should have remained intact: %q", incoming)
 	}
 	if fileExists(filepath.Join(root, "alice", "movie (1).mkv")) {
-		t.Error("não deveria ter criado duplicata numerada 'movie (1).mkv'")
+		t.Error("should not have created numbered duplicate 'movie (1).mkv'")
 	}
 }
 
@@ -162,13 +162,13 @@ func TestMigrateToUserSubpath_SkipsActiveDownload(t *testing.T) {
 	}
 	// In-progress folder untouched at the root.
 	if !fileExists(filepath.Join(root, "Morgpie", "clip.mp4.part")) {
-		t.Error("download ativo (.part) não deveria ter sido movido")
+		t.Error("active download (.part) should not have been moved")
 	}
 	if fileExists(filepath.Join(root, "admin", "Morgpie")) {
-		t.Error("download ativo foi relocado indevidamente para admin/")
+		t.Error("active download was unexpectedly relocated to admin/")
 	}
 	// The completed file still migrates.
 	if !fileExists(filepath.Join(root, "admin", "done.mkv")) {
-		t.Error("arquivo concluído deveria ter migrado para admin/")
+		t.Error("completed file should have migrated to admin/")
 	}
 }

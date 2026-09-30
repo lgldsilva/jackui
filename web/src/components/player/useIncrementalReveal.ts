@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 
-// nextReveal: próximo total de linhas visíveis ao revelar mais um lote, sem passar
-// do total. Puro/testável; a parte de DOM (IntersectionObserver) fica no hook.
+// nextReveal: next count of visible lines when revealing one more batch, without going
+// past the total. Pure/testable; the DOM part (IntersectionObserver) stays in the hook.
 export function nextReveal(visible: number, step: number, total: number): number {
   return Math.min(visible + step, total)
 }
 
 export type IncrementalReveal = {
-  visible: number      // quantas linhas renderizar agora (≤ total)
-  hasMore: boolean     // ainda há linhas escondidas?
-  remaining: number    // quantas faltam revelar
-  sentinelRef: RefObject<HTMLDivElement> // marcador no fim da lista
-  showMore: () => void // revela mais um lote (botão de fallback)
+  visible: number      // how many lines to render now (≤ total)
+  hasMore: boolean     // are there still hidden lines?
+  remaining: number    // how many are left to reveal
+  sentinelRef: RefObject<HTMLDivElement> // marker at the end of the list
+  showMore: () => void // reveals one more batch (fallback button)
 }
 
-// useIncrementalReveal: renderiza uma lista longa em LOTES (default 100), revelando
-// mais conforme o usuário ROLA até o fim (sentinela + IntersectionObserver) e também
-// via showMore() (botão). Mantém a proteção de performance — nunca monta milhares de
-// linhas de uma vez — SEM esconder o resto atrás de um filtro que o usuário teria de
-// adivinhar. `resetKey` muda (novo torrent / filtro / ordenação) → recomeça do 1º lote.
+// useIncrementalReveal: renders a long list in BATCHES (default 100), revealing
+// more as the user SCROLLS to the end (sentinel + IntersectionObserver) and also
+// via showMore() (button). Keeps the performance protection — never mounts thousands of
+// lines at once — WITHOUT hiding the rest behind a filter the user would have to
+// guess. `resetKey` changes (new torrent / filter / sort) → starts over from the 1st batch.
 export function useIncrementalReveal(total: number, resetKey: unknown, step = 100): IncrementalReveal {
   const [visible, setVisible] = useState(step)
   useEffect(() => { setVisible(step) }, [resetKey, step])
@@ -30,9 +30,9 @@ export function useIncrementalReveal(total: number, resetKey: unknown, step = 10
   useEffect(() => {
     const el = sentinelRef.current
     if (!el || !hasMore || typeof IntersectionObserver === 'undefined') return
-    // rootMargin folgado pra começar a carregar um pouco antes de bater o fim.
-    // Como um lote (100 linhas) é bem mais alto que o viewport da sidebar, ao
-    // revelar mais a sentinela some da tela → não cascateia tudo de uma vez.
+    // Generous rootMargin so it starts loading a bit before hitting the end.
+    // Since a batch (100 lines) is much taller than the sidebar viewport, on
+    // revealing more the sentinel leaves the screen → it doesn't cascade everything at once.
     const io = new IntersectionObserver(
       (entries) => { if (entries.some((e) => e.isIntersecting)) setVisible((v) => nextReveal(v, step, total)) },
       { rootMargin: '240px' },

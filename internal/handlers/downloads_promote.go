@@ -29,17 +29,17 @@ import (
 )
 
 const (
-	errDownloadNotFound = "download não encontrado"
+	errDownloadNotFound = "download not found"
 )
 
-// promoteReq é o body de POST /api/downloads/:id/promote e do batch handler.
-// targetSubdir é relativo a sharedDir; valida-se contra path traversal.
+// promoteReq is the body of POST /api/downloads/:id/promote and of the batch handler.
+// targetSubdir is relative to sharedDir; validated against path traversal.
 type promoteReq struct {
 	KeepSeeding  bool   `json:"keepSeeding"`
 	TargetSubdir string `json:"targetSubdir"`
 	TargetBase   string `json:"targetBase"` // empty = sharedDir (default)
 	RenameIA     bool   `json:"renameIA"`
-	// Apenas para batch:
+	// Batch only:
 	IDs []int `json:"ids"`
 }
 
@@ -70,13 +70,13 @@ func BuildPromoteDests(sharedDir string, extra []httpshared.PromoteDest) []https
 	return dests
 }
 
-// DownloadsPromote handles POST /api/downloads/:id/promote — move um download
-// concluído pra sharedDir (opcionalmente em targetSubdir). Body:
+// DownloadsPromote handles POST /api/downloads/:id/promote — moves a completed
+// download to sharedDir (optionally into targetSubdir). Body:
 //
 //	{ "keepSeeding": bool, "targetSubdir": "movies/2026", "targetBase": "/mnt/gdrive/media" }
 //
-// targetSubdir vazio = raiz do destino. targetBase vazio = sharedDir (default).
-// Subpastas inexistentes são criadas (os.MkdirAll). Validação anti-traversal.
+// Empty targetSubdir = destination root. Empty targetBase = sharedDir (default).
+// Missing subfolders are created (os.MkdirAll). Anti-traversal validation.
 func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
@@ -105,23 +105,23 @@ func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 			return
 		}
 		if plan != nil {
-			// Cópia roda em background (pool de transferências) → responde na hora.
+			// Copy runs in the background (transfer pool) → reply immediately.
 			submitPromotePlans(o, d.Tracker, []*promotePlan{plan})
 		}
-		// Retorno otimista: file_path ainda aponta pro original até a cópia terminar
-		// (a lista reflete o destino quando o job do dock conclui).
+		// Optimistic return: file_path still points at the original until the copy
+		// finishes (the list reflects the destination once the dock job completes).
 		updated, _ := d.Store.Get(userID, id)
 		c.JSON(http.StatusOK, updated)
 	}
 }
 
-// DownloadsPromoteBatch handles POST /api/downloads/promote — promove uma
-// lista de downloads pro MESMO targetSubdir. Body:
+// DownloadsPromoteBatch handles POST /api/downloads/promote — promotes a list
+// of downloads to the SAME targetSubdir. Body:
 //
 //	{ "ids": [1,2,3], "targetSubdir": "movies", "keepSeeding": false, "targetBase": "/mnt/gdrive/media" }
 //
-// Resposta: { "promoted": [<DownloadEntry>...], "failed": [{id, error}...] }
-// Falhas individuais não abortam o batch — cada item é tentado.
+// Response: { "promoted": [<DownloadEntry>...], "failed": [{id, error}...] }
+// Individual failures do not abort the batch — each item is attempted.
 func DownloadsPromoteBatch(d PromoteDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if d.SharedDir == "" {
@@ -145,7 +145,7 @@ func validateBatchReq(c *gin.Context, sharedDir string, dests []httpshared.Promo
 		return nil, "", false
 	}
 	if len(req.IDs) == 0 {
-		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "ids vazio")
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "empty ids")
 		return nil, "", false
 	}
 	base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
@@ -156,11 +156,11 @@ func validateBatchReq(c *gin.Context, sharedDir string, dests []httpshared.Promo
 	return &req, base, true
 }
 
-// promoteBatchItems valida cada item SINCRONAMENTE (erros voltam na resposta) e
-// submete os válidos pra cópia em background. `promoted` é otimista: lista os
-// aceitos (a cópia roda no painel de Transferências); `failed` traz só os que
-// falharam na validação. Isso mantém o shape da resposta e evita o 504 numa
-// cópia grande síncrona.
+// promoteBatchItems validates each item SYNCHRONOUSLY (errors come back in the
+// response) and submits the valid ones for background copying. `promoted` is
+// optimistic: it lists the accepted items (the copy runs in the Transfers
+// panel); `failed` only carries the ones that failed validation. This keeps the
+// response shape and avoids a 504 on a large synchronous copy.
 func promoteBatchItems(o *promoteOpts, req *promoteReq, tr *transfer.Tracker) ([]downloads.Download, []gin.H) {
 	promoted := []downloads.Download{}
 	failed := []gin.H{}
@@ -172,7 +172,7 @@ func promoteBatchItems(o *promoteOpts, req *promoteReq, tr *transfer.Tracker) ([
 			failed = append(failed, gin.H{"id": id, httpshared.ErrorField: err.Error()})
 			continue
 		}
-		if plan == nil { // já no destino — sucesso imediato, sem cópia
+		if plan == nil { // already at the destination — immediate success, no copy
 			if d, _ := o.store.Get(o.userID, id); d != nil {
 				promoted = append(promoted, *d)
 			}
@@ -199,7 +199,7 @@ func DownloadsPromotePreview(store *downloads.Store, aiClient *ai.Client, tmdbCl
 			return
 		}
 		if len(req.IDs) == 0 {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "ids vazio")
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "empty ids")
 			return
 		}
 		base, err := httpshared.ResolveTargetBase(req.TargetBase, sharedDir, dests)
@@ -227,7 +227,7 @@ func previewOneDownload(d *previewDeps, id int) gin.H {
 		return gin.H{"id": id, httpshared.ErrorField: errDownloadNotFound}
 	}
 	if dl.FilePath == "" {
-		return gin.H{"id": id, httpshared.ErrorField: "file_path vazio"}
+		return gin.H{"id": id, httpshared.ErrorField: "file_path empty"}
 	}
 	rawName := filepath.Base(dl.FilePath)
 	if rawName == "" || rawName == "." || rawName == "/" {
@@ -252,8 +252,8 @@ func previewOneDownload(d *previewDeps, id int) gin.H {
 }
 
 // DownloadsPromoteBrowse handles GET /api/downloads/promote/browse?path=movies&base=/mnt/gdrive/media
-// — lista subpastas em {base}/path pra alimentar o navegador da UI. base
-// vazio = sharedDir. Não expõe arquivos (só dirs).
+// — lists subfolders under {base}/path to feed the UI browser. Empty
+// base = sharedDir. Does not expose files (dirs only).
 func DownloadsPromoteBrowse(sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if sharedDir == "" {
@@ -309,17 +309,17 @@ type promoteOpts struct {
 	renameIA     bool
 	tracker      *transfer.Tracker // reports the move to the global Transfers dock (nil-safe)
 	pending      *transfer.Store   // persists the copy intent so a restart can resume it (nil-safe)
-	concMode     string            // "" / "auto" / "serial" / "parallel" — ver TransferConcurrencyMode
+	concMode     string            // "" / "auto" / "serial" / "parallel" — see TransferConcurrencyMode
 }
 
-// Modos de concorrência de transferência (config TransferConcurrencyMode).
+// Transfer concurrency modes (config TransferConcurrencyMode).
 const (
 	transferModeAuto     = "auto"
 	transferModeSerial   = "serial"
 	transferModeParallel = "parallel"
 )
 
-// transferMode lê o modo de concorrência da config AO VIVO (nil-safe → "").
+// transferMode reads the transfer concurrency mode from the LIVE config (nil-safe → "").
 func transferMode(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -327,8 +327,8 @@ func transferMode(cfg *config.Config) string {
 	return cfg.Stream.TransferConcurrencyMode
 }
 
-// shouldSerialize decide, pelo modo + disco destino, se as cópias rodam uma de
-// cada vez. "auto" (default) detecta HDD; "serial"/"parallel" forçam.
+// shouldSerialize decides, based on mode + destination disk, whether copies run
+// one at a time. "auto" (default) detects HDD; "serial"/"parallel" force it.
 func shouldSerialize(mode, dst string) bool {
 	switch mode {
 	case transferModeSerial:
@@ -348,8 +348,8 @@ type promotePayload struct {
 	KeepSeeding bool `json:"keepSeeding"`
 }
 
-// promotePlan é um promote validado pronto pra copiar. A validação é síncrona
-// (rápida); a cópia (lh.MovePathJob) roda depois em background — ver runPromotePlan.
+// promotePlan is a validated promote ready to copy. Validation is synchronous
+// (fast); the copy (lh.MovePathJob) runs afterwards in the background — see runPromotePlan.
 type promotePlan struct {
 	d       *downloads.Download
 	src     string
@@ -359,22 +359,22 @@ type promotePlan struct {
 	bytes   int64
 }
 
-// promotePreparePlan valida e resolve os caminhos SINCRONAMENTE (sem copiar).
-// Retorna (plan, nil) quando há o que mover; (nil, nil) quando o arquivo já está
-// no destino (no-op); (nil, err) em falha de validação — reportável na resposta
-// imediata. Separar a validação da cópia deixa o handler responder na hora e
-// jogar a cópia (lenta em arquivo grande) pro pool de transferências, evitando
-// o 504 do proxy reverso numa cópia síncrona longa.
+// promotePreparePlan validates and resolves the paths SYNCHRONOUSLY (no copy).
+// Returns (plan, nil) when there is something to move; (nil, nil) when the file
+// is already at the destination (no-op); (nil, err) on validation failure —
+// reportable in the immediate response. Separating validation from the copy lets
+// the handler reply right away and push the copy (slow for large files) to the
+// transfer pool, avoiding the reverse proxy's 504 on a long synchronous copy.
 func promotePreparePlan(o *promoteOpts) (*promotePlan, error) {
 	d, err := o.store.Get(o.userID, o.id)
 	if err != nil || d == nil {
 		return nil, errors.New(errDownloadNotFound)
 	}
 	if d.Status != downloads.StatusCompleted {
-		return nil, errors.New("só downloads concluídos podem ser promovidos")
+		return nil, errors.New("only completed downloads can be promoted")
 	}
 	if d.FilePath == "" {
-		return nil, errors.New("file_path vazio — nada pra promover")
+		return nil, errors.New("file_path empty — nothing to promote")
 	}
 	targetDir, err := promoteTargetDir(o)
 	if err != nil {
@@ -384,11 +384,11 @@ func promotePreparePlan(o *promoteOpts) (*promotePlan, error) {
 	baseName := safeBaseName(src, d.Name)
 	dst := promoteDestPath(o, baseName, &targetDir)
 	if src == dst {
-		return nil, nil // já no lugar
+		return nil, nil // already in place
 	}
 	srcInfo, statErr := os.Stat(src)
 	if statErr != nil {
-		return nil, errors.New("arquivo de origem não existe: " + statErr.Error())
+		return nil, errors.New("source file does not exist: " + statErr.Error())
 	}
 	if err := ensureTargetDir(targetDir); err != nil {
 		return nil, err
@@ -397,28 +397,28 @@ func promotePreparePlan(o *promoteOpts) (*promotePlan, error) {
 	return &promotePlan{d: d, src: src, dst: dst, srcInfo: srcInfo, files: files, bytes: bytes}, nil
 }
 
-// runPromotePlan executa a cópia + pós-processamento de um plano. Roda DENTRO do
-// job de transferência (background); job pode ser nil (reporte vira no-op).
-// lh.MovePathJob trata arquivo E diretório (whole-torrent é uma pasta).
+// runPromotePlan performs the copy + post-processing of a plan. Runs INSIDE the
+// transfer job (background); job may be nil (reporting becomes a no-op).
+// lh.MovePathJob handles both file AND directory (whole-torrent is a folder).
 func runPromotePlan(o *promoteOpts, p *promotePlan, job *transfer.Job) error {
 	if err := lh.MovePathJob(p.src, p.dst, p.srcInfo, job, p.files, p.bytes); err != nil {
-		return errors.New("mover arquivo: " + err.Error())
+		return errors.New("move file: " + err.Error())
 	}
 	_ = o.store.SetFilePath(o.userID, p.d.ID, p.dst)
 	applySeedingAfterPromote(o, p.d)
 	return nil
 }
 
-// submitPromotePlans copia os planos validados em background. A estratégia
-// depende do disco DESTINO:
-//   - HDD (rotacional): UM job sequencial. Cópias paralelas no mesmo HDD fazem
-//     a cabeça do disco buscar entre elas (seek thrashing) e o throughput
-//     agregado despenca vs uma cópia de cada vez.
-//   - SSD/NVMe: UM job por item → o pool roda vários em paralelo, com progresso
-//     por arquivo, sem penalidade de seek.
+// submitPromotePlans copies the validated plans in the background. The strategy
+// depends on the DESTINATION disk:
+//   - HDD (rotational): ONE sequential job. Parallel copies on the same HDD make
+//     the disk head seek between them (seek thrashing) and the aggregate
+//     throughput plummets versus one copy at a time.
+//   - SSD/NVMe: ONE job per item → the pool runs several in parallel, with
+//     per-file progress and no seek penalty.
 //
-// Em ambos os casos a intenção é persistida ANTES de copiar (resume no boot) e
-// removida ao concluir, e a request retorna na hora (sem 504).
+// In both cases the intent is persisted BEFORE copying (resume on boot) and
+// removed on completion, and the request returns immediately (no 504).
 func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePlan) {
 	if len(plans) == 0 {
 		return
@@ -428,12 +428,12 @@ func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePl
 		return
 	}
 	for _, p := range plans {
-		p := p // captura por iteração
+		p := p // capture per iteration
 		pid := addPendingPromote(o, p)
 		tr.SubmitFor(o.userID, safeBaseName(p.src, p.d.Name), "promote", p.files, p.bytes, func(job *transfer.Job) {
 			if err := runPromotePlan(o, p, job); err != nil {
 				job.Fail(err)
-				log.Printf("promote: #%d %q falhou: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
+				log.Printf("promote: #%d %q failed: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
 				return
 			}
 			_ = o.pending.Remove(pid)
@@ -442,8 +442,8 @@ func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePl
 	}
 }
 
-// submitPromoteSerial copia todos os planos num único job, um de cada vez —
-// usado quando o destino é um HDD (evita seek thrashing de cópias paralelas).
+// submitPromoteSerial copies all the plans in a single job, one at a time —
+// used when the destination is an HDD (avoids seek thrashing from parallel copies).
 func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promotePlan) {
 	pids := make([]int64, len(plans))
 	files, bytes := 0, int64(0)
@@ -454,7 +454,7 @@ func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promoteP
 	}
 	label := safeBaseName(plans[0].src, plans[0].d.Name)
 	if len(plans) > 1 {
-		label = fmt.Sprintf("%d itens", len(plans))
+		label = fmt.Sprintf("%d items", len(plans))
 	}
 	tr.SubmitFor(o.userID, label, "promote", files, bytes, func(job *transfer.Job) {
 		var firstErr error
@@ -463,7 +463,7 @@ func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promoteP
 				if firstErr == nil {
 					firstErr = err
 				}
-				log.Printf("promote: #%d %q falhou: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
+				log.Printf("promote: #%d %q failed: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
 				continue
 			}
 			_ = o.pending.Remove(pids[i])
@@ -476,8 +476,8 @@ func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promoteP
 	})
 }
 
-// addPendingPromote persiste a intenção de uma promoção (resume no boot) e
-// devolve o id pra removê-la ao concluir.
+// addPendingPromote persists a promotion's intent (resume on boot) and returns
+// the id used to remove it on completion.
 func addPendingPromote(o *promoteOpts, p *promotePlan) int64 {
 	payload, _ := json.Marshal(promotePayload{DownloadID: p.d.ID, UserID: o.userID, KeepSeeding: o.keepSeeding})
 	pid, _ := o.pending.Add(transfer.Pending{Kind: "promote", Src: p.src, Dst: p.dst, Payload: string(payload)})
@@ -517,7 +517,7 @@ func promoteDestPath(o *promoteOpts, baseName string, targetDir *string) string 
 }
 
 func ensureTargetDir(targetDir string) error {
-	// #nosec G301 -- dir de midia/cache; 0755 intencional p/ leitura pelo servidor de midia
+	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	return os.MkdirAll(targetDir, 0755)
 }
 
@@ -537,10 +537,11 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 		return
 	}
 	if !o.keepSeeding {
-		// Usuário promoveu SEM "continuar seedando" → para de vez, limpa o
-		// auto-seed persistido e marca a row completed como seed-stopped para que
-		// o próximo boot não reative o torrent.
-		o.s.DropSeed(h)
+		// User promoted WITHOUT "keep seeding" → stop for good, clear the
+		// persisted auto-seed and mark the completed row as seed-stopped so the
+		// next boot does not reactivate the torrent. Best-effort: the promote
+		// outcome does not depend on the seed teardown.
+		_ = o.s.DropSeed(h)
 		if d.Status == downloads.StatusCompleted {
 			_ = o.store.StopSeed(d.UserID, d.ID)
 		}
@@ -558,20 +559,20 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 	}
 }
 
-// DownloadsPromoteDests handles GET /api/promote/destinations — retorna a
-// lista de destinos de promoção disponíveis (nome + path). O primeiro é
-// sempre "Biblioteca" (sharedDir), seguido pelos configurados em promote_dirs.
+// DownloadsPromoteDests handles GET /api/promote/destinations — returns the
+// list of available promote destinations (name + path). The first is always
+// "Biblioteca" (sharedDir), followed by the ones configured in promote_dirs.
 func DownloadsPromoteDests(sharedDir string, dests []httpshared.PromoteDest) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, BuildPromoteDests(sharedDir, dests))
 	}
 }
 
-// DownloadsStopSeed handles POST /api/downloads/:id/stop-seed — "Parar" na UI.
-// Para de semear E remove a row da lista de downloads (os arquivos ficam no
-// disco): o usuário espera que o torrent suma da área de downloads, não que
-// apenas migre de "Semeando" para "No disco". DropSeed limpa o auto-seed
-// persistido para que o próximo boot não ressuscite o torrent.
+// DownloadsStopSeed handles POST /api/downloads/:id/stop-seed — "Stop" in the UI.
+// Stops seeding AND removes the row from the downloads list (the files stay on
+// disk): the user expects the torrent to vanish from the downloads area, not to
+// merely migrate from "Seeding" to "On disk". DropSeed clears the persisted
+// auto-seed so the next boot does not resurrect the torrent.
 func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
@@ -588,14 +589,15 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer, worker Down
 		if d.InfoHash != "" {
 			var h metainfo.Hash
 			if err := h.FromHexString(d.InfoHash); err == nil {
-				// "Parar de seedar" é explícito → DropSeed limpa também o auto-seed
-				// persistido para que o próximo boot não reative o torrent.
-				s.DropSeed(h)
+				// "Stop seeding" is explicit → DropSeed also clears the persisted
+				// auto-seed so the next boot does not reactivate the torrent.
+				// Best-effort: the row is deleted right after regardless.
+				_ = s.DropSeed(h)
 			}
 		}
-		// Qualquer status (completed, paused, …): a row sai da lista. O guard
-		// antigo de status='completed' fazia o fluxo pausar→parar não surtir
-		// efeito nenhum na listagem.
+		// Any status (completed, paused, …): the row leaves the list. The old
+		// status='completed' guard made the pause→stop flow have no effect at all
+		// on the listing.
 		row, err := store.DeleteScoped(userID, id, isAdmin)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)

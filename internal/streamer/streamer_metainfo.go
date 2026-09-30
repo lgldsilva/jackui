@@ -34,7 +34,7 @@ func (s *Streamer) ParseMagnet(magnet string) (hash, name string, err error) {
 	}
 	mi, err := metainfo.ParseMagnetUri(magnet)
 	if err != nil {
-		return "", "", fmt.Errorf("magnet inválido: %w", err)
+		return "", "", fmt.Errorf("invalid magnet: %w", err)
 	}
 	name = mi.DisplayName
 	if name == "" {
@@ -50,11 +50,11 @@ func (s *Streamer) ParseMagnet(magnet string) (hash, name string, err error) {
 func (s *Streamer) ImportTorrentBytes(data []byte) (hash, name string, err error) {
 	mi, err := metainfo.Load(bytes.NewReader(data))
 	if err != nil {
-		return "", "", fmt.Errorf(".torrent inválido: %w", err)
+		return "", "", fmt.Errorf("invalid .torrent: %w", err)
 	}
 	info, err := mi.UnmarshalInfo()
 	if err != nil {
-		return "", "", fmt.Errorf("metadados do .torrent ilegíveis: %w", err)
+		return "", "", fmt.Errorf("unreadable .torrent metadata: %w", err)
 	}
 	h := mi.HashInfoBytes()
 	// Persist so playback is instant (no DHT). Best-effort.
@@ -125,19 +125,20 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 	}
 }
 
-// DropSeed para de auto-seedar um torrent de vez: remove o registro PERSISTENTE
-// (.seeds.db) para que ele NÃO volte no próximo boot (resumeSeeding) e o dropa
-// da memória. Usar nas ações EXPLÍCITAS do usuário (parar de seedar / remover
-// torrent / excluir download) — ao contrário do Drop genérico (idle/health),
-// que preserva o auto-seed. Sem isto, um torrent auto-seedado reaparecia como
-// "ativo" para sempre, mesmo após ser removido.
+// DropSeed stops seeding a torrent for good: it removes the PERSISTENT record
+// (.seeds.db) so it does NOT come back on the next boot (resumeSeeding) and
+// drops it from memory. Use for EXPLICIT user actions (stop seeding / remove
+// torrent / delete download) — unlike the generic Drop (idle/health), which
+// preserves the auto-seed. Without this, an auto-seeded torrent would
+// reappear as "active" forever, even after being removed.
 //
-// Por ser ação EXPLÍCITA do usuário, bypassa o guard activeReadGuard do drop
-// (o torrent-get da stack *arr renova lastAccess a cada ~60s, e isso mantinha
-// o guard eternamente armado — qualquer "Parar" era recusado em silêncio). Ainda
-// recusa, porém, quando um viewer lease ou download em background segura o
-// torrent; nesses casos retorna o erro de recusa para o handler responder
-// 409 em vez de fingir sucesso. ErrTorrentNotActive = idempotente (já foi).
+// Because this is an EXPLICIT user action, it bypasses the drop's
+// activeReadGuard (the *arr stack's torrent-get renewed lastAccess every ~60s,
+// keeping the guard permanently armed — every "Stop" was silently refused). It
+// still refuses, though, when a viewer lease or a background download holds
+// the torrent; in that case it returns the refusal error so the handler can
+// answer 409 instead of faking success. ErrTorrentNotActive = idempotent
+// (already gone).
 func (s *Streamer) DropSeed(hash metainfo.Hash) error {
 	if s.seeds != nil {
 		if err := s.seeds.Remove(hash.HexString()); err != nil {

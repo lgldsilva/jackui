@@ -42,7 +42,7 @@ let aiParseUnavailable = false
 // ScheduleEditor — picks how often the server re-checks this watchlist:
 // fixed interval (every N minutes), daily at HH:MM or weekly on a weekday.
 // The optional free-text field below asks the server's AI to interpret a phrase
-// like "toda segunda às 9h"; on success it fills the selects and shows the
+// like "every Monday at 9am"; on success it fills the selects and shows the
 // summary as confirmation — the user still saves manually.
 export default function ScheduleEditor({ value, onChange }: Readonly<{ value: ScheduleValue; onChange: (v: ScheduleValue) => void }>) {
   const { t } = useTranslation()
@@ -70,8 +70,8 @@ export default function ScheduleEditor({ value, onChange }: Readonly<{ value: Sc
       const status = axios.isAxiosError(err) ? err.response?.status : undefined
       const code = axios.isAxiosError(err) ? (err.response?.data as { code?: string } | undefined)?.code : undefined
       if (status === 503 && code === 'ai_disabled') {
-        // IA não configurada no servidor — esconde o recurso pela sessão.
-        // Falha transitória da chain (ai_transient) mantém o campo visível.
+        // AI not configured on the server — hides the feature for the session.
+        // A transient chain failure (ai_transient) keeps the field visible.
         aiParseUnavailable = true
         setAiAvailable(false)
       } else if (status === 422) {

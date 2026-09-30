@@ -102,7 +102,7 @@ func TestUpdate_WrongUser(t *testing.T) {
 	s := newTestStore(t)
 	w, _ := s.Create(1, params("q", "", 1, ""))
 	err := s.Update(2, w.ID, params("new", "", 1, ""))
-	if err == nil || err.Error() != "watchlist n\u00e3o encontrada" {
+	if err == nil || err.Error() != "watchlist not found" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
 	}
 }
@@ -122,7 +122,7 @@ func TestDelete_WrongUser(t *testing.T) {
 	s := newTestStore(t)
 	w, _ := s.Create(1, params("q", "", 1, ""))
 	err := s.Delete(2, w.ID)
-	if err == nil || err.Error() != "watchlist n\u00e3o encontrada" {
+	if err == nil || err.Error() != "watchlist not found" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
 	}
 }

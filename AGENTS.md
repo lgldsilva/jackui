@@ -1,115 +1,115 @@
-# Instruções globais — ver bloco gerado abaixo.
+# Global instructions — see the generated block below.
 
-## CI remoto em ARM
+## Remote CI on ARM
 
-- Execute builds e testes pesados no ARM por Docker context, nunca fixando host,
-  nome de máquina ou daemon no código e nos scripts.
-- Leia o contexto e os nomes da stack de `.env`; documente os valores em
-  `.env.example`. Os nomes canônicos são `JACKUI_CI_DOCKER_CONTEXT`,
-  `JACKUI_CI_COMPOSE_PROJECT`, `JACKUI_CI_RUNNER_LABELS`, `JACKUI_CI_IMAGE` e
+- Run heavy builds and tests on ARM via Docker context, never hardcoding a host,
+  machine name or daemon in code and scripts.
+- Read the context and stack names from `.env`; document the values in
+  `.env.example`. The canonical names are `JACKUI_CI_DOCKER_CONTEXT`,
+  `JACKUI_CI_COMPOSE_PROJECT`, `JACKUI_CI_RUNNER_LABELS`, `JACKUI_CI_IMAGE` and
   `JACKUI_CI_POSTGRES_PORT`.
-- Use `docker --context "$JACKUI_CI_DOCKER_CONTEXT" compose` nos scripts, para
-  suportar contextos locais, SSH remotos e outros daemons Docker.
-- A mesma imagem e stack de CI devem servir à execução manual e aos runners do
-  GitHub Actions (e qualquer runner self-hosted), evitando divergência entre a
-  máquina local, o ARM e o CI.
-- Mantenha `.env` fora do Git; não inclua credenciais, nomes de hosts internos
-  ou contextos específicos em arquivos versionados.
+- Use `docker --context "$JACKUI_CI_DOCKER_CONTEXT" compose` in scripts, to
+  support local contexts, remote SSH and other Docker daemons.
+- The same CI image and stack must serve manual runs and the GitHub Actions
+  runners (and any self-hosted runner), avoiding divergence between the local
+  machine, ARM and CI.
+- Keep `.env` out of Git; do not include credentials, internal hostnames
+  or context-specific values in versioned files.
 
-## Armadilhas operacionais do JackUI
+## JackUI operational pitfalls
 
-Estas regras complementam as instruções gerais do ai-standards com os cenários
-ocultos encontrados durante a operação do projeto.
+These rules complement the general ai-standards instructions with the hidden
+scenarios found while operating the project.
 
-### Rede Gluetun e banco de dados
+### Gluetun network and database
 
-- Ao usar o overlay `docker-compose.gluetun.yml`, os serviços `jackui` e
-  `postgres` compartilham o namespace de rede do container `gluetun-jackui`.
-  Nesse modo o host do banco deve ser `localhost:5432`, não `postgres:5432`.
-- O compose merge já sobrescreve `JACKUI_DATABASE_URL` no overlay; nunca
-  hardcode hosts/credenciais no repo. Valores sensíveis e contextos Docker
-  específicos vivem apenas no `.env` (gitignored).
+- When using the `docker-compose.gluetun.yml` overlay, the `jackui` and
+  `postgres` services share the network namespace of the `gluetun-jackui`
+  container. In that mode the database host must be `localhost:5432`, not
+  `postgres:5432`.
+- The compose merge already overrides `JACKUI_DATABASE_URL` in the overlay; never
+  hardcode hosts/credentials in the repo. Sensitive values and Docker-specific
+  contexts live only in `.env` (gitignored).
 
-### Fuso horário e scheduler de banda
+### Timezone and bandwidth scheduler
 
-- O agendador de banda (`streamer.StartBandwidthScheduler`,
-  `downloads.BandwidthWindow`) compara janelas `HH:MM` com `time.Now()`, ou
-  seja, com o horário local do container.
-- Sempre defina `TZ` no `.env` (padrão do compose é `America/Sao_Paulo`). Sem
-  `TZ` o container roda em UTC e janelas como "23:00-06:00" deslocam 3h.
+- The bandwidth scheduler (`streamer.StartBandwidthScheduler`,
+  `downloads.BandwidthWindow`) compares `HH:MM` windows against `time.Now()`, i.e.
+  against the container's local time.
+- Always set `TZ` in `.env` (compose default is `America/Sao_Paulo`). Without
+  `TZ` the container runs in UTC and windows like "23:00-06:00" shift by 3h.
 
-### Isolamento de usuários e subpastas (UserSubpath)
+### Per-user isolation and subfolders (UserSubpath)
 
-- Mounts com suffixo `:usersubpath` isolam cada usuário em
-  `{mount}/{username}/...`. A resolução de caminho passa obrigatoriamente por
-  `Browser.ResolvePathFor`/`ResolvePath`, que rejeitam travessia via `..`,
-  caminhos absolutos e symlinks que escapem do mount.
-- Nunca concatene caminhos manualmente em novos endpoints; use
-  `lh.ScopePath` + `Browser.ResolvePathFor` para respeitar tanto o mount base
-  quanto o subdiretório do usuário.
+- Mounts with the `:usersubpath` suffix isolate each user under
+  `{mount}/{username}/...`. Path resolution always goes through
+  `Browser.ResolvePathFor`/`ResolvePath`, which reject `..` traversal,
+  absolute paths and symlinks escaping the mount.
+- Never concatenate paths manually in new endpoints; use
+  `lh.ScopePath` + `Browser.ResolvePathFor` to respect both the mount base
+  and the user's subdirectory.
 
-### Preview de arquivos compactados
+### Archive preview
 
-- O endpoint `/api/preview/*` lê bytes sob demanda de torrents incompletos
-  (zip/cbz/epub) via `FileReader`. Se os peers não entregarem o diretório
-  central do zip dentro do timeout do leitor, a requisição pode bloquear ou
-  retornar EOF inesperado.
-- As respostas de conteúdo ativo (EPUB, SVG) carregam
-  `X-Content-Type-Options: nosniff` e `Content-Security-Policy: sandbox` para
-  neutralizar scripts maliciosos dentro de arquivos compactados.
+- The `/api/preview/*` endpoint reads bytes on demand from incomplete torrents
+  (zip/cbz/epub) via `FileReader`. If peers fail to deliver the zip's central
+  directory within the reader's timeout, the request may block or return an
+  unexpected EOF.
+- Active-content responses (EPUB, SVG) carry
+  `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox` to
+  neutralize malicious scripts inside archives.
 
-### Shutdown e rede caída
+### Shutdown and network down
 
-- `cmd/server/main.go` impõe um deadline rígido de 20s (`cleanupHardDeadline`)
-  no shutdown. O teardown do cliente anacrolix pode travar indefinidamente ao
-  anunciar saída no DHT/rastreadores quando a VPN/rede cai.
-- O watchdog força `os.Exit(0)` ao exceder o deadline, permitindo que o Docker
-  recrie o container; o próximo boot reconcilia estado via
-  `RescueStuckMoving`, `resumeSeeding` e verificação de pieces.
+- `cmd/server/main.go` enforces a hard 20s deadline (`cleanupHardDeadline`)
+  on shutdown. The anacrolix client teardown can hang indefinitely when
+  announcing to the DHT/trackers while the VPN/network is down.
+- The watchdog forces `os.Exit(0)` once the deadline is exceeded, allowing Docker
+  to recreate the container; the next boot reconciles state via
+  `RescueStuckMoving`, `resumeSeeding` and piece verification.
 
-### Sanitização de logs
+### Log sanitization
 
 - Use `httpshared.SanitizeForLog` (strings), `SanitizeInt`/`SanitizeIntSlice`
-  (ints) para inputs externos antes de logar. Isso evita log injection e
-  poluição de logs estruturados, além de ajudar a passar em auditorias
-  CodeQL/Sonar.
+  (ints) for external inputs before logging. This prevents log injection and
+  structured-log pollution, and helps pass CodeQL/Sonar audits.
 
-### Semântica de "Parar" (stop-seed) e auto-seed
+### "Stop" semantics (stop-seed) and auto-seed
 
-- "Parar" (`POST /api/downloads/:id/stop-seed` e o batch) **remove a row** da
-  lista de downloads (arquivos ficam no disco), para qualquer status — não
-  existe mais o estado "No disco por stop". `DeleteScoped` + `DropSeed` +
-  `worker.Remove` no mesmo handler.
-- `worker.Remove` usa o seam `dropSeed` (=`Streamer.DropSeed`), que apaga o
-  auto-seed persistido (tabela `seeds`); drops de lifecycle (move/tick) seguem
-  no seam `drop`, que o preserva. Trocar um pelo outro ressuscita torrents no
-  próximo boot via `resumeSeeding`.
-- A importação de favoritos tem "também baixar" **desligado por padrão**
-  (`favorites.alsoDownload`); baixar é escolha explícita a cada import.
-- `seed_stopped_at` continua marcando rows paradas via `StreamDrop` (lixeira dos
-  cards de streaming) e promote-sem-reseed; `autoSeedCompleted` respeita a flag
-  para não reativá-las no boot.
+- "Stop" (`POST /api/downloads/:id/stop-seed` and the batch) **removes the row**
+  from the downloads list (files stay on disk), for any status — there is no
+  longer an "On disk due to stop" state. `DeleteScoped` + `DropSeed` +
+  `worker.Remove` in the same handler.
+- `worker.Remove` uses the `dropSeed` seam (= `Streamer.DropSeed`), which deletes
+  the persisted auto-seed (`seeds` table); lifecycle drops (move/tick) go through
+  the `drop` seam, which preserves it. Swapping one for the other resurrects
+  torrents on the next boot via `resumeSeeding`.
+- Favorites import ships with "also download" **off by default**
+  (`favorites.alsoDownload`); downloading is an explicit choice on each import.
+- `seed_stopped_at` keeps marking stopped rows via `StreamDrop` (the streaming
+  cards' trash) and promote-without-reseed; `autoSeedCompleted` respects the flag
+  so it does not reactivate them at boot.
 
-### Barreiras de segurança e models do CodeQL
+### Security barriers and CodeQL models
 
-- É proibido `#nosec` e qualquer supressão/contorno de achado de scanner: o
-  achado se resolve na causa (código) ou com teste que cobre o caminho.
-- Guards de path/URL/log vivem em funções nomeadas e testadas
+- `#nosec` and any scanner-finding suppression/bypass are forbidden: a
+  finding is fixed at the cause (code) or with a test covering the path.
+- Path/URL/log guards live in named, tested functions
   (`Browser.ResolvePath`, `sanitizeSidecarName`, `sessionDir`,
-  `sanitizeJackettURL`, `SanitizeForLog`, ...). Elas estão declaradas ao
-  CodeQL em `.github/codeql/extensions/barriers.yml` — data extensions
-  carregadas por auto-descoberta, sem pack nem config extra.
-- Contrato: TODA função listada no `barriers.yml` precisa de teste de unidade
-  provando a garantia. Nova barreira no model sem teste = PR recusado. Se uma
-  função mudar de semântica, o teste quebra antes do model virar mentira.
+  `sanitizeJackettURL`, `SanitizeForLog`, ...). They are declared to
+  CodeQL in `.github/codeql/extensions/barriers.yml` — data extensions
+  loaded by auto-discovery, no pack or extra config.
+- Contract: EVERY function listed in `barriers.yml` needs a unit test
+  proving the guarantee. A new barrier in the model without a test = PR rejected. If a
+  function changes semantics, the test breaks before the model becomes a lie.
 
 ## Frontend
 
-- `web/postcss.config.js` foi renomeado para `.mjs` para evitar o warning
-  `[MODULE_TYPELESS_PACKAGE_JSON]` do Node 24. Mantenha a configuração PostCSS
-  como ESM enquanto o projeto não declarar `"type": "module"` no
+- `web/postcss.config.js` was renamed to `.mjs` to avoid the Node 24
+  `[MODULE_TYPELESS_PACKAGE_JSON]` warning. Keep the PostCSS config
+  as ESM until the project declares `"type": "module"` in
   `web/package.json`.
 
-<!-- BEGIN ai-standards (gerado por sync-agents.sh — NÃO EDITE; fonte: /Users/luizg/.config/ai-standards) -->
+<!-- BEGIN ai-standards (generated by sync-agents.sh — DO NOT EDIT; source: /Users/luizg/.config/ai-standards) -->
 @/Users/luizg/.config/ai-standards/AGENTS.md
 <!-- END ai-standards -->

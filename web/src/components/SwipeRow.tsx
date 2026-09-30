@@ -11,11 +11,11 @@ export type SwipeRowProps = {
 }
 
 /**
- * Envolve um item de lista e revela uma ação "Apagar" ao deslizar para a
- * esquerda (estilo iOS). Só arma no mobile — no desktop o gesto é inócuo e as
- * ações de hover do próprio item continuam valendo. Reusa o `useSwipe`.
+ * Wraps a list item and reveals a "Delete" action when swiped to the
+ * left (iOS style). Only armed on mobile — on desktop the gesture is moot and the
+ * item's own hover actions keep working. Reuses `useSwipe`.
  */
-export function SwipeRow({ children, onDelete, deleteLabel = 'Apagar', disabled = false }: SwipeRowProps) {
+export function SwipeRow({ children, onDelete, deleteLabel = 'Delete', disabled = false }: SwipeRowProps) {
   const [revealed, setRevealed] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const isMobile = useIsMobile()
@@ -29,7 +29,7 @@ export function SwipeRow({ children, onDelete, deleteLabel = 'Apagar', disabled 
 
   return (
     <div className="relative overflow-hidden">
-      {/* Ação revelada por baixo, à direita */}
+      {/* Action revealed underneath, on the right */}
       <div className="absolute inset-y-0 right-0 flex">
         <button
           onClick={() => { onDelete(); setRevealed(false) }}
@@ -41,9 +41,9 @@ export function SwipeRow({ children, onDelete, deleteLabel = 'Apagar', disabled 
           {deleteLabel}
         </button>
       </div>
-      {/* Conteúdo que desliza. Sem onClick aqui (acessibilidade): pra recolher a
-          ação revelada, basta deslizar de volta (onRight) — o conteúdo segue
-          recebendo seus próprios cliques/teclado normalmente. */}
+      {/* Content that slides. No onClick here (accessibility): to collapse the
+          revealed action, just swipe back (onRight) — the content keeps
+          receiving its own clicks/keyboard normally. */}
       <div
         ref={ref}
         className="relative bg-surface-secondary transition-transform duration-200 ease-out"

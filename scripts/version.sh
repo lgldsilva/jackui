@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Gera electron/version.json — artefato de build (gitignored), não commitar.
+# Generates electron/version.json — a build artifact (gitignored), do not commit.
 #
-# Precedência do campo "version":
-#   1. scripts/semver.sh (tag vX.Y.Z no HEAD ou próxima versão calculada dos
-#      Conventional Commits) — mesma fonte do release.yml e do APP_VERSION dos
-#      builds Docker, então app Electron e imagem reportam o mesmo valor;
-#   2. "version" do package.json raiz, quando o repo não tem nenhuma tag semver
-#      (clone shallow, checkout sem tags) ou o semver.sh falha.
-# O valor segue para o diálogo Sobre (electron/main.ts lê version.json) e, via
-# scripts/build-electron.sh, para o /status do servidor Go embutido — os três
-# artefatos do mesmo build mostram a mesma versão.
+# Precedence for the "version" field:
+#   1. scripts/semver.sh (vX.Y.Z tag at HEAD or the next version computed from the
+#      Conventional Commits) — same source as release.yml and the APP_VERSION of the
+#      Docker builds, so the Electron app and the image report the same value;
+#   2. the root package.json "version", when the repo has no semver tag at all
+#      (shallow clone, checkout without tags) or semver.sh fails.
+# The value flows to the About dialog (electron/main.ts reads version.json) and, via
+# scripts/build-electron.sh, to the embedded Go server's /status — all three
+# artifacts of the same build show the same version.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMMIT=$(git -C "$ROOT" describe --always --dirty 2>/dev/null || echo "unknown")

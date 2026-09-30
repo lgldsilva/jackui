@@ -10,9 +10,9 @@ import { usePlayer } from '../PlayerProvider'
 import { isVideo, isAudio } from './entryFormat'
 import { isViewable } from '../viewer/viewerKind'
 
-// Clique numa entrada: pasta → navega; arquivo não-reproduzível mas visualizável
-// → viewer universal; arquivo reproduzível → player (com playlist implícita dos
-// irmãos da mesma modalidade na pasta).
+// Click on an entry: folder → navigate; non-playable but viewable file
+// → universal viewer; playable file → player (with an implicit playlist of the
+// same-kind siblings in the folder).
 export function useLocalPlayback(
   activeMount: string,
   path: string,
@@ -28,24 +28,24 @@ export function useLocalPlayback(
       return
     }
     if (!activeMount) return
-    // Não-reproduzível mas visualizável (NFO/imagem/PDF/CBZ/zip/EPUB) → abre o
-    // viewer universal em vez de ser um clique morto.
+    // Non-playable but viewable (NFO/image/PDF/CBZ/zip/EPUB) → opens the
+    // universal viewer instead of being a dead click.
     if (!e.isPlayable) {
       if (isViewable(e.name)) setPreviewEntry(e)
       return
     }
     // Routes the file through the main PlayerProvider/PlayerModal via a
-    // synthetic SearchResult com pseudo-hash `local-...` (mount+path codificados).
-    // Resultado: o player completo abre — legendas embedded, sidecar .srt/.vtt,
-    // OpenSubtitles auto, escolha persistida, tudo. As funções do client (streamProbe,
-    // streamSidecars, subtitlesAuto, etc.) detectam o prefixo e roteiam pra
-    // /api/local/* sem mudar PlayerModal.
+    // synthetic SearchResult with pseudo-hash `local-...` (mount+path encoded).
+    // Result: the full player opens — embedded subtitles, sidecar .srt/.vtt,
+    // OpenSubtitles auto, persisted choice, everything. The client functions (streamProbe,
+    // streamSidecars, subtitlesAuto, etc.) detect the prefix and route to
+    // /api/local/* without changing PlayerModal.
     //
-    // Os irmãos playable da MESMA modalidade (vídeo↔vídeo, áudio↔áudio), na ordem
-    // exibida (`visible`), viram uma playlist implícita — assim ⏮⏭ navegam entre
-    // os episódios/faixas da pasta. Cada arquivo local mantém seu próprio
-    // pseudo-hash (que o player já toca sozinho); sem isso o player recebia só 1
-    // arquivo e os botões de próximo/anterior ficavam inertes.
+    // The playable siblings of the SAME kind (video↔video, audio↔audio), in the
+    // displayed order (`visible`), become an implicit playlist — so ⏮⏭ navigate between
+    // the folder's episodes/tracks. Each local file keeps its own
+    // pseudo-hash (which the player already plays by itself); without this the player got only 1
+    // file and the next/previous buttons stayed inert.
     const clickedIsVideo = isVideo(e.name)
     const siblings = visible.filter(
       (x) => !x.isDir && x.isPlayable && (clickedIsVideo ? isVideo(x.name) : isAudio(x.name)),
@@ -64,8 +64,8 @@ export function useLocalPlayback(
       // when the player navigates/auto-advances. Best-effort (never blocks play).
       void localPlayBatch(activeMount, siblings.map((x) => x.path)).catch(() => {})
       const folderName = path ? path.split('/').pop() || path : activeMount
-      // expand=true: arquivos locais abrem o player MAXIMIZADO (não o dock de
-      // áudio minimizado) — o usuário clicou pra ver/ouvir a experiência cheia.
+      // expand=true: local files open the player MAXIMIZED (not the minimized audio
+      // dock) — the user clicked to see/hear the full experience.
       playPlaylist(folderName, items, start, true)
       return
     }
