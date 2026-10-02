@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"sort"
 	"sync"
@@ -125,9 +126,14 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 			httpshared.RespondError(ctx, http.StatusInternalServerError, err)
 			return
 		}
-		// Reveal-aware: drop hidden-folder titles only while the curtain is closed.
+		// Reveal-aware: drop hidden-folder titles only while the curtain is
+		// closed — both curtains: favourite folders (by hash OR name) and the
+		// local hidden paths, mirroring what /api/library drops. Without the
+		// local pass a watched file under a hidden local folder still seeded
+		// recs and surfaced its title via BecauseOf.
 		if !reveal {
-			entries = dropHiddenLibrary(entries, recHiddenHashSet(s, userID))
+			entries = dropHiddenLibrary(entries, recHiddenCurtain(s, userID))
+			entries = dropHiddenLocalLibrary(ctx, s, entries, userID)
 		}
 		// Favorites first, audio dropped, capped — see seedCandidates.
 		candidates := seedCandidates(favoriteSeedEntries(s, userID, reveal), entries)
@@ -216,18 +222,20 @@ func DismissRecommendation(lib *library.Store) gin.HandlerFunc {
 	}
 }
 
-// recHiddenHashSet returns the user's hidden-folder info_hashes, bypassing the
-// reveal curtain on purpose: recommendations must never be seeded from hidden
-// content regardless of X-JackUI-Reveal-Hidden. nil ⇒ "filter nothing".
-func recHiddenHashSet(s *streamer.Streamer, userID int) map[string]bool {
+// recHiddenCurtain returns the user's hidden-folder identity set (hashes +
+// names), bypassing the reveal curtain on purpose: recommendations must never
+// be seeded from hidden content regardless of X-JackUI-Reveal-Hidden. Zero
+// curtain ⇒ "filter nothing".
+func recHiddenCurtain(s *streamer.Streamer, userID int) streamer.HiddenCurtain {
 	if s == nil || s.Favorites() == nil {
-		return nil
+		return streamer.HiddenCurtain{}
 	}
-	set, err := s.Favorites().HiddenHashSet(userID, false)
+	curtain, err := s.Favorites().HiddenFavorites(userID, false)
 	if err != nil {
-		return nil
+		log.Printf("recommendations: hidden curtain query failed (failing open): %v", err)
+		return streamer.HiddenCurtain{}
 	}
-	return set
+	return curtain
 }
 
 // dismissedSet loads the user's dismissed recommendations (kind:tmdbID set),

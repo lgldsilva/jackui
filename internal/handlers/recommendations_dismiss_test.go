@@ -34,7 +34,7 @@ func watch(t *testing.T, lib *library.Store, userID int, hash, name string) {
 }
 
 // hideFavourite favourites the title then files it under a hidden folder so its
-// info_hash lands in HiddenHashSet — the same path the UI's privacy curtain uses.
+// identity lands in HiddenFavorites — the same path the UI's privacy curtain uses.
 func hideFavourite(t *testing.T, fav *streamer.FavoritesStore, userID int, hash, name string) {
 	t.Helper()
 	if err := fav.Add(name, hash, "", "", userID); err != nil {
@@ -109,20 +109,20 @@ func TestRecommendations_VisibleTitleStillSeeds(t *testing.T) {
 	}
 }
 
-// recHiddenHashSet ignores the reveal curtain on purpose: hidden content must
+// recHiddenCurtain ignores the reveal curtain on purpose: hidden content must
 // never seed recs even when the request opened the curtain elsewhere.
-func TestRecHiddenHashSet_IgnoresReveal(t *testing.T) {
+func TestRecHiddenCurtain_IgnoresReveal(t *testing.T) {
 	_, fav := recStreamer(t)
 	s := streamer.NewForTesting()
 	s.SetFavorites(fav)
 	hideFavourite(t, fav, 0, "h", "T")
 
-	set := recHiddenHashSet(s, 0)
-	if !set["h"] {
-		t.Fatalf("expected hidden hash in set, got %v", set)
+	curtain := recHiddenCurtain(s, 0)
+	if !curtain.Hashes["h"] || !curtain.Names["t"] {
+		t.Fatalf("expected hidden identity in curtain, got %v", curtain)
 	}
-	if recHiddenHashSet(nil, 0) != nil {
-		t.Error("nil streamer must yield nil set")
+	if !recHiddenCurtain(nil, 0).Empty() {
+		t.Error("nil streamer must yield an empty curtain")
 	}
 }
 

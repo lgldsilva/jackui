@@ -8,6 +8,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/history"
+	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/parser"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
@@ -77,7 +78,7 @@ func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls 
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		e := buildEnricher(favs, dls, userID, includeAll)
+		e := buildEnricher(favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
 		c.JSON(http.StatusOK, enrichCached(results, e))
 	}
 }
@@ -98,7 +99,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		e := buildEnricher(favs, dls, userID, includeAll)
+		e := buildEnricher(favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
 		c.JSON(http.StatusOK, enrichCached(results, e))
 	}
 }

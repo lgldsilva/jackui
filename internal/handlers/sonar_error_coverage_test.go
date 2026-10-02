@@ -212,7 +212,7 @@ func TestStoreBackedErrorResponsesAfterPoolClose(t *testing.T) {
 		body    string
 	}{
 		"library list":   {LibraryList(libraryStore, nil), http.MethodGet, ""},
-		"library get":    {LibraryGet(libraryStore), http.MethodGet, ""},
+		"library get":    {LibraryGet(libraryStore, nil), http.MethodGet, ""},
 		"library update": {LibraryUpdateResume(libraryStore), http.MethodPatch, `{"resumeSeconds":1}`},
 		"library delete": {LibraryDelete(libraryStore), http.MethodDelete, ""},
 		"library all":    {LibraryDeleteAll(libraryStore), http.MethodDelete, ""},

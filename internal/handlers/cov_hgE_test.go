@@ -235,7 +235,7 @@ func TestHgELibraryGet_Found(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/library/:id", func(c *gin.Context) {
 		setAuth(c, 1, false)
-	}, LibraryGet(lib))
+	}, LibraryGet(lib, nil)) // nil streamer → curtain no-op; the curtain path has its own tests
 
 	w := hgEDo(router, "GET", "/api/library/"+strconv.Itoa(id), nil)
 	if w.Code != http.StatusOK {
@@ -449,7 +449,7 @@ func TestHgELibraryGet_AdminSeesOther(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/library/:id", func(c *gin.Context) {
 		setAuth(c, 1, true) // admin
-	}, LibraryGet(lib))
+	}, LibraryGet(lib, nil))
 
 	w := hgEDo(router, "GET", "/api/library/"+strconv.Itoa(id), nil)
 	if w.Code != http.StatusOK {

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -34,11 +34,16 @@ import {
   tmdbTrending,
 } from '../api/client'
 import { musicTrending } from '../api/music'
+import { setRevealHidden } from '../lib/reveal'
 import HomePage from './HomePage'
 
 const renderHome = () => render(<MemoryRouter><HomePage /></MemoryRouter>)
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  // reveal is a module-level flag: reset so tests below start curtain-closed.
+  setRevealHidden(false)
+})
 
 describe('HomePage resilience', () => {
   beforeEach(() => {
@@ -83,5 +88,24 @@ describe('HomePage resilience', () => {
     rejectRetry(new Error('library unavailable'))
     await screen.findByText("Couldn't load Home")
     expect(screen.getByText('Previously playing')).toBeInTheDocument()
+  })
+
+  // THE stale-Continue-rail bug: the Continue Watching rail used to keep the
+  // list fetched while the curtain was open after the user disabled the easter
+  // egg (Library/Downloads/Favorites/Local re-fetch on the flip; Home didn't).
+  it('re-fetches the rails when the hidden curtain flips', async () => {
+    vi.mocked(libraryList).mockResolvedValue([{
+      id: 1, userId: 1, infoHash: 'hash', magnet: 'magnet:?xt=urn:btih:hash', name: 'Previously playing',
+      primaryFileIndex: 0, lastFileIndex: 0, totalSize: 100, resumeSeconds: 20, durationSeconds: 100,
+      kind: 'video', lastPlayedAt: 'now', addedAt: 'now',
+    }])
+
+    renderHome()
+    await screen.findByText('Previously playing')
+    const callsBefore = vi.mocked(libraryList).mock.calls.length
+
+    setRevealHidden(true)
+
+    await waitFor(() => expect(vi.mocked(libraryList).mock.calls.length).toBeGreaterThan(callsBefore))
   })
 })

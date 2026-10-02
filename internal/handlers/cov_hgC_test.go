@@ -140,7 +140,7 @@ func Test_hgC_EmitCachedResults_WithStore(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	setSSEHeaders(c)
 
-	enricher := buildEnricher(nil, nil, 0, false)
+	enricher := buildEnricher(nil, nil, 0, false, false)
 	seen, count := emitCachedResults(c, store, "dune", 0, false, nil, enricher)
 	if count != 2 {
 		t.Errorf("count = %d, want 2", count)
@@ -172,7 +172,7 @@ func Test_hgC_EmitCachedResults_SkipsWhenIndexersScoped(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	setSSEHeaders(c)
 
-	enricher := buildEnricher(nil, nil, 0, false)
+	enricher := buildEnricher(nil, nil, 0, false, false)
 	// Scoped to specific indexers → cache phase is skipped (cached rows carry no
 	// indexer id, so emitting them would leak other providers). Live search
 	// handles the scoped query instead.

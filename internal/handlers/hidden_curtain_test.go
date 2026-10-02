@@ -26,18 +26,32 @@ func newCurtainStreamer(t *testing.T) (*streamer.Streamer, *streamer.FavoritesSt
 }
 
 func TestDropHiddenHelpers(t *testing.T) {
-	hidden := map[string]bool{"h1": true}
+	curtain := streamer.HiddenCurtain{
+		Hashes: map[string]bool{"h1": true},
+		Names:  map[string]bool{"secret": true},
+	}
 
-	dl := []downloads.Download{{InfoHash: "h1"}, {InfoHash: "h2"}}
-	if got := dropHiddenDownloads(dl, hiddenDownloadFilter{hashes: hidden}); len(got) != 1 || got[0].InfoHash != "h2" {
+	dl := []downloads.Download{
+		{InfoHash: "h1", Name: "One"},
+		{InfoHash: "h2", Name: "Two"},
+		// Name match (curtain by identity) even though the hash differs — the
+		// hash-less-hidden-favourite Continue-Watching regression.
+		{InfoHash: "h3", Name: "SECRET"},
+	}
+	got := dropHiddenDownloads(dl, hiddenDownloadFilter{curtain: curtain})
+	if len(got) != 1 || got[0].InfoHash != "h2" {
 		t.Errorf("dropHiddenDownloads = %+v", got)
 	}
-	if got := dropHiddenDownloads(dl, hiddenDownloadFilter{}); len(got) != 2 {
+	if got := dropHiddenDownloads(dl, hiddenDownloadFilter{}); len(got) != 3 {
 		t.Errorf("empty filter should be no-op, got %d", len(got))
 	}
 
-	lib := []library.Entry{{InfoHash: "h1"}, {InfoHash: "h2"}}
-	if got := dropHiddenLibrary(lib, hidden); len(got) != 1 || got[0].InfoHash != "h2" {
+	lib := []library.Entry{
+		{InfoHash: "h1", Name: "One"},
+		{InfoHash: "h2", Name: "Two"},
+		{InfoHash: "deadbeef", Name: "secret"}, // name fallback: hash-less hidden favourite
+	}
+	if got := dropHiddenLibrary(lib, curtain); len(got) != 1 || got[0].InfoHash != "h2" {
 		t.Errorf("dropHiddenLibrary = %+v", got)
 	}
 }

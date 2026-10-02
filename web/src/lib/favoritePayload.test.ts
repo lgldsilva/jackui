@@ -103,4 +103,21 @@ describe('buildFavoritePayload', () => {
     const p = await buildFavoritePayload({}, neverResolver)
     expect(p).toEqual({ infoHash: '', magnet: '', source: 'none' })
   })
+
+  // The hidden curtain joins favourites to library/downloads on lowercase
+  // 40-hex — an unnormalized hash would silently escape it (privacy bug).
+  it('canonicalizes the infoHash in every branch (casing, padding, magnet fallback)', async () => {
+    const upper = HASH.toUpperCase()
+
+    const fromMagnet = await buildFavoritePayload({ magnetUri: MAGNET, infoHash: upper }, neverResolver)
+    expect(fromMagnet.infoHash).toBe(HASH)
+
+    const bare = await buildFavoritePayload({ infoHash: `  ${upper}  ` }, neverResolver)
+    expect(bare).toEqual({ infoHash: HASH, magnet: magnetFromInfoHash(HASH), source: 'infoHash' })
+
+    const viaResolver = vi.fn(async () => ({ magnet: '', infoHash: upper }))
+    const linked = await buildFavoritePayload({ link: 'http://x/t.torrent' }, viaResolver)
+    expect(linked.infoHash).toBe(HASH)
+    expect(linked.source).toBe('link')
+  })
 })
