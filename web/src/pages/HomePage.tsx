@@ -25,6 +25,7 @@ import { formatDuration } from '../lib/format'
 import { homeIsEmpty, homePlayFileIndex, pickContinueWatching, pickRecentlyCompleted } from '../lib/homeHub'
 import { allHomeSectionsFailed, failedHomeSections, preserveOnFailure, type HomeSection, type HomeSectionResult } from '../lib/homeHealth'
 import { useMediaMode } from '../lib/mediaMode'
+import { useRevealHidden } from '../lib/reveal'
 import { musicTrending, type MusicAlbum } from '../api/music'
 
 function libraryResult(e: LibraryEntry): SearchResult {
@@ -65,6 +66,10 @@ export default function HomePage() {
   const [sectionErrors, setSectionErrors] = useState<HomeSection[]>([])
   const [health, setHealth] = useState<RuntimeHealth | null>(null)
   const [healthError, setHealthError] = useState(false)
+  // Curtain state: flipping it must re-fetch, or the Continue Watching rail
+  // keeps the stale revealed list until a manual reload (LibraryPage, Downloads,
+  // Favorites and Local already re-fetch on the flip).
+  const [revealHidden] = useRevealHidden()
 
   // Old bookmarks were `/?q=` on Search-as-home. Preserve them.
   useEffect(() => {
@@ -110,7 +115,7 @@ export default function HomePage() {
       .finally(() => setLoading(false))
   }, [t])
 
-  useEffect(() => { reload() }, [reload])
+  useEffect(() => { reload() }, [reload, revealHidden])
 
   const continueWatching = pickContinueWatching(library)
   const recent = pickRecentlyCompleted(completed)

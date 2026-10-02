@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"os"
 	"strings"
 
@@ -15,43 +16,59 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-// hiddenHashSet returns the info_hashes that belong to a hidden favourite folder
-// and should therefore be dropped from default listings (Continue Watching,
-// downloads). Returns nil — meaning "filter nothing" — when the request opened
-// the curtain (easter egg → X-JackUI-Reveal-Hidden), favourites is unavailable,
-// or there are no hidden hashes. The caller treats nil as a no-op.
-func hiddenHashSet(c *gin.Context, s *streamer.Streamer, userID int, includeAll bool) map[string]bool {
+// hiddenCurtain returns the identity set (info_hashes + normalized names) of
+// favourites in a hidden folder that should therefore be dropped from default
+// listings (Continue Watching, downloads, the active swarm view). Returns the
+// zero curtain — meaning "filter nothing" — when the request opened the curtain
+// (easter egg → X-JackUI-Reveal-Hidden) or favourites is unavailable. A DB
+// error also fails open (the listing query hits the same database, so a real
+// outage fails the endpoint anyway) but is LOGGED: the old silent swallow made
+// a curtain failure indistinguishable from "nothing is hidden".
+func hiddenCurtain(c *gin.Context, s *streamer.Streamer, userID int, includeAll bool) streamer.HiddenCurtain {
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil {
-		return nil
+		return streamer.HiddenCurtain{}
 	}
-	set, err := s.Favorites().HiddenHashSet(userID, includeAll)
-	if err != nil || len(set) == 0 {
-		return nil
+	curtain, err := s.Favorites().HiddenFavorites(userID, includeAll)
+	if err != nil {
+		log.Printf("hidden curtain: favourites query failed (failing open): %v", err)
+		return streamer.HiddenCurtain{}
 	}
-	return set
+	return curtain
+}
+
+// curtainHidden reports whether an (info_hash, name) pair sits behind the
+// curtain: a hash match OR a name match hides. Both sides are normalized
+// (trim + lowercase) so a favourite stored with an empty or unusually-cased
+// hash still hides its library/download row by title — hiding is a per-title
+// decision, not a per-row one.
+func curtainHidden(infoHash, name string, curtain streamer.HiddenCurtain) bool {
+	if curtain.Hashes[strings.ToLower(strings.TrimSpace(infoHash))] {
+		return true
+	}
+	return curtain.Names[strings.ToLower(strings.TrimSpace(name))]
 }
 
 // hiddenDownloadFilter aggregates every "hidden curtain" source the downloads
-// list must honour. A download is hidden when EITHER its info_hash is in a
-// hidden favourite folder (also covers the library / Continue Watching, which
-// reuses the favourite hashes), OR its on-disk file lives under a path the user
-// hid in the local browser (hidden_local_paths, keyed by mount+path → resolved
-// here to an absolute prefix). Both are unioned so a download leaks through
-// neither curtain.
+// list must honour. A download is hidden when EITHER it matches the favourite
+// identity curtain by info_hash OR normalized name (also covers the library /
+// Continue Watching, which reuses the same matching), OR its on-disk file lives
+// under a path the user hid in the local browser (hidden_local_paths, keyed by
+// mount+path → resolved here to an absolute prefix). Both are unioned so a
+// download leaks through neither curtain.
 type hiddenDownloadFilter struct {
-	hashes   map[string]bool // info_hash → hidden (favourites + library)
-	prefixes []string        // absolute on-disk path prefixes (hidden local paths)
+	curtain  streamer.HiddenCurtain // identity curtain: favourite hashes + names
+	prefixes []string               // absolute on-disk path prefixes (hidden local paths)
 }
 
 // empty reports whether the filter would drop nothing (so callers can skip the
 // per-row work entirely).
 func (h hiddenDownloadFilter) empty() bool {
-	return len(h.hashes) == 0 && len(h.prefixes) == 0
+	return h.curtain.Empty() && len(h.prefixes) == 0
 }
 
 // hides reports whether the given download should be dropped from the listing.
 func (h hiddenDownloadFilter) hides(d downloads.Download) bool {
-	if d.InfoHash != "" && h.hashes[d.InfoHash] {
+	if curtainHidden(d.InfoHash, d.Name, h.curtain) {
 		return true
 	}
 	if d.FilePath == "" {
@@ -84,8 +101,10 @@ func buildHiddenDownloadFilter(c *gin.Context, s *streamer.Streamer, b *local.Br
 		return hiddenDownloadFilter{}
 	}
 	f := hiddenDownloadFilter{}
-	if set, err := s.Favorites().HiddenHashSet(userID, includeAll); err == nil {
-		f.hashes = set
+	if curtain, err := s.Favorites().HiddenFavorites(userID, includeAll); err == nil {
+		f.curtain = curtain
+	} else {
+		log.Printf("hidden curtain: favourites query failed (failing open): %v", err)
 	}
 	f.prefixes = hiddenLocalPrefixes(s, b, authStore, userID, includeAll)
 	return f
@@ -153,17 +172,21 @@ func dropHiddenDownloads(list []downloads.Download, filter hiddenDownloadFilter)
 	return out
 }
 
-// dropHiddenLibrary removes library (Continue Watching) entries whose info_hash
-// is in the hidden set. A nil/empty set returns the list untouched.
-func dropHiddenLibrary(list []library.Entry, hidden map[string]bool) []library.Entry {
-	if len(hidden) == 0 {
+// dropHiddenLibrary removes library (Continue Watching) entries hidden by the
+// identity curtain: an entry is dropped when its info_hash OR its normalized
+// name matches. The name fallback keeps hash-less hidden favourites effective —
+// a quick-favourite whose hash never resolved must still hide its Continue
+// Watching row. An empty curtain returns the list untouched.
+func dropHiddenLibrary(list []library.Entry, curtain streamer.HiddenCurtain) []library.Entry {
+	if curtain.Empty() {
 		return list
 	}
 	out := list[:0]
 	for _, e := range list {
-		if !hidden[e.InfoHash] {
-			out = append(out, e)
+		if curtainHidden(e.InfoHash, e.Name, curtain) {
+			continue
 		}
+		out = append(out, e)
 	}
 	return out
 }
@@ -171,8 +194,9 @@ func dropHiddenLibrary(list []library.Entry, hidden map[string]bool) []library.E
 // dropHiddenLocalLibrary drops Continue Watching rows for local files whose
 // (mount, path) sits under a path the user hid in the local browser. Library
 // stores local plays as `local-<base64url(json{mount,path})>` info hashes —
-// favourite-folder HiddenHashSet never matches those, so without this pass a
-// hidden local folder still leaked into the home "Continue Watching" strip.
+// the favourite-folder curtain never matches those by hash, so without this
+// pass a hidden local folder still leaked into the home "Continue Watching"
+// strip.
 func dropHiddenLocalLibrary(c *gin.Context, s *streamer.Streamer, list []library.Entry, userID int) []library.Entry {
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil || len(list) == 0 {
 		return list

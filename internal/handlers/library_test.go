@@ -43,7 +43,7 @@ func TestLibraryGet_InvalidID(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.GET("/api/library/:id", LibraryGet(lib))
+	router.GET("/api/library/:id", LibraryGet(lib, nil))
 
 	req := httptest.NewRequest("GET", "/api/library/notanumber", nil)
 	w := httptest.NewRecorder()
@@ -62,7 +62,7 @@ func TestLibraryGet_NotFound(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.GET("/api/library/:id", LibraryGet(lib))
+	router.GET("/api/library/:id", LibraryGet(lib, nil))
 
 	req := httptest.NewRequest("GET", "/api/library/999", nil)
 	w := httptest.NewRecorder()

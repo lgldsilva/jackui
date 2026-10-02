@@ -41,7 +41,12 @@ type resultEnricher struct {
 	dlHashes  map[string]bool
 }
 
-func buildEnricher(favs *streamer.FavoritesStore, dls *downloads.Store, userID int, includeAll bool) *resultEnricher {
+// buildEnricher preloads the user's favorites/downloads sets once
+// and enriches N results without N queries. With the curtain CLOSED
+// (reveal=false) hidden-folder favourites are subtracted from the fav set so a
+// hidden title never shows the heart badge in search / history replay — the
+// badge is a per-title state leak even when the title itself isn't shown.
+func buildEnricher(favs *streamer.FavoritesStore, dls *downloads.Store, userID int, includeAll, reveal bool) *resultEnricher {
 	e := &resultEnricher{
 		favHashes: map[string]bool{},
 		dlHashes:  map[string]bool{},
@@ -49,6 +54,13 @@ func buildEnricher(favs *streamer.FavoritesStore, dls *downloads.Store, userID i
 	if favs != nil {
 		if m, err := favs.HashSetForUser(userID, includeAll); err == nil {
 			e.favHashes = m
+		}
+		if !reveal {
+			if curtain, err := favs.HiddenFavorites(userID, includeAll); err == nil {
+				for h := range curtain.Hashes {
+					delete(e.favHashes, strings.ToLower(strings.TrimSpace(h)))
+				}
+			}
 		}
 	}
 	if dls != nil {
@@ -85,7 +97,7 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 		indexers := parseIndexers(c)
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		enricher := buildEnricher(favs, dls, userID, includeAll)
+		enricher := buildEnricher(favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
 
 		liveResults, liveErr := client.Search(query, c.Query("category"), indexers)
 		saveHistory(store, query, liveResults, userID, liveErr, c)

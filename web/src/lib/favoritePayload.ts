@@ -6,7 +6,7 @@
 // private trackers (amigosshare & cia) often carry only a `.torrent` link, so
 // the payload may need a backend conversion before the favorite is written.
 
-import { extractInfoHashFromMagnet } from './magnet'
+import { canonicalInfoHash } from './magnet'
 
 export { extractInfoHashFromMagnet, canonicalInfoHash } from './magnet'
 
@@ -58,7 +58,7 @@ export async function buildFavoritePayload(
 ): Promise<FavoritePayload> {
   if (result.magnetUri) {
     return {
-      infoHash: result.infoHash || extractInfoHashFromMagnet(result.magnetUri),
+      infoHash: canonicalInfoHash(result.infoHash, result.magnetUri),
       magnet: result.magnetUri,
       source: 'magnet',
     }
@@ -66,7 +66,7 @@ export async function buildFavoritePayload(
   if (result.link) {
     try {
       const conv = await resolveTorrentLink(result.link)
-      const infoHash = conv.infoHash || extractInfoHashFromMagnet(conv.magnet || '')
+      const infoHash = canonicalInfoHash(conv.infoHash, conv.magnet)
       const magnet = conv.magnet || (infoHash ? magnetFromInfoHash(infoHash) : '')
       if (magnet || infoHash) return { infoHash, magnet, source: 'link' }
     } catch {
@@ -74,6 +74,17 @@ export async function buildFavoritePayload(
     }
   }
   if (result.infoHash) {
+    const h = canonicalInfoHash(result.infoHash)
+    if (h) {
+      // canonicalInfoHash (not a raw passthrough): a hash with unusual casing
+      // or a non-40-hex pseudo-hash must never reach the DB as-is — the hidden
+      // curtain joins favourites to library/downloads on lowercase hex, so an
+      // unnormalized value would silently escape it.
+      return { infoHash: h, magnet: magnetFromInfoHash(h), source: 'infoHash' }
+    }
+    // Un-canonical hash (e.g. base32 btih): keep the legacy raw form — the
+    // magnet stays valid (clients accept base32 btih) and the backend's
+    // normalization decides whether the hash itself is storable.
     return { infoHash: result.infoHash, magnet: magnetFromInfoHash(result.infoHash), source: 'infoHash' }
   }
   // Last resort: keep the raw .torrent link as the magnet. favHasValidMagnet
@@ -81,7 +92,7 @@ export async function buildFavoritePayload(
   // Play time — so a transient conversion failure leaves a RECOVERABLE favorite
   // instead of an inert one. Only 'none' when there's truly nothing to store.
   if (result.link) {
-    return { infoHash: result.infoHash || '', magnet: result.link, source: 'link' }
+    return { infoHash: canonicalInfoHash(result.infoHash), magnet: result.link, source: 'link' }
   }
   return { infoHash: '', magnet: '', source: 'none' }
 }

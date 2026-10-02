@@ -30,7 +30,7 @@ func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, includeAll))
+		list = dropHiddenLibrary(list, hiddenCurtain(c, s, userID, includeAll))
 		list = dropHiddenLocalLibrary(c, s, list, userID)
 		c.JSON(http.StatusOK, list)
 	}
@@ -75,7 +75,7 @@ func visibleLibraryEntry(c *gin.Context, s *streamer.Streamer, userID int, entry
 		return nil
 	}
 	list := []library.Entry{*entry}
-	list = dropHiddenLibrary(list, hiddenHashSet(c, s, userID, false))
+	list = dropHiddenLibrary(list, hiddenCurtain(c, s, userID, false))
 	list = dropHiddenLocalLibrary(c, s, list, userID)
 	if len(list) == 0 {
 		return nil
@@ -83,8 +83,11 @@ func visibleLibraryEntry(c *gin.Context, s *streamer.Streamer, userID int, entry
 	return &list[0]
 }
 
-// LibraryGet handles GET /api/library/:id
-func LibraryGet(lib *library.Store) gin.HandlerFunc {
+// LibraryGet handles GET /api/library/:id — same visibility as LibraryGetByHash:
+// hidden favourite / local-curtain entries 404 (not 403) so a leaked id cannot
+// probe the curtain either. The curtain check is own-user (visibleLibraryEntry
+// always uses includeAll=false), matching how the player's resume lookup works.
+func LibraryGet(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
@@ -98,6 +101,7 @@ func LibraryGet(lib *library.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
+		entry = visibleLibraryEntry(c, s, userID, entry)
 		if entry == nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return

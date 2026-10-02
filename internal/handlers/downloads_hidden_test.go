@@ -328,3 +328,35 @@ func TestDownloadsList_NilBrowserStillFiltersByHash(t *testing.T) {
 		t.Errorf("hash-hidden download leaked with nil browser: %+v", got)
 	}
 }
+
+// A hidden favourite with NO info_hash must still hide the download it NAMES
+// (hash-less quick-favourite; the download's hash came from the play flow and
+// can never join on the favourite's empty hash).
+func TestDownloadsList_FavouriteHiddenByName(t *testing.T) {
+	f := newDLHiddenFixture(t)
+	folder, err := f.fav.CreateFolder(f.alice, "Private", nil, true)
+	if err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+	if err := f.fav.Add("Secret Movie", "", "", "manual", f.alice); err != nil {
+		t.Fatalf("Add hash-less favourite: %v", err)
+	}
+	if err := f.fav.MoveFavoriteToFolder(f.alice, "Secret Movie", &folder.ID); err != nil {
+		t.Fatalf("MoveFavoriteToFolder: %v", err)
+	}
+	f.createDL(t, f.alice, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Secret Movie", "/dl/secret.mkv")
+	f.createDL(t, f.alice, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Public Movie", "/dl/public.mkv")
+
+	got := f.listFor(t, f.alice, false)
+	if containsHash(got, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
+		t.Errorf("download named after a hash-less hidden favourite leaked: %+v", got)
+	}
+	if !containsHash(got, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") {
+		t.Errorf("non-hidden download missing: %+v", got)
+	}
+
+	revealed := f.listFor(t, f.alice, true)
+	if !containsHash(revealed, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
+		t.Errorf("revealed list should contain the download again: %+v", revealed)
+	}
+}

@@ -78,6 +78,21 @@ func TestStreamDestructiveMutationsAreAdminOnly(t *testing.T) {
 	}
 }
 
+// GET /stream/cache lists EVERY cached torrent's name + info hash + isFavorite
+// flag across ALL users — a cross-user surface the UI only renders for admins,
+// so the route must sit behind AdminOnly: a regular user gets 403, an admin
+// gets through.
+func TestStreamCacheReadIsAdminOnly(t *testing.T) {
+	user := doReq(streamRoleRouter(t, auth.RoleUser), http.MethodGet, "/api/stream/cache", "")
+	if user.Code != http.StatusForbidden {
+		t.Errorf("GET /api/stream/cache as non-admin: status = %d, want 403", user.Code)
+	}
+	admin := doReq(streamRoleRouter(t, auth.RoleAdmin), http.MethodGet, "/api/stream/cache", "")
+	if admin.Code == http.StatusForbidden {
+		t.Errorf("GET /api/stream/cache as admin: got 403 (route wrongly fenced)")
+	}
+}
+
 // The playback-affecting-but-non-destructive siblings must stay reachable for
 // regular users (moving THESE would break the player).
 func TestStreamPlaybackMutationsStayUserReachable(t *testing.T) {

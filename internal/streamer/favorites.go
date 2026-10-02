@@ -79,7 +79,7 @@ func (f *FavoritesStore) Add(name, infoHash, magnet, reason string, userID int) 
 	_, err := f.db.Exec(`
 		INSERT INTO favorites(name, info_hash, magnet, reason, user_id) VALUES(?, ?, ?, ?, ?)
 		ON CONFLICT (user_id, name) DO UPDATE SET
-			info_hash    = excluded.info_hash,
+			info_hash    = CASE WHEN excluded.info_hash != '' THEN excluded.info_hash ELSE favorites.info_hash END,
 			magnet       = CASE WHEN excluded.magnet != '' THEN excluded.magnet ELSE favorites.magnet END,
 			reason       = excluded.reason,
 			user_id      = excluded.user_id,
@@ -158,33 +158,81 @@ func (f *FavoritesStore) HashSetForUser(userID int, includeAll bool) (map[string
 	return set, rows.Err()
 }
 
-// HiddenHashSet returns, as a set, the info_hashes of favourites that live in a
-// hidden folder. Used to keep hidden-folder titles out of Continue Watching and
-// the downloads list the same way they're kept out of the favourites view.
-// includeAll=true (admin) spans every user's hidden folders.
-func (f *FavoritesStore) HiddenHashSet(userID int, includeAll bool) (map[string]bool, error) {
-	if f == nil {
-		return map[string]bool{}, nil
-	}
-	q := `SELECT info_hash FROM favorites
-	      WHERE info_hash != ''
-	        AND folder_id IN (SELECT id FROM favorite_folders WHERE hidden = 1`
+// HiddenCurtain is the identity set of favourites living in a hidden folder:
+// the info_hashes AND the normalized names the curtain must drop from default
+// listings. Names matter because hiding is a per-title decision while linkage
+// can be per-hash: a quick-favourite saved without an info_hash (its link
+// resolution failed) must still hide its Continue Watching row, and a hash
+// stored with unusual casing must still match the library's lowercase hex.
+type HiddenCurtain struct {
+	Hashes map[string]bool // trimmed lowercase info_hash → hidden
+	Names  map[string]bool // trimmed lowercase name → hidden
+}
+
+// Empty reports whether the curtain would drop nothing (callers skip the
+// per-row work entirely).
+func (h HiddenCurtain) Empty() bool {
+	return len(h.Hashes) == 0 && len(h.Names) == 0
+}
+
+// hiddenFolderIDsSubq renders the IN(...) subquery listing every folder id
+// under the curtain: the hidden folders themselves PLUS, recursively, every
+// descendant — a subfolder of a hidden folder inherits the veil, otherwise
+// moving favourites into a subfolder of a hidden folder would unhide them.
+// UNION (not ALL) dedups rows so a corrupted parent chain cannot spin the
+// recursion forever (MoveFolder rejects cycles; this is belt-and-braces).
+// includeAll=true (admin) spans every user's tree; otherwise the walk is
+// scoped to userID.
+func hiddenFolderIDsSubq(userID int, includeAll bool) (string, []any) {
+	subq := `WITH RECURSIVE hidden_folders(id) AS (
+		SELECT id FROM favorite_folders WHERE hidden = 1`
 	args := []any{}
 	if !includeAll {
-		q += ` AND user_id = ?`
+		subq += ` AND user_id = ?`
 		args = append(args, userID)
 	}
-	q += `)`
+	subq += `
+		UNION
+		SELECT f.id FROM favorite_folders f
+		JOIN hidden_folders h ON f.parent_id = h.id`
+	if !includeAll {
+		subq += ` WHERE f.user_id = ?`
+		args = append(args, userID)
+	}
+	subq += `)
+		SELECT id FROM hidden_folders`
+	return subq, args
+}
+
+// HiddenFavorites returns the identity set (hashes + names) of favourites in a
+// hidden folder or its subfolders. Used to keep hidden-folder titles out of
+// Continue Watching, the downloads list and search enrichment the same way
+// they're kept out of the favourites view. A favourite without an info_hash is
+// represented by name alone — it must hide by title, not vanish from the
+// curtain.
+func (f *FavoritesStore) HiddenFavorites(userID int, includeAll bool) (HiddenCurtain, error) {
+	if f == nil {
+		return HiddenCurtain{}, nil
+	}
+	subq, args := hiddenFolderIDsSubq(userID, includeAll)
+	q := `SELECT COALESCE(name, ''), COALESCE(info_hash, '') FROM favorites
+	      WHERE folder_id IN (` + subq + `)`
 	rows, err := f.db.Query(q, args...)
 	if err != nil {
-		return nil, err
+		return HiddenCurtain{}, err
 	}
 	defer rows.Close()
-	set := map[string]bool{}
+	set := HiddenCurtain{Hashes: map[string]bool{}, Names: map[string]bool{}}
 	for rows.Next() {
-		var h string
-		if rows.Scan(&h) == nil && h != "" {
-			set[h] = true
+		var name, hash string
+		if rows.Scan(&name, &hash) != nil {
+			continue
+		}
+		if hash = strings.ToLower(strings.TrimSpace(hash)); hash != "" {
+			set.Hashes[hash] = true
+		}
+		if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+			set.Names[name] = true
 		}
 	}
 	return set, rows.Err()
@@ -293,9 +341,12 @@ func (f *FavoritesStore) List(userID int, includeAll, includeHidden bool) ([]Fav
 	}
 	// Keep favourites that live inside a hidden folder out of the default view —
 	// otherwise the "all" listing would leak the items even though the folder is
-	// hidden from the sidebar. The easter egg opts in via includeHidden.
+	// hidden from the sidebar. The recursive subquery makes SUBFOLDERS of a
+	// hidden folder inherit the veil. The easter egg opts in via includeHidden.
 	if !includeHidden {
-		conds = append(conds, "(folder_id IS NULL OR folder_id NOT IN (SELECT id FROM favorite_folders WHERE hidden = 1))")
+		subq, sargs := hiddenFolderIDsSubq(userID, includeAll)
+		conds = append(conds, "(folder_id IS NULL OR folder_id NOT IN ("+subq+"))")
+		args = append(args, sargs...)
 	}
 	if len(conds) > 0 {
 		q += " WHERE " + strings.Join(conds, " AND ")

@@ -193,3 +193,42 @@ func TestRecoverViaSearch_NilSearcherNoop(t *testing.T) {
 		t.Errorf("nil searcher: n=%d err=%v, want 0/nil", n, err)
 	}
 }
+
+// PRIVACY: a magnet-less favourite parked in a hidden folder must never become
+// a camada-3 candidate — RecoverViaSearch hands each name to the EXTERNAL
+// indexer, and a hidden title reaching Jackett is a leak regardless of curtain
+// state. Visible magnet-less favourites are still recovered.
+func TestRecoverViaSearch_SkipsHiddenFolderFavourites(t *testing.T) {
+	f, _, _ := recoverEnv(t)
+	if err := f.Add("Hidden Release", "", "", "manual", 1); err != nil {
+		t.Fatalf("Add hidden: %v", err)
+	}
+	if err := f.Add("Public Release", "", "", "manual", 1); err != nil {
+		t.Fatalf("Add public: %v", err)
+	}
+	folder, err := f.CreateFolder(1, "Vault", nil, true)
+	if err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+	if err := f.MoveFavoriteToFolder(1, "Hidden Release", &folder.ID); err != nil {
+		t.Fatalf("MoveFavoriteToFolder: %v", err)
+	}
+
+	searcher := fakeSearcher{byName: map[string][]MagnetMatch{
+		"Hidden Release": {{Title: "Hidden Release", Magnet: "magnet:?xt=urn:btih:" + recHash, Seeders: 10}},
+		"Public Release": {{Title: "Public Release", Magnet: "magnet:?xt=urn:btih:" + recHash, Seeders: 10}},
+	}}
+	n, err := f.RecoverViaSearch(searcher, 25)
+	if err != nil {
+		t.Fatalf("RecoverViaSearch: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("repaired = %d, want 1 (hidden favourite must not be searched)", n)
+	}
+	if got := magnetOf(t, f, "Hidden Release"); got != "" {
+		t.Errorf("hidden favourite was recovered via external search: %q", got)
+	}
+	if got := magnetOf(t, f, "Public Release"); got == "" {
+		t.Error("public magnet-less favourite should still be recovered")
+	}
+}

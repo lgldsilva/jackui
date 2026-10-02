@@ -206,6 +206,16 @@ func StreamFavorite(s *streamer.Streamer) gin.HandlerFunc {
 		if req.Reason == "" {
 			req.Reason = "manual"
 		}
+		// Normalize the hash before storing: the hidden curtain (and the
+		// favorite↔library linkage generally) joins on lowercase 40-hex, so a
+		// hash saved with unusual casing — or garbage — could never be matched
+		// and a hidden favourite would leak through by hash. Unparsable input
+		// becomes '' (name-only favorite) instead of dead weight.
+		if h, herr := parseHash(strings.ToLower(strings.TrimSpace(req.InfoHash))); herr == nil {
+			req.InfoHash = h.HexString()
+		} else {
+			req.InfoHash = ""
+		}
 		favs := s.Favorites()
 		if favs == nil {
 			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "favorites store not initialized")
@@ -382,15 +392,38 @@ func StreamSetFilePriority(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
-// StreamActive handles GET /api/stream/active — snapshot of every active torrent.
+// StreamActive handles GET /api/stream/active — snapshot of every active
+// torrent. The swarm itself is shared by design (Downloads polls this to show
+// and stop anything live), but the requester's hidden-favourite curtain still
+// applies to the LISTING: hiding a title must keep it off the active view even
+// while it streams. The easter egg (X-JackUI-Reveal-Hidden) reveals everything.
 func StreamActive(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		list := s.ActiveList()
 		if list == nil {
 			list = []*streamer.TorrentInfo{}
 		}
-		c.JSON(http.StatusOK, list)
+		userID, _, _ := auth.UserIDFromCtx(c)
+		curtain := hiddenCurtain(c, s, userID, false)
+		c.JSON(http.StatusOK, dropHiddenActive(list, curtain))
 	}
+}
+
+// dropHiddenActive removes active-swarm entries matching the requester's
+// identity curtain (info_hash OR normalized name). Pure → unit-testable
+// (NewForTesting exposes no way to seed ActiveList from the handlers package).
+func dropHiddenActive(list []*streamer.TorrentInfo, curtain streamer.HiddenCurtain) []*streamer.TorrentInfo {
+	if curtain.Empty() {
+		return list
+	}
+	out := make([]*streamer.TorrentInfo, 0, len(list))
+	for _, t := range list {
+		if t == nil || curtainHidden(t.InfoHash, t.Name, curtain) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // StreamPauseAll handles POST /api/stream/active/pause — bulk pause.

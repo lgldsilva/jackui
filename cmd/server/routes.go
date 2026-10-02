@@ -323,7 +323,10 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	}
 	// Reads of the shared swarm stay on `api` (Downloads UI polls active/rate).
 	// Global mutations that affect every user are admin-only.
-	api.GET("/stream/cache", handlers.StreamCacheStats(deps.streamSrv))
+	// GET /stream/cache is admin-only: it lists EVERY cached torrent's name +
+	// info hash + isFavorite flag across users — a cross-user surface the UI
+	// already gates behind the admin check, so the API must gate it too.
+	adminAPI.GET("/stream/cache", handlers.StreamCacheStats(deps.streamSrv))
 	adminAPI.DELETE("/stream/cache", handlers.StreamCacheClear(deps.streamSrv))
 	api.GET("/stream/rate", handlers.StreamRateStats(deps.streamSrv))
 	api.GET("/stream/active", handlers.StreamActive(deps.streamSrv))
@@ -568,7 +571,7 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/recommendations/dismiss", handlers.DismissRecommendation(deps.libraryStore))
 	// Personal usage statistics (live aggregation; nil stores contribute zeroes).
 	api.GET("/stats", handlers.Stats(deps.libraryStore, deps.downloadsStore, deps.historyStore, deps.watchlistStore))
-	api.GET(routeLibraryID, handlers.LibraryGet(deps.libraryStore))
+	api.GET(routeLibraryID, handlers.LibraryGet(deps.libraryStore, deps.streamSrv))
 	api.PATCH(routeLibraryID, handlers.LibraryUpdateResume(deps.libraryStore))
 	api.DELETE(routeLibraryID, handlers.LibraryDelete(deps.libraryStore))
 	api.DELETE("/library", handlers.LibraryDeleteAll(deps.libraryStore))

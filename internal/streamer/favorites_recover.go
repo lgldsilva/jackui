@@ -70,11 +70,18 @@ type MagnetSearcher interface {
 
 // magnetlessFavorites lists the distinct favorite names still missing both a
 // magnet and an info_hash after ReconcileMagnets — the camada-3 candidates.
+// Favourites inside a hidden folder (or its subfolders) are EXCLUDED on
+// purpose: RecoverViaSearch hands each name to the external indexer, and a
+// hidden title must never reach Jackett unprompted, curtain state aside. Such
+// favourites simply stay unrecovered until the user reveals them (or adds a
+// magnet manually).
 func (f *FavoritesStore) magnetlessFavorites() ([]string, error) {
+	subq, _ := hiddenFolderIDsSubq(0, true) // no user scope: spans every user's hidden tree
 	rows, err := f.db.Query(`
 		SELECT DISTINCT name FROM favorites
 		WHERE (magnet IS NULL OR magnet = '')
-		  AND (info_hash IS NULL OR info_hash = '')`)
+		  AND (info_hash IS NULL OR info_hash = '')
+		  AND (folder_id IS NULL OR folder_id NOT IN (` + subq + `))`)
 	if err != nil {
 		return nil, err
 	}
