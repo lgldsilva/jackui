@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Pause, Play, Trash2, Clock, Users, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import type { TorrentInfo, StreamPriority } from '../../api/client'
+import { useAuth } from '../../auth/AuthContext'
 import { formatRate, formatBytesPair, formatDurationShort } from '../../lib/format'
 import { KindBadge } from './KindBadge'
 import { TorrentStatusBadge } from './TorrentStatusBadge'
@@ -30,6 +31,7 @@ type TorrentCardProps = {
 // TorrentCard — Premium redesigned streaming torrent card.
 export const TorrentCard = memo(function TorrentCard({ t: torrent, busy, onPause, onResume, onPriority, onDelete, onPlay }: TorrentCardProps) {
   const { t } = useTranslation()
+  const { isAdmin } = useAuth()
   const pct = Math.max(0, Math.min(1, torrent.progress || 0)) * 100
   const status = torrent.status || (pct >= 100 ? 'complete' : 'downloading')
   const isPaused = status === 'paused'
@@ -164,7 +166,12 @@ export const TorrentCard = memo(function TorrentCard({ t: torrent, busy, onPause
         </label>
 
         {busy && <Loader2 className="w-3.5 h-3.5 animate-spin text-text-muted" />}
-        <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label={t('downloads.page.stop')} title={t('downloads.page.stopStreamingTitle')} className="ml-auto" />
+        {/* The global drop endpoint is admin-only (shared swarm — a non-admin
+            trash would only collect a 403). Removing a download row goes through
+            its own DELETE /api/downloads/:id, which drops the stream server-side. */}
+        {isAdmin && (
+          <ActionButton onClick={onDelete} disabled={busy} variant="danger" icon={<Trash2 className="w-3.5 h-3.5" />} label={t('downloads.page.stop')} title={t('downloads.page.stopStreamingTitle')} className="ml-auto" />
+        )}
       </div>
     </div>
   )

@@ -18,10 +18,10 @@ import (
 )
 
 // artNegativeTTL bounds how long a "no art found" marker suppresses re-running
-// the resolve chain. A week: long enough to spare repeated AI+TMDB+web calls for
-// a title with no art, short enough that art added to TMDB later is still picked
-// up on a future play.
-const artNegativeTTL = 7 * 24 * time.Hour
+// the resolve chain. Two days: long enough to spare repeated AI+TMDB+web calls
+// for a title with no art, short enough that a home/library visit (batch
+// resolve) picks up art added to TMDB later without waiting on a play.
+const artNegativeTTL = 48 * time.Hour
 
 // StreamArt handles GET /api/stream/art/:hash — serves the persisted thumbnail
 // for a torrent. This path is intentionally CHEAP (a single DB read + either a
@@ -292,6 +292,13 @@ func runArtResolve(
 		return
 	}
 
+	// A deadline/cancel hit means the chain was cut short (slow swarm read
+	// starving TMDB/web, client gone) — the miss is not a real answer, so
+	// don't persist the negative marker or the next resolve can't retry.
+	if ctx.Err() != nil || rctx.Err() != nil {
+		resp.Status(http.StatusNoContent)
+		return
+	}
 	_ = env.cache.SetArt(hash, &streamer.CachedArt{Source: streamer.ArtSourceNone})
 	resp.Status(http.StatusNoContent)
 }

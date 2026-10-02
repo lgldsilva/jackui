@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Clock, Download, Flame, Music2, Play, Sear
 import NavHeader from '../components/NavHeader'
 import { AsyncState } from '../components/AsyncState'
 import { HomeRail, homeCardClass } from '../components/home/HomeRail'
+import HomeCardArt from '../components/home/HomeCardArt'
 import { usePlayer } from '../components/PlayerProvider'
 import {
   type DownloadEntry,
@@ -16,7 +17,7 @@ import {
   getHealth,
   libraryList,
   type RuntimeHealth,
-  streamArtURL,
+  resolveArtBatch,
   tmdbRecommendations,
   tmdbTrending,
 } from '../api/client'
@@ -24,6 +25,7 @@ import { newTabProps, playHref, searchHref } from '../lib/cardNav'
 import { formatDuration } from '../lib/format'
 import { homeIsEmpty, homePlayFileIndex, pickContinueWatching, pickRecentlyCompleted } from '../lib/homeHub'
 import { allHomeSectionsFailed, failedHomeSections, preserveOnFailure, type HomeSection, type HomeSectionResult } from '../lib/homeHealth'
+import { artBustsFromBatch, artPresenceFromBatch, mergeArtBustMaps, mergeArtPresence } from '../lib/artPresence'
 import { useMediaMode } from '../lib/mediaMode'
 import { useRevealHidden } from '../lib/reveal'
 import { musicTrending, type MusicAlbum } from '../api/music'
@@ -116,6 +118,39 @@ export default function HomePage() {
   }, [t])
 
   useEffect(() => { reload() }, [reload, revealHidden])
+
+  // Art presence/busts from the batch resolve (Perf #8 pattern, like Library):
+  // presence=true mounts the art GET with a bust, presence=false skips it.
+  // artMode gates eager loading: while 'pending', cards mount no art GET at all
+  // (a premature GET 204s faster than the batch and would poison artFailed);
+  // 'ok' trusts presence; 'failed' falls back to legacy try-then-onError so a
+  // 504 doesn't blank out already-persisted art.
+  const [artPresence, setArtPresence] = useState<Record<string, boolean>>({})
+  const [artBustMap, setArtBustMap] = useState<Record<string, number>>({})
+  const [artMode, setArtMode] = useState<'pending' | 'ok' | 'failed'>('pending')
+  // One batch per reload covers both rails (16+12 < the 50-item cap); file -1
+  // on purpose — frame capture stays play-only, the batch is presence+poster.
+  useEffect(() => {
+    const seen = new Set<string>()
+    const items: { hash: string; name: string; file: number }[] = []
+    for (const row of [...pickContinueWatching(library), ...pickRecentlyCompleted(completed)]) {
+      if (!row.infoHash || seen.has(row.infoHash)) continue
+      seen.add(row.infoHash)
+      items.push({ hash: row.infoHash, name: row.name, file: -1 })
+    }
+    if (items.length === 0) return
+    resolveArtBatch(items).then(results => {
+      // resolveArtBatch swallows network/5xx into {} and the server answers one
+      // entry per valid hash — an empty map with items sent means the batch
+      // genuinely failed: legacy art loading instead of a blank presence map.
+      if (Object.keys(results).length === 0) { setArtMode('failed'); return }
+      const presence = artPresenceFromBatch(results)
+      if (Object.keys(presence).length > 0) setArtPresence(prev => mergeArtPresence(prev, presence))
+      const busts = artBustsFromBatch(results)
+      if (Object.keys(busts).length > 0) setArtBustMap(prev => mergeArtBustMaps(prev, busts))
+      setArtMode('ok')
+    }).catch(() => setArtMode('failed'))
+  }, [library, completed])
 
   const continueWatching = pickContinueWatching(library)
   const recent = pickRecentlyCompleted(completed)
@@ -248,7 +283,7 @@ export default function HomePage() {
                     className={`${homeCardClass()} card text-left p-0 overflow-hidden group`}
                   >
                     <div className="aspect-[2/3] bg-surface-tertiary relative">
-                      <img src={streamArtURL(e.infoHash)} alt="" className="w-full h-full object-cover" onError={ev => { ev.currentTarget.style.display = 'none' }} />
+                      <HomeCardArt title={e.name} infoHash={e.infoHash} hasArt={artPresence[e.infoHash]} bust={artBustMap[e.infoHash]} requireKnown={artMode !== 'failed'} />
                       <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Play className="w-8 h-8 text-white fill-white" />
                       </span>
@@ -279,7 +314,7 @@ export default function HomePage() {
                   className={`${homeCardClass()} card text-left p-0 overflow-hidden group`}
                 >
                   <div className="aspect-[2/3] bg-surface-tertiary relative">
-                    <img src={streamArtURL(d.infoHash)} alt="" className="w-full h-full object-cover" onError={ev => { ev.currentTarget.style.display = 'none' }} />
+                    <HomeCardArt title={d.name} infoHash={d.infoHash} hasArt={artPresence[d.infoHash]} bust={artBustMap[d.infoHash]} requireKnown={artMode !== 'failed'} />
                     <span className="absolute top-1 left-1 text-[10px] px-1.5 py-0.5 rounded bg-green-600/90 text-white flex items-center gap-0.5">
                       <Download className="w-3 h-3" />{t('home.onDisk')}
                     </span>
