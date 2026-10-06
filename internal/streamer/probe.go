@@ -170,6 +170,11 @@ func ProbeLocal(ctx context.Context, path string) (ProbeResult, error) {
 	return *result, nil
 }
 
+// openStdinPipe is os.Pipe in production. Creation fails only on EMFILE/ENFILE,
+// which tests cannot force without starving the process, so the var is the seam
+// that covers the error return.
+var openStdinPipe = os.Pipe
+
 func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, error) {
 	// fixed/config binary; user values are operands of -i or integers; exec without shell
 	cmd := exec.CommandContext(ctx, "ffprobe",
@@ -188,7 +193,7 @@ func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, err
 	// no copy in its way; our feeder goroutine unblocks when the caller's
 	// closeFn closes the torrent reader right after this function returns.
 	if stdin != nil {
-		pr, pw, perr := os.Pipe()
+		pr, pw, perr := openStdinPipe()
 		if perr != nil {
 			return nil, fmt.Errorf("ffprobe stdin pipe: %w", perr)
 		}
