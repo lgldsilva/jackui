@@ -2,7 +2,12 @@ package streamer
 
 import (
 	"context"
+	"errors"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +15,127 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
 )
+
+func requireFFprobe(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed")
+	}
+}
+
+// failingReader is a torrent reader that errors immediately. io.Copy must
+// still close the pipe write end, or ffprobe (and cmd.Wait) waits on stdin.
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("torrent reader closed")
+}
+
+// blockingReader mimics a starved torrent reader: Read never returns until it
+// is unblocked (or the test ends via the deferred close, so a regression fails
+// the assertion instead of hanging the suite).
+type blockingReader struct {
+	unblock chan struct{}
+}
+
+func (b *blockingReader) Read(p []byte) (int, error) {
+	<-b.unblock
+	return 0, errors.New("reader closed")
+}
+
+// TestRunFFprobe_CtxDeadlineHonoredWithBlockedStdin guards the production
+// deadlock: a torrent reader that never delivers data must not hold the probe
+// request open past the ctx deadline. exec kills ffprobe on ctx.Done, but with
+// a plain io.Reader Stdin, Output()→Wait() blocks on the internal stdin copy
+// goroutine — which sits on the starved Read for minutes. The os.Pipe bridge
+// in runFFprobe keeps Wait() free of that copy.
+func TestRunFFprobe_CtxDeadlineHonoredWithBlockedStdin(t *testing.T) {
+	requireFFprobe(t)
+	br := &blockingReader{unblock: make(chan struct{})}
+	defer close(br.unblock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := runFFprobe(ctx, "pipe:", br)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error: ffprobe killed by ctx deadline")
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("runFFprobe took %s (deadline 500ms) — the stdin copy is blocking Wait() again", elapsed)
+	}
+}
+
+// TestRunFFprobe_StdinPipedToFFprobe proves the pipe bridge still DELIVERS
+// data: ffprobe reads the garbage, answers with (empty) JSON and exits —
+// instead of blocking forever on a never-fed pipe. Its non-zero exit with
+// partial output is tolerated by runFFprobe by design (partial results are
+// kept), so the assertion is on data delivery, not on the error.
+func TestRunFFprobe_StdinPipedToFFprobe(t *testing.T) {
+	requireFFprobe(t)
+	// Non-file reader (the production torrent FileReader) and *os.File both
+	// cross the same pipe bridge; neither may drop the bytes.
+	assertStdinDelivered(t, strings.NewReader("definitely not a media file"))
+
+	path := filepath.Join(t.TempDir(), "stdin.bin")
+	if err := os.WriteFile(path, []byte("definitely not a media file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := f.Close(); cerr != nil {
+			t.Errorf("close stdin file: %v", cerr)
+		}
+	})
+	assertStdinDelivered(t, f)
+}
+
+func assertStdinDelivered(t *testing.T, stdin io.Reader) {
+	t.Helper()
+	out, err := runFFprobe(context.Background(), "pipe:", stdin)
+	if len(out) == 0 {
+		t.Fatalf("ffprobe produced no output (err=%v) — the stdin bridge never fed it", err)
+	}
+}
+
+// TestRunFFprobe_StdinReadErrorClosesPipe guards the feeder's close: a Read
+// error has to close the write end. Leaving it open parks ffprobe on stdin
+// and cmd.Wait never returns.
+func TestRunFFprobe_StdinReadErrorClosesPipe(t *testing.T) {
+	requireFFprobe(t)
+	start := time.Now()
+	out, err := runFFprobe(context.Background(), "pipe:", failingReader{})
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("runFFprobe took %s after a stdin read error — the pipe write end stayed open", elapsed)
+	}
+	if err == nil && len(out) == 0 {
+		t.Fatal("expected ffprobe output or an error once the pipe closed")
+	}
+}
+
+// TestRunFFprobe_StdinPipeOpenError covers the os.Pipe failure return. The OS
+// almost never returns it, so the test swaps openStdinPipe.
+func TestRunFFprobe_StdinPipeOpenError(t *testing.T) {
+	orig := openStdinPipe
+	t.Cleanup(func() { openStdinPipe = orig })
+	openStdinPipe = func() (*os.File, *os.File, error) {
+		return nil, nil, errors.New("too many open files")
+	}
+
+	out, err := runFFprobe(context.Background(), "pipe:", strings.NewReader("x"))
+	if out != nil {
+		t.Fatalf("output = %q, want nil", out)
+	}
+	if err == nil || !strings.Contains(err.Error(), "ffprobe stdin pipe: too many open files") {
+		t.Fatalf("err = %v, want wrapped pipe error", err)
+	}
+}
 
 func TestIsImageSubtitle(t *testing.T) {
 	tests := []struct {

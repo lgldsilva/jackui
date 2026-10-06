@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { shouldShowStartOverlay, shouldShowStartAudioOverlay } from './playerOverlay'
+import { shouldShowStartOverlay, shouldShowStartAudioOverlay, transcodeHintKey } from './playerOverlay'
 
 const base = {
   videoError: false,
@@ -68,5 +68,32 @@ describe('shouldShowStartAudioOverlay', () => {
   it('does NOT show over the resume prompt or on error', () => {
     expect(shouldShowStartAudioOverlay({ ...audioBase, showResumePrompt: true })).toBe(false)
     expect(shouldShowStartAudioOverlay({ ...audioBase, videoError: true })).toBe(false)
+  })
+})
+
+const hintBase = { isTranscoded: true, codecIncompat: false, slowSourceFallback: false }
+
+describe('transcodeHintKey', () => {
+  // The production mislabel: a fallback engaged on a STARVED swarm showed
+  // "incompatible original codec (HEVC/AV1)" even though the codec was fine
+  // (or unknown — the probe itself timed out). Only the probe may blame the codec.
+  it('never claims codec incompatibility without probe backing', () => {
+    expect(transcodeHintKey(hintBase)).toBe('player.overlays.transcodingActive')
+  })
+
+  it('claims codec incompatibility only when the probe confirms it', () => {
+    expect(transcodeHintKey({ ...hintBase, codecIncompat: true })).toBe('player.overlays.convertingGpuIncompat')
+  })
+
+  it('blames the slow source when the fallback engaged on a browser-safe codec', () => {
+    expect(transcodeHintKey({ ...hintBase, slowSourceFallback: true })).toBe('player.overlays.fallbackSlowSource')
+  })
+
+  it('codec evidence wins over the stall guess', () => {
+    expect(transcodeHintKey({ ...hintBase, codecIncompat: true, slowSourceFallback: true })).toBe('player.overlays.convertingGpuIncompat')
+  })
+
+  it('shows no transcode line on direct play', () => {
+    expect(transcodeHintKey({ ...hintBase, isTranscoded: false, codecIncompat: true })).toBeNull()
   })
 })

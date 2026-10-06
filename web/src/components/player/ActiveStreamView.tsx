@@ -136,6 +136,11 @@ export function ActiveStreamView(props: Readonly<{
     adjustSubOffset, resetSubOffset,
   } = subs
   const { streamURL, subtitleVttURL, vlcURL, iinaURL, infuseURL, directURL, isTranscoded } = videoUrls
+  // Honest loading-overlay copy: only the PROBE can blame the codec. A fallback
+  // that engaged despite a browser-safe codec was stall-driven; without a probe
+  // (starved swarm — the probe itself timed out) we assert nothing.
+  const codecIncompatFallback = probe?.needsTranscode === true
+  const slowSourceFallback = transcodeFallbackAttempted && probe != null && !probe.needsTranscode
   const { serverDownloadLoading, serverDownloadSuccess, localDownloadLoading, handleServerDownload, handleLocalDownload, downloadFolderFromPlayer, downloadDirFromPlayer } = downloads
   const parseEpisode = parseEpisodeTag
 
@@ -219,6 +224,8 @@ export function ActiveStreamView(props: Readonly<{
           resumePosition={resumePosition}
           isTranscoded={isTranscoded}
           transcodeFallbackAttempted={transcodeFallbackAttempted}
+          codecIncompatFallback={codecIncompatFallback}
+          slowSourceFallback={slowSourceFallback}
           mediaToken={mediaToken}
           renderVideoError={renderVideoError}
           formatTime={formatTime}
