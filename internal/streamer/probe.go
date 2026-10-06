@@ -180,8 +180,24 @@ func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, err
 		"-show_chapters",
 		"-i", input,
 	)
+	// A non-*os.File Stdin makes Output()→Wait() block on the internal copy
+	// goroutine that feeds the process pipe. With a starved torrent reader that
+	// copy stays blocked long past the ctx deadline that already killed ffprobe
+	// (the production failure held /api/stream/probe requests for 3–6 min).
+	// Bridging through an os.Pipe hands ffprobe the fd directly so Wait() has
+	// no copy in its way; our feeder goroutine unblocks when the caller's
+	// closeFn closes the torrent reader right after this function returns.
 	if stdin != nil {
-		cmd.Stdin = stdin
+		pr, pw, perr := os.Pipe()
+		if perr != nil {
+			return nil, fmt.Errorf("ffprobe stdin pipe: %w", perr)
+		}
+		cmd.Stdin = pr
+		go func() {
+			_, _ = io.Copy(pw, stdin)
+			_ = pw.Close()
+		}()
+		defer func() { _ = pr.Close() }() // unblocks a feeder stuck on a full pipe
 	}
 	out, err := cmd.Output()
 	if err != nil {

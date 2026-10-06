@@ -2,7 +2,10 @@ package streamer
 
 import (
 	"context"
+	"errors"
 	"io"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +13,61 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
 )
+
+// blockingReader mimics a starved torrent reader: Read never returns until it
+// is unblocked (or the test ends via the deferred close, so a regression fails
+// the assertion instead of hanging the suite).
+type blockingReader struct {
+	unblock chan struct{}
+}
+
+func (b *blockingReader) Read(p []byte) (int, error) {
+	<-b.unblock
+	return 0, errors.New("reader closed")
+}
+
+// TestRunFFprobe_CtxDeadlineHonoredWithBlockedStdin guards the production
+// deadlock: a torrent reader that never delivers data must not hold the probe
+// request open past the ctx deadline. exec kills ffprobe on ctx.Done, but with
+// a plain io.Reader Stdin, Output()→Wait() blocks on the internal stdin copy
+// goroutine — which sits on the starved Read for minutes. The os.Pipe bridge
+// in runFFprobe keeps Wait() free of that copy.
+func TestRunFFprobe_CtxDeadlineHonoredWithBlockedStdin(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed")
+	}
+	br := &blockingReader{unblock: make(chan struct{})}
+	defer close(br.unblock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := runFFprobe(ctx, "pipe:", br)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error: ffprobe killed by ctx deadline")
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("runFFprobe took %s (deadline 500ms) — the stdin copy is blocking Wait() again", elapsed)
+	}
+}
+
+// TestRunFFprobe_StdinPipedToFFprobe proves the pipe bridge still DELIVERS
+// data: ffprobe reads the garbage, answers with (empty) JSON and exits —
+// instead of blocking forever on a never-fed pipe. Its non-zero exit with
+// partial output is tolerated by runFFprobe by design (partial results are
+// kept), so the assertion is on data delivery, not on the error.
+func TestRunFFprobe_StdinPipedToFFprobe(t *testing.T) {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed")
+	}
+	out, _ := runFFprobe(context.Background(), "pipe:", strings.NewReader("definitely not a media file"))
+	if len(out) == 0 {
+		t.Fatal("ffprobe produced no output — the stdin bridge never fed it")
+	}
+}
 
 func TestIsImageSubtitle(t *testing.T) {
 	tests := []struct {
