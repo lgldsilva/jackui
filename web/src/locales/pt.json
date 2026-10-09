@@ -1116,6 +1116,7 @@
       "waitingPeers": "Aguardando peers...",
       "inBuffer": "{{size}} em buffer",
       "convertingGpuIncompat": "Convertendo via GPU — codec original incompatível (HEVC/AV1)",
+      "fallbackSlowSource": "Tentando via transcodificação no servidor — fonte lenta",
       "transcodingActive": "Transcoding ativo — primeiros frames demoram mais",
       "prevEpisode": "Episódio anterior",
       "prevEpShort": "Ep ant.",
