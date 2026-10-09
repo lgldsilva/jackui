@@ -44,3 +44,25 @@ export function shouldShowStartAudioOverlay(o: StartAudioOverlayInput): boolean 
   return o.disableNativeAutoplay && !o.startOverlayDismissed
     && !o.videoError && !o.showResumePrompt && o.currentTime === 0
 }
+
+export type TranscodeHintInput = {
+  isTranscoded: boolean
+  // the probe says the source codec/container needs transcoding (HEVC/AV1/MKV…)
+  codecIncompat: boolean
+  // the auto-fallback engaged although the probe said the codec was browser-safe
+  // → the switch was stall-driven (starved swarm), not codec-driven
+  slowSourceFallback: boolean
+}
+
+// Which i18n key the loading overlay's transcode line uses. The old code showed
+// "incompatible original codec (HEVC/AV1)" whenever the auto-fallback had been
+// ATTEMPTED — but the fallback also engages on network stalls, and on starved
+// swarms the probe never even answered. Claim codec incompatibility ONLY when
+// the probe confirms it; a fallback with a browser-safe codec says "slow
+// source"; anything else (including no probe at all) stays neutral.
+export function transcodeHintKey(o: TranscodeHintInput): string | null {
+  if (!o.isTranscoded) return null
+  if (o.codecIncompat) return 'player.overlays.convertingGpuIncompat'
+  if (o.slowSourceFallback) return 'player.overlays.fallbackSlowSource'
+  return 'player.overlays.transcodingActive'
+}

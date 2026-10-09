@@ -57,6 +57,11 @@ type VideoPlayerElementProps = {
   readonly resumePosition: number | null
   readonly isTranscoded: boolean
   readonly transcodeFallbackAttempted: boolean
+  // Honest loading-overlay copy: codecIncompatFallback is probe-backed
+  // (needsTranscode); slowSourceFallback marks a fallback that engaged despite
+  // a browser-safe codec (stall-driven). See transcodeHintKey.
+  readonly codecIncompatFallback: boolean
+  readonly slowSourceFallback: boolean
   readonly mediaToken: string
   readonly renderVideoError: () => React.ReactNode
   readonly formatTime: (s: number) => string
@@ -242,6 +247,8 @@ export function VideoPlayerElement({
   resumePosition,
   isTranscoded,
   transcodeFallbackAttempted,
+  codecIncompatFallback,
+  slowSourceFallback,
   mediaToken,
   renderVideoError,
   formatTime,
@@ -329,7 +336,8 @@ export function VideoPlayerElement({
           info={info}
           selectedFile={selectedFile}
           isTranscoded={isTranscoded}
-          transcodeFallbackAttempted={transcodeFallbackAttempted}
+          codecIncompatFallback={codecIncompatFallback}
+          slowSourceFallback={slowSourceFallback}
           formatTime={formatTime}
         />
       )}

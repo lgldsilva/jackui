@@ -4,6 +4,7 @@ import { TorrentInfo } from '../../api/client'
 import { formatRate } from '../../lib/format'
 import { formatSize } from './playerFormat'
 import { type AirPlayState } from './playerHooks'
+import { transcodeHintKey } from './playerOverlay'
 
 // Resume-from-position prompt shown over the video when reopening a torrent
 // with a saved playhead. Extracted to keep VideoPlayerElement's cognitive
@@ -65,7 +66,11 @@ type PlayerLoadingOverlayProps = {
   readonly info: TorrentInfo | null
   readonly selectedFile: number
   readonly isTranscoded: boolean
-  readonly transcodeFallbackAttempted: boolean
+  // The transcode line must not claim "incompatible codec" unless the probe
+  // says so — the auto-fallback also engages on network stalls (see
+  // transcodeHintKey).
+  readonly codecIncompatFallback: boolean
+  readonly slowSourceFallback: boolean
   readonly formatTime: (s: number) => string
 }
 
@@ -79,10 +84,12 @@ export function PlayerLoadingOverlay({
   info,
   selectedFile,
   isTranscoded,
-  transcodeFallbackAttempted,
+  codecIncompatFallback,
+  slowSourceFallback,
   formatTime,
 }: PlayerLoadingOverlayProps) {
   const { t } = useTranslation()
+  const transcodeHint = transcodeHintKey({ isTranscoded, codecIncompat: codecIncompatFallback, slowSourceFallback })
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-10 bg-black/40">
       <Loader2 className="w-12 h-12 animate-spin text-green-500 mb-3" />
@@ -107,12 +114,10 @@ export function PlayerLoadingOverlay({
           )}
         </p>
       )}
-      {isTranscoded && (
+      {transcodeHint && (
         <p className="text-[11px] text-purple-300 mt-2 flex items-center gap-1">
           <Cpu className="w-3 h-3" />
-          {transcodeFallbackAttempted
-            ? t('player.overlays.convertingGpuIncompat')
-            : t('player.overlays.transcodingActive')}
+          {t(transcodeHint)}
         </p>
       )}
     </div>
