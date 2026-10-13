@@ -107,7 +107,8 @@ scenarios found while operating the project.
 
 - `.cursor/cloud-install.sh` installs PostgreSQL 16, Node 24.19.0 (same release as `Dockerfile.ci`), and golangci-lint v2.13.1, then runs `npm ci` and `npm run build` in `web/`. The frontend build is required because `ui/embed.go` embeds `all:dist`, so `go run ./cmd/server` fails when `ui/dist` is missing.
 - Node is unpacked to `/usr/local/lib/jackui-node`. The agent `PATH` finds `/exec-daemon/node` first, so install and start symlink `node`, `npm`, and `npx` there.
-- `.cursor/cloud-start.sh` starts PostgreSQL without systemd (`pg_ctlcluster`), creates the peer-auth role `ubuntu` and database `jackui`, and writes `~/.jackui/dev.env`. Source that file before `make dev-backend`. The DSN is quoted because it contains `&`.
+- `.cursor/cloud-start.sh` starts PostgreSQL without systemd (`pg_ctlcluster`), creates the peer-auth role `ubuntu` and databases `jackui` (app) and `jackui_test` (Go tests), and writes `~/.jackui/dev.env`. Source that file before `make dev-backend` and before `make test`. The DSNs are quoted because they contain `&`. `JACKUI_TEST_DATABASE_URL` must stay on `jackui_test`: store tests drop tables, and a shared `public` schema makes those error-path tests hit the app's live rows.
+- Stop the dev backend before `make test`. `streamer.New` turns `ListenPort: 0` into peer port 51469, the same port the server binds, so torrent-client tests fail with `address already in use` while it is running.
 - Auth in that env file matches `make dev-backend`: `JACKUI_AUTH_ENABLED=0` and `JACKUI_ALLOW_INSECURE_AUTH=1`. Stream, download, and library directories live under `~/.jackui`.
 - The first start copies `config.yaml.example` to `config.yaml` when the file is missing. `config.yaml` is gitignored.
 - UI dev server: `make dev-frontend` (Vite on :5173 proxies `/api`, `/status`, and `/healthz` to :8989).
