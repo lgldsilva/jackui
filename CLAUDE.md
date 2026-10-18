@@ -93,7 +93,7 @@ internal/
 - **CodeQL**: security-extended + security-and-quality on push/PR/weekly.
 - **Release**: tag `v*` or `workflow_dispatch` → build amd64 → **Trivy CRITICAL gate (pre-push)** → push multi-arch + nvidia to `ghcr.io/lgldsilva/jackui` → SBOM → GitHub Release. See [docs/CICD.md](docs/CICD.md).
 - **Optional Sonar (homelab)**: `new_coverage ≥ 80%` (Go only — `web/**` and `cmd/**` excluded), `new_violations = 0`, cognitive complexity ≤ 15 (S3776). Validate locally before pushing: `golangci-lint run --new-from-rev=origin/main` (gocognit min 16) + coverage of new functions + `eslint-plugin-sonarjs` on changed `.tsx`.
-- **Homelab deploy is manual / Makefile** — release does **not** auto-deploy. Prod is a HAND-MAINTAINED compose (often behind gluetun). Consequences: (1) only the image is swapped; (2) **new env vars in the repo compose do NOT reach prod** — edit the server compose (low-resource profile: `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS`/`JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`).
+- **Homelab deploy is manual / Makefile** — release does **not** auto-deploy. Prod is a HAND-MAINTAINED compose (often behind gluetun). Consequences: (1) only the image is swapped; (2) **new env vars in the repo compose do NOT reach prod** — edit the server compose too (resource profile: `JACKUI_MEM_LIMIT`/`JACKUI_GOMEMLIMIT`/`GOGC`/`GOMAXPROCS`/`JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`). `JACKUI_GOMEMLIMIT` is a soft Go GC target; the Docker cgroup memory limit is the hard boundary.
 - Never commit to `main` — always a PR. Worktrees branch from updated `origin/main`.
 
 ## Conventions

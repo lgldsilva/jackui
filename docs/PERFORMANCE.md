@@ -105,6 +105,32 @@ Erro por-arquivo é inline (um arquivo ruim não derruba o lote). `forceHLS` só
 background vira no-op pra playlists locais (as N chamadas ffprobe somem). Grupos de torrent
 seguem o caminho `streamMetadata` (será coberto por #4).
 
+## Container memory budget
+
+The compose profile separates the **hard container boundary** from the Go collector's
+**soft target**:
+
+| Setting | Default | Scope |
+|---|---:|---|
+| `JACKUI_MEM_LIMIT` | `2g` | Docker cgroup hard limit for the whole container, including the Go process, mmap/cache and child processes such as ffmpeg. |
+| `JACKUI_GOMEMLIMIT` | `1600MiB` | Soft Go GC target (`runtime/debug.SetMemoryLimit`); it can be exceeded and does not cap total RSS. |
+| `GOMEMLIMIT` | legacy fallback | Compose reads this only when `JACKUI_GOMEMLIMIT` is unset or empty; migrate to the canonical name. |
+| `GOGC` | `75` | GC target ratio. |
+| `GOMAXPROCS` | `2` | Go scheduler CPU parallelism, matched to the default `JACKUI_CPU_LIMIT=2.0`. |
+| `JACKUI_MAX_CONNS` | `40` | Peer connections per torrent. |
+| `JACKUI_PEERS_HIGH` | `200` | Swarm high-water mark. |
+
+These are starting values, not universal sizing rules. Keep the Go target below the
+container limit to leave room for memory outside the Go heap. Avoid raising the cgroup
+limit or lowering peer caps from a single OOM sample; first correlate container RSS with
+active torrents, total peers, transcode sessions and Go heap metrics. The app exports
+those workload gauges at `/api/metrics`; use the container/process metrics from the
+Prometheus scrape to see RSS versus Go heap.
+
+Production uses a hand-maintained compose file, so changing the versioned compose or
+`.env.example` alone does not change the live container. Sync the same resource values to
+the server compose and intentionally recreate the service to apply them.
+
 ## Profiling sob demanda — `/debug/pprof`
 
 O backlog acima nasceu de leitura de código; para medir em vez de adivinhar, o servidor
