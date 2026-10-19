@@ -46,7 +46,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 - **`*arr` provider** — exposes a Transmission-RPC-compatible endpoint so **Sonarr/Radarr/Prowlarr** can use JackUI as their download client (opt-in). See [docs/TRANSMISSION_RPC.md](docs/TRANSMISSION_RPC.md).
 - **Local files** — browse configured mounts; promote to the library (`LocalPromoteModal`, batch + per-row). A downloaded video on **local disk** seeks instantly (`http.ServeFile`/sendfile), while remote/rclone mounts get read-ahead + a whole-file LRU disk cache. Local play falls back to HLS when the container/codec needs it. Continue Watching tracks local items too; the list filters by **downloading / done**.
 - **Library extras** — Playlists, Watchlists (cron + ntfy push, opt-in auto-download with quality filters), Continue Watching (resume position), and an Incognito toggle that skips history/library writes. A global "reveal hidden" curtain hides flagged items across the UI.
-- **Low-footprint mode** — the HLS pipeline shuts ffmpeg down when the **last** viewer leaves (no 5-min survival), the UI pauses its polling when the tab is hidden, and a balanced runtime profile (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS` + `JACKUI_MAX_CONNS`/`JACKUI_PEERS_HIGH`) keeps idle memory low on a home server.
+- **Low-footprint mode** — the HLS pipeline shuts ffmpeg down when the **last** viewer leaves (no 5-min survival), the UI pauses its polling when the tab is hidden, and a balanced runtime profile (`JACKUI_MEM_LIMIT`, `JACKUI_GOMEMLIMIT`, `GOGC`, `GOMAXPROCS`, `JACKUI_MAX_CONNS`, `JACKUI_PEERS_HIGH`) keeps resource use bounded on a home server.
 - **Desktop app** (optional) — an Electron wrapper bundling the Go server, with a status tray, magnet deep-links, and native downloads. See [`electron/`](electron/).
 - **Auth** — JWT **on by default** (opt out only with `JACKUI_AUTH_ENABLED=0` + `JACKUI_ALLOW_INSECURE_AUTH=1`) with rotated refresh tokens, roles, MFA/passkeys, and `AdminOnly` routes (incl. admin password reset).
 - **Google OAuth (optional)** — "Sign in with Google" via OIDC + PKCE (`JACKUI_OAUTH_ENABLED` + `JACKUI_OAUTH_CLIENT_ID/SECRET/REDIRECT_URL`). Links by verified e-mail: existing accounts only unless `JACKUI_OAUTH_AUTO_PROVISION=1`; optional `JACKUI_OAUTH_ALLOWED_DOMAINS` (CSV). MFA accounts are still TOTP-challenged. Local password login remains as fallback.
@@ -87,7 +87,7 @@ Open `http://localhost:5173` (dev) or `http://localhost:8989` (the embedded buil
 
 Runtime config comes from `config.yaml` plus environment overrides (env wins). Key variables:
 
-All variables below accept empty/unset as "use default". The canonical default is compiled in or read from `config.yaml`; env wins when set.
+All variables below accept empty/unset as "use default". Application defaults are compiled in or read from `config.yaml`; Docker-only resource defaults come from Compose as noted below. Environment overrides the applicable default.
 
 | Category | Variable | Default | Purpose |
 |---|---|---|---|
@@ -108,6 +108,12 @@ All variables below accept empty/unset as "use default". The canonical default i
 | | `JACKUI_DOWNLOAD_DIR` | `./data/downloads` | Completed download target (empty = stay in cache) |
 | | `JACKUI_SHARED_DIR` | `./data/shared` | Shared library: browsable mounts + promote target |
 | | `JACKUI_EXTERNAL_MOUNTS` | — | Extra mount paths (rclone/NFS, comma-separated) |
+| **Runtime/resources** | `JACKUI_MEM_LIMIT` | `2g` | Hard Docker cgroup memory limit; bounds the whole container |
+| | `JACKUI_CPU_LIMIT` | `2.0` | Docker CPU limit |
+| | `JACKUI_GOMEMLIMIT` | `1600MiB` | Soft Go GC target via `runtime/debug.SetMemoryLimit`; not a hard RSS/container cap |
+| | `GOMEMLIMIT` | legacy fallback | Compose uses this only when `JACKUI_GOMEMLIMIT` is unset or empty; migrate to the canonical name |
+| | `GOGC` | `75` | Go GC target ratio |
+| | `GOMAXPROCS` | `2` | Maximum Go CPUs; balanced with the default CPU limit |
 | **Streamer perf** | `JACKUI_STREAM_MAX_GB` | `50` | Piece-cache size cap (LRU eviction) |
 | | `JACKUI_STREAM_DOWN_MBPS` | — | Download rate limit (MB/s) |
 | | `JACKUI_STREAM_UP_MBPS` | — | Upload rate limit (MB/s) |
@@ -120,8 +126,8 @@ All variables below accept empty/unset as "use default". The canonical default i
 | | `JACKUI_LOCAL_CACHE_GB` | `50` | Dedicated pre-fetch cache (GiB, LRU) |
 | | `JACKUI_HLS_VOD_MODE` | `all` | VOD seekbar: `off`, `hlsjs`, or `all` |
 | | `JACKUI_HLS_MEDIA_RENDITIONS` | `0` | HLS master `EXT-X-MEDIA` **subtitle** renditions (Phase 2 M2b). Audio renditions (`TYPE=AUDIO`) are always on when the source has ≥2 tracks. Enable (`1`) only after Safari `X-TIMESTAMP-MAP` validation for WebVTT. |
-| **Peer/Torrent** | `JACKUI_MAX_CONNS` | — | Peer connections per torrent |
-| | `JACKUI_PEERS_HIGH` | — | Swarm high-water mark |
+| **Peer/Torrent** | `JACKUI_MAX_CONNS` | `40` | Peer connections per torrent |
+| | `JACKUI_PEERS_HIGH` | `200` | Swarm high-water mark |
 | | `JACKUI_PEER_PORT` | — | Fixed listen port (overrides forwarded port) |
 | | `JACKUI_MAX_GPU_TRANSCODES` | `3` | Cap on concurrent HW decoders (`0` = unlimited) |
 | | `JACKUI_MAX_UPLOAD_MB` | — | Max upload per torrent (MiB) |
@@ -166,7 +172,7 @@ All variables below accept empty/unset as "use default". The canonical default i
 
 State lives in **PostgreSQL** (`JACKUI_DATABASE_URL`). The piece cache (`JACKUI_STREAM_DIR`) is deliberately separate to reduce I/O contention on torrent pieces.
 
-*Low-footprint runtime tuning* (Go `GOGC`/`GOMEMLIMIT`/`GOMAXPROCS`) is applied via the process environment, not `config.yaml`; production sets it in the deploy compose (see below).
+The resource settings are supplied by Docker Compose from `.env`, not `config.yaml`. `JACKUI_MEM_LIMIT` is the hard cgroup boundary; `JACKUI_GOMEMLIMIT` is only a soft Go GC target, so leave headroom for non-heap memory and child processes. See [Performance](docs/PERFORMANCE.md#container-memory-budget) for tuning and profiling. Production uses a hand-maintained compose file, which must be updated separately from this repository.
 
 ## Deployment
 

@@ -98,18 +98,16 @@ services:
       - JACKUI_PPROF_ENABLED=${JACKUI_PPROF_ENABLED:-}
       - JACKUI_PPROF_TOKEN=${JACKUI_PPROF_TOKEN:-}
       # ── Low-footprint profile (perf audit, "Balanced" profile) ─────────────
-      # Memory: GOGC=75 tightens the heap target between GCs (from 100 → less
-      # fat RSS waiting for the next GC); GOMEMLIMIT is the hard ceiling
-      # (~1.6 GiB, ~400 MB of headroom for goroutine stacks, BoltDB mmap and
-      # ffmpeg's off-heap) that avoids OOM-kill near the 2 GiB limit.
-      # GOMAXPROCS=2 matches cpus=2.0. Peer caps (from the anacrolix 50/500)
-      # trim resident buffers per connection without killing casual
-      # seed/leech — JackUI already injects 20 public trackers, so peer
-      # discovery doesn't depend on a huge swarm.
+      # JACKUI_GOMEMLIMIT is a soft Go GC target, not a process/cgroup hard cap.
+      # Keep it below JACKUI_MEM_LIMIT to leave room for stacks, mmap/cache and
+      # child processes such as ffmpeg; Docker's cgroup limit above is the hard cap.
+      # GOGC=75 tightens collection between cycles; GOMAXPROCS=2 matches cpus=2.0.
+      # Peer caps trim resident buffers without eliminating casual seed/leech —
+      # JackUI already injects public trackers for discovery.
       # ⚠ PROD: these values live in the server's hand-maintained compose (this
       # block is the versioned reference; when changing prod, edit the hand-file too).
       - GOGC=${GOGC:-75}
-      - GOMEMLIMIT=${GOMEMLIMIT:-1600MiB}
+      - JACKUI_GOMEMLIMIT=${JACKUI_GOMEMLIMIT:-${GOMEMLIMIT:-1600MiB}}
       - GOMAXPROCS=${GOMAXPROCS:-2}
       - JACKUI_MAX_CONNS=${JACKUI_MAX_CONNS:-40}
       - JACKUI_PEERS_HIGH=${JACKUI_PEERS_HIGH:-200}

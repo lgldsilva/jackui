@@ -38,6 +38,9 @@ jobs:
           test "$(uname -m)" = aarch64 -o "$(uname -m)" = arm64
           test "$(docker --context "$JACKUI_CI_DOCKER_CONTEXT" version --format '{{.Server.Arch}}')" = arm64
 
+      - name: Validate Compose memory settings
+        run: scripts/test-compose-memory-config.sh
+
       - name: Run the canonical disposable CI stack
         run: |
           scripts/ci-arm_test.sh

@@ -1,6 +1,6 @@
 module github.com/lgldsilva/jackui
 
-go 1.26.5
+go 1.26.9
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
@@ -13,7 +13,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.20.1
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/nwaples/rardecode/v2 v2.4.2
+	github.com/nwaples/rardecode/v2 v2.4.5
 	github.com/prometheus/client_golang v1.25.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
