@@ -56,11 +56,18 @@ sudo -u postgres psql -c "ALTER ROLE ubuntu WITH LOGIN CREATEDB;" >/dev/null
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='jackui'" | grep -qx 1; then
 	sudo -u postgres createdb --owner=ubuntu jackui
 fi
+# Separate from the app database. Store tests DROP tables; if they share the
+# migrated `public` schema the app is using, unqualified names fall through
+# and error-path tests see live rows instead of a failure.
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='jackui_test'" | grep -qx 1; then
+	sudo -u postgres createdb --owner=ubuntu jackui_test
+fi
 
 mkdir -p "${HOME}/.jackui/streams" "${HOME}/.jackui/downloads" "${HOME}/.jackui/library"
 # Quote every value. The DSN contains "&", which background-jobs an unquoted assignment.
 cat >"${HOME}/.jackui/dev.env" <<EOF
 JACKUI_DATABASE_URL='postgres://ubuntu@/jackui?host=/var/run/postgresql&sslmode=disable'
+JACKUI_TEST_DATABASE_URL='postgres://ubuntu@/jackui_test?host=/var/run/postgresql&sslmode=disable'
 JACKUI_AUTH_ENABLED=0
 JACKUI_ALLOW_INSECURE_AUTH=1
 JACKUI_STREAM_DIR='${HOME}/.jackui/streams'
