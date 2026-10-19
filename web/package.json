@@ -13,11 +13,11 @@
   "dependencies": {
     "axios": "^1.20.0",
     "hls.js": "^1.7.3",
-    "i18next": "^26.4.3",
+    "i18next": "^26.4.7",
     "lucide-react": "^0.577.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-i18next": "^17.0.16",
+    "react-i18next": "^17.0.20",
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
