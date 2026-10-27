@@ -26,6 +26,11 @@ type entry struct {
 	// instead of lingering until the idle reaper. While viewers > 0 the torrent
 	// survives — so closing one of several browsers doesn't kill the others.
 	viewers int
+	// leaseAt is when the viewer lease was last ACQUIRED (AcquireViewer). The
+	// frontend releases the lease on React unmount only — there is no
+	// pagehide/beforeunload release — so a dead tab leaves viewers > 0 forever;
+	// the idle reaper trusts the lease only for ViewerLeaseTTL past this stamp.
+	leaseAt time.Time
 	// dropTimer schedules the drop a short grace period after the LAST viewer
 	// leaves (see ReleaseViewer/viewerGrace). AcquireViewer cancels it, so a
 	// quick reopen — or React StrictMode's mount→unmount→mount in dev — doesn't

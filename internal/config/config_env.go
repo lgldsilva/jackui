@@ -52,6 +52,9 @@ func applyEnvOverrides(cfg *Config) {
 	if cfg.Stream.MetadataSeconds == 0 {
 		cfg.Stream.MetadataSeconds = 60
 	}
+	if cfg.Stream.ViewerLeaseMinutes == 0 {
+		cfg.Stream.ViewerLeaseMinutes = 120
+	}
 }
 
 // applyDatabaseEnv resolves the PostgreSQL DSN from the environment.
@@ -159,6 +162,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_STREAM_DIR", "JACKUI_DOWNLOAD_DIR",
 		"JACKUI_SHARED_DIR",
 		"JACKUI_STREAM_MAX_GB",
+		"JACKUI_VIEWER_LEASE_MINUTES",
 		"JACKUI_AUTH_ENABLED", "JACKUI_ALLOW_INSECURE_AUTH", "JACKUI_ADMIN_PASSWORD", "JACKUI_ADMIN_USERNAME", "JACKUI_JWT_SECRET",
 		"JACKUI_NTFY_TOPIC", "JACKUI_NTFY_URL", "JACKUI_NTFY_TOKEN",
 		"TMDB_API_KEY", "OMDB_API_KEY",
@@ -209,6 +213,13 @@ func applyStreamEnv(cfg *Config) {
 	if v := os.Getenv("JACKUI_STREAM_MAX_GB"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			cfg.Stream.MaxCacheGB = n
+		}
+	}
+	// JACKUI_VIEWER_LEASE_MINUTES bounds the viewer-lease TTL (0 → default 120;
+	// negatives fall back to the default — the TTL cannot be disabled).
+	if v := os.Getenv("JACKUI_VIEWER_LEASE_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			cfg.Stream.ViewerLeaseMinutes = n
 		}
 	}
 	applyStreamPerfEnv(cfg)

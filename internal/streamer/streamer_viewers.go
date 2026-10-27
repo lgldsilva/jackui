@@ -12,6 +12,32 @@ import (
 // enough to absorb a quick reopen and React StrictMode's dev double-mount.
 const viewerGrace = 8 * time.Second
 
+// viewerLeaseDefault bounds how long a viewer lease is trusted without
+// activity. AcquireViewer stamps the lease and every real byte read with
+// viewers on the torrent (trackingReader.bumpAccess) renews it, so the TTL
+// counts from the last moment someone was actually watching: a dead tab (the
+// frontend has no pagehide/beforeunload release) stops renewing and is
+// evicted after the TTL, while a paused player is evicted only after TTL +
+// IdleTimeout of true silence.
+const viewerLeaseDefault = 2 * time.Hour
+
+// leaseTTL returns the effective viewer-lease TTL (Config override or default).
+func (s *Streamer) leaseTTL() time.Duration {
+	if s.cfg.ViewerLeaseTTL > 0 {
+		return s.cfg.ViewerLeaseTTL
+	}
+	return viewerLeaseDefault
+}
+
+// leaseFresh reports whether a viewer lease is trusted at now for the given
+// TTL: unknown age (zero leaseAt — impossible in prod) is conservatively
+// fresh. The SINGLE definition of "is this lease still watching", shared by
+// the idle reaper and the drop guards, so a dead client's lease expires
+// everywhere at once.
+func (e *entry) leaseFresh(ttl time.Duration, now time.Time) bool {
+	return e.leaseAt.IsZero() || now.Sub(e.leaseAt) < ttl
+}
+
 // AcquireViewer registers an open player session ("lease") on a torrent and
 // cancels any pending drop. Called when the player opens a stream. No-op if the
 // torrent isn't active (e.g. a local file, which lives outside the streamer).
@@ -23,6 +49,7 @@ func (s *Streamer) AcquireViewer(hash metainfo.Hash) {
 		return
 	}
 	e.viewers++
+	e.leaseAt = time.Now()
 	e.lastAccess = time.Now()
 	if e.dropTimer != nil {
 		e.dropTimer.Stop()

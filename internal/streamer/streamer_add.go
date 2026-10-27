@@ -44,6 +44,20 @@ func (s *Streamer) addWithStorage(ctx context.Context, magnetOrURL string, ds *D
 	}
 	t.AddTrackers(publicTrackers)
 	if err := waitForMetadata(ctx, t, s.cfg.MetadataWait); err != nil {
+		// The handle the client created must not outlive the failed Add: it was
+		// never registered in s.active, so no reaper can reach it — left
+		// behind, it announces to trackers+DHT forever and, on late metadata,
+		// holds make([]Piece, NumPieces) (288 B/piece on v1.61.0) for the life
+		// of the process. The live-guard closes the razor edge where metadata
+		// arrived exactly as the deadline fired and a concurrent Add of the
+		// same magnet registered the handle between our failure and this Drop
+		// (Drop itself is idempotent — anacrolix guards on t.closed).
+		s.mu.Lock()
+		_, live := s.active[t.InfoHash()]
+		s.mu.Unlock()
+		if !live {
+			t.Drop()
+		}
 		return nil, err
 	}
 	return s.registerTorrent(t), nil
@@ -138,12 +152,31 @@ func (s *Streamer) addCachedMetainfo(cached *metainfo.MetaInfo, hash metainfo.Ha
 }
 
 func waitForMetadata(ctx context.Context, t *torrent.Torrent, timeout time.Duration) error {
+	// Non-blocking first: a torrent that already has info answers immediately,
+	// WITHOUT entering the select below. If GotInfo closed at the exact instant
+	// a deadline fires, a select between two ready channels picks randomly —
+	// making "already has info" deterministic means a concurrent re-Add of the
+	// same magnet can never lose that race and Drop() a handle the other Add
+	// just registered.
+	select {
+	case <-t.GotInfo():
+		return nil
+	default:
+	}
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	select {
 	case <-t.GotInfo():
 		return nil
 	case <-waitCtx.Done():
+		// Metadata may have landed exactly as the deadline fired, and the
+		// GotInfo channel cannot arbitrate then (Drop closes it with
+		// errTorrentClosed) — trust the info itself. This keeps a failed Add
+		// from Dropping a handle a concurrent Add of the same magnet just
+		// registered.
+		if t.Info() != nil {
+			return nil
+		}
 		return fmt.Errorf("timeout waiting for torrent metadata (%s)", timeout)
 	}
 }

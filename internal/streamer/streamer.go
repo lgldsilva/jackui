@@ -68,7 +68,12 @@ type Config struct {
 	DataDir      string        // where pieces are written; subdirs per torrent
 	IdleTimeout  time.Duration // drop torrent after this much inactivity (files stay)
 	MetadataWait time.Duration // how long to block waiting for .torrent metadata
-	MaxCacheSize int64         // total cache cap in bytes; 0 = unlimited (no eviction)
+	// ViewerLeaseTTL bounds how long a viewer lease is trusted after the last
+	// AcquireViewer. 0 = default (2h). A lease older than this no longer stops
+	// the idle reaper — a client that died without DELETE /viewer would
+	// otherwise pin the torrent against every teardown path forever.
+	ViewerLeaseTTL time.Duration
+	MaxCacheSize   int64 // total cache cap in bytes; 0 = unlimited (no eviction)
 	// MaxDownloadRate caps inbound peer bandwidth in bytes/sec; 0 = unlimited.
 	// Wired into the anacrolix ClientConfig.DownloadRateLimiter. Can be updated
 	// at runtime via Streamer.SetRateLimits.
@@ -133,6 +138,10 @@ type Streamer struct {
 	// (internal/downloads) maintains this set via RegisterDownload /
 	// UnregisterDownload.
 	downloads map[string]struct{}
+	// orphanStrikes counts consecutive gc ticks with more torrent handles in
+	// the anacrolix client than entries in active — the regression detector
+	// for the orphan-torrent retention fix (streamer_add.go). Guarded by mu.
+	orphanStrikes int
 	// metainfoDir holds serialized .torrent files keyed by info_hash so that
 	// re-opening a previously-seen magnet skips the DHT metadata round-trip.
 	metainfoDir string

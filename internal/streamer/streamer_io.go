@@ -188,8 +188,12 @@ func (s *Streamer) drop(hash metainfo.Hash, explicit bool) error {
 	}
 	// Do not drop while a player still holds a viewer lease — the lease is
 	// the authoritative "someone is watching" signal. A forced Drop (manual
-	// StreamDrop, health probe) must not kill a co-watcher's playback.
-	if e.viewers > 0 {
+	// StreamDrop, health probe) must not kill a co-watcher's playback. A
+	// lease older than leaseTTL() with no renewal is a dead client (the
+	// frontend only releases on unmount), not a watcher — the same bound the
+	// idle reaper applies; without it a dead tab blocked manual stops for
+	// TTL + IdleTimeout.
+	if e.viewers > 0 && e.leaseFresh(s.leaseTTL(), time.Now()) {
 		s.mu.Unlock()
 		return ErrTorrentViewerActive
 	}
@@ -249,6 +253,14 @@ func (r *trackingReader) bumpAccess() {
 	r.streamer.mu.Lock()
 	if e, ok := r.streamer.active[r.hash]; ok {
 		e.lastAccess = time.Now()
+		// A real byte read is exactly "someone is watching": renew the viewer
+		// lease so a long session (stamped once at play start) is not evicted
+		// by the reaper's TTL while the user is actually watching. Monitoring
+		// polls (*arr torrent-get) refresh lastAccess via buildInfo, never
+		// here, so the stale-lease bound still catches dead clients.
+		if e.viewers > 0 {
+			e.leaseAt = time.Now()
+		}
 	}
 	r.streamer.mu.Unlock()
 }

@@ -35,7 +35,7 @@ func (bytesRSC) Close() error { return nil }
 
 func TestReadTorrentTags_Success(t *testing.T) {
 	rc := bytesRSC{bytes.NewReader(minimalID3("Wintersaga"))}
-	tags, ok := readTorrentTags(rc, time.Second)
+	tags, ok := readTorrentTags(context.Background(), rc, time.Second)
 	if !ok || tags.Title != "Wintersaga" {
 		t.Fatalf("got ok=%v title=%q, want ok=true title=Wintersaga", ok, tags.Title)
 	}
@@ -50,7 +50,7 @@ func (blockingRSC) Close() error                   { return nil }
 
 func TestReadTorrentTags_Timeout(t *testing.T) {
 	b := blockingRSC{done: make(chan struct{})}
-	_, ok := readTorrentTags(b, 30*time.Millisecond)
+	_, ok := readTorrentTags(context.Background(), b, 30*time.Millisecond)
 	close(b.done) // let the spawned goroutine finish + close, no leak
 	if ok {
 		t.Fatal("want ok=false on timeout")

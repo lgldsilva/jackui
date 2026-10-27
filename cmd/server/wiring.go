@@ -115,11 +115,12 @@ func transmissionRPCEnabled() bool {
 
 func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) streamer.Config {
 	sc := streamer.Config{
-		DataDir:       cfg.Stream.DataDir,
-		IdleTimeout:   time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
-		MetadataWait:  time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
-		MaxCacheSize:  int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
-		JackettAPIKey: cfg.Jackett.APIKey,
+		DataDir:        cfg.Stream.DataDir,
+		IdleTimeout:    time.Duration(cfg.Stream.IdleMinutes) * time.Minute,
+		MetadataWait:   time.Duration(cfg.Stream.MetadataSeconds) * time.Second,
+		ViewerLeaseTTL: time.Duration(cfg.Stream.ViewerLeaseMinutes) * time.Minute,
+		MaxCacheSize:   int64(cfg.Stream.MaxCacheGB) * 1024 * 1024 * 1024,
+		JackettAPIKey:  cfg.Jackett.APIKey,
 		// Performance / hardware tuning (see config.StreamConfig).
 		MaxDownloadRate:    cfg.Stream.MaxDownloadRate,
 		MaxUploadRate:      cfg.Stream.MaxUploadRate,

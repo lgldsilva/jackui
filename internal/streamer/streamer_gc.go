@@ -85,6 +85,9 @@ func (s *Streamer) gcLoop() {
 			}
 			// Then enforce cache size cap (LRU over inactive entries)
 			s.enforceCacheLimit()
+			// Retention watchdog: log a client-vs-active gap that outlives any
+			// legitimate metadata wait (see watchOrphans).
+			s.watchOrphans()
 		}
 	}
 }
@@ -124,7 +127,16 @@ func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 		// the UI) is still "watching" — Drop() refuses viewers for the same
 		// reason. Dropping here tore playback out from under a paused player,
 		// and the stale viewer-close later killed a NEW entry on fresh playback.
-		if e.viewers > 0 {
+		// The lease is only trusted for leaseTTL() past its last RENEWAL —
+		// AcquireViewer or a real read with viewers (bumpAccess). The frontend
+		// releases it on React unmount only (no pagehide release), so a dead
+		// tab/mobile app leaves viewers > 0 forever and used to pin the torrent
+		// against every teardown path. By the time the lease expires the entry
+		// has also been read-idle past IdleTimeout, so nothing is mid-playback.
+		// A zero leaseAt (viewers set without AcquireViewer — impossible in
+		// prod, possible in tests/embedders) is unknown age and stays
+		// protected.
+		if e.viewers > 0 && e.leaseFresh(s.leaseTTL(), now) {
 			continue
 		}
 		// Active downloads stay alive even when idle — the user is waiting for
@@ -145,6 +157,32 @@ func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 	s.mu.Unlock()
 	s.applyAccessStamps(stamps)
 	return dropped
+}
+
+// watchOrphans is the retention watchdog for the orphan-torrent fix: every
+// handle in the anacrolix client must be registered in s.active. A gap that
+// survives two consecutive ticks is longer than any legitimate metadata wait
+// (MetadataWait) and means handles are leaking again — log it loudly instead
+// of silently re-growing memory. The gap (client.Torrents() vs active) is also
+// the production metric to watch for a regression of that mechanism.
+func (s *Streamer) watchOrphans() {
+	if s.client == nil {
+		return
+	}
+	// client.Torrents() takes the client's own lock — never call it under s.mu.
+	nClient := len(s.client.Torrents())
+	s.mu.Lock()
+	active := len(s.active)
+	if nClient > active {
+		s.orphanStrikes++
+	} else {
+		s.orphanStrikes = 0
+	}
+	strikes := s.orphanStrikes
+	s.mu.Unlock()
+	if strikes >= 2 {
+		log.Printf("streamer: %d torrent handle(s) in client vs %d active — orphaned handles detected (retention watchdog)", nClient, active)
+	}
 }
 
 // firstChars returns up to n characters from s — for error messages without leaking huge URLs.

@@ -109,29 +109,21 @@ func (s *Streamer) TorrentImage(ctx context.Context, hash metainfo.Hash) ([]byte
 	r.SetResponsive()
 	defer r.Close()
 
-	// Reading torrent bytes can block on missing pieces; bound it on ctx so a
-	// stalled swarm doesn't hang the request.
-	type readResult struct {
-		data []byte
-		err  error
+	// Wire the caller's context into the reader and read SYNCHRONOUSLY.
+	// Reader.Close() does not unblock a Read blocked in waitAvailable, so the
+	// old fire-and-forget goroutine leaked one goroutine+reader per timed-out
+	// card on a stalled swarm (same class Prefetch/warmTail fixed). With
+	// SetContext, waitAvailable returns ctx.Err() when the request goes away
+	// and the read ends with it.
+	r.SetContext(ctx)
+	data, err := io.ReadAll(io.LimitReader(r, maxTorrentImageBytes))
+	if err != nil && err != io.EOF {
+		return nil, "", err
 	}
-	done := make(chan readResult, 1)
-	go func() {
-		data, err := io.ReadAll(io.LimitReader(r, maxTorrentImageBytes))
-		done <- readResult{data, err}
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, "", ctx.Err()
-	case res := <-done:
-		if res.err != nil && res.err != io.EOF {
-			return nil, "", res.err
-		}
-		if len(res.data) < minTorrentImageBytes {
-			return nil, "", errors.New("embedded image too small")
-		}
-		return res.data, f.Path(), nil
+	if len(data) < minTorrentImageBytes {
+		return nil, "", errors.New("embedded image too small")
 	}
+	return data, f.Path(), nil
 }
 
 // SaveArtBytes writes resolved art (torrent image or captured frame) under the
