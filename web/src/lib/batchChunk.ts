@@ -16,6 +16,11 @@ export const BATCH_CAPS = {
   favorites: 500, // favoritesBatchMax — internal/handlers/favorites_batch.go
   stopSeed: 500, // downloadsStopSeedBatchMax — internal/handlers/downloads_batch.go
   streamDrop: 300, // streamDropBatchMax — internal/handlers/stream_favs_controls.go
+  // metadata: deliberately BELOW the server's 500-hash cap. The batch handler
+  // loads every cached files-blob at once and re-serializes the whole answer,
+  // so the cap here bounds the Go process's per-request allocation spike
+  // (metadata cache burst), not payload rejection.
+  metadata: 100,
 } as const
 
 // runChunked splits `items` into `chunkSize`-sized slices, runs `run` on each

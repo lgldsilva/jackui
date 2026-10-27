@@ -30,16 +30,22 @@ export const streamMetadata = async (hash: string): Promise<TorrentInfo | null> 
 
 export const streamMetadataBatch = async (hashes: readonly string[]): Promise<Record<string, TorrentInfo | null>> => {
   const torrent = [...new Set(hashes.filter(h => h && !isLocalHash(h)))]
-  if (torrent.length === 0) return {}
-  const { data } = await api.post<{ results?: Record<string, TorrentInfo> }>('/stream/metadata/batch', { hashes: torrent })
-  const out: Record<string, TorrentInfo | null> = {}
-  for (const h of torrent) {
-    const hit = data.results?.[h]
-    const info = hit?.files?.length ? hit : null
-    out[h] = info
-    metadataPeekCache.set(h, info)
+  const postChunk = async (chunk: string[]): Promise<Record<string, TorrentInfo | null>> => {
+    const { data } = await api.post<{ results?: Record<string, TorrentInfo> }>('/stream/metadata/batch', { hashes: chunk })
+    const out: Record<string, TorrentInfo | null> = {}
+    for (const h of chunk) {
+      const hit = data.results?.[h]
+      const info = hit?.files?.length ? hit : null
+      out[h] = info
+      metadataPeekCache.set(h, info)
+    }
+    return out
   }
-  return out
+  // The server loads every cached files-blob for the batch at once and
+  // re-serializes the whole answer, so an unbounded playlist (hundreds of
+  // season-pack rows) turned one peek into a large allocation spike. Chunks
+  // bound the per-request live set; results still merge into one map.
+  return runChunked(torrent, BATCH_CAPS.metadata, postChunk, (a, b) => ({ ...a, ...b }), {})
 }
 
 export const resolveTorrentInfo = async (magnet: string, infoHash?: string): Promise<TorrentInfo> => {

@@ -54,3 +54,14 @@ describe('runChunked', () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('BATCH_CAPS.metadata', () => {
+  // The metadata cap exists to bound the server's per-request allocation spike,
+  // and MUST stay at or below the endpoint's 500-hash cap
+  // (internal/handlers/stream_extras.go) — above it, an oversized playlist
+  // would 413 again, the exact silent no-op this module exists to prevent.
+  it('stays under the server cap of 500 hashes', () => {
+    expect(BATCH_CAPS.metadata).toBeGreaterThan(0)
+    expect(BATCH_CAPS.metadata).toBeLessThanOrEqual(500)
+  })
+})
