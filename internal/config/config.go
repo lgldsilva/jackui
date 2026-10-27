@@ -187,7 +187,14 @@ type StreamConfig struct {
 	SharedDir       string `yaml:"shared_dir"`       // shared library destination for "Promote" (empty = feature disabled)
 	IdleMinutes     int    `yaml:"idle_minutes"`     // drop torrent after N min idle (files stay)
 	MetadataSeconds int    `yaml:"metadata_seconds"` // metadata fetch timeout
-	MaxCacheGB      int    `yaml:"max_cache_gb"`     // total cache size cap; 0 = unlimited
+	// ViewerLeaseMinutes bounds how long a player's viewer lease stops the idle
+	// reaper after its last renewal (acquire or watched read; 0 = 120,
+	// negatives fall back to the default — the TTL cannot be disabled). The
+	// frontend releases the lease on unmount only, so a client that died
+	// without the viewer-close DELETE would otherwise pin its torrent against
+	// every teardown path forever.
+	ViewerLeaseMinutes int `yaml:"viewer_lease_minutes"`
+	MaxCacheGB         int `yaml:"max_cache_gb"` // total cache size cap; 0 = unlimited
 	// MaxConcurrentTransfers caps simultaneous file move/copy operations (post-
 	// download move, Local-tab move); the rest queue FIFO. 0 = default (3). Higher
 	// helps cloud/rclone destinations; lower (1-2) is better for a single HDD.

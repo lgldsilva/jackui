@@ -47,6 +47,27 @@ func TestApplyEnvOverrides_LocalCacheGB(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides_ViewerLeaseMinutes(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_VIEWER_LEASE_MINUTES", "45")
+	applyEnvOverrides(cfg)
+	if cfg.Stream.ViewerLeaseMinutes != 45 {
+		t.Fatalf("ViewerLeaseMinutes = %d, want 45", cfg.Stream.ViewerLeaseMinutes)
+	}
+}
+
+func TestApplyEnvOverrides_ViewerLeaseMinutes_NegativeIgnored(t *testing.T) {
+	cfg := &Config{}
+	t.Setenv("JACKUI_VIEWER_LEASE_MINUTES", "-5")
+	applyEnvOverrides(cfg)
+	// The negative value is ignored by the binding AND the env-default pass
+	// runs in the same chain, so the end state is the 120-minute default —
+	// exactly the documented "negatives fall back to the default" semantics.
+	if cfg.Stream.ViewerLeaseMinutes != 120 {
+		t.Fatalf("ViewerLeaseMinutes = %d, want 120 (negative ignored → default applied)", cfg.Stream.ViewerLeaseMinutes)
+	}
+}
+
 func TestApplyEnvOverrides_HLSVODMode(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("JACKUI_HLS_VOD_MODE", "all")
