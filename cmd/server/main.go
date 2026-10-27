@@ -215,6 +215,10 @@ func parseMemLimit(s string) (int64, bool) {
 }
 
 func main() {
+	// Runs every 30s under Docker: keep it ahead of any logger/runtime setup.
+	if handledHealthcheck() {
+		return
+	}
 	setupLogger()
 	setSoftMemoryLimit(os.Getenv("JACKUI_GOMEMLIMIT"))
 	// Subcommands must be handled before loadConfig (which treats os.Args[1] as
