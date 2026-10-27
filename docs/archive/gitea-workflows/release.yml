@@ -133,7 +133,7 @@ jobs:
         run: |
           set -eu
           [ -n "${SONAR_HOSTS_ENTRY:-}" ] && echo "$SONAR_HOSTS_ENTRY" | sudo tee -a /etc/hosts >/dev/null || true
-          : "${SONAR_HOST_URL:=https://sonar.raspberrypi.lan}"
+          : "${SONAR_HOST_URL:?SONAR_HOST_URL must be set}"
           export SONAR_HOST_URL
           chmod +x scripts/sonar/sonar-ephemeral.sh
           export PROJECT_KEY=jackui
