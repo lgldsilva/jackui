@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
-import ResultCard from './ResultCard'
+import ResultCard, { audioFlagBadgeList } from './ResultCard'
 import type { SearchResult } from '../api/client'
 
 // Mock tmdbMatch so no real API call is made
@@ -197,5 +197,61 @@ describe('ResultCard — aria-labels', () => {
     await user.click(screen.getByRole('button', { name: 'More actions' }))
     const copyBtn = screen.getByRole('menuitem', { name: /copy magnet link/i })
     expect(copyBtn).toBeInTheDocument()
+  })
+})
+
+describe('ResultCard — audio flag badges (ptbr-subs-dual)', () => {
+  function renderWithFlags(flags: SearchResult['audioFlags']) {
+    return render(<ResultCard result={makeResult({ audioFlags: flags })} onDownload={vi.fn()} />)
+  }
+
+  it('renders DUAL, PT-BR and DUBLADO when the flags are set', () => {
+    renderWithFlags({ dual: true, dub: true, ptbr: true, multi: false, legendado: false, latino: false })
+    expect(screen.getByText('DUAL')).toBeInTheDocument()
+    expect(screen.getByText('PT-BR')).toBeInTheDocument()
+    expect(screen.getByText('DUBLADO')).toBeInTheDocument()
+  })
+
+  it('stacks badges in DUAL → PT-BR → DUBLADO order', () => {
+    const { container } = renderWithFlags({ dual: true, dub: true, ptbr: true, multi: false, legendado: false, latino: false })
+    const row = container.querySelector('[data-testid="audio-flag-badges"]')!
+    const labels = Array.from(row.querySelectorAll('span')).map(s => s.textContent)
+    expect(labels).toEqual(['DUAL', 'PT-BR', 'DUBLADO'])
+  })
+
+  it('renders a subset for partial flags', () => {
+    renderWithFlags({ dual: false, dub: false, ptbr: true, multi: false, legendado: false, latino: false })
+    expect(screen.getByText('PT-BR')).toBeInTheDocument()
+    expect(screen.queryByText('DUAL')).toBeNull()
+    expect(screen.queryByText('DUBLADO')).toBeNull()
+  })
+
+  it('renders NO badge for multi/latino/legendado (not PT-BR signals)', () => {
+    const { container } = renderWithFlags({ dual: false, dub: false, ptbr: false, multi: true, legendado: true, latino: true })
+    expect(container.querySelector('[data-testid="audio-flag-badges"]')).toBeNull()
+    expect(screen.queryByText('DUAL')).toBeNull()
+    expect(screen.queryByText('PT-BR')).toBeNull()
+    expect(screen.queryByText('DUBLADO')).toBeNull()
+  })
+
+  it('renders nothing when audioFlags is absent (legacy results)', () => {
+    const { container } = renderWithFlags(undefined)
+    expect(container.querySelector('[data-testid="audio-flag-badges"]')).toBeNull()
+  })
+})
+
+describe('audioFlagBadgeList — flag→badge mapping (pure)', () => {
+  it('maps only dual/ptbr/dub, in order, with stable keys', () => {
+    expect(audioFlagBadgeList({ dual: true, dub: true, ptbr: true, multi: true, legendado: true, latino: true }))
+      .toEqual([
+        expect.objectContaining({ key: 'dual', label: 'DUAL' }),
+        expect.objectContaining({ key: 'ptbr', label: 'PT-BR' }),
+        expect.objectContaining({ key: 'dub', label: 'DUBLADO' }),
+      ])
+  })
+
+  it('returns [] for absent flags or no PT-BR signals', () => {
+    expect(audioFlagBadgeList(undefined)).toEqual([])
+    expect(audioFlagBadgeList({ dual: false, dub: false, ptbr: false, multi: true, legendado: true, latino: true })).toEqual([])
   })
 })

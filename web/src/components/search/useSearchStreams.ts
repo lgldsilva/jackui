@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, type Dispatch, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
-import { SearchResult, withToken } from '../../api/client'
+import { SearchResult, withToken, appendAudioSearchParams, type AudioSearchPrefs } from '../../api/client'
 import { isIncognito } from '../../lib/incognito'
 import { openSearchStream, type SearchStreamHandle } from '../../lib/searchStream'
 import { appendResult, setErrorMsg, type TabState } from '../../lib/searchTabs'
@@ -31,10 +31,13 @@ export function useSearchStreams(
     if (es) { es.close(); esMap.current.delete(id) }
   }, [])
 
-  const handleSearch = useCallback((tabId: string, queryOverride?: string) => {
+  const handleSearch = useCallback((tabId: string, queryOverride?: string, audio?: AudioSearchPrefs) => {
     const tab = tabsRef.current.find(t => t.id === tabId)
     // queryOverride lets a caller (e.g. the Discover page seeding via ?q=) run a
     // search before the tab's query state has propagated through a re-render.
+    // audio carries the dual-audio prefs explicitly for the same reason: the
+    // caller passes the FRESH values at call time (a toggle re-trigger must use
+    // the new flags, not the pre-toggle state).
     const q = (queryOverride ?? tab?.query ?? '').trim()
     if (!tab || !q) return
 
@@ -49,6 +52,7 @@ export function useSearchStreams(
     if (tab.selectedCategory && tab.selectedCategory !== 'all')
       params.set('category', tab.selectedCategory)
     if (isIncognito()) params.set('incognito', '1')
+    appendAudioSearchParams(params, audio)
 
     // EventSource can't set Authorization header — inject Bearer as query token
     // instead (the middleware's extractToken() reads ?token= as a fallback).

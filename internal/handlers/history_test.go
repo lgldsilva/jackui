@@ -10,6 +10,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/jackett"
+	"github.com/lgldsilva/jackui/internal/parser"
 )
 
 func setAuth(c *gin.Context, userID int, isAdmin bool) {
@@ -259,5 +260,75 @@ func TestDeleteHistory_AdminAll(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+// TestCachedPayloadCarriesAudioFlags guards the rehydration badge contract:
+// GET /api/history/results and GET /api/history/cache must emit audioFlags for
+// a DUAL title so the DUAL/PT-BR chips survive a reload. The wire field is
+// asserted via the raw JSON key — a Go struct unmarshal would pass even without
+// the `json:"audioFlags"` tag. Rehydration shows the full set WITH badges;
+// dual_only/prefer_dual filtering is deliberately a live-search concern only.
+func TestCachedPayloadCarriesAudioFlags(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := history.New(seededPool(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.Save("dual", []jackett.Result{
+		// Known-DUAL title (mirrors parser/audioflags_test.go cases). Saved
+		// under the query "dual" — GetHistoryResults matches the query exactly,
+		// SearchCache (FTS) matches query/title tokens.
+		{Title: "Show S01E05 720p WEB-DL DUAL AUDIO x264-SiGLA", InfoHash: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+	}, 1, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/history/results?q=dual", nil)
+	setAuth(c, 1, false)
+
+	GetHistoryResults(store, nil, nil)(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("/api/history/results status = %d, want 200", w.Code)
+	}
+	assertCachedAudioFlagsDual(t, w.Body.Bytes())
+
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/history/cache?q=dual", nil)
+	setAuth(c, 1, false)
+
+	SearchCache(store, nil, nil)(c)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("/api/history/cache status = %d, want 200", w.Code)
+	}
+	assertCachedAudioFlagsDual(t, w.Body.Bytes())
+}
+
+func assertCachedAudioFlagsDual(t *testing.T, body []byte) {
+	t.Helper()
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("unmarshal rows: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("expected at least one cached row")
+	}
+	raw, ok := rows[0]["audioFlags"]
+	if !ok {
+		t.Fatal("cached payload missing audioFlags field")
+	}
+	var flags parser.AudioFlags
+	if err := json.Unmarshal(raw, &flags); err != nil {
+		t.Fatalf("unmarshal audioFlags: %v", err)
+	}
+	if !flags.Dual {
+		t.Errorf("audioFlags.dual = false, want true for DUAL title")
 	}
 }

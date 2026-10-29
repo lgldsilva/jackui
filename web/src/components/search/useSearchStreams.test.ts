@@ -281,3 +281,64 @@ describe('useSearchStreams', () => {
     expect(mockHandle.close).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('useSearchStreams — dual-audio params (SSE call site)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    lastStreamCallbacks = null
+    lastStreamUrl = ''
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  function setup(query: string) {
+    const tab = newTab('tab-1')
+    tab.query = query
+    const updateTab = vi.fn()
+    const setTabs = vi.fn()
+    const { result } = renderHook(({ tabs }) => useSearchStreams(tabs, updateTab, setTabs), {
+      initialProps: { tabs: [tab] },
+    })
+    return result
+  }
+
+  it('appends prefer_dual/dual_only to the stream URL when provided', () => {
+    const result = setup('inception')
+
+    act(() => {
+      result.current.handleSearch('tab-1', undefined, { preferDual: true, dualOnly: true })
+    })
+
+    expect(lastStreamUrl).toContain('prefer_dual=1')
+    expect(lastStreamUrl).toContain('dual_only=1')
+  })
+
+  it('omits the params when prefs are absent or off', () => {
+    const result = setup('inception')
+
+    act(() => {
+      result.current.handleSearch('tab-1')
+    })
+    expect(lastStreamUrl).not.toContain('prefer_dual')
+    expect(lastStreamUrl).not.toContain('dual_only')
+
+    act(() => {
+      result.current.handleSearch('tab-1', undefined, { preferDual: false, dualOnly: false })
+    })
+    expect(lastStreamUrl).not.toContain('prefer_dual')
+    expect(lastStreamUrl).not.toContain('dual_only')
+  })
+
+  it('sends dual_only alone when only the filter is on', () => {
+    const result = setup('inception')
+
+    act(() => {
+      result.current.handleSearch('tab-1', undefined, { dualOnly: true })
+    })
+
+    expect(lastStreamUrl).not.toContain('prefer_dual')
+    expect(lastStreamUrl).toContain('dual_only=1')
+  })
+})

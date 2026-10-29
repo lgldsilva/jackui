@@ -16,6 +16,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/history"
 	"github.com/lgldsilva/jackui/internal/jackett"
 	"github.com/lgldsilva/jackui/internal/middleware"
+	"github.com/lgldsilva/jackui/internal/parser"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -48,6 +49,7 @@ func writeSSE(c *gin.Context, event string, data any) {
 type liveSearchState struct {
 	c              *gin.Context
 	enricher       *resultEnricher
+	opts           dualEmitOpts // prefer_dual/dual_only — response-payload shaping only
 	cachedSeen     map[string]bool
 	liveSeen       map[string]bool
 	mu             sync.Mutex
@@ -96,6 +98,7 @@ func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
 		return
 	}
 	emitted := 0
+	batch := make([]jackett.Result, 0, len(hit.Results))
 	for _, r := range hit.Results {
 		if key := dedupKey(r); key != "" {
 			if s.cachedSeen[key] || s.liveSeen[key] {
@@ -103,7 +106,20 @@ func (s *liveSearchState) handleHit(hit jackett.IndexerHit) {
 			}
 			s.liveSeen[key] = true
 		}
+		// liveResults keeps the FULL set: persistence (persistEmitted) must see
+		// everything even when dual_only hides part of it from the stream.
 		s.liveResults = append(s.liveResults, r)
+		batch = append(batch, r)
+	}
+	// prefer_dual reorders the emitted batch (stable, within-tier only —
+	// docs/PLAN_PTBR_SUBS_DUAL.md D2/D5); it never touches the saved set.
+	if s.opts.preferDual {
+		sortPreferDual(batch, jackettResultDualKey)
+	}
+	for _, r := range batch {
+		if s.opts.dualOnly && !isDualAudio(parser.DetectAudioFlags(r.Title)) {
+			continue // response-payload filter only: the row stays in liveResults
+		}
 		writeSSE(s.c, "result", s.enricher.enrich(r, false))
 		s.liveCount++
 		emitted++
@@ -137,7 +153,7 @@ func setSSEHeaders(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 }
 
-func emitCachedResults(c *gin.Context, store *history.Store, query string, userID int, includeAll bool, indexers []string, enricher *resultEnricher) (map[string]bool, int) {
+func emitCachedResults(c *gin.Context, store *history.Store, query string, userID int, includeAll bool, indexers []string, enricher *resultEnricher, opts dualEmitOpts) (map[string]bool, int) {
 	seen := make(map[string]bool)
 	if store == nil {
 		return seen, 0
@@ -154,12 +170,20 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 	}
 	count := 0
 	cached, _ := store.Search(query, userID, includeAll)
+	if opts.preferDual {
+		sortPreferDual(cached, cachedResultDualKey)
+	}
 	for _, r := range cached {
-		writeSSE(c, "result", enricher.enrich(r.Result, true))
-		count++
+		// Identity bookkeeping covers the FULL cached set even when dual_only
+		// hides a row from the stream — seen keys shape dedup, never history.
 		if key := dedupKey(r.Result); key != "" {
 			seen[key] = true
 		}
+		if opts.dualOnly && !isDualAudio(parser.DetectAudioFlags(r.Result.Title)) {
+			continue // response-payload filter only: the row keeps its seen mark
+		}
+		writeSSE(c, "result", enricher.enrich(r.Result, true))
+		count++
 	}
 	return seen, count
 }
@@ -183,12 +207,22 @@ func (s *liveSearchState) emitConverged(store *history.Store, query string, user
 		return 0
 	}
 	count := 0
+	var fresh []history.CachedResult
 	for _, r := range cached {
 		key := dedupKey(r.Result)
 		if key == "" || s.cachedSeen[key] || s.liveSeen[key] {
 			continue
 		}
 		s.liveSeen[key] = true
+		fresh = append(fresh, r)
+	}
+	if s.opts.preferDual {
+		sortPreferDual(fresh, cachedResultDualKey)
+	}
+	for _, r := range fresh {
+		if s.opts.dualOnly && !isDualAudio(parser.DetectAudioFlags(r.Result.Title)) {
+			continue // response-payload filter only: the row keeps its seen mark
+		}
 		writeSSE(s.c, "result", s.enricher.enrich(r.Result, true))
 		count++
 	}
@@ -201,6 +235,10 @@ func (s *liveSearchState) emitConverged(store *history.Store, query string, user
 // in the history after the client had already stopped listening — history
 // would then show more items than the search ever did. A synchronous save
 // delays `done` by a few ms at most, which is acceptable.
+//
+// dual_only is the one sanctioned exception: it filters the response payload
+// only, so liveResults (and thus the history) still carries the full set —
+// saved ⊇ emitted. The prefer_dual sort is likewise response-only.
 func persistEmitted(c *gin.Context, store *history.Store, query string, results []jackett.Result, userID int) {
 	if store == nil || len(results) == 0 {
 		return
@@ -266,14 +304,16 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
+		opts := parseDualOpts(c)
 		enricher := buildEnricher(favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
 
-		cachedSeen, cachedCount := emitCachedResults(c, store, query, userID, includeAll, indexers, enricher)
+		cachedSeen, cachedCount := emitCachedResults(c, store, query, userID, includeAll, indexers, enricher, opts)
 		writeSSE(c, "progress", gin.H{"phase": "live", "cached": cachedCount})
 
 		state := &liveSearchState{
 			c:          c,
 			enricher:   enricher,
+			opts:       opts,
 			cachedSeen: cachedSeen,
 			liveSeen:   make(map[string]bool),
 		}
