@@ -131,6 +131,7 @@ export function ActiveStreamView(props: Readonly<{
   const {
     subOpen, subResults, subLoading, subError, subActive, subOffset, autoSource,
     embeddedSub, customSubName, sidecars, sidecarIdx, subtitleLabel,
+    autoSub, autoFailed,
     setSubOpen, setSubActive, setEmbeddedSub, setSidecarIdx, setAutoSource,
     handleCustomSubtitleUpload, clearCustomSub, openSubtitlePanel, pickSubtitle,
     adjustSubOffset, resetSubOffset,
@@ -303,6 +304,8 @@ export function ActiveStreamView(props: Readonly<{
           serverDownloadLoading={serverDownloadLoading}
           serverDownloadSuccess={serverDownloadSuccess}
           subOpen={subOpen}
+          autoSub={autoSub}
+          autoFailed={autoFailed}
           customSubName={customSubName}
           subError={subError}
           subResults={subResults}

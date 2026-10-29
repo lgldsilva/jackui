@@ -151,9 +151,12 @@ export function serverDownloadIcon(loading: boolean, success: boolean): React.Re
   return <Download className="w-3.5 h-3.5 text-green-400" />
 }
 
-export function getSubtitleLabel(embeddedSub: number | null, subActive: string | null, autoSource: string | null, subLoading: boolean): string {
+export function getSubtitleLabel(embeddedSub: number | null, subActive: string | null, autoSource: string | null, subLoading: boolean, autoActive = false): string {
   if (embeddedSub !== null) return i18n.t('player.subtitles.labelEmbedded')
   if (subActive) return autoSource === 'hash' ? i18n.t('player.subtitles.labelHash') : i18n.t('player.subtitles.labelActive')
+  // The virtual auto subtitle (lane W2): the button itself carries the badge
+  // copy so the user can see WHAT is active without opening the picker.
+  if (autoActive) return i18n.t('player.subtitles.autoBadge')
   if (subLoading) return i18n.t('player.subtitles.labelLoading')
   return i18n.t('player.subtitles.labelDefault')
 }

@@ -11,6 +11,9 @@ import {
   getConfig,
   saveConfig,
   testJackettConnection,
+  getSubtitleSettings,
+  saveSubtitleSettings,
+  type SubtitleSettings,
 } from '../api/client'
 import { useEnumQueryParam } from '../lib/useQueryState'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
@@ -86,6 +89,14 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [editingClient, setEditingClient] = useState<DownloadClientFull | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  // Subtitle defaults (settings.subtitles) — SEPARATE endpoint from AppConfig,
+  // loaded/saved independently below. Admin-only like /api/config: the stream
+  // tab (where the card lives) is already admin-gated via the config load.
+  const [subSettings, setSubSettings] = useState<SubtitleSettings | null>(null)
+  const [subLoading, setSubLoading] = useState(false)
+  const [subSaving, setSubSaving] = useState(false)
+  const [subSaveResult, setSubSaveResult] = useState<'success' | 'error' | null>(null)
+  const [subLoadFailed, setSubLoadFailed] = useState(false)
   // Active tab in the URL (?tab=) → survives back/forward/reload/reopen. The guard
   // below still reverts an inaccessible tab when the role resolves.
   const [activeTab, setActiveTab] = useEnumQueryParam<TabId>('tab', ALL_TAB_IDS, isAdmin ? 'geral' : 'conta')
@@ -108,6 +119,34 @@ export default function SettingsPage() {
       .catch(() => setError(t('settings.config_load_failed')))
       .finally(() => setLoading(false))
   }, [isAdmin])
+
+  // Subtitle defaults ride the same admin gate: non-admins never see the stream
+  // tab, and the GET is only meaningful for the admin editing those defaults.
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    setSubLoading(true)
+    setSubLoadFailed(false)
+    getSubtitleSettings()
+      .then(s => { if (!cancelled) setSubSettings(s) })
+      .catch(() => { if (!cancelled) setSubLoadFailed(true) })
+      .finally(() => { if (!cancelled) setSubLoading(false) })
+    return () => { cancelled = true }
+  }, [isAdmin])
+
+  // Section-local save: the page-header Save persists AppConfig; subtitle
+  // defaults live on their own endpoint and echo the NORMALIZED values back —
+  // adopted so the form shows exactly what stuck (e.g. trimmed languages).
+  const handleSaveSubtitles = async () => {
+    if (!subSettings) return
+    setSubSaving(true); setSubSaveResult(null)
+    try {
+      const saved = await saveSubtitleSettings(subSettings)
+      setSubSettings(saved)
+      setSubSaveResult('success')
+    } catch { setSubSaveResult('error') }
+    finally { setSubSaving(false) }
+  }
 
   const handleTestJackett = async () => {
     if (!config) return
@@ -293,6 +332,53 @@ export default function SettingsPage() {
               </div>
             </section>
             {/* Streamer performance (bandwidth/memory/storage/peers) — feature #43. */}
+            {/* Subtitle defaults (settings.subtitles) — auto-fetch/burn pipeline. */}
+            <section className="card flex flex-col gap-4">
+              <h2 className="text-lg font-semibold text-text-primary">{t('settings.subtitles.title')}</h2>
+              {subLoading && <Loader2 className="w-5 h-5 animate-spin text-text-secondary" />}
+              {subLoadFailed && <p className="text-sm text-red-400">{t('settings.config_load_failed')}</p>}
+              {subSettings && (
+                <>
+                  <div>
+                    <label htmlFor="subs-default-langs" className="block text-sm font-medium text-text-primary mb-1.5">{t('settings.subtitles.defaultLanguages')}</label>
+                    <input id="subs-default-langs" type="text" value={subSettings.default_languages}
+                      onChange={e => setSubSettings({ ...subSettings, default_languages: e.target.value })}
+                      placeholder="pt-BR,pt" className="input-field" />
+                    <p className="text-xs text-text-muted mt-1">{t('settings.subtitles.defaultLanguagesHelp')}</p>
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={subSettings.auto_fetch}
+                        onChange={e => setSubSettings({ ...subSettings, auto_fetch: e.target.checked })}
+                        className="w-4 h-4 accent-green-500" />
+                      <span className="text-sm text-text-primary">{t('settings.subtitles.autoFetch')}</span>
+                    </label>
+                    <p className="text-xs text-text-muted mt-1">{t('settings.subtitles.autoFetchHelp')}</p>
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={subSettings.burn_default}
+                        onChange={e => setSubSettings({ ...subSettings, burn_default: e.target.checked })}
+                        className="w-4 h-4 accent-green-500" />
+                      <span className="text-sm text-text-primary">{t('settings.subtitles.burnDefault')}</span>
+                    </label>
+                    <p className="text-xs text-text-muted mt-1">{t('settings.subtitles.burnDefaultHelp')}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button onClick={handleSaveSubtitles} disabled={subSaving} className="btn-primary flex items-center gap-2 text-sm py-1.5 disabled:opacity-50">
+                      {subSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      {t('settings.save')}
+                    </button>
+                    {subSaveResult === 'success' && (
+                      <span className="flex items-center gap-1.5 text-sm text-green-400"><CheckCircle className="w-4 h-4" />{t('settings.success')}</span>
+                    )}
+                    {subSaveResult === 'error' && (
+                      <span className="flex items-center gap-1.5 text-sm text-red-400"><XCircle className="w-4 h-4" />{t('settings.config_save_error')}</span>
+                    )}
+                  </div>
+                </>
+              )}
+            </section>
             <ErrorBoundary title={t('settings.error_perf_card')}><StreamSettingsCard /></ErrorBoundary>
             <TranscodeCapabilitiesCard />
             <ErrorBoundary title={t('settings.error_transcode_card')}><ActiveTranscodesCard /></ErrorBoundary>

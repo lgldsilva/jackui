@@ -129,6 +129,10 @@
     "music_only": "Só música",
     "music_show_all": "Mostrar tudo",
     "music_only_hint": "Modo Música: a busca mostra só áudio. Clique para mostrar todos os resultados.",
+    "preferDual": "Preferir dual (PT-BR)",
+    "preferDual_hint": "Prioriza lançamentos dual/dublado (PT-BR) dentro da mesma qualidade.",
+    "dualOnly": "Somente dual (PT-BR)",
+    "dualOnly_hint": "Mostra apenas lançamentos dual/dublado/PT-BR.",
     "resolution": "Resolução",
     "codec": "Codec",
     "hdr": "HDR",
@@ -332,7 +336,16 @@
     "type": "Tipo",
     "username": "Usuário",
     "password": "Senha",
-    "default_client": "Cliente padrão"
+    "default_client": "Cliente padrão",
+    "subtitles": {
+      "title": "Legendas",
+      "defaultLanguages": "Idiomas padrão de legenda",
+      "defaultLanguagesHelp": "Idiomas buscados automaticamente ao reproduzir, em ordem de preferência (ex.: pt-BR,pt)",
+      "autoFetch": "Buscar legenda automaticamente ao reproduzir",
+      "autoFetchHelp": "Procura uma legenda no OpenSubtitles quando a reprodução inicia — sem cliques",
+      "burnDefault": "Gravar legenda ao transcodificar",
+      "burnDefaultHelp": "Grava a legenda ativa na imagem quando a sessão transcodifica (consome mais CPU)"
+    }
   },
   "account": {
     "change_email": "Trocar e-mail",
@@ -1005,7 +1018,11 @@
       "labelHash": "Legenda ✓ hash",
       "labelActive": "Legenda ativa",
       "labelLoading": "Buscando...",
-      "labelDefault": "Legendas"
+      "labelDefault": "Legendas",
+      "autoBadge": "PT-BR (auto)",
+      "autoApplied": "Legenda PT-BR aplicada",
+      "autoFailed": "Não encontramos legenda automática",
+      "autoQuota": "Cota do OpenSubtitles esgotada — tente mais tarde"
     },
     "external": {
       "open_in": "Abrir em",

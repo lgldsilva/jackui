@@ -1,6 +1,7 @@
 import { Loader2, Users, Activity, Subtitles, Maximize2, Minus, Plus, RotateCcw, FastForward, ChevronDown, ChevronRight, Laptop, Download } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { TorrentInfo, Subtitle, StreamProbe, SidecarSubtitle, isLocalHash } from '../../api/client'
+import type { AutoSubPick } from './playerHooks'
 import { LocalCacheButton } from './LocalCacheButton'
 import { ExternalPlayerMenu } from './ExternalPlayerMenu'
 import { formatRate } from '../../lib/format'
@@ -59,6 +60,10 @@ type PlayerControlsPanelProps = {
   readonly customSubName: string | null
   readonly subError: string
   readonly subResults: Subtitle[]
+  // Virtual auto subtitle (lane W2) + its pipeline-failed hint — pass-through
+  // to SubtitlePicker (this component adds no logic).
+  readonly autoSub: AutoSubPick | null
+  readonly autoFailed: boolean
   readonly formatTime: (s: number) => string
   readonly adjustSubOffset: (delta: number) => void
   readonly resetSubOffset: () => void
@@ -130,6 +135,8 @@ export function PlayerControlsPanel({
   customSubName,
   subError,
   subResults,
+  autoSub,
+  autoFailed,
   formatTime,
   adjustSubOffset,
   resetSubOffset,
@@ -409,6 +416,8 @@ export function PlayerControlsPanel({
           subActive={subActive}
           pickSubtitle={pickSubtitle}
           setSubActive={setSubActive}
+          autoSub={autoSub}
+          autoFailed={autoFailed}
         />
       </Sheet>
     </>

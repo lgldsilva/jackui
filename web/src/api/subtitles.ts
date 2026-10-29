@@ -3,7 +3,7 @@
 // Detects the local pseudo info-hash and routes to /api/local/*. Extracted from
 // client.ts (god-file, #417).
 import { api, withToken } from './http'
-import { isLocalHash, parseLocalHash, localQS } from './local'
+import { isLocalHash, parseLocalHash, localQS, withViewAs } from './local'
 
 // ─── Sidecar subtitles inside torrent ──────────────────────────────────────
 
@@ -25,7 +25,7 @@ export const streamSidecars = async (hash: string, fileIdx: number): Promise<Sid
     const loc = parseLocalHash(hash)!
     type LocalSub = { name: string; size: number; language: string; format: SidecarSubtitle['format']; match: number }
     const { data } = await api.get<LocalSub[]>(`/local/sidecars?${localQS(loc.mount, loc.path)}`)
-    return data.map((s, i) => {
+    return data.map((s: LocalSub, i: number) => {
       localSidecarNameCache.set(`${hash}:${i}`, s.name)
       return {
         index: i,
@@ -109,4 +109,75 @@ export const subtitlesAuto = async (
     `/subtitles/auto/${hash}/${fileIdx}?langs=${encodeURIComponent(langs)}`,
   )
   return data
+}
+
+// ─── Subtitle defaults settings (settings page; W2) ────────────────────────
+
+// Wire shape of GET/POST /api/settings/subtitles (see internal/handlers/
+// settings_subtitles.go). Deliberately mirrors the backend body exactly: the
+// config's OpenSubtitles credentials are never exposed to the web.
+export type SubtitleSettings = {
+  default_languages: string // comma-separated, order = preference ("pt-BR,pt")
+  auto_fetch: boolean
+  burn_default: boolean
+}
+
+export const getSubtitleSettings = async (): Promise<SubtitleSettings> => {
+  const { data } = await api.get<SubtitleSettings>('/settings/subtitles')
+  return data
+}
+
+// saveSubtitleSettings POSTs the form values; the backend echoes the NORMALIZED
+// saved values (default_languages trimmed/validated) — the caller adopts them so
+// the UI shows exactly what stuck.
+export const saveSubtitleSettings = async (s: SubtitleSettings): Promise<SubtitleSettings> => {
+  const { data } = await api.post<SubtitleSettings>('/settings/subtitles', s)
+  return {
+    default_languages: data.default_languages,
+    auto_fetch: data.auto_fetch,
+    burn_default: data.burn_default,
+  }
+}
+
+// ─── Auto-fetch status (auto pipeline; W2 polls it) ────────────────────────
+
+export type SubtitleAutoStatus = {
+  status: 'none' | 'pending' | 'ready' | 'failed'
+  reason?: string // 'no_results' | 'quota' | 'no_api_key' | 'error' | undefined
+  subtitle?: {
+    id: string // OpenSubtitles file id
+    language: string // e.g. 'pt-BR'
+    vttUrl: string // ready-to-use <track src> (points at /api/subtitles/download/:id)
+    hearingImpaired?: boolean
+    forced?: boolean
+  }
+}
+
+// subtitleAutoStatus reads the auto-fetch pipeline state for a stream file.
+// Resolves 200 with a status field (pending/ready/failed are PIPELINE states,
+// not HTTP errors); HTTP errors (404 inactive torrent, 400 bad params, network)
+// propagate to the caller — the poller decides how to react. Local files keep
+// the pseudo-hash routing (backend resolves mount/path from the hash itself)
+// and carry the admin view-as ?user= override like every other local call
+// (withViewAs — local-base.ts — no-ops when no user is selected).
+export const subtitleAutoStatus = async (
+  hash: string,
+  fileIdx: number,
+  signal?: AbortSignal,
+): Promise<SubtitleAutoStatus> => {
+  const url = isLocalHash(hash)
+    ? withViewAs(`/local/subtitles/auto/${hash}/${fileIdx}`)
+    : `/stream/${hash}/${fileIdx}/subtitles/auto`
+  const { data } = await api.get<SubtitleAutoStatus>(url, { signal })
+  return {
+    ...data,
+    // Backend sends reason: "" when there is nothing to report; the frozen
+    // client shape uses undefined for that case.
+    reason: data.reason || undefined,
+    // vttUrl feeds a <track src>, which cannot carry Authorization headers —
+    // append the token the same way subtitleDownloadURL does.
+    subtitle: data.subtitle
+      ? { ...data.subtitle, vttUrl: withToken(data.subtitle.vttUrl) }
+      : undefined,
+  }
 }
