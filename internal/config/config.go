@@ -264,11 +264,31 @@ type PromoteDir struct {
 	Path string `yaml:"path"`
 }
 
+// DefaultSubtitlesLanguages is the default comma-separated search language
+// list: the config default when default_languages is unset AND the runtime
+// fallback used by SubtitlesSearch (single source of truth for both).
+const DefaultSubtitlesLanguages = "pt-BR,pt"
+
+// SubtitlesConfig configures the OpenSubtitles client. Only DefaultLanguages,
+// AutoFetch and BurnDefault are user-facing (GET/POST /api/settings/subtitles);
+// the credentials below must NEVER be serialized to the web (the settings
+// handlers build an explicit response struct for that reason).
 type SubtitlesConfig struct {
 	OpenSubtitlesAPIKey   string `yaml:"opensubtitles_api_key"`
 	OpenSubtitlesUsername string `yaml:"opensubtitles_username"`
 	OpenSubtitlesPassword string `yaml:"opensubtitles_password"`
 	CacheDir              string `yaml:"cache_dir"`
+	// DefaultLanguages is the comma-separated language list used by subtitle
+	// searches that pass no explicit langs (e.g. "pt-BR,pt"). Casing is
+	// preserved; defaults to DefaultSubtitlesLanguages when unset.
+	DefaultLanguages string `yaml:"default_languages"`
+	// AutoFetch gates the automatic subtitle fetch for played torrents. Defaults
+	// to true when the yaml key is absent (see applySubtitlesDefaults) so older
+	// config files keep the opt-out feature on.
+	AutoFetch bool `yaml:"auto_fetch"`
+	// BurnDefault is the pre-selected "burn into video" choice in the player;
+	// default false.
+	BurnDefault bool `yaml:"burn_default"`
 }
 
 type DownloadClient struct {
@@ -308,9 +328,36 @@ func Load(path string) (*Config, error) {
 		cfg.Port = 8989
 	}
 
+	applySubtitlesDefaults(&cfg, data)
+
 	applyEnvOverrides(&cfg)
 
 	return &cfg, nil
+}
+
+// applySubtitlesDefaults normalizes the subtitles section to its defaults,
+// next to the other value defaults applied by Load. DefaultLanguages falls
+// back when empty. AutoFetch defaults to ON when the yaml key is ABSENT: a
+// plain bool cannot tell "absent" from an explicit false (auto_fetch: false
+// must survive a reload), so the raw YAML is probed for the key. BurnDefault's
+// default is the zero value and needs no normalization.
+func applySubtitlesDefaults(cfg *Config, raw []byte) {
+	if cfg.Subtitles.DefaultLanguages == "" {
+		cfg.Subtitles.DefaultLanguages = DefaultSubtitlesLanguages
+	}
+	var probe struct {
+		Subtitles struct {
+			AutoFetch *bool `yaml:"auto_fetch"`
+		} `yaml:"subtitles"`
+	}
+	if err := yaml.Unmarshal(raw, &probe); err != nil {
+		// Unreachable when the full-config unmarshal above succeeded (the probe
+		// is a strict subset of it); keep the zero value rather than guessing.
+		return
+	}
+	if probe.Subtitles.AutoFetch == nil {
+		cfg.Subtitles.AutoFetch = true
+	}
 }
 
 func (c *Config) Save(path string) error {
@@ -444,6 +491,8 @@ func defaultConfig() *Config {
 	cfg.Auth.Enabled = true // fail-closed: a fresh install defaults to auth ON
 	cfg.Jackett.URL = "http://localhost:9117"
 	cfg.Jackett.APIKey = "YOUR_API_KEY_HERE"
+	cfg.Subtitles.DefaultLanguages = DefaultSubtitlesLanguages
+	cfg.Subtitles.AutoFetch = true // auto-fetch is opt-out; seeded so the saved file carries the explicit value
 	// Credentials intentionally ship EMPTY: seeding the well-known qBittorrent
 	// defaults (admin/adminadmin) to disk would put guessable credentials on
 	// the filesystem and make a default install trivially hijackable. Fill

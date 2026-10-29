@@ -108,6 +108,11 @@ type appDeps struct {
 	pushStore        *push.Store
 	pushSender       *push.Sender
 	subtitleClient   *subtitles.Client
+	// Auto-subtitle pipeline (constructed in wiring.go initSubtitlesAuto; nil
+	// when the streamer/DB pool are unavailable — handlers nil-guard it).
+	subtitlesAuto    *subtitles.AutoFetcher
+	subtitleLinks    *subtitles.LinksStore
+	subtitleAutoMeta subtitles.TorrentMeta
 	authStore        *auth.Store
 	tokenMgr         *auth.TokenManager
 	waManager        *auth.WAManager
@@ -309,6 +314,7 @@ func bootstrapApp() *appDeps {
 	initPushStore(deps)
 	initWatchlistStore(deps)
 	deps.subtitleClient = initSubtitles(deps.cfg)
+	initSubtitlesAuto(deps)
 	initAuth(deps)
 	migrateUserSubpathMounts(deps)
 	deps.promoteDests = buildPromoteDests(deps.cfg)

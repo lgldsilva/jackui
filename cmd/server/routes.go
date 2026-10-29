@@ -289,6 +289,7 @@ func registerAdminRoutes(api *gin.RouterGroup, deps *appDeps) *gin.RouterGroup {
 			deps.streamSrv.SetVerifyConcurrency(n)
 		}
 	}))
+	adminAPI.POST("/settings/subtitles", handlers.SubtitlesUpdateSettings(deps.cfg, deps.configPath))
 	adminAPI.GET("/mounts", handlers.MountsGet(deps.cfg))
 	adminAPI.PUT("/mounts", handlers.MountsUpdate(deps.cfg, deps.configPath, deps.localBrowser))
 	adminAPI.POST("/config/test", handlers.TestJackett(deps.cfg))
@@ -368,10 +369,13 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
 	api.POST("/stream/art/resolve/batch", handlers.ResolveArtBatch(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
 	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
-	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore))
+	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore, handlers.StreamAutoHook{
+		Meta:    deps.subtitleAutoMeta,
+		Fetcher: subtitlesAutoDep(deps),
+	}))
 	api.POST("/stream/:hash/viewer", handlers.StreamViewerOpen(deps.streamSrv))
-	api.DELETE("/stream/:hash/viewer", handlers.StreamViewerClose(deps.streamSrv, deps.hlsMgr))
-	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore))
+	api.DELETE("/stream/:hash/viewer", handlers.StreamViewerClose(deps.streamSrv, deps.hlsMgr, subtitlesAutoDep(deps)))
+	api.GET("/stream/transcode/:hash/:file", handlers.TranscodeStream(deps.streamSrv, deps.downloadsStore, deps.subtitleClient.CacheDir()))
 
 	// Destructive GLOBAL mutations: dropping a torrent (and its HLS sessions)
 	// hits every user of the shared swarm — admin-only, like cache-clear and
@@ -445,7 +449,7 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/rename", lh.LocalRename(deps.localBrowser, deps.downloadsStore, deps.streamSrv))
 	api.POST("/local/lock", lh.LocalSetFolderLock(deps.localBrowser, deps.streamSrv))
 	api.POST("/local/upload", gate, lh.LocalUpload(deps.localBrowser, int64(deps.cfg.External.MaxUploadMB)<<20))
-	api.GET("/local/play", gate, lh.LocalPlay(deps.localBrowser, deps.libraryStore))
+	api.GET("/local/play", gate, lh.LocalPlay(deps.localBrowser, deps.libraryStore, subtitlesAutoDep(deps)))
 	api.POST("/local/play/batch", lh.LocalPlayBatch(deps.localBrowser, deps.streamSrv))
 	api.GET("/local/audio/meta", gate, lh.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
 	api.GET("/local/audio/cover", gate, lh.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
@@ -458,6 +462,14 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	if deps.subtitleClient != nil {
 		api.GET("/local/subtitles/auto", gate, lh.LocalSubtitlesAuto(deps.localBrowser, deps.subtitleClient))
 	}
+	// Auto-subtitle STATUS for a local file: the pseudo-hash rides IN THE PATH
+	// (frozen W1 route) and is decoded server-side by the handler. Registered
+	// only when the auto pipeline exists; hidden-curtain-gated like the other
+	// local (mount,path)-resolution endpoints.
+	if deps.subtitlesAuto != nil {
+		api.GET("/local/subtitles/auto/:hash/:file", gate, lh.LocalSubtitlesAutoStatus(
+			deps.localBrowser, deps.subtitleLinks, deps.subtitleClient, subtitlesAutoDep(deps), deps.cfg))
+	}
 }
 
 // downloadRemoverDep returns the worker as the handlers' downloadRemover, or a
@@ -469,6 +481,18 @@ func downloadRemoverDep(deps *appDeps) handlers.DownloadRemover {
 		return nil
 	}
 	return deps.downloadsWkr
+}
+
+// subtitlesAutoDep returns the auto-subtitle fetcher as the handlers'
+// SubtitleAutoFetcher, or a true-nil interface when the auto pipeline is
+// unavailable (same typed-nil-trap reasoning as downloadRemoverDep; the
+// handlers' nil guards decide whether hooks run). The narrower local package
+// interface accepts the same value (its method set is a subset).
+func subtitlesAutoDep(deps *appDeps) handlers.SubtitleAutoFetcher {
+	if deps.subtitlesAuto == nil {
+		return nil
+	}
+	return deps.subtitlesAuto
 }
 
 func registerDownloadRoutes(api *gin.RouterGroup, deps *appDeps) {
@@ -621,13 +645,25 @@ func registerSidecarRoutes(api *gin.RouterGroup, deps *appDeps) {
 }
 
 func registerSubtitleRoutes(api *gin.RouterGroup, deps *appDeps) {
-	api.GET("/subtitles/search", handlers.SubtitlesSearch(deps.subtitleClient))
+	// Subtitle settings READ lives in the api group; the WRITE (POST) is
+	// AdminOnly in registerAdminRoutes — same read/write split as the other
+	// settings routes.
+	api.GET("/settings/subtitles", handlers.SubtitlesGetSettings(deps.cfg))
+	api.GET("/subtitles/search", handlers.SubtitlesSearch(deps.subtitleClient, deps.cfg))
 	api.GET("/subtitles/download/:fileId", handlers.SubtitlesDownload(deps.subtitleClient))
 	api.GET("/subtitles/enabled", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"enabled": deps.subtitleClient.Enabled()})
 	})
 	if deps.streamSrv != nil {
 		api.GET("/subtitles/auto/:hash/:file", handlers.SubtitlesAuto(deps.streamSrv, deps.subtitleClient))
+	}
+	// Auto-subtitle STATUS for a torrent file (the W1 poller endpoint; the
+	// search-style /subtitles/auto above stays the manual flow). Same shape as
+	// the local status route; the fetcher dep decides kicks.
+	if deps.streamSrv != nil && deps.subtitlesAuto != nil {
+		api.GET("/stream/:hash/:file/subtitles/auto", handlers.SubtitlesAutoStatus(
+			deps.streamSrv, deps.subtitleAutoMeta, deps.subtitleLinks, deps.subtitleClient,
+			subtitlesAutoDep(deps), deps.cfg))
 	}
 }
 

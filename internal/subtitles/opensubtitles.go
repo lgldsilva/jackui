@@ -47,6 +47,23 @@ func decodeCapped(body io.Reader, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// ErrQuota reports an OpenSubtitles quota / rate-limit failure (HTTP 429 for
+// rate limiting, HTTP 406 once the daily download quota is exhausted). The
+// original status and body text stay in the wrapped message; callers must
+// classify with errors.Is, never by string matching.
+var ErrQuota = errors.New("opensubtitles quota exceeded")
+
+// ErrDisabled reports a client without a configured API key. Same contract as
+// ErrQuota: match with errors.Is.
+var ErrDisabled = errors.New("OpenSubtitles disabled — configure the API key in Settings")
+
+// isQuotaStatus reports whether an OpenSubtitles HTTP status means the account
+// quota or rate limit blocked the call: 429 is the documented rate limit, and
+// the download endpoint answers 406 once the daily quota is exhausted.
+func isQuotaStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code == http.StatusNotAcceptable
+}
+
 // utf8BOM is the byte-order mark sometimes prepended to SRT files (U+FEFF).
 var utf8BOM = "\xef\xbb\xbf"
 
@@ -93,6 +110,26 @@ func (c *Client) cachePath(fileID string) string {
 	return filepath.Join(c.cacheDir, fileID+".vtt")
 }
 
+// CachePath is the exported form of cachePath: the persisted VTT path for an
+// OpenSubtitles file ID ("" when caching is disabled or the ID is not a
+// numeric OS file ID). The AutoFetcher records it in subtitle_links.vtt_path.
+func (c *Client) CachePath(fileID string) string {
+	if c == nil {
+		return ""
+	}
+	return c.cachePath(fileID)
+}
+
+// CacheDir returns the disk cache root where downloaded VTTs are persisted
+// ("" = caching disabled or nil client). The transcode external-subtitle
+// burn-in path uses it to resolve cached files by OpenSubtitles file ID.
+func (c *Client) CacheDir() string {
+	if c == nil {
+		return ""
+	}
+	return c.cacheDir
+}
+
 func (c *Client) Enabled() bool {
 	return c != nil && c.apiKey != ""
 }
@@ -105,7 +142,22 @@ type Subtitle struct {
 	UploaderName string `json:"uploaderName"`
 	Downloads    int    `json:"downloads"`
 	HearingImp   bool   `json:"hearingImpaired"`
+	Forced       bool   `json:"forced,omitempty"` // OS foreign_parts_only ("forced") flag
 	Trusted      bool   `json:"trusted"`
+	// Formats lists the deduplicated, lowercased file extensions offered by
+	// this result (e.g. [".srt",".vtt"]), taken from the files array's
+	// file_name fields. Empty means the API did not carry extensions, i.e. the
+	// format is UNKNOWN — consumers that must skip ASS/SSA (srtToVTT yields an
+	// invalid track for them) treat unknown as safe, matching the manual flow.
+	Formats []string `json:"formats,omitempty"`
+	// PrimaryFormat is the lowercased extension of the result's PRIMARY file —
+	// the one this Subtitle actually downloads, since ID is always
+	// Files[0].FileID (e.g. ".ass"). Empty = unknown (the API carried no
+	// extension for it). Unlike Formats — a union over ALL files — it tells
+	// auto-apply gating what the download delivers: a files[0]=.ass plus
+	// files[1]=.srt result must not be auto-applied even though .srt appears
+	// in Formats. Additive; the manual flow ignores it.
+	PrimaryFormat string `json:"primaryFormat,omitempty"`
 }
 
 // SearchOpts is the union of all OpenSubtitles search parameters we support.
@@ -123,7 +175,7 @@ type SearchOpts struct {
 // When MovieHash is set, results are typically ranked first by hash-match (frame-exact).
 func (c *Client) SearchAuto(opts SearchOpts) ([]Subtitle, error) {
 	if !c.Enabled() {
-		return nil, errors.New("OpenSubtitles disabled — configure the API key in Settings")
+		return nil, ErrDisabled
 	}
 	q := url.Values{}
 	if opts.Query != "" {
@@ -178,6 +230,9 @@ func (c *Client) search(q url.Values) ([]Subtitle, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		if isQuotaStatus(resp.StatusCode) {
+			return nil, fmt.Errorf("%w: opensubtitles search returned %d: %s", ErrQuota, resp.StatusCode, string(body))
+		}
 		return nil, fmt.Errorf("opensubtitles search returned %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -189,12 +244,14 @@ func (c *Client) search(q url.Values) ([]Subtitle, error) {
 				URL             string `json:"url"`
 				DownloadCount   int    `json:"download_count"`
 				HearingImpaired bool   `json:"hearing_impaired"`
+				ForeignParts    bool   `json:"foreign_parts_only"` // forced subtitles
 				FromTrusted     bool   `json:"from_trusted"`
 				Uploader        struct {
 					Name string `json:"name"`
 				} `json:"uploader"`
 				Files []struct {
-					FileID int `json:"file_id"`
+					FileID   int    `json:"file_id"`
+					FileName string `json:"file_name"` // carries the container extension when present
 				} `json:"files"`
 			} `json:"attributes"`
 		} `json:"data"`
@@ -208,23 +265,60 @@ func (c *Client) search(q url.Values) ([]Subtitle, error) {
 		if len(d.Attributes.Files) == 0 {
 			continue
 		}
+		names := make([]string, 0, len(d.Attributes.Files))
+		for _, f := range d.Attributes.Files {
+			names = append(names, f.FileName)
+		}
 		out = append(out, Subtitle{
-			ID:           strconv.Itoa(d.Attributes.Files[0].FileID),
-			Language:     d.Attributes.Language,
-			Release:      d.Attributes.Release,
-			URL:          d.Attributes.URL,
-			UploaderName: d.Attributes.Uploader.Name,
-			Downloads:    d.Attributes.DownloadCount,
-			HearingImp:   d.Attributes.HearingImpaired,
-			Trusted:      d.Attributes.FromTrusted,
+			ID:            strconv.Itoa(d.Attributes.Files[0].FileID),
+			Language:      d.Attributes.Language,
+			Release:       d.Attributes.Release,
+			URL:           d.Attributes.URL,
+			UploaderName:  d.Attributes.Uploader.Name,
+			Downloads:     d.Attributes.DownloadCount,
+			HearingImp:    d.Attributes.HearingImpaired,
+			Forced:        d.Attributes.ForeignParts,
+			Trusted:       d.Attributes.FromTrusted,
+			Formats:       subtitleFormats(names),
+			PrimaryFormat: primaryFileFormat(d.Attributes.Files[0].FileName),
 		})
 	}
 	return out, nil
 }
 
+// subtitleFormats extracts the deduplicated, lowercased file extensions from
+// OpenSubtitles file_name values ("Show.2024.1080p.eng.srt" → ".srt"). Blank
+// names and extensionless entries are skipped; an empty result means the
+// format is unknown, not unsafe.
+func subtitleFormats(fileNames []string) []string {
+	seen := make(map[string]bool, len(fileNames))
+	out := make([]string, 0, len(fileNames))
+	for _, name := range fileNames {
+		ext := strings.ToLower(filepath.Ext(strings.TrimSpace(name)))
+		if ext == "" || ext == "." || seen[ext] {
+			continue
+		}
+		seen[ext] = true
+		out = append(out, ext)
+	}
+	return out
+}
+
+// primaryFileFormat is the lowercased extension of ONE OpenSubtitles file_name
+// ("" = blank/extensionless = unknown). Applied to Files[0] it describes the
+// file the result's download actually delivers, unlike subtitleFormats which
+// unions every file of the result.
+func primaryFileFormat(fileName string) string {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(fileName)))
+	if ext == "." {
+		return ""
+	}
+	return ext
+}
+
 func (c *Client) Download(fileID string) ([]byte, error) {
 	if !c.Enabled() {
-		return nil, errors.New("OpenSubtitles disabled")
+		return nil, ErrDisabled
 	}
 
 	// Disk cache — subtitle content for a given file_id is immutable
@@ -274,6 +368,9 @@ func (c *Client) downloadLink(fileID, token string) (string, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		if isQuotaStatus(resp.StatusCode) {
+			return "", fmt.Errorf("%w: opensubtitles download returned %d: %s", ErrQuota, resp.StatusCode, string(b))
+		}
 		return "", fmt.Errorf("opensubtitles download returned %d: %s", resp.StatusCode, string(b))
 	}
 

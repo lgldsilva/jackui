@@ -28,5 +28,6 @@ extensions:
       - ["github.com/lgldsilva/jackui/internal/handlers/local", "", True, "sanitizeRenameName", "", "", "ReturnValue", "path-injection", "manual"]
       - ["github.com/lgldsilva/jackui/internal/handlers/local", "", True, "clampPromoteDst", "", "", "ReturnValue", "path-injection", "manual"]
       - ["github.com/lgldsilva/jackui/internal/transcode", "HLSSessionManager", True, "sessionDir", "", "", "ReturnValue", "path-injection", "manual"]
+      - ["github.com/lgldsilva/jackui/internal/transcode", "", True, "ValidBurnFilePath", "", "", "ReturnValue", "path-injection", "manual"]
       # ── request-forgery: proxy URL validated against the Jackett ──
       - ["github.com/lgldsilva/jackui/internal/handlers", "", True, "sanitizeJackettURL", "", "", "ReturnValue", "request-forgery", "manual"]

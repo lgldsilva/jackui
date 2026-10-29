@@ -234,9 +234,17 @@ func extractToken(c *gin.Context) string {
 //   - /api/preview/*           universal viewer: comic pages, EPUB chapter
 //     iframes and archive-inner images load via
 //     <img>/<iframe>, headerless by nature.
+//
+// Exception: GET /api/stream/:h/:f/subtitles/auto (the auto-status kick
+// endpoint) is NOT a media path. It kicks OpenSubtitles fetches and reads
+// fetch state; the poller calls it with the Bearer header, so a leaked
+// media-scope ?token= (minted for <video>/M3U/copied URLs) must not be able
+// to burn API quota through it.
 func isMediaPath(path string) bool {
-	return strings.HasPrefix(path, "/api/stream/") ||
-		strings.HasPrefix(path, "/api/preview/") ||
+	if strings.HasPrefix(path, "/api/stream/") {
+		return !strings.HasSuffix(path, "/subtitles/auto")
+	}
+	return strings.HasPrefix(path, "/api/preview/") ||
 		strings.HasPrefix(path, "/api/subtitles/download/") ||
 		strings.HasPrefix(path, "/api/local/file") ||
 		strings.HasPrefix(path, "/api/local/thumb") ||

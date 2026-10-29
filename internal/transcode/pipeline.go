@@ -8,15 +8,27 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
+
+// ErrSubtitlesFilterUnavailable is returned when the host ffmpeg build lacks
+// the libass-based "subtitles" filter required to burn an EXTERNAL subtitle
+// file. ffmpeg without libass only fails at exec time, so the capability probe
+// (Capabilities.HasSubtitlesFilter) lets option validation reject the request
+// up front: handlers map this sentinel to HTTP 400 and the web player falls
+// back to the sidecar <track> path. (Embedded-track burn-in uses the overlay
+// filter and is unaffected.)
+var ErrSubtitlesFilterUnavailable = errors.New("transcode: ffmpeg build has no libass 'subtitles' filter; external subtitle burn-in unavailable")
 
 // Options describes how to transcode one stream segment.
 // All fields are optional — empty means "keep original / passthrough".
 type Options struct {
 	AudioTrack   int    // absolute stream index for `-map 0:<n>` (-1 = first audio)
 	SubBurnTrack int    // -1 = none; otherwise absolute stream index for hardsub burn-in
+	SubBurnFile  string // absolute path to an external subtitle file (VTT/SRT) burned in via libass; "" = none. Must be produced by the handler's ValidBurnFilePath guard — never a client-supplied path.
 	VideoCodec   string // "" = copy; "h264" / "hevc" = transcode video
 	AudioCodec   string // "" = copy; "aac" = transcode audio
 	Container    string // "mp4" | "matroska" | "webm" — default "mp4"
@@ -43,6 +55,12 @@ func Run(ctx context.Context, in io.Reader, w http.ResponseWriter, opts Options)
 	caps := Cached()
 	if caps == nil {
 		return errors.New("transcode: capabilities not probed yet")
+	}
+	// Option gate BEFORE any args are built (and therefore before exec):
+	// invalid burn-file options die here with a typed error that handlers
+	// surface as HTTP 400, never as a mid-stream ffmpeg failure.
+	if err := ValidateOptions(caps, opts); err != nil {
+		return err
 	}
 
 	in = prewarmReader(in)
@@ -116,16 +134,24 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 	// "Error reinitializing filters" / "Invalid argument". The downscale also keeps
 	// realtime 4K transcodes light. SubBurn uses a CPU overlay path, so skip there.
 	encoder := encoderForCodec(caps, opts.VideoCodec)
-	// Video transcode (not subtitle-burn, which uses a CPU overlay path): decode
+	// External-file burn-in wins over the embedded-track overlay when both are
+	// set: the file is what the user picked last, and overlaying a different
+	// track alongside it would render two subtitles (or the wrong one).
+	burnFile := opts.SubBurnFile != ""
+	burnEmbedded := opts.SubBurnTrack >= 0 && !burnFile
+	// Video transcode (not subtitle burn, which uses CPU filter paths): decode
 	// on the matching backend so frames feed the scale_* filter added below.
-	transcodeVideo := opts.VideoCodec != "" && opts.SubBurnTrack < 0
+	// Burn paths must ALSO skip HW decode even when a VideoCodec is requested:
+	// mixing HW frames with the subtitle filters hits the documented
+	// "Error reinitializing filters" failure (comment above).
+	transcodeVideo := opts.VideoCodec != "" && !burnEmbedded && !burnFile
 	if transcodeVideo {
 		args = append(args, hwDecodeArgsFor(encoder)...)
 	}
 
 	args = append(args, "-i", pipe0)
 
-	if opts.SubBurnTrack >= 0 {
+	if burnEmbedded {
 		// Burn-in: the output video is the filtergraph result ([v]) and ONLY it.
 		// Mapping 0:v:0 as well produced an MP4 with TWO video tracks — the
 		// browser's <video> played the first (the one WITHOUT the burned
@@ -138,7 +164,14 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 			opts.VideoCodec = "h264"
 		}
 	} else {
+		// No burn, or external-file burn: map the primary video. The external
+		// subtitle is applied by the simple -vf subtitles=… filter below, which
+		// (unlike the overlay filter_complex, which consumes a demuxed BITMAP
+		// stream) renders a text VTT/SRT file onto the mapped video.
 		args = append(args, "-map", "0:v:0")
+		if burnFile && opts.VideoCodec == "" {
+			opts.VideoCodec = "h264"
+		}
 	}
 	if opts.AudioTrack >= 0 {
 		args = append(args, "-map", fmt.Sprintf("0:%d", opts.AudioTrack))
@@ -150,8 +183,15 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 	if transcodeVideo {
 		// Downscale ≤1080p + 8-bit pixel format for the chosen backend (fixes 10-bit
 		// HDR sources that the HW h264 encoders can't ingest, and keeps 4K light).
-		// (transcodeVideo is false on the burn path, which scales via the overlay.)
+		// (transcodeVideo is false on the burn paths, which scale via the overlay
+		// / render text via the subtitles filter below.)
 		args = append(args, "-vf", videoScaleFilter(encoder))
+	} else if burnFile {
+		// External subtitle file burn-in via libass. -sn/-dn above still drop
+		// every demuxed subtitle stream — the rendered video IS the subtitle
+		// output. Path escaping keeps the filtergraph specials (':' ',' ';'
+		// '[' ']' '\'' '\') from breaking the option/graph parser.
+		args = append(args, "-vf", subtitlesFilterArg(opts.SubBurnFile))
 	}
 
 	args = appendVideoCodecArgs(args, caps, preferred, opts.VideoCodec)
@@ -159,6 +199,89 @@ func buildTranscodeArgs(caps *Capabilities, preferred, container string, opts Op
 	args = appendContainerArgs(args, container)
 	args = append(args, "-y", pipe1)
 	return args
+}
+
+// ValidBurnFilePath reports whether candidate resolves strictly INSIDE root.
+// It is the security barrier for external-subtitle burn-in: the HTTP client
+// only ever sends an OpenSubtitles numeric file ID, the server joins it onto
+// the subtitles cache root, and this function proves the result cannot escape
+// that root (".." traversal, absolute escapes, empty values, candidate ==
+// root). Symlink escape is out of scope here: cache contents are written by
+// the server itself (see internal/subtitles cachePath). Registered as a CodeQL
+// barrier (.github/codeql/extensions/barriers.yml); the unit tests in
+// pipeline_burnfile_test.go pin these semantics — barrier without test = PR
+// rejected (repo rule).
+func ValidBurnFilePath(root, candidate string) bool {
+	if root == "" || candidate == "" {
+		return false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absCand, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absCand)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return false // candidate IS the root itself, not a file under it
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// ValidateOptions gates an option set before any ffmpeg args are built — the
+// single choke point between HTTP input and exec. Run calls it as the last
+// line of defense; handlers call it up front so invalid burnsub requests fail
+// with a typed 400 instead of a mid-stream 500. Nil caps defers to Run's own
+// "capabilities not probed" error (existing behavior for unprobed hosts).
+func ValidateOptions(caps *Capabilities, opts Options) error {
+	if opts.SubBurnFile == "" {
+		return nil
+	}
+	if caps == nil {
+		return nil
+	}
+	if !caps.HasSubtitlesFilter {
+		return fmt.Errorf("burn file %s: %w", opts.SubBurnFile, ErrSubtitlesFilterUnavailable)
+	}
+	st, err := os.Stat(opts.SubBurnFile)
+	if err != nil {
+		return fmt.Errorf("burn file: %w", err)
+	}
+	if !st.Mode().IsRegular() {
+		return fmt.Errorf("burn file %s: not a regular file", opts.SubBurnFile)
+	}
+	return nil
+}
+
+// subtitlesFilterArg builds the -vf value that renders an external text
+// subtitle file (VTT/SRT) onto the mapped video with libass.
+func subtitlesFilterArg(path string) string {
+	return "subtitles=" + escapeSubtitlesFilterPath(path)
+}
+
+// escapeSubtitlesFilterPath makes a filesystem path safe inside an ffmpeg
+// filtergraph option value: '\\' must be escaped first (single-pass replacer
+// keeps later rules from double-escaping it), ':' separates filter options,
+// a quote is escaped as \', ',' ';' split filters/chains and '[' ']' delimit
+// link labels, so they get the same treatment.
+// Escaping (not whole-value '...' quoting) is the chosen mechanism: inside
+// quotes the backslash and the quote itself still need escapes, so one
+// uniform escape pass covers every filtergraph special.
+func escapeSubtitlesFilterPath(path string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		`:`, `\:`,
+		`'`, `\'`,
+		`,`, `\,`,
+		`;`, `\;`,
+		`[`, `\[`,
+		`]`, `\]`,
+	).Replace(path)
 }
 
 // encoderForCodec returns the concrete ffmpeg encoder that will be used for the

@@ -3,10 +3,13 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +22,12 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transcode"
 )
+
+// burnSubFileIDPattern follows the fileIDPattern idiom of internal/subtitles
+// (opensubtitles.go): the burnsub query param carries an OpenSubtitles FILE ID
+// — numeric only — so the value can never smuggle path separators into the
+// cache-path join below.
+var burnSubFileIDPattern = regexp.MustCompile(`^[0-9]+$`)
 
 // TranscodeCapabilities handles GET /api/transcode/capabilities — returns the cached
 // or freshly-probed encoder/decoder matrix. ?refresh=1 forces re-detection (e.g. after GPU upgrade).
@@ -33,15 +42,18 @@ func TranscodeCapabilities(c *gin.Context) {
 }
 
 // TranscodeStream handles GET /api/stream/transcode/:hash/:file?audio=N&video=h264&burn=N
+// [&burnsub=<osFileID>] — burnsub burns an EXTERNAL subtitle previously cached
+// by the OpenSubtitles client (resolved by numeric file ID under
+// subtitleCacheRoot; the client never sends a path).
 // Pipes the torrent file through ffmpeg with chosen options and streams the result.
 // Note: no Range support — browsers can't seek transcoded streams.
-func TranscodeStream(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
+func TranscodeStream(s *streamer.Streamer, store *downloads.Store, subtitleCacheRoot string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		transcodeStreamHandler(c, s, store)
+		transcodeStreamHandler(c, s, store, subtitleCacheRoot)
 	}
 }
 
-func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloads.Store) {
+func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloads.Store, subtitleCacheRoot string) {
 	var h metainfo.Hash
 	if err := h.FromHexString(c.Param("hash")); err != nil {
 		httpshared.RespondError(c, http.StatusBadRequest, err)
@@ -61,6 +73,26 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 		Container:    c.DefaultQuery("container", "mp4"),
 	}
 
+	// External subtitle burn-in (additive; absent/empty burnsub = unchanged
+	// behavior). The path is fully guarded before any ffmpeg args are built.
+	if burnSubID := c.Query("burnsub"); burnSubID != "" {
+		path, status, err := resolveBurnSubFile(subtitleCacheRoot, burnSubID)
+		if err != nil {
+			httpshared.RespondErrorMessage(c, status, err.Error())
+			return
+		}
+		opts.SubBurnFile = path
+		// Typed degradation: an ffmpeg build without libass cannot burn an
+		// external subtitle. Reply 400 BEFORE streaming so the web player can
+		// fall back to the sidecar <track> path. (Run re-checks as the last
+		// line of defense before exec; a nil cache means "not probed yet",
+		// which Run reports as today.)
+		if caps := transcode.Cached(); caps != nil && !caps.HasSubtitlesFilter {
+			httpshared.RespondError(c, http.StatusBadRequest, transcode.ErrSubtitlesFilterUnavailable)
+			return
+		}
+	}
+
 	userID, _, _ := auth.UserIDFromCtx(c)
 	if tryServeFromCompleted(c, store, h.HexString(), fileIdx, opts, s.FileRelPath(h, fileIdx), userID) {
 		return
@@ -75,8 +107,50 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 
 	if err := transcode.Run(c.Request.Context(), reader, c.Writer, opts); err != nil {
 		c.Abort()
-		httpshared.RespondError(c, http.StatusInternalServerError, err)
+		// Run's last line of defense can still surface the libass sentinel
+		// (probe completing after the handler's Cached() check): client-input
+		// problem → typed 400, same as the early check — never a 500.
+		httpshared.RespondError(c, transcodeRunStatus(err), err)
 	}
+}
+
+// transcodeRunStatus maps a transcode.Run failure to its HTTP status: the
+// libass sentinel is the same client-input problem the early Cached() check
+// reports as 400 — errors.Is also matches ValidateOptions' wrapped form.
+func transcodeRunStatus(err error) int {
+	if errors.Is(err, transcode.ErrSubtitlesFilterUnavailable) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
+// resolveBurnSubFile turns a burnsub=<osFileID> query param into the cached
+// VTT path for burn-in, applying every guard before any ffmpeg work:
+//
+//  1. cache enabled (empty root = OpenSubtitles caching disabled → 400,
+//     never a silent fallback to burning nothing);
+//  2. numeric file ID (burnSubFileIDPattern — subtitles fileIDPattern idiom);
+//  3. containment under the cache root (transcode.ValidBurnFilePath);
+//  4. the file actually exists on disk ("subtitle not cached", 404-style 400
+//     — we never download here, burn-in is a cache-hit-only path).
+//
+// The returned status is the HTTP code the handler must use when err != nil.
+func resolveBurnSubFile(cacheRoot, fileID string) (string, int, error) {
+	switch {
+	case cacheRoot == "":
+		return "", http.StatusBadRequest, errors.New("subtitle cache disabled")
+	case !burnSubFileIDPattern.MatchString(fileID):
+		return "", http.StatusBadRequest, fmt.Errorf("invalid burnsub file id %q", fileID)
+	}
+	// Same layout as internal/subtitles cachePath (fileID + ".vtt").
+	path := filepath.Join(cacheRoot, fileID+".vtt")
+	if !transcode.ValidBurnFilePath(cacheRoot, path) {
+		return "", http.StatusBadRequest, fmt.Errorf("invalid subtitle path for file id %q", fileID)
+	}
+	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() {
+		return "", http.StatusBadRequest, fmt.Errorf("subtitle not cached: file id %s — download it first", fileID)
+	}
+	return path, 0, nil
 }
 
 // tryServeFromCompleted transcodes a finished download straight from disk.
@@ -102,7 +176,7 @@ func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex strin
 	defer f.Close()
 	if err := transcode.Run(c.Request.Context(), f, c.Writer, opts); err != nil {
 		c.Abort()
-		httpshared.RespondError(c, http.StatusInternalServerError, err)
+		httpshared.RespondError(c, transcodeRunStatus(err), err)
 	}
 	return true
 }
