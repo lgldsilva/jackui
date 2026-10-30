@@ -202,7 +202,7 @@ Existing `/api/subtitles/*`, sidecar and local endpoints are untouched.
 | HLS transcode | ✅ | Burn (existing pipeline) or sidecar `<track>` (hls.js/Safari) |
 | `MULTi` / `LATINO` releases | ⚠️ | Not PT-BR — must not be flagged (false-positive guard, §5.5) |
 | Anime absolute numbering (One Piece 1000+) | ⚠️ | OS `episode_number` accepts absolute; add fixture, tolerate failure |
-| OS free quota exhausted | ⚠️ | `status=failed(quota)`; retry next day; sidecars unaffected |
+| OS free quota exhausted | ⚠️ | `status=failed(quota)`; no automatic retry (decision persisted — manual flow still works; a later settings-language change re-searches once); sidecars unaffected |
 | Electron / Safari / mobile web | ✅ | `<track>` + native HLS already handled by the player |
 
 ---
@@ -306,3 +306,12 @@ this plan, all review-driven (oracle + 9 independent lane reviews):
     in badge/toast when the applied language is `pt`; duplicate settings GET in the player;
     VAAPI hosts: burn forces sw-frames into `h264_vaapi` (mirrors the pre-existing embedded
     burn branch — ops awareness on AMD/Intel hosts).
+11. **Second-model audit fixes** (deepseek-v4-pro, post-PR): `cfg.Subtitles.*` reads/writes
+    fully synchronized (the POST previously mutated shared state racing 60s-lived AutoFetcher
+    readers — torn-string panic risk; proven clean under `go test -race`); a FAILED
+    languages-change re-search no longer destroys a working `ready` row (prior decision
+    restored on failure); `cfg.Save` failure now rolls back in-memory values (house pattern);
+    local auto-status rejects `:file != 0` (bogus dedup rows + duplicate quota spend). The
+    §6 "quota → retry next day" line was corrected — there is no automatic retry.
+12. **CI gate note**: the ARM CI stack enforces `gofmt -l .` repo-wide — lane-local gates ran
+    vet/tests but not a global gofmt; fixed in `style:` commit (5 files).

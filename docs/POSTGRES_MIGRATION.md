@@ -9,7 +9,10 @@ tokens) são preservados na virada; o resto nasce vazio.
 
 - `internal/db`: pool pgx + runner golang-migrate (migrations embarcadas em
   `internal/db/migrations/*.sql`). Schema único: `0001_extensions` (unaccent),
-  `0002_init` (todas as tabelas + FKs), `0003_history_fts` (busca full-text).
+  `0002_init` (todas as tabelas + FKs), `0003_history_fts` (busca full-text),
+  mais migrations aditivas posteriores — `0004_downloads_linked`,
+  `0005_downloads_seed_stopped`, `0006_favorites_per_user`,
+  `0007_subtitle_links` (decisões de legenda automática por (info_hash, file_index)).
 - Todos os stores recebem o `*sql.DB` compartilhado (`deps.db` em `cmd/server/main.go`).
 - Config: `JACKUI_DATABASE_URL` (ou `DATABASE_URL`, ou `JACKUI_PG_*`).
 - `jackui migrate-auth --from <auth.db> --to <DSN>`: ETL one-time do auth.db legado.
