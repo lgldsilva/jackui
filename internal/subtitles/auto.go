@@ -269,34 +269,9 @@ func (a *AutoFetcher) run(ctx context.Context, hashKey string, fileIdx int, lang
 	if err != nil {
 		return // persistence broken: never burn quota on undecidable state
 	}
-	// reSearch marks the documented settings-change re-search: a READY row whose
-	// stored language list no longer matches the current settings gets a new
-	// search. That search may replace the row ONLY on success — on any failure
-	// (quota, no_results, error, disabled client, cancellation) the working
-	// ready decision is left COMPLETELY UNTOUCHED. MarkFailed here would
-	// permanently destroy the only working subtitle link (failed rows are never
-	// retried), and no pending write is issued either: between the write and a
-	// possibly-failing search the player would lose its subtitle for every
-	// other reader of the store. Because the row keeps its OLD languages, a
-	// revert of the settings dedups straight back to it (RF7), and a kept new
-	// setting re-attempts once per explicit Start (a play event) — never from
-	// status polls, which a ready row answers without kicking. Mirrors
-	// refine(): a live decision is only ever replaced by a success.
-	reSearch := false
-	if row != nil {
-		switch {
-		case row.Status == StatusFailed:
-			return // failed decisions are never retried automatically
-		case row.Status == StatusReady && row.Languages == langs:
-			return // RF7 dedup: decision persisted, zero OpenSubtitles traffic
-		case row.Status == StatusReady:
-			reSearch = true
-		}
-		// Falls through for:
-		//   - ready with a DIFFERENT stored language list (reSearch): the
-		//     settings-change path; only MarkReady below replaces the row.
-		//   - pending: a crashed cycle from a previous process, recovered by
-		//     this Start (the in-flight map already dedups this process).
+	stop, reSearch := classifyPersisted(row, langs)
+	if stop {
+		return
 	}
 	if !a.client.Enabled() {
 		if !reSearch {
@@ -304,15 +279,74 @@ func (a *AutoFetcher) run(ctx context.Context, hashKey string, fileIdx int, lang
 		}
 		return
 	}
-	if !reSearch {
-		if err := a.links.UpsertPending(ctx, hashKey, fileIdx, langs); err != nil {
-			return
-		}
-		if ctx.Err() != nil {
-			return // cancelled between writes: leave the row pending for the next Start
-		}
+	if !a.writePending(ctx, hashKey, fileIdx, langs, reSearch) {
+		return
 	}
+	a.searchDownloadPersist(ctx, hashKey, fileIdx, langs, reSearch, resolve)
+}
 
+// classifyPersisted applies the dedup/early-return ladder to the persisted
+// decision (nil when none) and reports whether the cycle must stop. stop:
+// failed rows are never retried automatically, and a ready row whose stored
+// language list matches the current settings dedups to zero OpenSubtitles
+// traffic (RF7). reSearch marks the documented settings-change re-search: a
+// READY row whose stored language list no longer matches the current settings
+// gets a new search. That search may replace the row ONLY on success — on any
+// failure (quota, no_results, error, disabled client, cancellation) the
+// working ready decision is left COMPLETELY UNTOUCHED. MarkFailed there would
+// permanently destroy the only working subtitle link (failed rows are never
+// retried), and no pending write is issued either: between the write and a
+// possibly-failing search the player would lose its subtitle for every
+// other reader of the store. Because the row keeps its OLD languages, a
+// revert of the settings dedups straight back to it (RF7), and a kept new
+// setting re-attempts once per explicit Start (a play event) — never from
+// status polls, which a ready row answers without kicking. Mirrors
+// refine(): a live decision is only ever replaced by a success.
+// Falls through (stop=false, reSearch=false) for:
+//   - no row at all: first fetch for the item.
+//   - pending: a crashed cycle from a previous process, recovered by
+//     this Start (the in-flight map already dedups this process).
+func classifyPersisted(row *SubtitleLink, langs string) (stop, reSearch bool) {
+	if row == nil {
+		return false, false
+	}
+	switch {
+	case row.Status == StatusFailed:
+		return true, false // failed decisions are never retried automatically
+	case row.Status == StatusReady && row.Languages == langs:
+		return true, false // RF7 dedup: decision persisted, zero OpenSubtitles traffic
+	case row.Status == StatusReady:
+		return false, true // the settings-change path; only MarkReady replaces the row
+	}
+	return false, false
+}
+
+// writePending records the pending decision for a FRESH cycle and reports
+// whether the cycle may proceed: a persistence failure or a context cancelled
+// between writes aborts it, leaving the row pending for the next Start. A
+// re-search never writes a pending row — between the write and a
+// possibly-failing search the player would lose its subtitle for every other
+// reader of the store.
+func (a *AutoFetcher) writePending(ctx context.Context, hashKey string, fileIdx int, langs string,
+	reSearch bool) bool {
+	if reSearch {
+		return true
+	}
+	if err := a.links.UpsertPending(ctx, hashKey, fileIdx, langs); err != nil {
+		return false
+	}
+	if ctx.Err() != nil {
+		return false // cancelled between writes: leave the row pending for the next Start
+	}
+	return true
+}
+
+// searchDownloadPersist resolves the cascade, searches ONCE, downloads at
+// most once and persists the outcome. Every failure only reaches the store
+// for a FRESH cycle: a failed re-search keeps the prior ready decision
+// completely untouched (a live decision is only ever replaced by a success).
+func (a *AutoFetcher) searchDownloadPersist(ctx context.Context, hashKey string, fileIdx int,
+	langs string, reSearch bool, resolve func(context.Context) (SearchOpts, string)) {
 	opts, source := resolve(ctx)
 	if ctx.Err() != nil {
 		return

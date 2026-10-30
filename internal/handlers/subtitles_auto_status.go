@@ -91,52 +91,21 @@ func respondSubtitleAutoStatus(c *gin.Context, st subtitles.AutoStatus) {
 func SubtitlesAutoStatus(s *streamer.Streamer, meta subtitles.TorrentMeta, links *subtitles.LinksStore,
 	client *subtitles.Client, fetcher SubtitleAutoFetcher, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
-			return
-		}
-		var h metainfo.Hash
-		if err := h.FromHexString(c.Param("hash")); err != nil {
-			httpshared.RespondError(c, http.StatusBadRequest, err)
-			return
-		}
-		info, err := s.Get(h)
-		if err != nil {
-			// ErrTorrentNotActive and unknown hashes alike — the item has no
-			// active stream, so there is no pipeline state to report.
-			httpshared.RespondError(c, http.StatusNotFound, err)
-			return
-		}
-		if fileIdx < 0 || fileIdx >= len(info.Files) {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrFileIdxOutOfRange)
+		target, ok := resolveSubtitleAutoTarget(c, s)
+		if !ok {
 			return
 		}
 		if fetcher == nil {
 			respondSubtitleAutoStatus(c, subtitles.AutoStatus{Status: statusAutoNone})
 			return
 		}
-		hashKey := h.HexString()
-		st := fetcher.Status(c.Request.Context(), hashKey, fileIdx)
+		hashKey := target.hash.HexString()
+		st := fetcher.Status(c.Request.Context(), hashKey, target.fileIdx)
 		if st.Status == statusAutoNone {
-			if autoFetchEnabled(cfg) && client.Enabled() {
-				fetcher.StartTorrent(meta, h, fileIdx) // async; returns immediately
-				respondSubtitleAutoStatus(c, subtitles.AutoStatus{Status: subtitles.StatusPending})
-				return
-			}
-			respondSubtitleAutoStatus(c, st)
+			maybeKickAutoFetch(c, fetcher, client, cfg, meta, target.hash, target.fileIdx, st)
 			return
 		}
-		// A decision exists: opportunistically upgrade a query/imdb decision to
-		// the frame-exact hash signal once the file finished downloading.
-		// RefineOnComplete self-guards (complete check, source==hash,
-		// hash_refined, in-process dedup), so a kicked poll is cheap.
-		if subtitleAutoShouldRefine(st, cfg) && meta != nil && meta.Complete(h, fileIdx) {
-			if row, gerr := links.Get(c.Request.Context(), hashKey, fileIdx); gerr == nil &&
-				row != nil && row.Source != subtitles.SourceHash {
-				fetcher.RefineOnComplete(meta, h, fileIdx)
-			}
-		}
+		maybeKickRefine(c, fetcher, links, cfg, meta, target.hash, hashKey, target.fileIdx, st)
 		respondSubtitleAutoStatus(c, st)
 	}
 }
@@ -144,6 +113,70 @@ func SubtitlesAutoStatus(s *streamer.Streamer, meta subtitles.TorrentMeta, links
 // statusAutoNone mirrors the unexported subtitles statusNone: nothing to
 // report (no row, or auto-fetch disabled).
 const statusAutoNone = "none"
+
+// subtitleAutoTarget is the validated handler input: the torrent hash and the
+// in-range file index. A false ok from resolveSubtitleAutoTarget means the
+// error response was already written.
+type subtitleAutoTarget struct {
+	hash    metainfo.Hash
+	fileIdx int
+}
+
+// resolveSubtitleAutoTarget validates the path params exactly as the handler
+// always did, in the same order and with the same responses: numeric file,
+// hex hash, active torrent (404) and file index in range.
+func resolveSubtitleAutoTarget(c *gin.Context, s *streamer.Streamer) (subtitleAutoTarget, bool) {
+	fileIdx, err := strconv.Atoi(c.Param("file"))
+	if err != nil {
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidFileIndex)
+		return subtitleAutoTarget{}, false
+	}
+	var h metainfo.Hash
+	if err := h.FromHexString(c.Param("hash")); err != nil {
+		httpshared.RespondError(c, http.StatusBadRequest, err)
+		return subtitleAutoTarget{}, false
+	}
+	info, err := s.Get(h)
+	if err != nil {
+		// ErrTorrentNotActive and unknown hashes alike — the item has no
+		// active stream, so there is no pipeline state to report.
+		httpshared.RespondError(c, http.StatusNotFound, err)
+		return subtitleAutoTarget{}, false
+	}
+	if fileIdx < 0 || fileIdx >= len(info.Files) {
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrFileIdxOutOfRange)
+		return subtitleAutoTarget{}, false
+	}
+	return subtitleAutoTarget{hash: h, fileIdx: fileIdx}, true
+}
+
+// maybeKickAutoFetch resolves a "none" status with the fetcher wired: with
+// the auto-fetch gate on and the OpenSubtitles client enabled it kicks
+// StartTorrent (async — the fetch never blocks the response) and answers
+// pending immediately; otherwise the state is reported as-is.
+func maybeKickAutoFetch(c *gin.Context, fetcher SubtitleAutoFetcher, client *subtitles.Client,
+	cfg *config.Config, meta subtitles.TorrentMeta, h metainfo.Hash, fileIdx int, st subtitles.AutoStatus) {
+	if autoFetchEnabled(cfg) && client.Enabled() {
+		fetcher.StartTorrent(meta, h, fileIdx) // async; returns immediately
+		respondSubtitleAutoStatus(c, subtitles.AutoStatus{Status: subtitles.StatusPending})
+		return
+	}
+	respondSubtitleAutoStatus(c, st)
+}
+
+// maybeKickRefine opportunistically upgrades a query/imdb decision to the
+// frame-exact hash signal once the file finished downloading.
+// RefineOnComplete self-guards (complete check, source==hash, hash_refined,
+// in-process dedup), so a kicked poll is cheap.
+func maybeKickRefine(c *gin.Context, fetcher SubtitleAutoFetcher, links *subtitles.LinksStore,
+	cfg *config.Config, meta subtitles.TorrentMeta, h metainfo.Hash, hashKey string, fileIdx int, st subtitles.AutoStatus) {
+	if subtitleAutoShouldRefine(st, cfg) && meta != nil && meta.Complete(h, fileIdx) {
+		if row, gerr := links.Get(c.Request.Context(), hashKey, fileIdx); gerr == nil &&
+			row != nil && row.Source != subtitles.SourceHash {
+			fetcher.RefineOnComplete(meta, h, fileIdx)
+		}
+	}
+}
 
 // autoFetchEnabled reads the auto-fetch gate live through the synchronized
 // snapshot so a settings save applies to the next request without a restart —
