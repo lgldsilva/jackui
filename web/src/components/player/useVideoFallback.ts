@@ -23,6 +23,16 @@ export function useVideoFallback(deps: {
   burnSubTrack: number | null
   transcodeFallbackAttempted: boolean
   videoError: boolean
+  // True while the ACTIVE streamURL is the burn transcode (?burnsub=…) — passed
+  // from computeMediaUrls' returned burnSubFileId. When <video onError> fires on
+  // that URL (the backend answers 400 without libass), the burn failure is
+  // LATCHED via setBurnFailed and the regular chain is skipped: the next
+  // computeMediaUrls drops the burn routing, the src falls back to direct/HLS
+  // with the subtitle unburned on the <track>, and playback continues (spec:
+  // never hard-fail playback over a subtitle). The codec fallback chain stays
+  // fresh for any LATER error of the fallback URL.
+  burnRoutingActive: boolean
+  setBurnFailed: Setter<boolean>
   caps: TranscodeCapabilities | null
   audioAutoRef: React.MutableRefObject<boolean>
   bufferRetryRef: React.MutableRefObject<number>
@@ -34,7 +44,8 @@ export function useVideoFallback(deps: {
 }) {
   const {
     videoRef, info, probe, selectedFile, audioMode, bufferedEnd, streamURL, isTranscoded,
-    transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps,
+    transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError,
+    burnRoutingActive, setBurnFailed, caps,
     audioAutoRef, bufferRetryRef,
     setTranscodeAudio, setForceH264, setTranscodeFallbackAttempted,
     setVideoError, setLastErrorDiag,
@@ -134,6 +145,15 @@ export function useVideoFallback(deps: {
     const diag = videoDiagnostic()
     clientLog('warn', 'player', 'video onError fired', diag)
     setLastErrorDiag(diag)
+    // Burn transcode failed (400 when the backend ffmpeg lacks libass): a typed,
+    // EXPECTED answer — never surface the error UI over a subtitle. Latch the
+    // failure and return; the recompute drops ?burnsub and the swapped src
+    // recovers playback on the direct/HLS route.
+    if (burnRoutingActive) {
+      clientLog('info', 'player', 'burn transcode unavailable — falling back to non-burn routing, subtitle stays unburned on the <track>', diag)
+      setBurnFailed(true)
+      return
+    }
     if (transcodeFallbackAttempted || forceH264 || !caps) {
       handleNoFallback(diag)
       return

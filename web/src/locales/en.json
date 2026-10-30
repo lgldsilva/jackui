@@ -129,6 +129,10 @@
     "music_only": "Music only",
     "music_show_all": "Show all",
     "music_only_hint": "Music mode: search shows audio only. Click to show all results.",
+    "preferDual": "Prefer dual (PT-BR)",
+    "preferDual_hint": "Ranks dual/dubbed (PT-BR) releases first within the same quality tier.",
+    "dualOnly": "Dual only (PT-BR)",
+    "dualOnly_hint": "Show only dual/dubbed/PT-BR releases.",
     "resolution": "Resolution",
     "codec": "Codec",
     "hdr": "HDR",
@@ -332,7 +336,16 @@
     "type": "Type",
     "username": "Username",
     "password": "Password",
-    "default_client": "Default client"
+    "default_client": "Default client",
+    "subtitles": {
+      "title": "Subtitles",
+      "defaultLanguages": "Default subtitle languages",
+      "defaultLanguagesHelp": "Languages searched automatically on play, in preference order (e.g. pt-BR,pt)",
+      "autoFetch": "Fetch subtitle automatically on play",
+      "autoFetchHelp": "Looks up a subtitle on OpenSubtitles when playback starts — zero clicks",
+      "burnDefault": "Burn subtitle when transcoding",
+      "burnDefaultHelp": "Burns the active subtitle into the picture when the session transcodes (uses more CPU)"
+    }
   },
   "account": {
     "change_email": "Change email",
@@ -1005,7 +1018,11 @@
       "labelHash": "Subtitle ✓ hash",
       "labelActive": "Subtitle on",
       "labelLoading": "Searching...",
-      "labelDefault": "Subtitles"
+      "labelDefault": "Subtitles",
+      "autoBadge": "PT-BR (auto)",
+      "autoApplied": "PT-BR subtitle applied",
+      "autoFailed": "No automatic subtitle found",
+      "autoQuota": "OpenSubtitles quota exhausted — try later"
     },
     "external": {
       "open_in": "Open in",

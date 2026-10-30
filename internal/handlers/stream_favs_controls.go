@@ -173,7 +173,14 @@ func StreamViewerOpen(s *streamer.Streamer) gin.HandlerFunc {
 // StreamViewerClose handles DELETE /api/stream/:hash/viewer — releases a viewer
 // lease. If it was the last viewer of a stream-only torrent, the drop is
 // scheduled and the HLS session is torn down so ffmpeg doesn't linger.
-func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager) gin.HandlerFunc {
+//
+// The last viewer leaving also cancels the item's auto-subtitle fetch
+// (fire-and-forget, best-effort: a dead tab may never fire this — acceptable,
+// fetches are bounded to 1 search + 1 download with a 60s lifetime). ONLY the
+// LAST viewer cancels: closing one of two players must not kill the survivor's
+// fetch. fetcher is optional (variadic — tests and auto-pipeline-less boots
+// omit it).
+func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, fetcher ...SubtitleAutoFetcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, ok := bindHash(c)
 		if !ok {
@@ -183,8 +190,14 @@ func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager
 		// torrent stays alive to seed (seed-tracker) or finish a background
 		// download. The transcode only feeds the player; leaving it running burned
 		// CPU + a GPU-decode slot for nobody until the idle reaper (5min).
-		if _, lastViewer := s.ReleaseViewer(h); lastViewer && hlsMgr != nil {
-			hlsMgr.CloseForHash(h.HexString())
+		_, lastViewer := s.ReleaseViewer(h)
+		if lastViewer {
+			if hlsMgr != nil {
+				hlsMgr.CloseForHash(h.HexString())
+			}
+			if len(fetcher) > 0 && fetcher[0] != nil {
+				fetcher[0].Cancel(h.HexString())
+			}
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "released"})
 	}

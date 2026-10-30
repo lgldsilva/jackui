@@ -21,6 +21,18 @@ export * from './stream'
 export * from './local'
 export * from './subtitles'
 
+// Backend-computed audio-language flags on search results (ptbr-subs-dual
+// contract, emitted by both /api/search and the SSE stream). `multi` (usually
+// FR/EN), `latino` (Spanish) and `legendado` are NOT PT-BR signals.
+export type AudioFlags = {
+  readonly dual: boolean
+  readonly dub: boolean
+  readonly ptbr: boolean
+  readonly multi: boolean
+  readonly legendado: boolean
+  readonly latino: boolean
+}
+
 export type Quality = {
   readonly resolution?: string
   readonly codec?: string
@@ -71,6 +83,9 @@ export type SearchResult = {
   // Present when the result comes from a history endpoint — it's the
   // results.id primary key and unlocks per-row mutations like refresh.
   id?: number
+  // Audio-language flags (additive backend enrichment). Optional because legacy
+  // endpoints / syntheticResult may build SearchResult without them.
+  audioFlags?: AudioFlags
 }
 
 export type Indexer = {
@@ -110,10 +125,25 @@ export type AppConfig = {
   envOverrides?: Record<string, string>
 }
 
+// Dual-audio request preferences sent as query params on the search calls
+// ("1" = truthy on the backend contract).
+export type AudioSearchPrefs = {
+  readonly preferDual?: boolean
+  readonly dualOnly?: boolean
+}
+
+// Appends the dual-audio query params for the search endpoints. Kept as a named
+// function so both call sites (plain GET and SSE stream) share one contract.
+export function appendAudioSearchParams(params: URLSearchParams, prefs?: AudioSearchPrefs): void {
+  if (prefs?.preferDual) params.set('prefer_dual', '1')
+  if (prefs?.dualOnly) params.set('dual_only', '1')
+}
+
 export const searchTorrents = async (
   q: string,
   indexers: string[],
-  category: string
+  category: string,
+  audio?: AudioSearchPrefs
 ): Promise<SearchResult[]> => {
   const params = new URLSearchParams({ q })
   if (indexers.length > 0 && indexers[0] !== 'all') {
@@ -122,6 +152,7 @@ export const searchTorrents = async (
   if (category && category !== 'all') {
     params.set('category', category)
   }
+  appendAudioSearchParams(params, audio)
   const { data } = await api.get<SearchResult[]>(`/search?${params}`)
   return data
 }

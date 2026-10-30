@@ -44,7 +44,7 @@ func TestTranscodeStream_BadHash(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/stream/transcode/nothex/0", nil)
 
-	TranscodeStream(nil, nil)(c)
+	TranscodeStream(nil, nil, "")(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -57,7 +57,7 @@ func TestTranscodeStream_BadFileIndex(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/api/stream/transcode/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/notanumber", nil)
 
-	TranscodeStream(nil, nil)(c)
+	TranscodeStream(nil, nil, "")(c)
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
@@ -76,7 +76,7 @@ func TestTranscodeStream_ReaderNotFound(t *testing.T) {
 	}
 	c.Request = httptest.NewRequest("GET", "/api/stream/transcode/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/0", nil)
 
-	TranscodeStream(s, nil)(c)
+	TranscodeStream(s, nil, "")(c)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404; body: %s", w.Code, w.Body.String())

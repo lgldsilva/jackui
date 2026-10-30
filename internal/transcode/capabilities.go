@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -79,6 +80,11 @@ type Capabilities struct {
 	Decoders    []Decoder `json:"decoders"`
 	Preferred   string    `json:"preferred"`     // chosen encoder ID for H.264 transcoding
 	PreferredHE string    `json:"preferredHevc"` // chosen for HEVC transcoding (if any)
+	// HasSubtitlesFilter reports whether this ffmpeg build includes the
+	// libass-based "subtitles" filter (needed to burn an EXTERNAL subtitle
+	// file). Builds without libass only fail at exec time, so the probe lets
+	// option validation reject burnsub requests up front (see ValidateOptions).
+	HasSubtitlesFilter bool `json:"hasSubtitlesFilter"`
 }
 
 // candidates we try, in priority order. First functional one wins as Preferred.
@@ -199,6 +205,10 @@ func Probe(ctx context.Context, force bool) (*Capabilities, error) {
 		})
 	}
 
+	// External-subtitle burn-in needs the libass "subtitles" filter; cheap
+	// one-shot list probe (same pattern as the encoder/decoder discovery).
+	caps.HasSubtitlesFilter = hasFilter(ctx, caps.FFmpegPath, "subtitles")
+
 	// Step 4 — pick preferred
 	caps.Preferred = pickPreferred(caps.Encoders, "h264")
 	caps.PreferredHE = pickPreferred(caps.Encoders, "hevc")
@@ -261,6 +271,34 @@ func listEncoders(ctx context.Context, ff string) map[string]bool {
 func listDecoders(ctx context.Context, ff string) map[string]bool {
 	out, _ := exec.CommandContext(ctx, ff, ffHideBanner, "-decoders").Output()
 	return parseCodecList(out)
+}
+
+// hasFilter reports whether the ffmpeg build lists the named filter in
+// "-filters" output.
+func hasFilter(ctx context.Context, ff, name string) bool {
+	out, _ := exec.CommandContext(ctx, ff, ffHideBanner, "-filters").Output()
+	return listFilters(out)[name]
+}
+
+// filterNameRe captures the filter-name column of ffmpeg's "-filters" output.
+// Lines look like:
+//
+//	.. subtitles       V->V       Render text subtitles onto video …
+//	A... adelay        A->A       Delay one or more audio channels.
+//
+// The leading columns are the T/S/C support flags ('.', '|', spaces); the
+// anchor keeps description words ("Render text subtitles …") from matching.
+var filterNameRe = regexp.MustCompile(`^[ TSC.|]+\s+([a-z0-9_]+)\s`)
+
+// listFilters extracts filter names from ffmpeg's "-filters" output.
+func listFilters(out []byte) map[string]bool {
+	m := make(map[string]bool)
+	for _, line := range strings.Split(string(out), "\n") {
+		if f := filterNameRe.FindStringSubmatch(line); f != nil {
+			m[f[1]] = true
+		}
+	}
+	return m
 }
 
 // parseCodecList extracts identifiers from ffmpeg's "-encoders" / "-decoders" output.

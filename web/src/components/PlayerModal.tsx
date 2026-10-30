@@ -6,6 +6,8 @@ import {
   StreamProbe,
   TranscodeCapabilities,
   isIOS,
+  getSubtitleSettings,
+  type SubtitleSettings,
 } from '../api/client'
 import { usePersistedState } from '../lib/storage'
 import { useScrollLock } from '../lib/useScrollLock'
@@ -96,6 +98,19 @@ export default function PlayerModal({
   // Subtitles backend configured? (feature flag; the rest of the subtitle
   // cluster lives in useSubtitles.)
   const [subEnabled, setSubEnabled] = useState(false)
+  // Subtitle DEFAULTS (settings.subtitles): auto_fetch gates the auto subtitle
+  // pipeline; burn_default routes the auto-subtitle session through the
+  // progressive transcode with ?burnsub. One GET per modal open, threaded down;
+  // a failed load stays null → both consumers fail CLOSED (auto_fetch would
+  // otherwise kick the pipeline server-side; burn is opt-in anyway).
+  const [subtitleSettings, setSubtitleSettings] = useState<SubtitleSettings | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    getSubtitleSettings()
+      .then(s => { if (!cancelled) setSubtitleSettings(s) })
+      .catch(() => { if (!cancelled) setSubtitleSettings(null) })
+    return () => { cancelled = true }
+  }, [])
   // Embedded audio + subtitle tracks discovered via ffprobe. Shared: drives the
   // subtitle auto-pick (in useSubtitles) AND the audio auto-transcode + HEVC
   // backstop, so it stays owned here and is fed to the subtitle hook.
@@ -151,6 +166,12 @@ export default function PlayerModal({
   const [burnSubTrack, setBurnSubTrack] = useState<number | null>(null)
   // HEVC auto-fallback: on first <video> error, if a GPU encoder is available, retry via transcode.
   const [transcodeFallbackAttempted, setTranscodeFallbackAttempted] = useState(false)
+  // Per-session burn-failure latch (review F1): when the burn transcode errors
+  // (400 without libass), the error chain latches this and computeMediaUrls
+  // drops the ?burnsub routing — the stream falls back to direct/HLS and the
+  // <track> keeps the subtitle unburned, instead of hard-failing playback over
+  // a subtitle. Reset on torrent/file switch.
+  const [burnFailed, setBurnFailed] = useState(false)
   const [caps, setCaps] = useState<TranscodeCapabilities | null>(null)
   // Torrent-info overlay (opened from the header Info button).
   const [showInfo, setShowInfo] = useState(false)
@@ -195,7 +216,7 @@ export default function PlayerModal({
 
   // Subtitle cluster (external/embedded/sidecar/custom tracks, OpenSubtitles
   // panel, sync offset). probe stays here (shared) and is fed in via setProbe.
-  const subs = useSubtitles({ videoRef, info, selectedFile, serverReady, result, mediaToken, setProbe })
+  const subs = useSubtitles({ videoRef, info, selectedFile, serverReady, result, mediaToken, setProbe, autoFetchEnabled: subtitleSettings?.auto_fetch ?? false })
   const {
     subActive, embeddedSub, customSubURL, localEmbeddedVttURL, sidecarIdx,
     resetSubtitles, resetSubtitlesForFile,
@@ -245,6 +266,7 @@ export default function PlayerModal({
     setForceH264(false)
     setBurnSubTrack(null)
     setTranscodeFallbackAttempted(false)
+    setBurnFailed(false)
     prefetchedNextEpRef.current = false
     prefetchedPlaylistN1Ref.current = false
     prefetchedPlaylistN2Ref.current = false
@@ -264,6 +286,7 @@ export default function PlayerModal({
     // Per-file subtitle reset (subset); probe stays owned here.
     resetSubtitlesForFile()
     setProbe(null)
+    setBurnFailed(false)
     watchedRef.current = 0
     lastTickRef.current = 0
     setCurrentTime(0)
@@ -310,8 +333,11 @@ export default function PlayerModal({
 
   // URL builder: raw direct play unless any transcoding option is active. Safari
   // + HEVC/x265/AV1/4K short-circuits to HLS before the first <video> attempt.
-  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, caps, authEnabled, probe, playbackID: playbackIDRef.current })
-  const { streamURL, encoderLabel, isTranscoded } = videoUrls
+  // burnDefault + an active auto subtitle additionally route the TORRENT through
+  // the progressive transcode (?burnsub=<id>) — HLS drops subtitle streams —
+  // until a burn error is latched (burnFailed), which falls back to non-burn.
+  const videoUrls = computeMediaUrls({ info, selectedFile, serverReady, mediaToken, transcodeAudio, forceH264, burnSubTrack, subActive, sidecarIdx, embeddedSub, customSubURL, localEmbeddedVttURL, autoSub: subs.autoSub, burnDefault: subtitleSettings?.burn_default === true, burnFailed, caps, authEnabled, probe, playbackID: playbackIDRef.current })
+  const { streamURL, encoderLabel, isTranscoded, burnSubFileId } = videoUrls
 
   // Phase 8: unified audio selection. When the master exposes >1 rendition, the switch
   // is seamless (seamlessAudio, via hls.audioTrack — without touching transcodeAudio,
@@ -328,7 +354,8 @@ export default function PlayerModal({
   // sees the resolved streamURL/isTranscoded.
   const { videoDiagnostic, handleVideoError } = useVideoFallback({
     videoRef, info, probe, selectedFile, audioMode, bufferedEnd, streamURL, isTranscoded,
-    transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError, caps,
+    transcodeAudio, forceH264, burnSubTrack, transcodeFallbackAttempted, videoError,
+    burnRoutingActive: burnSubFileId !== null, setBurnFailed, caps,
     audioAutoRef, bufferRetryRef,
     setTranscodeAudio, setForceH264, setTranscodeFallbackAttempted,
     setVideoError, setLastErrorDiag,

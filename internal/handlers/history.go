@@ -14,15 +14,23 @@ import (
 )
 
 // enrichedCached is a cached result enriched with parsed quality, playable
-// heuristic, media kind, and user-specific flags (favorited/downloaded).
-// Origin query is preserved via embedded CachedResult.Query for UI badges.
+// heuristic, media kind, audio-language badges, and user-specific flags
+// (favorited/downloaded). Origin query is preserved via embedded
+// CachedResult.Query for UI badges.
+//
+// Orchestrator decision (cross-cutting lane, finding 1): rehydration does NOT
+// apply dual_only/prefer_dual here. History and cache views show the full
+// searched set WITH badges; filtering is a live-search concern only. This
+// keeps rehydrated rows identical to what was persisted instead of silently
+// hiding rows the live search showed.
 type enrichedCached struct {
 	history.CachedResult
-	Quality      parser.Quality   `json:"quality"`
-	Playable     bool             `json:"playable"`
-	MediaKind    parser.MediaKind `json:"mediaKind"`
-	IsFavorited  bool             `json:"isFavorited"`
-	IsDownloaded bool             `json:"isDownloaded"`
+	Quality      parser.Quality    `json:"quality"`
+	AudioFlags   parser.AudioFlags `json:"audioFlags"`
+	Playable     bool              `json:"playable"`
+	MediaKind    parser.MediaKind  `json:"mediaKind"`
+	IsFavorited  bool              `json:"isFavorited"`
+	IsDownloaded bool              `json:"isDownloaded"`
 }
 
 func enrichCached(items []history.CachedResult, e *resultEnricher) []enrichedCached {
@@ -32,6 +40,7 @@ func enrichCached(items []history.CachedResult, e *resultEnricher) []enrichedCac
 		row := enrichedCached{
 			CachedResult: r,
 			Quality:      q,
+			AudioFlags:   parser.DetectAudioFlags(r.Title),
 			Playable:     parser.IsPlayable(r.Title, r.CategoryID, r.MagnetURI, q.Resolution),
 			MediaKind:    parser.DetectKind(r.Title, r.CategoryID),
 		}

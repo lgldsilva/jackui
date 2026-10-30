@@ -8,6 +8,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/parser"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -15,14 +16,23 @@ import (
 )
 
 // SubtitlesSearch handles GET /api/subtitles/search?q=...&season=...&episode=...&langs=pt-BR,pt
-func SubtitlesSearch(c *subtitles.Client) gin.HandlerFunc {
+// settingsSrc is the optional settings source threaded from routes: when given,
+// the default language list (no ?langs=) comes from
+// cfg.Subtitles.DefaultLanguages (RF2); nil or unset keeps the historical
+// "pt-BR,pt" fallback. Resolved per request, so a settings save applies to the
+// next search without a restart.
+func SubtitlesSearch(c *subtitles.Client, settingsSrc ...*config.Config) gin.HandlerFunc {
+	var cfg *config.Config
+	if len(settingsSrc) > 0 {
+		cfg = settingsSrc[0]
+	}
 	return func(ctx *gin.Context) {
 		query := ctx.Query("q")
 		if query == "" {
 			httpshared.RespondErrorMessage(ctx, http.StatusBadRequest, ErrQueryRequired)
 			return
 		}
-		langs := ctx.DefaultQuery("langs", "pt-BR,pt")
+		langs := ctx.DefaultQuery("langs", subtitlesSearchLanguages(cfg))
 		season, _ := strconv.Atoi(ctx.Query("season"))
 		episode, _ := strconv.Atoi(ctx.Query("episode"))
 

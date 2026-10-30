@@ -18,7 +18,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
-func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
+func StreamFile(s *streamer.Streamer, store *downloads.Store, auto ...StreamAutoHook) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, ok := bindHash(c)
 		if !ok {
@@ -30,6 +30,23 @@ func StreamFile(s *streamer.Streamer, store *downloads.Store) gin.HandlerFunc {
 		}
 		if serveFromCompletedStore(c, store, s, h, fileIdx) {
 			return
+		}
+		// Auto-subtitle fetch, fire-and-forget: the stream-open path is the only
+		// point that knows (hash, fileIdx) — StreamViewerOpen's request carries no
+		// file index (lane F2 decision). The kick runs ONLY on the live-streamer
+		// serve path — after the completed-store early-return above (a direct
+		// m3u/VLC fetch of a finished download has the torrent inactive, so the
+		// kicked fetch would fail OS hash + name lookup, fire SearchAuto with an
+		// empty query and persist a TERMINAL junk row that blocks every future
+		// auto-subtitle attempt) and only when fileIdx is inside the active
+		// torrent's file list (an out-of-range index can never be served, so it
+		// must never be kicked). StartTorrent spawns its own goroutine and
+		// self-gates on the auto-fetch setting + per-item dedup, so this adds zero
+		// latency and zero OpenSubtitles traffic when off/already running.
+		if len(auto) > 0 && auto[0].Meta != nil && auto[0].Fetcher != nil {
+			if info, err := s.Get(h); err == nil && fileIdx >= 0 && fileIdx < len(info.Files) {
+				auto[0].Fetcher.StartTorrent(auto[0].Meta, h, fileIdx)
+			}
 		}
 		serveFromStreamer(c, s, h, fileIdx)
 	}

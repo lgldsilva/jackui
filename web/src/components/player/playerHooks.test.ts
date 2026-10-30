@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { backstopStuck, backstopShouldFire, hlsFatalAction, startGapNudgeTarget } from './playerHooks'
+import { afterEach, describe, it, expect, vi } from 'vitest'
+import { cleanup, renderHook } from '@testing-library/react'
+import { backstopStuck, backstopShouldFire, hlsFatalAction, startGapNudgeTarget, useSubtitleOffset } from './playerHooks'
 
 // Regression of the Star Wars bug (a376440b): an H264/AAC/MP4 (browser-safe) that
 // stalls from lack of data (the MP4 moov hasn't downloaded yet → readyState 0,
@@ -94,5 +95,73 @@ describe('hlsFatalAction', () => {
     expect(hlsFatalAction('muxError', TYPES)).toBe('destroy')
     expect(hlsFatalAction('otherError', TYPES)).toBe('destroy')
     expect(hlsFatalAction('', TYPES)).toBe('destroy')
+  })
+})
+
+// Review F4: the virtual auto subtitle (and the custom upload) must count as
+// track subtitles inside useSubtitleOffset — their <track src> ALWAYS arrives
+// after mount, so without the gate inclusion Safari never forces
+// track.mode='showing' (subtitle stays invisible despite `default`) and the
+// sync-offset controls never touch their cues.
+describe('useSubtitleOffset — virtual auto subtitle coverage (review F4)', () => {
+  afterEach(cleanup)
+
+  function fakeTrack() {
+    return { mode: '', cues: null, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+  }
+
+  function baseOpts(video: unknown, over: Partial<Parameters<typeof useSubtitleOffset>[0]> = {}): Parameters<typeof useSubtitleOffset>[0] {
+    return {
+      videoRef: { current: video as HTMLVideoElement },
+      subActive: null,
+      embeddedSub: null,
+      sidecarIdx: null,
+      customSubURL: null,
+      autoSub: null,
+      localEmbeddedVttURL: '',
+      subOffset: 0,
+      origCuesRef: { current: [] },
+      ...over,
+    }
+  }
+
+  it('activates the track (mode=showing) when ONLY the virtual auto subtitle is set — hasTrackSub true', () => {
+    const track = fakeTrack()
+    renderHook(() => useSubtitleOffset(baseOpts({ textTracks: [track] }, { autoSub: { id: '77', language: 'pt-BR' } })))
+    expect(track.mode).toBe('showing')
+  })
+
+  it('stays inactive with no subtitle source at all', () => {
+    const track = fakeTrack()
+    renderHook(() => useSubtitleOffset(baseOpts({ textTracks: [track] })))
+    expect(track.mode).toBe('')
+  })
+
+  it('forces activation when the auto subtitle arrives AFTER mount (Safari late <track src>)', () => {
+    const track = fakeTrack()
+    const { rerender } = renderHook((opts: Parameters<typeof useSubtitleOffset>[0]) => useSubtitleOffset(opts), { initialProps: baseOpts({ textTracks: [track] }) })
+    expect(track.mode).toBe('')
+    rerender(baseOpts({ textTracks: [track] }, { autoSub: { id: '77', language: 'pt-BR' } }))
+    expect(track.mode).toBe('showing')
+  })
+
+  it('resets the cue snapshot when the auto subtitle source changes (offset rewrite stays relative to the new source)', () => {
+    const track = fakeTrack()
+    const origCuesRef = { current: [] as { start: number; end: number }[] }
+    const auto77 = { id: '77', language: 'pt-BR' }
+    const auto88 = { id: '88', language: 'pt-BR' }
+    const { rerender } = renderHook(
+      (opts: Parameters<typeof useSubtitleOffset>[0]) => useSubtitleOffset(opts),
+      { initialProps: baseOpts({ textTracks: [track] }, { autoSub: auto77, origCuesRef }) },
+    )
+    // Snapshot captured while the first auto sub is displayed.
+    origCuesRef.current = [{ start: 1, end: 2 }]
+    // An unrelated re-render (same source) keeps the snapshot…
+    rerender(baseOpts({ textTracks: [track] }, { autoSub: auto77, origCuesRef }))
+    expect(origCuesRef.current).toHaveLength(1)
+    // …a different auto source drops it, so offset rewrites stay relative to
+    // the NEW source's original timings.
+    rerender(baseOpts({ textTracks: [track] }, { autoSub: auto88, origCuesRef }))
+    expect(origCuesRef.current).toHaveLength(0)
   })
 })

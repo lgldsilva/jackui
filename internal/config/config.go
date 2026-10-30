@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -264,11 +265,65 @@ type PromoteDir struct {
 	Path string `yaml:"path"`
 }
 
+// DefaultSubtitlesLanguages is the default comma-separated search language
+// list: the config default when default_languages is unset AND the runtime
+// fallback used by SubtitlesSearch (single source of truth for both).
+const DefaultSubtitlesLanguages = "pt-BR,pt"
+
+// SubtitlesConfig configures the OpenSubtitles client. Only DefaultLanguages,
+// AutoFetch and BurnDefault are user-facing (GET/POST /api/settings/subtitles);
+// the credentials below must NEVER be serialized to the web (the settings
+// handlers build an explicit response struct for that reason).
 type SubtitlesConfig struct {
 	OpenSubtitlesAPIKey   string `yaml:"opensubtitles_api_key"`
 	OpenSubtitlesUsername string `yaml:"opensubtitles_username"`
 	OpenSubtitlesPassword string `yaml:"opensubtitles_password"`
 	CacheDir              string `yaml:"cache_dir"`
+	// DefaultLanguages is the comma-separated language list used by subtitle
+	// searches that pass no explicit langs (e.g. "pt-BR,pt"). Casing is
+	// preserved; defaults to DefaultSubtitlesLanguages when unset.
+	DefaultLanguages string `yaml:"default_languages"`
+	// AutoFetch gates the automatic subtitle fetch for played torrents. Defaults
+	// to true when the yaml key is absent (see applySubtitlesDefaults) so older
+	// config files keep the opt-out feature on.
+	AutoFetch bool `yaml:"auto_fetch"`
+	// BurnDefault is the pre-selected "burn into video" choice in the player;
+	// default false.
+	BurnDefault bool `yaml:"burn_default"`
+}
+
+// subtitlesMu guards Config.Subtitles at RUNTIME: the settings POST swaps the
+// whole section under the write lock and every reader — the status endpoints,
+// the search-language resolution, the AutoFetcher settings closure in
+// cmd/server and Save's own marshal — reads a consistent COPY through
+// SubtitlesSnapshot. Without it a torn string read (a Go string is ptr+len)
+// can panic a reader that lives OUTSIDE gin's per-request recovery (the
+// AutoFetcher goroutines) and take the whole process down.
+//
+// Package-level (not a Config field) so Config stays a plain copyable struct
+// (Save marshals a shallow view); Config is a process singleton. Load-time
+// writes (applySubtitlesDefaults, seedDefaults) run before the HTTP server
+// accepts requests — single-goroutine, no lock needed.
+var subtitlesMu sync.RWMutex
+
+// SubtitlesSnapshot returns a consistent copy of the live subtitles settings.
+// The ONLY sanctioned way to read cfg.Subtitles from runtime code — direct
+// field access races the settings POST writer and can tear strings. The same
+// rule applies to Save, which must marshal the section through this method.
+func (c *Config) SubtitlesSnapshot() SubtitlesConfig {
+	subtitlesMu.RLock()
+	defer subtitlesMu.RUnlock()
+	return c.Subtitles
+}
+
+// SetSubtitles atomically replaces the live subtitles settings (the write half
+// of SubtitlesSnapshot). Callers that persist with Save keep the previous
+// snapshot and restore it when Save fails (see SubtitlesUpdateSettings;
+// MountsUpdate is the same snapshot→mutate→Save→rollback pattern).
+func (c *Config) SetSubtitles(s SubtitlesConfig) {
+	subtitlesMu.Lock()
+	defer subtitlesMu.Unlock()
+	c.Subtitles = s
 }
 
 type DownloadClient struct {
@@ -308,13 +363,49 @@ func Load(path string) (*Config, error) {
 		cfg.Port = 8989
 	}
 
+	applySubtitlesDefaults(&cfg, data)
+
 	applyEnvOverrides(&cfg)
 
 	return &cfg, nil
 }
 
+// applySubtitlesDefaults normalizes the subtitles section to its defaults,
+// next to the other value defaults applied by Load. DefaultLanguages falls
+// back when empty. AutoFetch defaults to ON when the yaml key is ABSENT: a
+// plain bool cannot tell "absent" from an explicit false (auto_fetch: false
+// must survive a reload), so the raw YAML is probed for the key. BurnDefault's
+// default is the zero value and needs no normalization.
+func applySubtitlesDefaults(cfg *Config, raw []byte) {
+	if cfg.Subtitles.DefaultLanguages == "" {
+		cfg.Subtitles.DefaultLanguages = DefaultSubtitlesLanguages
+	}
+	var probe struct {
+		Subtitles struct {
+			AutoFetch *bool `yaml:"auto_fetch"`
+		} `yaml:"subtitles"`
+	}
+	if err := yaml.Unmarshal(raw, &probe); err != nil {
+		// Unreachable when the full-config unmarshal above succeeded (the probe
+		// is a strict subset of it); keep the zero value rather than guessing.
+		return
+	}
+	if probe.Subtitles.AutoFetch == nil {
+		cfg.Subtitles.AutoFetch = true
+	}
+}
+
 func (c *Config) Save(path string) error {
+	// Marshal under the subtitles READ lock: any settings handler may Save
+	// concurrently with a SubtitlesUpdateSettings swap, and the marshal must
+	// never read a half-swapped Subtitles section (the writer takes the write
+	// lock in SetSubtitles — a torn string read here could corrupt the saved
+	// file or panic). The lock is released before the file write, so two
+	// concurrent saves still write independently. The remaining sections are
+	// written at boot or by their own snapshot-restore handlers.
+	subtitlesMu.RLock()
 	data, err := yaml.Marshal(c)
+	subtitlesMu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -444,6 +535,8 @@ func defaultConfig() *Config {
 	cfg.Auth.Enabled = true // fail-closed: a fresh install defaults to auth ON
 	cfg.Jackett.URL = "http://localhost:9117"
 	cfg.Jackett.APIKey = "YOUR_API_KEY_HERE"
+	cfg.Subtitles.DefaultLanguages = DefaultSubtitlesLanguages
+	cfg.Subtitles.AutoFetch = true // auto-fetch is opt-out; seeded so the saved file carries the explicit value
 	// Credentials intentionally ship EMPTY: seeding the well-known qBittorrent
 	// defaults (admin/adminadmin) to disk would put guessable credentials on
 	// the filesystem and make a default install trivially hijackable. Fill

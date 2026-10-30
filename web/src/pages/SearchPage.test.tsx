@@ -19,6 +19,16 @@ vi.mock('../api/client', async () => {
   }
 })
 
+// Capture the SSE search URL without a real EventSource (jsdom has none).
+const openSearchStreamMock = vi.fn((_url: string) => ({ close: vi.fn() }))
+vi.mock('../lib/searchStream', async () => {
+  const actual = await vi.importActual<typeof import('../lib/searchStream')>('../lib/searchStream')
+  return {
+    ...actual,
+    openSearchStream: (url: string) => openSearchStreamMock(url),
+  }
+})
+
 vi.mock('../components/PlayerProvider', () => ({
   usePlayer: () => ({ playSingle: vi.fn() }),
 }))
@@ -32,7 +42,6 @@ describe('SearchPage — Tab strip and multi-tab flows', () => {
   })
 
   afterEach(cleanup)
-
   it('renders initial single search tab and allows adding new tabs', async () => {
     render(
       <MemoryRouter>
@@ -100,5 +109,127 @@ describe('SearchPage — Tab strip and multi-tab flows', () => {
       const closeButtons = document.querySelectorAll('button > svg.lucide-x')
       expect(closeButtons.length).toBe(0) // Back to 1 tab (which has no close button)
     })
+  })
+})
+
+describe('SearchPage — dual-audio toggles (persistence)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  afterEach(cleanup)
+
+  function renderPage() {
+    return render(
+      <MemoryRouter>
+        <SearchPage />
+      </MemoryRouter>,
+    )
+  }
+
+  it('writes toggled prefs to localStorage on change', async () => {
+    renderPage()
+
+    const preferDualBtn = screen.getByRole('button', { name: /prefer dual/i })
+    const dualOnlyBtn = screen.getByRole('button', { name: /dual only/i })
+    expect(preferDualBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(dualOnlyBtn).toHaveAttribute('aria-pressed', 'false')
+
+    await userEvent.click(preferDualBtn)
+    expect(preferDualBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(localStorage.getItem('jackui:search.preferDual')).toBe('true')
+    // usePersistedState mirrors the (still default) dualOnly on mount.
+    expect(localStorage.getItem('jackui:search.dualOnly')).toBe('false')
+
+    await userEvent.click(dualOnlyBtn)
+    expect(localStorage.getItem('jackui:search.dualOnly')).toBe('true')
+  })
+
+  it('restores persisted prefs from localStorage on mount (survives reload)', async () => {
+    localStorage.setItem('jackui:search.preferDual', 'true')
+    localStorage.setItem('jackui:search.dualOnly', 'true')
+
+    renderPage()
+
+    expect(screen.getByRole('button', { name: /prefer dual/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /dual only/i })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('defaults to off when nothing is persisted', () => {
+    renderPage()
+
+    expect(screen.getByRole('button', { name: /prefer dual/i })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: /dual only/i })).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+describe('SearchPage — dual-audio params on the search calls', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  afterEach(cleanup)
+
+  function renderPage() {
+    return render(
+      <MemoryRouter>
+        <SearchPage />
+      </MemoryRouter>,
+    )
+  }
+
+  async function searchFromInput(query: string) {
+    const input = screen.getByPlaceholderText(/search torrents/i)
+    await userEvent.type(input, query)
+    await userEvent.keyboard('{Enter}')
+  }
+
+  it('SSE stream call carries prefer_dual/dual_only when toggled on', async () => {
+    renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /prefer dual/i }))
+    await userEvent.click(screen.getByRole('button', { name: /dual only/i }))
+
+    await searchFromInput('inception')
+
+    expect(openSearchStreamMock).toHaveBeenCalledTimes(1)
+    const url = openSearchStreamMock.mock.calls[0][0]
+    expect(url).toContain('/api/search/stream?')
+    expect(url).toContain('q=inception')
+    expect(url).toContain('prefer_dual=1')
+    expect(url).toContain('dual_only=1')
+  })
+
+  it('SSE stream call has no dual-audio params when toggles are off', async () => {
+    renderPage()
+
+    await searchFromInput('inception')
+
+    expect(openSearchStreamMock).toHaveBeenCalledTimes(1)
+    const url = openSearchStreamMock.mock.calls[0][0]
+    expect(url).not.toContain('prefer_dual')
+    expect(url).not.toContain('dual_only')
+  })
+
+  it('toggling re-triggers the current search with the new flags', async () => {
+    renderPage()
+    await searchFromInput('inception')
+    expect(openSearchStreamMock).toHaveBeenCalledTimes(1)
+    let url = openSearchStreamMock.mock.calls[0][0]
+    expect(url).not.toContain('prefer_dual')
+
+    await userEvent.click(screen.getByRole('button', { name: /prefer dual/i }))
+
+    expect(openSearchStreamMock).toHaveBeenCalledTimes(2)
+    url = openSearchStreamMock.mock.calls[1][0]
+    expect(url).toContain('q=inception')
+    expect(url).toContain('prefer_dual=1')
+  })
+
+  it('toggling with no active query does not fire a search', async () => {
+    renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /prefer dual/i }))
+    expect(openSearchStreamMock).not.toHaveBeenCalled()
   })
 })

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/lgldsilva/jackui/internal/ai"
 	"github.com/lgldsilva/jackui/internal/config"
 	"github.com/lgldsilva/jackui/internal/gluetun"
@@ -342,6 +343,83 @@ func initSubtitles(cfg *config.Config) *subtitles.Client {
 		log.Printf("Subtitles: OpenSubtitles enabled (cache=%s)", subCacheDir)
 	}
 	return sc
+}
+
+// Compile-time proof that the real fetcher satisfies the handler-side
+// interfaces (a signature drift breaks here, not at a request).
+var (
+	_ handlers.SubtitleAutoFetcher = (*subtitles.AutoFetcher)(nil)
+	_ subtitles.TorrentMeta        = streamerTorrentMeta{}
+)
+
+// streamerTorrentMeta adapts *streamer.Streamer to subtitles.TorrentMeta (lane
+// E declared the interface so tests can fake it; the real adapter is wired
+// here). Name/Complete go through Get: it returns the per-file snapshot
+// (path + BytesCompleted/Length) and counts as "use", which is correct — the
+// fetch runs inside the playback session and should keep the torrent off the
+// idle reaper while it hashes.
+type streamerTorrentMeta struct{ s *streamer.Streamer }
+
+// Name is the release/display file name of the file at fileIdx (tier-2 title
+// search); falls back to the torrent name, then "".
+func (a streamerTorrentMeta) Name(h metainfo.Hash, fileIdx int) string {
+	info, err := a.s.Get(h)
+	if err != nil {
+		return ""
+	}
+	if fileIdx >= 0 && fileIdx < len(info.Files) && info.Files[fileIdx].Path != "" {
+		return info.Files[fileIdx].Path
+	}
+	return info.Name
+}
+
+// Complete reports whether the file at fileIdx finished downloading
+// (file-level, from the same snapshot the UI sees).
+func (a streamerTorrentMeta) Complete(h metainfo.Hash, fileIdx int) bool {
+	info, err := a.s.Get(h)
+	if err != nil || fileIdx < 0 || fileIdx >= len(info.Files) {
+		return false
+	}
+	f := info.Files[fileIdx]
+	return f.Size > 0 && f.Downloaded >= f.Size
+}
+
+// OSHash computes the OpenSubtitles hash of the ACTIVE torrent's file via the
+// streamer's seeking reader (works mid-download).
+func (a streamerTorrentMeta) OSHash(ctx context.Context, h metainfo.Hash, fileIdx int) (streamer.HashResult, error) {
+	return a.s.OSHash(ctx, h, fileIdx)
+}
+
+// initSubtitlesAuto constructs the auto-subtitle pipeline once: the persistent
+// LinksStore over the shared pool, the AutoFetcher over the OpenSubtitles
+// client + TMDB resolver, and a settings closure that reads cfg LIVE (a
+// settings save applies without a restart). Any missing piece (no streamer,
+// no DB pool, links store init failure) just disables the pipeline — the
+// status endpoints answer "none" via the nil-interface guards in the handlers.
+func initSubtitlesAuto(deps *appDeps) {
+	if deps.streamSrv == nil || deps.subtitleClient == nil || deps.db == nil {
+		return
+	}
+	links, err := subtitles.NewLinksStore(deps.db)
+	if err != nil {
+		log.Printf("Warning: subtitle links store init failed: %v — auto subtitles disabled", err)
+		return
+	}
+	deps.subtitleLinks = links
+	deps.subtitlesAuto = subtitles.NewAutoFetcher(
+		deps.subtitleClient,
+		links,
+		deps.tmdbClient, // nil tolerated: tier-2 degrades to the plain query search
+		// Read through the synchronized snapshot: this closure is called from
+		// fetcher goroutines and per-request readers while the settings POST
+		// swaps the section — a torn string read here could panic the process.
+		func() (string, bool) {
+			snap := deps.cfg.SubtitlesSnapshot()
+			return snap.DefaultLanguages, snap.AutoFetch
+		},
+	)
+	deps.subtitleAutoMeta = streamerTorrentMeta{s: deps.streamSrv}
+	log.Printf("Auto subtitles: enabled (langs=%s)", httpshared.SanitizeForLog(deps.cfg.SubtitlesSnapshot().DefaultLanguages))
 }
 
 func startTranscodeProbe() {

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -196,5 +197,115 @@ func TestSave_Roundtrip(t *testing.T) {
 	}
 	if loaded.DownloadClients[1].Password != "pass" {
 		t.Error("password not preserved in roundtrip")
+	}
+}
+
+func TestLoad_SubtitlesDefaults_WhenKeysAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	// A pre-existing config predating the subtitles settings keys must load
+	// with the documented defaults — including AutoFetch=ON (opt-out feature).
+	content := "subtitles:\n  opensubtitles_api_key: key123\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Subtitles.DefaultLanguages != DefaultSubtitlesLanguages {
+		t.Errorf("DefaultLanguages = %q, want %q", cfg.Subtitles.DefaultLanguages, DefaultSubtitlesLanguages)
+	}
+	if !cfg.Subtitles.AutoFetch {
+		t.Error("AutoFetch = false, want default true when key absent")
+	}
+	if cfg.Subtitles.BurnDefault {
+		t.Error("BurnDefault = true, want default false")
+	}
+	if cfg.Subtitles.OpenSubtitlesAPIKey != "key123" {
+		t.Error("existing subtitles keys must be preserved")
+	}
+}
+
+func TestLoad_SubtitlesDefaults_WhenSectionAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("port: 7777\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Subtitles.DefaultLanguages != DefaultSubtitlesLanguages || !cfg.Subtitles.AutoFetch || cfg.Subtitles.BurnDefault {
+		t.Errorf("subtitles defaults not applied: %+v", cfg.Subtitles)
+	}
+}
+
+func TestLoad_SubtitlesExplicitValues_Preserved(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "subtitles:\n  default_languages: \"en-US,es\"\n  auto_fetch: false\n  burn_default: true\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Subtitles.DefaultLanguages != "en-US,es" {
+		t.Errorf("DefaultLanguages = %q, want en-US,es (casing kept)", cfg.Subtitles.DefaultLanguages)
+	}
+	if cfg.Subtitles.AutoFetch {
+		t.Error("explicit auto_fetch: false must NOT be overridden by the absent-key default")
+	}
+	if !cfg.Subtitles.BurnDefault {
+		t.Error("explicit burn_default: true not preserved")
+	}
+}
+
+func TestSave_Load_RoundTrip_Subtitles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	original := &Config{Port: 9999}
+	original.Subtitles.DefaultLanguages = "en"
+	original.Subtitles.AutoFetch = false
+	original.Subtitles.BurnDefault = true
+
+	if err := original.Save(path); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load after Save failed: %v", err)
+	}
+	if loaded.Subtitles.DefaultLanguages != "en" || loaded.Subtitles.BurnDefault != true {
+		t.Errorf("subtitles values not preserved: %+v", loaded.Subtitles)
+	}
+	// The presence probe must treat a SAVED explicit false as false, not
+	// re-apply the absent-key default on reload.
+	if loaded.Subtitles.AutoFetch {
+		t.Error("saved auto_fetch: false came back true — absent/explicit distinction broken")
+	}
+}
+
+func TestLoad_MissingFile_SubtitlesDefaultsSeeded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if cfg.Subtitles.DefaultLanguages != DefaultSubtitlesLanguages || !cfg.Subtitles.AutoFetch || cfg.Subtitles.BurnDefault {
+		t.Errorf("fresh boot subtitles defaults wrong: %+v", cfg.Subtitles)
+	}
+	// The created default file must carry the values explicitly, so a reload
+	// keeps them without relying on the absent-key probe.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "auto_fetch: true") {
+		t.Errorf("saved default config must contain auto_fetch: true, got:\n%s", data)
 	}
 }

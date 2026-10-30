@@ -1,6 +1,7 @@
 import { X, Loader2, Upload, Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Subtitle } from '../../api/client'
+import type { AutoSubPick } from './playerHooks'
 import { SubtitleResultsList } from './SubtitleResultsList'
 
 // Subtitle picker content. Extracted from PlayerControlsPanel's inline panel
@@ -17,6 +18,12 @@ export type SubtitlePickerProps = {
   readonly subActive: string | null
   readonly pickSubtitle: (s: Subtitle) => void
   readonly setSubActive: (v: string | null) => void
+  // Virtual auto subtitle (lane W2) when applied — shown as its own entry
+  // carrying the auto badge. Identified by its OpenSubtitles FILE id (never a
+  // sidecar index); null once a manual pick replaces it.
+  readonly autoSub: AutoSubPick | null
+  // Pipeline ended in `failed` for this file → quiet hint, no toast.
+  readonly autoFailed: boolean
 }
 
 export function SubtitlePicker({
@@ -29,6 +36,8 @@ export function SubtitlePicker({
   subActive,
   pickSubtitle,
   setSubActive,
+  autoSub,
+  autoFailed,
 }: SubtitlePickerProps) {
   const { t } = useTranslation()
   return (
@@ -50,6 +59,21 @@ export function SubtitlePicker({
           </div>
         )}
       </div>
+
+      {/* Virtual auto subtitle (applied by the auto pipeline): its own entry,
+          discriminated by the OpenSubtitles file id. Always "active" when shown —
+          a manual pick clears it upstream instead of deselecting here. */}
+      {autoSub && (
+        <div className="mb-3 pb-3 border-b border-default/50">
+          <div className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 border border-green-500/20 px-2.5 py-1.5 rounded-lg">
+            <Check className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="truncate flex-1">{t('player.subtitles.autoBadge')}</span>
+          </div>
+        </div>
+      )}
+      {autoFailed && !autoSub && (
+        <p className="text-xs text-text-muted py-2">{t('player.subtitles.autoFailed')}</p>
+      )}
 
       {subLoading && (
         <div className="flex items-center gap-2 text-sm text-text-secondary py-2">

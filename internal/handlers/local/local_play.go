@@ -230,7 +230,14 @@ func localPlayAudioResp(ctx context.Context, abs, mount, path, token string) Loc
 // and returns either { kind: "direct", url } or { kind: "hls", url }. The
 // frontend just consumes `url` and trusts the kind for any wrapper logic
 // (subtitles via WebVTT, etc.).
-func LocalPlay(b *lb.Browser, lib *library.Store) gin.HandlerFunc {
+//
+// fetcher is optional (variadic — tests and auto-pipeline-less boots omit it):
+// when present, a VIDEO play kicks the auto-subtitle fetch for the file
+// (fire-and-forget — StartLocal self-gates on the auto-fetch setting and
+// per-item dedup). Audio is skipped: there is no subtitle track to fetch.
+// LocalPlayBatch deliberately does NOT kick — it only pre-resolves URLs, the
+// actual play stays the hook point.
+func LocalPlay(b *lb.Browser, lib *library.Store, fetcher ...subtitleAutoFetcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
 		path := c.Query("path")
@@ -252,6 +259,14 @@ func LocalPlay(b *lb.Browser, lib *library.Store) gin.HandlerFunc {
 		// Track in the library so local media shows in Continue Watching and gets
 		// resume — same as torrents (StreamAdd). Best-effort; never blocks playback.
 		resp.LibraryID = upsertLocalLibrary(c, lib, mount, path, isAudio)
+		// Auto-subtitle fetch for the played video: keyed by the SAME
+		// local-… pseudo-hash the status endpoint derives, with the resolved
+		// absolute path + display file name. fileIdx is 0 — local files are
+		// addressed by the pseudo-hash alone; the status route carries :file for
+		// wire symmetry and the web always sends 0.
+		if !isAudio && len(fetcher) > 0 && fetcher[0] != nil {
+			fetcher[0].StartLocal(localInfoHash(mount, path), 0, filepath.Base(path), abs)
+		}
 		c.JSON(http.StatusOK, resp)
 	}
 }

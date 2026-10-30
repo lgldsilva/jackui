@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Magnet, Users, TrendingDown, Clock, HardDrive, Tag, Check, FileDown, Clipboard, ExternalLink, Play, Globe, Heart, ListPlus, FolderOpen, RefreshCw, HardDriveDownload, Loader2 } from 'lucide-react'
 import MoreActionsMenu, { type MoreActionItem } from './MoreActionsMenu'
-import { SearchResult, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
+import { SearchResult, AudioFlags, TmdbMatch, favoriteAdd, favoriteRemove, tmdbMatch, convertTorrentToMagnet, downloadTorrentForResult } from '../api/client'
 import { buildFavoritePayload } from '../lib/favoritePayload'
 import i18n from '../lib/i18n'
 import { playHref, newTabProps, swallowClick } from '../lib/cardNav'
@@ -259,6 +259,48 @@ function renderCategoryBadges(result: SearchResult): React.ReactNode {
           <Globe className="w-3 h-3" />+{result.alsoIn.length} tracker{result.alsoIn.length === 1 ? '' : 's'}
         </span>
       )}
+    </div>
+  )
+}
+
+// Audio-language badges from the backend's audioFlags (ptbr-subs-dual): DUAL /
+// PT-BR / DUBLADO are literal scene terms (no i18n), stackable in that order.
+// multi/latino/legendado deliberately get NO badge — they are not PT-BR
+// signals (MULTi is usually FR/EN, LATINO is Spanish). Pure + exported so the
+// colocated test covers the flag→badge mapping without rendering.
+export type AudioFlagBadge = { readonly key: 'dual' | 'ptbr' | 'dub'; readonly label: string; readonly className: string }
+
+export function audioFlagBadgeList(flags?: AudioFlags): AudioFlagBadge[] {
+  if (!flags) return []
+  const badges: AudioFlagBadge[] = []
+  if (flags.dual) {
+    badges.push({ key: 'dual', label: 'DUAL', className: 'bg-green-500/20 text-green-700 dark:text-green-300 border-green-500/30' })
+  }
+  if (flags.ptbr) {
+    badges.push({ key: 'ptbr', label: 'PT-BR', className: 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/30' })
+  }
+  if (flags.dub) {
+    badges.push({ key: 'dub', label: 'DUBLADO', className: 'bg-orange-500/20 text-orange-700 dark:text-orange-300 border-orange-500/30' })
+  }
+  return badges
+}
+
+// Compact chips, same visual weight as the quality badges (QualityBadges). Own
+// row so the card layout changes only by the badges themselves.
+function renderAudioFlagBadges(result: SearchResult): React.ReactNode {
+  const badges = audioFlagBadgeList(result.audioFlags)
+  if (badges.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1 items-center" data-testid="audio-flag-badges">
+      {badges.map(b => (
+        <span
+          key={b.key}
+          title={b.label}
+          className={`text-[10px] uppercase font-medium border px-1.5 py-0.5 rounded whitespace-nowrap ${b.className}`}
+        >
+          {b.label}
+        </span>
+      ))}
     </div>
   )
 }
@@ -520,6 +562,7 @@ export default memo(function ResultCard({ result, onDownload, onPlay, onAddToPla
     >
       {renderCardTitle(tmdb, result, actions.isFavorited, shell.handleCardClick, shell.titleAttr, actions.toggleFavorite, actions.favResolving)}
       <QualityBadges quality={result.quality} />
+      {renderAudioFlagBadges(result)}
       {renderCategoryBadges(result)}
       {renderCardStats(result, onRefresh, refreshing, refreshedAt)}
       {renderCardActions({

@@ -32,6 +32,10 @@ func TestIsMediaPath(t *testing.T) {
 		"/api/download",
 		"/api/library/1",
 		"/api/stream", // exact, no trailing slash
+		// Auto-status kick endpoint: kicks OpenSubtitles fetches and reads fetch
+		// state — poller sends the Bearer header, so a leaked media-scope ?token=
+		// must not authorize it, while the plain stream path stays whitelisted.
+		"/api/stream/xxx/0/subtitles/auto",
 	}
 	for _, p := range notMedia {
 		if isMediaPath(p) {

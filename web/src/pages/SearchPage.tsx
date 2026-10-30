@@ -12,13 +12,14 @@ import NavHeader from '../components/NavHeader'
 import { Sheet } from '../components/Sheet'
 import SavedSearches from '../components/SavedSearches'
 import { SearchResult, Indexer, getIndexers, getHistory, favoritesList } from '../api/client'
-import { load, save } from '../lib/storage'
+import { load, save, usePersistedState } from '../lib/storage'
 import { reorder } from '../lib/reorder'
 import { syncTabsToCache } from '../lib/searchResultsCache'
 import { useRehydratedResults, canApplyRehydrated } from '../lib/useRehydratedResults'
 import { useFilteredResults } from '../lib/useFilteredResults'
 import { useMediaMode } from '../lib/mediaMode'
 import { MusicSearchFilterToggle } from '../components/MusicSearchFilterToggle'
+import { DualAudioToggles, type DualAudioPrefKey } from '../components/search/DualAudioToggles'
 import { useSwipe } from '../lib/useSwipe'
 import { uid } from '../lib/uid'
 import { useTranslation, Trans } from 'react-i18next'
@@ -71,6 +72,12 @@ export default function SearchPage() {
   // "Group series" view mode (persisted, not per-tab): folds episodes of the
   // same series/season under a header. Additive — off by default.
   const [groupSeries, setGroupSeries] = useState<boolean>(() => load<boolean>('searchGroupSeries', false))
+  // Dual-audio (PT-BR) request prefs — GLOBAL (not per-tab): persisted so they
+  // survive reloads, restored on mount and sent as query params on every search
+  // (plain + SSE). dualOnly is a pure filter: enabling it while preferDual is
+  // off is allowed, so the two toggles are independent.
+  const [preferDual, setPreferDual] = usePersistedState<boolean>('search.preferDual', false)
+  const [dualOnly, setDualOnly] = usePersistedState<boolean>('search.dualOnly', false)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -128,6 +135,26 @@ export default function SearchPage() {
 
   // SSE streams (uma por aba): start/stop/close vivem no hook.
   const { handleSearch, stopSearch, closeStream } = useSearchStreams(tabs, updateTab, setTabs)
+
+  // Current dual-audio prefs for every search this page fires. runSearch keeps
+  // the call sites honest: the plain/SSE params can never drift from the UI.
+  const audioPrefs = useMemo(() => ({ preferDual, dualOnly }), [preferDual, dualOnly])
+  const runSearch = useCallback((tabId: string, queryOverride?: string) =>
+    handleSearch(tabId, queryOverride, audioPrefs), [handleSearch, audioPrefs])
+
+  // Toggling a dual-audio pref persists it (usePersistedState) and re-runs the
+  // CURRENT search with the new flags. Explicit next-values at call time —
+  // state updates don't propagate before the call, the same reason queryOverride
+  // exists on handleSearch.
+  const toggleAudioPref = (which: DualAudioPrefKey) => {
+    const nextPreferDual = which === 'preferDual' ? !preferDual : preferDual
+    const nextDualOnly = which === 'dualOnly' ? !dualOnly : dualOnly
+    if (which === 'preferDual') setPreferDual(nextPreferDual)
+    else setDualOnly(nextDualOnly)
+    if (activeTab.query.trim()) {
+      handleSearch(activeTab.id, undefined, { preferDual: nextPreferDual, dualOnly: nextDualOnly })
+    }
+  }
 
   const closeTab = useCallback((id: string, e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -199,7 +226,7 @@ export default function SearchPage() {
     if (!q) return
     seededRef.current = true
     updateTab(activeId, { query: q })
-    handleSearch(activeId, q)
+    runSearch(activeId, q)
     setSearchParams({}, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -387,11 +414,15 @@ export default function SearchPage() {
           selectedCategory={activeTab.selectedCategory}
           onCategoryChange={cat => updateTab(activeTab.id, { selectedCategory: cat })}
           indexers={allIndexers}
-          onSearch={() => handleSearch(activeTab.id)}
+          onSearch={() => runSearch(activeTab.id)}
           onStop={() => stopSearch(activeTab.id)}
           loading={isSearching}
           suggestions={historyQueries}
         />
+
+        {/* Dual-audio (PT-BR) preference toggles — always visible: they apply
+            to the NEXT search and re-trigger the current one when changed. */}
+        <DualAudioToggles preferDual={preferDual} dualOnly={dualOnly} onToggle={toggleAudioPref} />
 
         {/* Status bar — on mobile the count and the sort control do NOT
             share the same line (they piled up over the `ml-auto`): they stack, with
@@ -516,7 +547,7 @@ export default function SearchPage() {
             <p className="text-lg">{t('search.type_to_search')}</p>
             <SavedSearches
               recent={historyQueries}
-              onPick={q => { updateTab(activeTab.id, { query: q }); handleSearch(activeTab.id, q) }}
+              onPick={q => { updateTab(activeTab.id, { query: q }); runSearch(activeTab.id, q) }}
             />
           </div>
         )}
