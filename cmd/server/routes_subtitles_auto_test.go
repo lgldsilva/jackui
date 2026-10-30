@@ -58,13 +58,13 @@ func TestRouteRegistration_AutoSubtitles(t *testing.T) {
 	registerSubtitleRoutes(api, deps)
 
 	want := map[string]bool{
-		"GET /api/stream/:hash/:file":                    false,
-		"GET /api/stream/:hash/:file/subtitles/auto":     false,
-		"GET /api/local/subtitles/auto":                  false,
-		"GET /api/local/subtitles/auto/:hash/:file":      false,
-		"POST /api/stream/:hash/viewer":                  false,
-		"DELETE /api/stream/:hash/viewer":                false,
-		"GET /api/local/play":                            false,
+		"GET /api/stream/:hash/:file":                false,
+		"GET /api/stream/:hash/:file/subtitles/auto": false,
+		"GET /api/local/subtitles/auto":              false,
+		"GET /api/local/subtitles/auto/:hash/:file":  false,
+		"POST /api/stream/:hash/viewer":              false,
+		"DELETE /api/stream/:hash/viewer":            false,
+		"GET /api/local/play":                        false,
 	}
 	for _, ri := range r.Routes() {
 		key := ri.Method + " " + ri.Path

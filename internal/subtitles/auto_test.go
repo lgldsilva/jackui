@@ -1038,24 +1038,24 @@ func TestAutoSubtitleFormatsPassthrough(t *testing.T) {
 	if len(res) != 3 {
 		t.Fatalf("results = %d, want 3", len(res))
 	}
-if got := res[0].Formats; len(got) != 2 || got[0] != ".srt" || got[1] != ".ass" {
+	if got := res[0].Formats; len(got) != 2 || got[0] != ".srt" || got[1] != ".ass" {
 		t.Errorf("formats[0] = %v, want [.srt .ass]", got)
-}
-if got := res[0].PrimaryFormat; got != ".srt" {
+	}
+	if got := res[0].PrimaryFormat; got != ".srt" {
 		t.Errorf("PrimaryFormat[0] = %q, want .srt (Files[0], not the union)", got)
-}
-if got := res[1].Formats; len(got) != 1 || got[0] != ".srt" {
+	}
+	if got := res[1].Formats; len(got) != 1 || got[0] != ".srt" {
 		t.Errorf("formats[1] = %v, want [.srt] (deduped)", got)
-}
-if got := res[1].PrimaryFormat; got != ".srt" {
+	}
+	if got := res[1].PrimaryFormat; got != ".srt" {
 		t.Errorf("PrimaryFormat[1] = %q, want .srt (case-folded from y.SRT)", got)
-}
-if got := res[2].Formats; len(got) != 0 {
+	}
+	if got := res[2].Formats; len(got) != 0 {
 		t.Errorf("formats[2] = %v, want empty (unknown)", got)
-}
-if got := res[2].PrimaryFormat; got != "" {
+	}
+	if got := res[2].PrimaryFormat; got != "" {
 		t.Errorf("PrimaryFormat[2] = %q, want empty (no file_name on Files[0])", got)
-}
+	}
 	if res[0].HearingImp || res[0].Forced {
 		t.Errorf("default flags = HI:%v forced:%v, want false", res[0].HearingImp, res[0].Forced)
 	}
@@ -1174,16 +1174,16 @@ func TestAutoNilSettingsAndGuardShortCircuits(t *testing.T) {
 		t.Fatalf("MarkReady: %v", err)
 	}
 
-	a := NewAutoFetcher(f.c, f.links, f.tmdb, nil) // no settings closure
-	a.StartTorrent(f.meta, f.hash, 0)              // settings nil → no fetch
+	a := NewAutoFetcher(f.c, f.links, f.tmdb, nil)     // no settings closure
+	a.StartTorrent(f.meta, f.hash, 0)                  // settings nil → no fetch
 	a.StartLocal("", 0, "Movie.mkv", "/tmp/movie.mkv") // empty key → no-op
 	var nilFetcher *AutoFetcher
-	nilFetcher.Cancel(f.key)          // nil receiver → no-op
-	f.a.StartTorrent(nil, f.hash, 0)  // nil TorrentMeta → no-op
+	nilFetcher.Cancel(f.key)           // nil receiver → no-op
+	f.a.StartTorrent(nil, f.hash, 0)   // nil TorrentMeta → no-op
 	f.a.start(fetchKey{f.key, 9}, nil) // nil work → no-op
 	a.run(ctx, f.key, 0, "pt-BR", nil) // nil resolve → no-op
 	zero := &AutoFetcher{}
-	zero.run(ctx, f.key, 0, "", nil)   // no links/client → no-op
+	zero.run(ctx, f.key, 0, "", nil) // no links/client → no-op
 	time.Sleep(150 * time.Millisecond)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("guard paths issued HTTP: %d requests, want 0", total)

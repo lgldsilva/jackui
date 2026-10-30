@@ -94,7 +94,7 @@ func TestDecodeLocalPseudoHash_RejectsTorrentHashAndCorrupt(t *testing.T) {
 		{"torrent hex hash", "0123456789abcdef0123456789abcdef01234567"},
 		{"no prefix", "YWJj"},
 		{"corrupt base64", "local-%%%not-base64%%%"},
-		{"empty json fields", "local-e30"}, // "{}"
+		{"empty json fields", "local-e30"},           // "{}"
 		{"missing path", "local-eyJtb3VudCI6Ik0ifQ"}, // {"mount":"M"}
 	}
 	for _, tc := range cases {

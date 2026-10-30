@@ -133,9 +133,9 @@ func TestSortPreferDual_NeverPromotesAcrossQualityTier(t *testing.T) {
 	results := dualFixtures(titleDublado, titlePlain, titleHDTV)
 	sortPreferDual(results, searchResultDualKey)
 	assertTitleOrder(t, dualTitleList(results),
-		titlePlain,    // 1080p non-dual: higher tier wins over any dual
-		titleDublado,  // 720p dual: dual flag first WITHIN the 720p tier
-		titleHDTV,     // 720p non-dual
+		titlePlain,   // 1080p non-dual: higher tier wins over any dual
+		titleDublado, // 720p dual: dual flag first WITHIN the 720p tier
+		titleHDTV,    // 720p non-dual
 	)
 }
 
@@ -438,8 +438,8 @@ func TestEmitConverged_PreferDualSortsAndDualOnlyFilters(t *testing.T) {
 	store := newTestHistoryStore(t)
 	if err := store.Save("convdual", []jackett.Result{
 		{Title: "Seen Earlier", Tracker: "Trk", InfoHash: hashC, Size: 1}, // live phase already emitted this one
-		{Title: titleDublado, Tracker: "Trk", InfoHash: hashA, Size: 1}, // 720p dual, unseen tail
-		{Title: titlePlain, Tracker: "Trk", InfoHash: hashB, Size: 1},   // 1080p plain, unseen tail
+		{Title: titleDublado, Tracker: "Trk", InfoHash: hashA, Size: 1},   // 720p dual, unseen tail
+		{Title: titlePlain, Tracker: "Trk", InfoHash: hashB, Size: 1},     // 1080p plain, unseen tail
 	}, 0, false); err != nil {
 		t.Fatalf("seed: %v", err)
 	}

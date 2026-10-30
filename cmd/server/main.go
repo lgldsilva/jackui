@@ -83,31 +83,31 @@ func acquireInstanceLock(dataDir string) (*os.File, error) {
 }
 
 type appDeps struct {
-	cfg              *config.Config
-	configPath       string
-	db               *sql.DB // shared PostgreSQL pool (all stores)
-	jackettClient    *jackett.Client
-	localBrowser     *local.Browser
-	historyStore     *history.Store
-	streamSrv        *streamer.Streamer
-	streamCfg        streamer.Config
-	libraryStore     *library.Store
-	audioMetaStore   *audiometa.Store
-	lyricsClient     *lyrics.Client
-	musicTrending    *musictrending.Client
-	playlistsStore   *playlists.Store
-	downloadsStore   *downloads.Store
-	downloadsWkr     *downloads.Worker
-	tmdbClient       *tmdb.Client
-	aiClient         *ai.Client
-	aiBench          *ai.BenchmarkStore
-	aiBenchRun       *handlers.BenchmarkRunTracker
-	webSearch        *imagesearch.Chain
-	watchlistStore   *watchlist.Store
-	watchlistWkr     *watchlist.Worker
-	pushStore        *push.Store
-	pushSender       *push.Sender
-	subtitleClient   *subtitles.Client
+	cfg            *config.Config
+	configPath     string
+	db             *sql.DB // shared PostgreSQL pool (all stores)
+	jackettClient  *jackett.Client
+	localBrowser   *local.Browser
+	historyStore   *history.Store
+	streamSrv      *streamer.Streamer
+	streamCfg      streamer.Config
+	libraryStore   *library.Store
+	audioMetaStore *audiometa.Store
+	lyricsClient   *lyrics.Client
+	musicTrending  *musictrending.Client
+	playlistsStore *playlists.Store
+	downloadsStore *downloads.Store
+	downloadsWkr   *downloads.Worker
+	tmdbClient     *tmdb.Client
+	aiClient       *ai.Client
+	aiBench        *ai.BenchmarkStore
+	aiBenchRun     *handlers.BenchmarkRunTracker
+	webSearch      *imagesearch.Chain
+	watchlistStore *watchlist.Store
+	watchlistWkr   *watchlist.Worker
+	pushStore      *push.Store
+	pushSender     *push.Sender
+	subtitleClient *subtitles.Client
 	// Auto-subtitle pipeline (constructed in wiring.go initSubtitlesAuto; nil
 	// when the streamer/DB pool are unavailable — handlers nil-guard it).
 	subtitlesAuto    *subtitles.AutoFetcher
