@@ -410,12 +410,16 @@ func initSubtitlesAuto(deps *appDeps) {
 		deps.subtitleClient,
 		links,
 		deps.tmdbClient, // nil tolerated: tier-2 degrades to the plain query search
+		// Read through the synchronized snapshot: this closure is called from
+		// fetcher goroutines and per-request readers while the settings POST
+		// swaps the section — a torn string read here could panic the process.
 		func() (string, bool) {
-			return deps.cfg.Subtitles.DefaultLanguages, deps.cfg.Subtitles.AutoFetch
+			snap := deps.cfg.SubtitlesSnapshot()
+			return snap.DefaultLanguages, snap.AutoFetch
 		},
 	)
 	deps.subtitleAutoMeta = streamerTorrentMeta{s: deps.streamSrv}
-	log.Printf("Auto subtitles: enabled (langs=%s)", httpshared.SanitizeForLog(deps.cfg.Subtitles.DefaultLanguages))
+	log.Printf("Auto subtitles: enabled (langs=%s)", httpshared.SanitizeForLog(deps.cfg.SubtitlesSnapshot().DefaultLanguages))
 }
 
 func startTranscodeProbe() {

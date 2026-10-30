@@ -360,9 +360,11 @@ func TestAutoNoResultsGatesStaleOutcomeFields(t *testing.T) {
 		t.Fatalf("phase1 status = %q", st.Status)
 	}
 
-	// Settings change + empty results: the re-search fails, and the row keeps
-	// the previous cycle's outcome columns in the DB — Status must NOT leak
-	// them (review-derived rule: outcome fields gated on ready).
+	// Settings change + empty results: the re-search FAILS, and the working
+	// ready decision survives untouched (audit §2 — flipping the row to failed
+	// here permanently destroyed the only working subtitle link). Status may
+	// legitimately keep reporting the ready outcome: it is the row's REAL
+	// decision, not a stale leak.
 	*f.langs = "en"
 	f2 := newAutoFixture(t, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"data": []any{}})
@@ -376,23 +378,35 @@ func TestAutoNoResultsGatesStaleOutcomeFields(t *testing.T) {
 	f2.a.StartTorrent(f2.meta, f2.hash, 0)
 
 	st := waitForStatus(t, f2.a, f2.key, 0)
+	if st.Status != StatusReady || st.FileID != "777" {
+		t.Fatalf("status = %q/%q, want ready/777 (a failed re-search keeps the ready row)", st.Status, st.FileID)
+	}
+	row, _ := f.links.Get(context.Background(), f.key, 0)
+	if row == nil || row.Status != StatusReady || row.FileID != "777" || row.Languages != "pt-BR,pt" {
+		t.Fatalf("DB row should still be the working ready decision with old languages, got %+v", row)
+	}
+
+	// A FIRST fetch with no results still persists a failed row — and its
+	// (empty) outcome fields must never leak through Status (review N2: the
+	// outcome block is emitted only for ready rows).
+	fresh := metainfo.HashBytes([]byte(t.Name() + "-fresh"))
+	f2.a.StartTorrent(f2.meta, fresh, 0)
+	st = waitForStatus(t, f2.a, fresh.HexString(), 0)
 	if st.Status != StatusFailed || st.Reason != ReasonNoResults {
-		t.Fatalf("status/reason = %q/%q, want failed/no_results", st.Status, st.Reason)
+		t.Fatalf("first-fetch status/reason = %q/%q, want failed/no_results", st.Status, st.Reason)
 	}
 	if st.FileID != "" || st.VTTPath != "" || st.Language != "" {
 		t.Errorf("stale outcome leaked: %+v", st)
 	}
-	row, _ := f.links.Get(context.Background(), f.key, 0)
-	if row == nil || row.FileID != "777" {
-		t.Fatalf("DB row should still carry the old outcome for debugging, got %+v", row)
-	}
-	if row.Status != StatusFailed {
-		t.Errorf("row status = %q, want failed", row.Status)
+	row, _ = f.links.Get(context.Background(), fresh.HexString(), 0)
+	if row == nil || row.Status != StatusFailed || row.Reason != ReasonNoResults {
+		t.Errorf("first-fetch row = %+v, want failed/no_results", row)
 	}
 
-	// A failed row is never retried: further Starts must issue zero traffic.
+	// A failed (first-fetch) row is never retried: further Starts must issue
+	// zero traffic.
 	base, searches := f2.server.totals()
-	f2.a.StartTorrent(f2.meta, f2.hash, 0)
+	f2.a.StartTorrent(f2.meta, fresh, 0)
 	time.Sleep(150 * time.Millisecond)
 	if total, s := f2.server.totals(); total != base || s != searches {
 		t.Errorf("Start on failed row issued HTTP: total/searches = %d/%d, want %d/%d", total, s, base, searches)
@@ -539,6 +553,106 @@ func TestAutoLanguagesChangeResearcheExactlyOnce(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 	if _, searches := f.server.totals(); searches != 2 {
 		t.Errorf("post-convergence searches = %d, want 2", searches)
+	}
+}
+
+// TestAutoReSearchFailureKeepsReadyRow pins the NON-destructive settings-change
+// re-search (second-model audit §2): a ready row whose stored languages no
+// longer match the settings gets one new search, but a FAILED re-search (quota
+// here) must leave the working decision untouched — still ready, OLD subtitle,
+// OLD stored languages — while the success path still converges to the new
+// list (pinned by TestAutoLanguagesChangeResearcheExactlyOnce). MarkFailed on
+// this path would permanently destroy the only working subtitle link: failed
+// rows are never retried, so the player would lose its subtitle even after the
+// user reverted the setting.
+func TestAutoReSearchFailureKeepsReadyRow(t *testing.T) {
+	var searches atomic.Int32
+	f := newAutoFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+		if searches.Add(1) > 1 {
+			// The settings-change re-search hits the quota wall.
+			http.Error(w, `{"limit reached"}`, http.StatusTooManyRequests)
+			return
+		}
+		writeJSON(w, searchPayload("pt-BR", 777))
+	})
+
+	f.a.StartTorrent(f.meta, f.hash, 0)
+	if st := waitForStatus(t, f.a, f.key, 0); st.Status != StatusReady || st.FileID != "777" {
+		t.Fatalf("phase1 = %q/%q, want ready/777", st.Status, st.FileID)
+	}
+
+	// Settings change: the re-search fails on quota…
+	*f.langs = "en"
+	f.a.StartTorrent(f.meta, f.hash, 0)
+	st := waitForStatus(t, f.a, f.key, 0)
+	if st.Status != StatusReady || st.Reason != "" {
+		t.Fatalf("after failed re-search = %q/%q, want ready with no failure reason", st.Status, st.Reason)
+	}
+	if st.FileID != "777" || st.Language != "pt-BR" || st.VTTPath != f.c.CachePath("777") {
+		t.Errorf("outcome fields = %q/%q/%q, want the OLD subtitle 777/pt-BR", st.FileID, st.Language, st.VTTPath)
+	}
+	// The re-search must have actually run against the NEW setting (the client
+	// retries 429s internally, so exact HTTP counts are retry-policy detail —
+	// what matters is ≥1 re-search, queried with "en").
+	_, httpSearches := f.server.totals()
+	if httpSearches < 2 {
+		t.Fatalf("searches = %d, want at least the initial + one re-search", httpSearches)
+	}
+	if got := f.server.query(0).Get("languages"); got != "pt-BR,pt" {
+		t.Errorf("initial search languages = %q, want pt-BR,pt", got)
+	}
+	if got := f.server.query(httpSearches - 1).Get("languages"); got != "en" {
+		t.Errorf("re-search languages = %q, want the NEW setting en", got)
+	}
+
+	// …and the persisted row is still the working ready decision with the OLD
+	// languages: reverting the settings dedups straight back to it (RF7).
+	row, err := f.links.Get(context.Background(), f.key, 0)
+	if err != nil || row == nil {
+		t.Fatalf("row: %v %v", row, err)
+	}
+	if row.Status != StatusReady || row.FileID != "777" || row.Languages != "pt-BR,pt" || row.Reason != "" {
+		t.Errorf("row = %+v, want ready/777 with old languages pt-BR,pt", row)
+	}
+
+	// A kept differing setting re-attempts once per explicit Start (a new play
+	// event — status polls NEVER kick a ready row), and every failed attempt
+	// still keeps the row intact: never failed, never clobbered with pending.
+	_, searchesBefore := f.server.totals()
+	f.a.StartTorrent(f.meta, f.hash, 0)
+	st = waitForStatus(t, f.a, f.key, 0)
+	if st.Status != StatusReady || st.FileID != "777" {
+		t.Fatalf("second failed re-search = %q/%q, want still ready/777", st.Status, st.FileID)
+	}
+	_, searchesAfter := f.server.totals()
+	if searchesAfter <= searchesBefore {
+		t.Errorf("searches = %d, want > %d (each explicit Start re-attempts the differing setting)", searchesAfter, searchesBefore)
+	}
+}
+
+// TestAutoReSearchDisabledClientKeepsReadyRow: the same preservation rule when
+// the re-search cannot even run — removing the OpenSubtitles API key must not
+// destroy working ready rows with a no_api_key failure.
+func TestAutoReSearchDisabledClientKeepsReadyRow(t *testing.T) {
+	f := newAutoFixture(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, searchPayload("pt-BR", 777))
+	})
+	f.a.StartTorrent(f.meta, f.hash, 0)
+	if st := waitForStatus(t, f.a, f.key, 0); st.Status != StatusReady {
+		t.Fatalf("phase1 = %q (%s)", st.Status, st.Reason)
+	}
+
+	// The API key disappears, then the settings change requests a re-search.
+	f.a.client = New("", "", "", t.TempDir())
+	*f.langs = "en"
+	f.a.StartTorrent(f.meta, f.hash, 0)
+	st := waitForStatus(t, f.a, f.key, 0)
+	if st.Status != StatusReady || st.FileID != "777" {
+		t.Fatalf("after disabled-client re-search = %q/%q, want still ready/777", st.Status, st.FileID)
+	}
+	row, _ := f.links.Get(context.Background(), f.key, 0)
+	if row == nil || row.Status != StatusReady || row.Reason != "" || row.Languages != "pt-BR,pt" {
+		t.Errorf("row = %+v, want untouched ready row with old languages (reason must not be %q)", row, ReasonNoAPIKey)
 	}
 }
 

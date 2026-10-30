@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -192,6 +193,28 @@ func TestLocalSubtitlesAutoStatus_NonNumericFile(t *testing.T) {
 	w := getLocalAutoStatus(r, hash, "xyz")
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestLocalSubtitlesAutoStatus_NonZeroFileRejected: local files are ALWAYS
+// addressed by index 0 (the LocalPlay hook hardcodes it), so any other :file
+// is rejected with 400 — a poller sending a bogus index would otherwise mint a
+// second (localInfoHash, fileIdx) dedup row and kick a second, quota-charged
+// fetch for the SAME file (second-model audit §5).
+func TestLocalSubtitlesAutoStatus_NonZeroFileRejected(t *testing.T) {
+	for _, file := range []string{"3", "-1"} {
+		fetcher := &fakeLocalFetcher{}
+		r, hash, _ := newAutoStatusLocalEnv(t, autoCfg(true), enabledClient(t), fetcher, nil)
+		w := getLocalAutoStatus(r, hash, file)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("file %q: status = %d, want 400; body: %s", file, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "file index 0") {
+			t.Errorf("file %q: error message %q must document the index-0 rule", file, w.Body.String())
+		}
+		if fetcher.startCalls() != 0 {
+			t.Errorf("file %q: StartLocal must not run for a non-zero local file index", file)
+		}
 	}
 }
 

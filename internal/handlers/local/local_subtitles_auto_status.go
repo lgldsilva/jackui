@@ -99,6 +99,11 @@ func respondLocalSubtitleAutoStatus(c *gin.Context, st subtitles.AutoStatus) {
 // and resolved through the SAME guards the query-param endpoints use:
 // CheckMountAccess → ScopePath → ResolvePath.
 //
+// :file must be 0: local files are always addressed by file index 0 (the
+// LocalPlay start hook hardcodes it), so any other index would only mint a
+// bogus (localInfoHash, fileIdx) dedup row and a duplicate quota-charged
+// fetch for the same file — rejected with 400.
+//
 // REVIEW NOTE (W1 N3) — the `?user=` view-as interaction: the override is
 // ACCEPTED and HONORED. The pseudo-hash encodes the mount-relative path the
 // client saw; per-user scoping is applied at RESOLUTION time through ScopePath
@@ -124,6 +129,14 @@ func LocalSubtitlesAutoStatus(b *lb.Browser, links *subtitles.LinksStore, client
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid file index")
 			return
 		}
+		// Local files always use index 0 (the LocalPlay hook hardcodes it): a
+		// poller sending anything else would create a second
+		// (localInfoHash, fileIdx) row and kick a second, quota-charged fetch
+		// for the SAME file. Reject instead of silently pinning.
+		if fileIdx != 0 {
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "local files always use file index 0")
+			return
+		}
 		if !CheckMountAccess(b, c, mount) {
 			return
 		}
@@ -143,11 +156,13 @@ func LocalSubtitlesAutoStatus(b *lb.Browser, links *subtitles.LinksStore, client
 		}
 		hashKey := localInfoHash(mount, path)
 		status := fetcher.Status(c.Request.Context(), hashKey, fileIdx)
-		if status.Status == subtitleStatusNone && cfg != nil && cfg.Subtitles.AutoFetch && client.Enabled() {
+		if status.Status == subtitleStatusNone && cfg != nil && cfg.SubtitlesSnapshot().AutoFetch && client.Enabled() {
 			// No decision yet + auto-fetch on + OpenSubtitles configured → kick
 			// StartLocal (async, hashes the complete file directly) and answer
 			// pending immediately — the fetch never blocks the response. fileIdx
-			// passes through as-is: the web addresses local files with 0.
+			// is always 0 here (enforced above); the auto-fetch gate is read
+			// through the synchronized config snapshot, never the raw field —
+			// the settings POST swaps it concurrently (audit §1).
 			fetcher.StartLocal(hashKey, fileIdx, filepath.Base(abs), abs)
 			respondLocalSubtitleAutoStatus(c, subtitles.AutoStatus{Status: subtitles.StatusPending})
 			return
