@@ -119,43 +119,16 @@ func respondLocalSubtitleAutoStatus(c *gin.Context, st subtitles.AutoStatus) {
 func LocalSubtitlesAutoStatus(b *lb.Browser, links *subtitles.LinksStore, client *subtitles.Client,
 	fetcher subtitleAutoFetcher, cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mount, path, ok := decodeLocalPseudoHash(c.Param("hash"))
+		target, ok := resolveLocalSubtitleAutoTarget(c, b)
 		if !ok {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidLocalPseudoHash)
-			return
-		}
-		fileIdx, err := strconv.Atoi(c.Param("file"))
-		if err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid file index")
-			return
-		}
-		// Local files always use index 0 (the LocalPlay hook hardcodes it): a
-		// poller sending anything else would create a second
-		// (localInfoHash, fileIdx) row and kick a second, quota-charged fetch
-		// for the SAME file. Reject instead of silently pinning.
-		if fileIdx != 0 {
-			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "local files always use file index 0")
-			return
-		}
-		if !CheckMountAccess(b, c, mount) {
-			return
-		}
-		abs, err := b.ResolvePath(mount, ScopePath(b, c, mount, path))
-		if err != nil {
-			httpshared.RespondError(c, http.StatusBadRequest, err)
-			return
-		}
-		st, err := os.Stat(abs)
-		if err != nil || st.IsDir() {
-			httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
 			return
 		}
 		if fetcher == nil {
 			respondLocalSubtitleAutoStatus(c, subtitles.AutoStatus{Status: subtitleStatusNone})
 			return
 		}
-		hashKey := localInfoHash(mount, path)
-		status := fetcher.Status(c.Request.Context(), hashKey, fileIdx)
+		hashKey := localInfoHash(target.mount, target.path)
+		status := fetcher.Status(c.Request.Context(), hashKey, target.fileIdx)
 		if status.Status == subtitleStatusNone && cfg != nil && cfg.SubtitlesSnapshot().AutoFetch && client.Enabled() {
 			// No decision yet + auto-fetch on + OpenSubtitles configured → kick
 			// StartLocal (async, hashes the complete file directly) and answer
@@ -163,12 +136,63 @@ func LocalSubtitlesAutoStatus(b *lb.Browser, links *subtitles.LinksStore, client
 			// is always 0 here (enforced above); the auto-fetch gate is read
 			// through the synchronized config snapshot, never the raw field —
 			// the settings POST swaps it concurrently (audit §1).
-			fetcher.StartLocal(hashKey, fileIdx, filepath.Base(abs), abs)
+			fetcher.StartLocal(hashKey, target.fileIdx, filepath.Base(target.abs), target.abs)
 			respondLocalSubtitleAutoStatus(c, subtitles.AutoStatus{Status: subtitles.StatusPending})
 			return
 		}
 		respondLocalSubtitleAutoStatus(c, status)
 	}
+}
+
+// localSubtitleAutoTarget is the validated handler input: the decoded
+// (mount, path), the file index (always 0 — see
+// resolveLocalSubtitleAutoTarget) and the resolved absolute file path.
+type localSubtitleAutoTarget struct {
+	mount   string
+	path    string
+	fileIdx int
+	abs     string
+}
+
+// resolveLocalSubtitleAutoTarget validates the request exactly as the handler
+// always did, in the same order and with the same responses: decodable
+// pseudo-hash (400), numeric file index (400), file index pinned to 0 (400),
+// mount access, path resolution inside the mount (400) and an existing
+// non-directory file (404). A false ok means the error response was already
+// written.
+func resolveLocalSubtitleAutoTarget(c *gin.Context, b *lb.Browser) (localSubtitleAutoTarget, bool) {
+	mount, path, ok := decodeLocalPseudoHash(c.Param("hash"))
+	if !ok {
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, errInvalidLocalPseudoHash)
+		return localSubtitleAutoTarget{}, false
+	}
+	fileIdx, err := strconv.Atoi(c.Param("file"))
+	if err != nil {
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid file index")
+		return localSubtitleAutoTarget{}, false
+	}
+	// Local files always use index 0 (the LocalPlay hook hardcodes it): a
+	// poller sending anything else would create a second
+	// (localInfoHash, fileIdx) row and kick a second, quota-charged fetch
+	// for the SAME file. Reject instead of silently pinning.
+	if fileIdx != 0 {
+		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "local files always use file index 0")
+		return localSubtitleAutoTarget{}, false
+	}
+	if !CheckMountAccess(b, c, mount) {
+		return localSubtitleAutoTarget{}, false
+	}
+	abs, err := b.ResolvePath(mount, ScopePath(b, c, mount, path))
+	if err != nil {
+		httpshared.RespondError(c, http.StatusBadRequest, err)
+		return localSubtitleAutoTarget{}, false
+	}
+	st, err := os.Stat(abs)
+	if err != nil || st.IsDir() {
+		httpshared.RespondErrorMessage(c, http.StatusNotFound, httpshared.ErrFileNotFound)
+		return localSubtitleAutoTarget{}, false
+	}
+	return localSubtitleAutoTarget{mount: mount, path: path, fileIdx: fileIdx, abs: abs}, true
 }
 
 // subtitleStatusNone mirrors the unexported subtitles statusNone.

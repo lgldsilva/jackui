@@ -179,7 +179,7 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 		if key := dedupKey(r.Result); key != "" {
 			seen[key] = true
 		}
-		if opts.dualOnly && !isDualAudio(parser.DetectAudioFlags(r.Result.Title)) {
+		if opts.dualOnly && !isDualAudio(parser.DetectAudioFlags(r.Title)) {
 			continue // response-payload filter only: the row keeps its seen mark
 		}
 		writeSSE(c, "result", enricher.enrich(r.Result, true))
@@ -220,7 +220,7 @@ func (s *liveSearchState) emitConverged(store *history.Store, query string, user
 		sortPreferDual(fresh, cachedResultDualKey)
 	}
 	for _, r := range fresh {
-		if s.opts.dualOnly && !isDualAudio(parser.DetectAudioFlags(r.Result.Title)) {
+		if s.opts.dualOnly && !isDualAudio(parser.DetectAudioFlags(r.Title)) {
 			continue // response-payload filter only: the row keeps its seen mark
 		}
 		writeSSE(s.c, "result", s.enricher.enrich(r.Result, true))
