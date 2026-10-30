@@ -269,29 +269,48 @@ func (a *AutoFetcher) run(ctx context.Context, hashKey string, fileIdx int, lang
 	if err != nil {
 		return // persistence broken: never burn quota on undecidable state
 	}
+	// reSearch marks the documented settings-change re-search: a READY row whose
+	// stored language list no longer matches the current settings gets a new
+	// search. That search may replace the row ONLY on success — on any failure
+	// (quota, no_results, error, disabled client, cancellation) the working
+	// ready decision is left COMPLETELY UNTOUCHED. MarkFailed here would
+	// permanently destroy the only working subtitle link (failed rows are never
+	// retried), and no pending write is issued either: between the write and a
+	// possibly-failing search the player would lose its subtitle for every
+	// other reader of the store. Because the row keeps its OLD languages, a
+	// revert of the settings dedups straight back to it (RF7), and a kept new
+	// setting re-attempts once per explicit Start (a play event) — never from
+	// status polls, which a ready row answers without kicking. Mirrors
+	// refine(): a live decision is only ever replaced by a success.
+	reSearch := false
 	if row != nil {
 		switch {
 		case row.Status == StatusFailed:
 			return // failed decisions are never retried automatically
 		case row.Status == StatusReady && row.Languages == langs:
 			return // RF7 dedup: decision persisted, zero OpenSubtitles traffic
+		case row.Status == StatusReady:
+			reSearch = true
 		}
 		// Falls through for:
-		//   - ready with a DIFFERENT stored language list: the documented
-		//     settings-change path allows exactly ONE re-search (it converges
-		//     because MarkReady stores the new list).
+		//   - ready with a DIFFERENT stored language list (reSearch): the
+		//     settings-change path; only MarkReady below replaces the row.
 		//   - pending: a crashed cycle from a previous process, recovered by
 		//     this Start (the in-flight map already dedups this process).
 	}
 	if !a.client.Enabled() {
-		_ = a.links.MarkFailed(ctx, hashKey, fileIdx, ReasonNoAPIKey) // zero HTTP
+		if !reSearch {
+			_ = a.links.MarkFailed(ctx, hashKey, fileIdx, ReasonNoAPIKey) // zero HTTP
+		}
 		return
 	}
-	if err := a.links.UpsertPending(ctx, hashKey, fileIdx, langs); err != nil {
-		return
-	}
-	if ctx.Err() != nil {
-		return // cancelled between writes: leave the row pending for the next Start
+	if !reSearch {
+		if err := a.links.UpsertPending(ctx, hashKey, fileIdx, langs); err != nil {
+			return
+		}
+		if ctx.Err() != nil {
+			return // cancelled between writes: leave the row pending for the next Start
+		}
 	}
 
 	opts, source := resolve(ctx)
@@ -300,20 +319,26 @@ func (a *AutoFetcher) run(ctx context.Context, hashKey string, fileIdx int, lang
 	}
 	results, err := a.client.SearchAuto(opts)
 	if err != nil {
-		a.markFailure(ctx, hashKey, fileIdx, err)
-		return
+		if !reSearch {
+			a.markFailure(ctx, hashKey, fileIdx, err)
+		}
+		return // a failed re-search keeps the prior ready row
 	}
 	pick := pickSubtitle(results, langs)
 	if pick == nil {
-		_ = a.links.MarkFailed(ctx, hashKey, fileIdx, ReasonNoResults)
-		return
+		if !reSearch {
+			_ = a.links.MarkFailed(ctx, hashKey, fileIdx, ReasonNoResults)
+		}
+		return // a failed re-search keeps the prior ready row
 	}
 	if ctx.Err() != nil {
 		return
 	}
 	if _, err := a.client.Download(pick.ID); err != nil {
-		a.markFailure(ctx, hashKey, fileIdx, err)
-		return
+		if !reSearch {
+			a.markFailure(ctx, hashKey, fileIdx, err)
+		}
+		return // a failed re-search keeps the prior ready row
 	}
 	_ = a.links.MarkReady(ctx, hashKey, fileIdx, pick.ID, pick.Language, langs,
 		pick.HearingImp, pick.Forced, a.client.CachePath(pick.ID), source)

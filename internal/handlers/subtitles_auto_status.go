@@ -145,10 +145,12 @@ func SubtitlesAutoStatus(s *streamer.Streamer, meta subtitles.TorrentMeta, links
 // report (no row, or auto-fetch disabled).
 const statusAutoNone = "none"
 
-// autoFetchEnabled reads the auto-fetch gate live off the shared config so a
-// settings save applies to the next request without a restart.
+// autoFetchEnabled reads the auto-fetch gate live through the synchronized
+// snapshot so a settings save applies to the next request without a restart —
+// and without racing the POST writer (the gate is polled every 1–2s per active
+// player while the admin may be saving settings).
 func autoFetchEnabled(cfg *config.Config) bool {
-	return cfg != nil && cfg.Subtitles.AutoFetch
+	return cfg != nil && cfg.SubtitlesSnapshot().AutoFetch
 }
 
 // subtitleAutoShouldRefine reports whether a status response may kick the

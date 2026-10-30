@@ -170,6 +170,27 @@ func TestSubtitlesSettingsPost_SaveError(t *testing.T) {
 	}
 }
 
+func TestSubtitlesSettingsPost_SaveErrorRollsBackMemory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg, _ := subtitlesLoadedConfigForTest(t)
+	before := currentSubtitlesSettings(cfg)
+	// Unwritable destination: parent directory does not exist.
+	badPath := filepath.Join(t.TempDir(), "missing", "config.yaml")
+
+	w := invokeCoverageHandler(t, SubtitlesUpdateSettings(cfg, badPath), http.MethodPost, "/api/settings/subtitles",
+		`{"default_languages":"en","auto_fetch":false,"burn_default":true}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", w.Code, w.Body.String())
+	}
+	// The in-memory values must be ROLLED BACK (MountsUpdate house pattern):
+	// GET keeps answering what is actually persisted, and a later unrelated
+	// save can never silently persist the unconfirmed values.
+	after := currentSubtitlesSettings(cfg)
+	if after != before {
+		t.Errorf("in-memory settings mutated on Save failure: got %+v, want %+v", after, before)
+	}
+}
+
 func TestSubtitlesSettingsPost_ValidationErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cases := []struct {

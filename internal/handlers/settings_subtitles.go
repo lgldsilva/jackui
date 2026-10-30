@@ -30,12 +30,15 @@ var subtitlesLanguagePattern = regexp.MustCompile(`^[A-Za-z]{2,3}(-[A-Za-z0-9]{2
 
 // currentSubtitlesSettings projects the live config into the wire shape,
 // applying the same fallbacks as config loading so a hand-built Config still
-// answers with effective values (mirrors currentDownloadsQueue).
+// answers with effective values (mirrors currentDownloadsQueue). Reads the
+// section through the synchronized snapshot — never the raw cfg.Subtitles
+// field, which the settings POST swaps concurrently.
 func currentSubtitlesSettings(cfg *config.Config) subtitlesSettingsBody {
+	snap := cfg.SubtitlesSnapshot()
 	b := subtitlesSettingsBody{
-		DefaultLanguages: cfg.Subtitles.DefaultLanguages,
-		AutoFetch:        cfg.Subtitles.AutoFetch,
-		BurnDefault:      cfg.Subtitles.BurnDefault,
+		DefaultLanguages: snap.DefaultLanguages,
+		AutoFetch:        snap.AutoFetch,
+		BurnDefault:      snap.BurnDefault,
 	}
 	if b.DefaultLanguages == "" {
 		b.DefaultLanguages = config.DefaultSubtitlesLanguages
@@ -45,10 +48,13 @@ func currentSubtitlesSettings(cfg *config.Config) subtitlesSettingsBody {
 
 // subtitlesSearchLanguages resolves the default language list for subtitle
 // searches: the saved config value when set, else DefaultSubtitlesLanguages.
-// Read per request, so a settings save takes effect on the next search.
+// Read per request through the synchronized snapshot, so a settings save takes
+// effect on the next search without racing the writer.
 func subtitlesSearchLanguages(cfg *config.Config) string {
-	if cfg != nil && cfg.Subtitles.DefaultLanguages != "" {
-		return cfg.Subtitles.DefaultLanguages
+	if cfg != nil {
+		if snap := cfg.SubtitlesSnapshot(); snap.DefaultLanguages != "" {
+			return snap.DefaultLanguages
+		}
 	}
 	return config.DefaultSubtitlesLanguages
 }
@@ -92,6 +98,17 @@ func SubtitlesGetSettings(cfg *config.Config) gin.HandlerFunc {
 // Persists to the config file via the same Save mechanism as the other
 // settings routes. Nothing reads these values at construction time — the
 // searches/workers pick them up live, so no restart is ever required.
+//
+// Concurrency (audit §1): cfg.Subtitles is read unlocked elsewhere — the
+// AutoFetcher settings closure in cmd/server runs on goroutines outside gin's
+// per-request recovery, where a torn string read can kill the process — so the
+// write goes through SetSubtitles (whole-section swap under the config
+// package's RWMutex) and every read through SubtitlesSnapshot. NEVER touch the
+// raw cfg.Subtitles fields at runtime.
+//
+// NOTE: MountsUpdate (mounts.go) mutates cfg.External.Mounts in place with the
+// same pre-existing unsynchronized pattern; it is OUT OF SCOPE here and was
+// deliberately left unchanged.
 func SubtitlesUpdateSettings(cfg *config.Config, configPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b subtitlesSettingsBody
@@ -104,21 +121,29 @@ func SubtitlesUpdateSettings(cfg *config.Config, configPath string) gin.HandlerF
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, errMsg)
 			return
 		}
-		cfg.Subtitles.DefaultLanguages = normalized
-		cfg.Subtitles.AutoFetch = b.AutoFetch
-		cfg.Subtitles.BurnDefault = b.BurnDefault
+		// Snapshot → swap → Save (MountsUpdate pattern): on a Save failure the
+		// in-memory config is ROLLED BACK so GET /api/settings/subtitles and
+		// the subtitle searches keep answering what is actually persisted.
+		old := cfg.SubtitlesSnapshot()
+		next := old
+		next.DefaultLanguages = normalized
+		next.AutoFetch = b.AutoFetch
+		next.BurnDefault = b.BurnDefault
+		cfg.SetSubtitles(next)
 
 		if err := cfg.Save(configPath); err != nil {
-			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error())
+			cfg.SetSubtitles(old)
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error()+
+				" — nothing was changed; config.yaml must be writable by the container uid (fix owner/permissions on the host)")
 			return
 		}
 		// Echo the normalized saved values so the UI shows exactly what stuck.
 		c.JSON(http.StatusOK, gin.H{
 			"message":           "settings saved",
 			"restartRequired":   false,
-			"default_languages": cfg.Subtitles.DefaultLanguages,
-			"auto_fetch":        cfg.Subtitles.AutoFetch,
-			"burn_default":      cfg.Subtitles.BurnDefault,
+			"default_languages": next.DefaultLanguages,
+			"auto_fetch":        next.AutoFetch,
+			"burn_default":      next.BurnDefault,
 		})
 	}
 }
