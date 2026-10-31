@@ -80,7 +80,7 @@ func (s *HLSSession) launch(startSeg int) error {
 			return
 		}
 		if err != nil && !errors.Is(ffctx.Err(), context.Canceled) && !superseded {
-			log.Printf("hls: ffmpeg exited for session %s: %v", s.Key, err)
+			log.Printf("hls: ffmpeg exited for session %q: %v", s.Key, err)
 			s.mu.Lock()
 			s.exitErr = err
 			s.mu.Unlock()
@@ -124,9 +124,9 @@ func (s *HLSSession) tryRecoverFromCUDAOOM(ffctx context.Context, oom *oomWatche
 	// The HW decoder failed to allocate — give the slot back so another session
 	// can use the VRAM this one no longer holds.
 	s.releaseGPUSlot()
-	log.Printf("hls: CUDA-OOM on session %s — retrying with software decode (NVENC still encodes)", s.Key)
+	log.Printf("hls: CUDA-OOM on session %q — retrying with software decode (NVENC still encodes)", s.Key)
 	if err := s.launch(startSeg); err != nil {
-		log.Printf("hls: software-decode relaunch of %s failed: %v", s.Key, err)
+		log.Printf("hls: software-decode relaunch of %q failed: %v", s.Key, err)
 	}
 	return true
 }
@@ -279,7 +279,7 @@ func (s *HLSSession) RestartAt(seg int) error {
 		}
 	}
 
-	log.Printf("hls: seek-restart session %s from seg %d → %d (closed=%v)", s.Key, cur, seg, closed)
+	log.Printf("hls: seek-restart session %q from seg %d → %d (closed=%v)", s.Key, cur, seg, closed)
 	if cancel != nil {
 		cancel()
 		// Do not overlap encoders: besides unnecessary GPU consumption, an old
