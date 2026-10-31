@@ -89,15 +89,15 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 // a correctness loss. A non-zero result unlocks VOD; 0 means unknown (EVENT).
 func (m *HLSSessionManager) resolveDuration(ctx context.Context, effKey string, opts HLSStartOpts, ffmpegPath, inputURL string) float64 {
 	if opts.KnownDurationSec > 0 {
-		log.Printf("hls: using known duration=%.1fs for session %s", opts.KnownDurationSec, effKey)
+		log.Printf("hls: using known duration=%.1fs for session %q", opts.KnownDurationSec, effKey)
 		return opts.KnownDurationSec
 	}
 	if cached := m.cachedDuration(opts.Key); cached > 0 {
-		log.Printf("hls: using cached duration=%.1fs for session %s", cached, effKey)
+		log.Printf("hls: using cached duration=%.1fs for session %q", cached, effKey)
 		return cached
 	}
 	durationSec := probeDurationFn(ctx, ffmpegPath, inputURL)
-	log.Printf("hls: probed duration=%.1fs for session %s (0 = unknown → EVENT fallback)", durationSec, effKey)
+	log.Printf("hls: probed duration=%.1fs for session %q (0 = unknown → EVENT fallback)", durationSec, effKey)
 	return durationSec
 }
 
@@ -227,7 +227,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 	if !vod {
 		reason = " reason=" + vodReason(durationSec, opts.ForceVOD, mode, opts.NativeHLS)
 	}
-	log.Printf("hls: starting session %s (vod=%v sw_decode=%v%s)", effKey, s.spec.vod, s.spec.swDecode, reason)
+	log.Printf("hls: starting session %q (vod=%v sw_decode=%v%s)", effKey, s.spec.vod, s.spec.swDecode, reason)
 	if err := s.launch(0); err != nil {
 		s.releaseGPUSlot()
 		_ = srv.Close()
@@ -276,7 +276,7 @@ func (m *HLSSessionManager) reserveDecodeMode(s *HLSSession) {
 		s.mu.Unlock()
 		return
 	}
-	log.Printf("hls: GPU-decode cap reached (%d in use) — session %s decodes in software (NVENC still encodes)", m.gpuSem.held(), s.Key)
+	log.Printf("hls: GPU-decode cap reached (%d in use) — session %q decodes in software (NVENC still encodes)", m.gpuSem.held(), s.Key)
 	s.spec.swDecode = true
 }
 
@@ -311,7 +311,7 @@ func (m *HLSSessionManager) reclaimIdleGPUSlot() bool {
 	if victim == nil {
 		return false
 	}
-	log.Printf("hls: reclaiming GPU slot from idle session %s (idle=%s) for a new play", victimKey, now.Sub(oldest))
+	log.Printf("hls: reclaiming GPU slot from idle session %q (idle=%s) for a new play", victimKey, now.Sub(oldest))
 	victim.stop() // releases its GPU slot
 	return true
 }
