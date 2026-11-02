@@ -36,7 +36,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: github/codeql-action/init@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -51,4 +51,4 @@ jobs:
           printf '<!doctype html><title>CodeQL build stub</title>\n' > ui/dist/index.html
           go build ./cmd/server
 
-      - uses: github/codeql-action/analyze@ddf5ce7296213f5548c91e2dd19df2d77d2b2d66  # v3
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
