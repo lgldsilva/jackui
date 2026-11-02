@@ -22,7 +22,7 @@ RUN echo "Build at $BUILD_TIMESTAMP" && npm run build
 # Output goes to /app/ui/dist (configured in vite.config.ts)
 
 # Stage 2: Build backend
-FROM golang:1.26-alpine AS backend
+FROM golang:1.26.10-alpine3.24 AS backend
 ENV GOTOOLCHAIN=auto
 
 WORKDIR /app
@@ -48,7 +48,7 @@ RUN go build -trimpath -ldflags "-s -w \
       -o jackui ./cmd/server
 
 # Stage 3: Final image
-FROM alpine:3.20
+FROM alpine:3.24
 
 RUN apk add --no-cache ca-certificates tzdata ffmpeg && \
     addgroup -g 1000 jackui && \
