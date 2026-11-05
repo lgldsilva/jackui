@@ -26,14 +26,15 @@ export default defineConfig({
         'src/test-setup.ts',
         '**/*.d.ts',
       ],
-      // baseline ratchet — subir em direção a 90%. Vitest 4 V8 AST remapping
-      // rebaselined numbers (2026-09: lines 27.36, statements 26.2, branches
-      // 20.14, functions 20.21). Slack ~2pt below measured, same policy as v3.
+      // Baseline ratchet — climb toward 90%. Thresholds sit at the measured
+      // baseline, rounded DOWN to whole percents (2026-11: lines 32.79,
+      // statements 31.3, branches 25.45, functions 24.61) — never above
+      // measured. Re-measure with `make test-coverage` before bumping.
       thresholds: {
-        lines: 24,
-        statements: 24,
-        branches: 18,
-        functions: 18,
+        lines: 32,
+        statements: 31,
+        branches: 25,
+        functions: 24,
       },
     },
   },
