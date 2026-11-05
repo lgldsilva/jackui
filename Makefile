@@ -1,7 +1,7 @@
 .PHONY: setup help deploy deploy-auto deploy-cpu deploy-nvidia deploy-vaapi \
         deploy-vpn deploy-auto-vpn deploy-nvidia-vpn deploy-vaapi-vpn \
         detect-gpu \
-        restart logs down build test test-verbose clean \
+        restart logs down build test test-verbose test-coverage clean \
         dev-frontend dev-backend probe-gpu sonar-scan
 
 # ─────────────────────────────────────────
@@ -324,13 +324,27 @@ build-electron:
 # ─────────────────────────────────────────
 # tests
 # ─────────────────────────────────────────
+# Both suites run locally (same order as the CI container): Go + web Vitest.
+# `npm test` is the run-vitest.mjs wrapper and defaults to run mode — no
+# watch. Web coverage is an explicit target, mirroring CI's `--coverage`.
+# Deliberately no web/node_modules prerequisite: that target depends on the
+# always-out-of-date _check-npm pseudo-target, so the dependency would run
+# npm install on every invocation.
 test:
-	$(call step,Running tests...)
+	$(call step,Running Go tests...)
 	@go test ./internal/...
+	$(call step,Running web tests (vitest)...)
+	@cd web && npm test
 	$(call ok,All tests passed)
 
 test-verbose:
 	@go test -v ./internal/...
+	@cd web && npm test -- --reporter=verbose
+
+test-coverage:
+	$(call step,Running web tests with coverage...)
+	@cd web && npm test -- --coverage
+	$(call ok,Web coverage report in web/coverage/)
 
 # CA-3.2 — pass-rate over N consecutive runs (default 20). E.g.: make test-stability RUNS=5
 test-stability:
