@@ -24,7 +24,7 @@ export function renderTorrentInfoModal(props: {
 }) {
   const { info, result, isTranscoded, encoderLabel, onClose, onCopyHash, hashCopied, effectiveCategory, setOverrideCategory, handleClassifyCategory, classifyingCat, t } = props
   const pct = info.progress === undefined ? null : `${(info.progress * 100).toFixed(1)}%`
-  const Row = ({ icon, label, children }: { icon?: React.ReactNode; label: string; children: React.ReactNode }) => (
+  const Row = ({ icon, label, children }: { readonly icon?: React.ReactNode; readonly label: string; readonly children: React.ReactNode }) => (
     <div className="flex items-start gap-2 py-1.5 border-b border-default/40 last:border-0">
       <span className="text-text-muted text-xs w-28 flex-shrink-0 flex items-center gap-1.5">{icon}{label}</span>
       <span className="text-text-primary text-sm min-w-0 break-words flex-1">{children}</span>

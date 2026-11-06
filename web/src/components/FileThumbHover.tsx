@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
-type ThumbState = { url: string | null; label?: string; x: number; y: number }
+type ThumbState = { readonly url: string | null; readonly label?: string; readonly x: number; readonly y: number }
 type MouseLike = { clientX: number; clientY: number }
 
 // The floating preview only makes sense with a real pointer. On touch devices it

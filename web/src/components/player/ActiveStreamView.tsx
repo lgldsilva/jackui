@@ -189,6 +189,8 @@ export function ActiveStreamView(props: Readonly<{
   // files); a single item (or no playlist) shows the per-torrent picker.
   const aggregateMode = !!playlist && playlist.items.length > 1
   const pickerState = computeFilePickerState({ info, minimized, sidebarOpen, aggregateMode })
+  // Audio mode centers its content vertically on lg+ (see comment below).
+  const audioCenterClass = audioMode ? 'lg:justify-center' : ''
   return (
     <div className="flex flex-col lg:flex-row flex-1 min-h-0">
       {/* Main column: video + transport + status + panels. On lg+ the
@@ -200,7 +202,7 @@ export function ActiveStreamView(props: Readonly<{
           It still scrolls when EQ/lyrics expand past the height. */}
       <div className={audioMode && minimized
         ? 'flex flex-row flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1.5 min-w-0 lg:flex-nowrap lg:gap-x-4 lg:px-4'
-        : ['flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden', audioMode ? 'lg:justify-center' : ''].join(' ')}>
+        : ['flex flex-col min-w-0 lg:flex-1 lg:overflow-y-auto lg:overflow-x-hidden', audioCenterClass].join(' ')}>
       {/* Simplified audio player or full video. Audio uses <audio
           controls> with a DIRECT src, mirroring the audiotest.html that plays on iOS.
           Video keeps the existing player with HLS/transcode. */}

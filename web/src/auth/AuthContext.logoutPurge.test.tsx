@@ -78,9 +78,10 @@ vi.mock('../api/client', () => ({
 
 function Probe() {
   const { user, loading, login, logout } = useAuth()
+  const username = user ? user.username : 'anon'
   return (
     <div>
-      <span>{loading ? 'loading…' : user ? user.username : 'anon'}</span>
+      <span>{loading ? 'loading…' : username}</span>
       <button onClick={() => void login('alice', 'pw', false)}>login</button>
       <button onClick={() => void logout()}>logout</button>
     </div>

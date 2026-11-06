@@ -85,7 +85,8 @@ vi.mock('../api/client', () => ({
 
 function Probe() {
   const { user, loading } = useAuth()
-  return <div>{loading ? 'loading…' : user ? user.username : 'anon'}</div>
+  const username = user ? user.username : 'anon'
+  return <div>{loading ? 'loading…' : username}</div>
 }
 
 describe('stale session bootstrap (no refresh-token recursion)', () => {
