@@ -3,8 +3,11 @@ import { computeAudioCaps } from './audioCaps'
 
 describe('computeAudioCaps', () => {
   it('advertises codecs the browser reports as playable', () => {
-    const canPlay = (t: string) =>
-      t.includes('flac') ? 'probably' : t.includes('opus') ? 'maybe' : ''
+    const canPlay = (t: string) => {
+      if (t.includes('flac')) return 'probably'
+      if (t.includes('opus')) return 'maybe'
+      return ''
+    }
     const caps = computeAudioCaps(canPlay)
     expect(caps).toContain('flac')
     expect(caps).toContain('opus')

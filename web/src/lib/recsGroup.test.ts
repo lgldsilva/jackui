@@ -5,7 +5,7 @@ import { groupRecommendations, removeRec, recIdentity, OTHER_GROUP_KEY, OTHER_GR
 function mk(tmdbId: number, becauseOf?: string, kind: 'movie' | 'tv' = 'movie'): TmdbRecommendation {
   return {
     tmdbId, title: `Title ${tmdbId}`, year: 2020, posterUrl: '', overview: '',
-    voteAverage: 0, kind, ...(becauseOf !== undefined ? { becauseOf } : {}),
+    voteAverage: 0, kind, ...(becauseOf === undefined ? {} : { becauseOf }),
   }
 }
 
