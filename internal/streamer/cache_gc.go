@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anacrolix/torrent/metainfo"
 	"github.com/lgldsilva/jackui/internal/diskutil"
 )
 
@@ -119,32 +118,6 @@ func (s *Streamer) buildActiveMaps() (map[string]bool, map[string]string, int) {
 		nameToHash[name] = h.HexString()
 	}
 	return activeNames, nameToHash, len(s.active)
-}
-
-func (s *Streamer) augmentNameToHashFromMetainfo(nameToHash map[string]string) {
-	if s.metainfoDir == "" {
-		return
-	}
-	mEnts, err := os.ReadDir(s.metainfoDir)
-	if err != nil {
-		return
-	}
-	for _, m := range mEnts {
-		if m.IsDir() || !strings.HasSuffix(m.Name(), ".torrent") {
-			continue
-		}
-		mi, err := metainfo.LoadFromFile(filepath.Join(s.metainfoDir, m.Name()))
-		if err != nil {
-			continue
-		}
-		info, err := mi.UnmarshalInfo()
-		if err != nil || info.Name == "" {
-			continue
-		}
-		if _, ok := nameToHash[info.Name]; !ok {
-			nameToHash[info.Name] = mi.HashInfoBytes().HexString()
-		}
-	}
 }
 
 // ClearAll drops every active torrent and wipes the DataDir, *except* favorites.
