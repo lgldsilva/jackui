@@ -145,6 +145,9 @@ type Streamer struct {
 	// metainfoDir holds serialized .torrent files keyed by info_hash so that
 	// re-opening a previously-seen magnet skips the DHT metadata round-trip.
 	metainfoDir string
+	// miNames memoizes name→infohash per .torrent in metainfoDir (see
+	// metainfo_names.go) so Stats() does not re-parse every file per tick.
+	miNames metainfoNameCache
 	// verifiedFiles tracks "hash-fileIdx" keys we've already hash-checked
 	// against the disk this process lifetime, so we reconcile the cache for a
 	// given file exactly once (not on every FileReader call).
