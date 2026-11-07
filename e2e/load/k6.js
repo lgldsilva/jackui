@@ -193,7 +193,11 @@ export const options = {
 export function readScenario(data) {
   const token = data.token;
   const H = authHeaders(token);
-  const page = PAGE_ROUTES[Math.floor(Math.random() * PAGE_ROUTES.length)];
+  // k6 injects __VU and __ITER in the VU runtime. Rotating by those
+  // spreads page traffic without a pseudorandom generator.
+  const vu = globalThis.__VU || 0;
+  const iter = globalThis.__ITER || 0;
+  const page = PAGE_ROUTES[(vu + iter) % PAGE_ROUTES.length];
   const pres = http.get(`${BASE}${page.path}`, { tags: { route: page.tag, name: 'page' } });
   expectStatus(page.tag, pres, page.expected || 200);
 
@@ -241,7 +245,7 @@ export function authScenario() {
 export function handleSummary(data) {
   const lines = [];
   lines.push('==== PER-ROUTE p95 / ERR ====');
-  const sorted = Object.keys(trends).sort();
+  const sorted = Object.keys(trends).sort((a, b) => a.localeCompare(b));
   for (const tag of sorted) {
     const dur = data.metrics[`t_${tag}_dur`];
     const err = data.metrics[`c_${tag}_err`];
@@ -251,8 +255,10 @@ export function handleSummary(data) {
   }
   const agg = data.metrics.http_req_duration.values;
   const failed = data.metrics.http_req_failed.values;
-  lines.push('==== AGGREGATE ====');
-  lines.push(`http_req_duration p95=${agg['p(95)'].toFixed(1)}ms avg=${agg.avg.toFixed(1)}ms`);
-  lines.push(`http_req_failed rate=${(failed.rate * 100).toFixed(2)}%`);
+  lines.push(
+    '==== AGGREGATE ====',
+    `http_req_duration p95=${agg['p(95)'].toFixed(1)}ms avg=${agg.avg.toFixed(1)}ms`,
+    `http_req_failed rate=${(failed.rate * 100).toFixed(2)}%`,
+  );
   return { stdout: lines.join('\n') + '\n' };
 }
