@@ -82,6 +82,14 @@ function collectPageErrors(page: Page): string[] {
   return errors
 }
 
+// pageURL anchors the expected URL over the full address (BASE_URL + path).
+// An unanchored path regex would match any URL containing the path — and '/'
+// alone would match every URL, /login included.
+function pageURL(path: string): RegExp {
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`^${esc(BASE_URL.replace(/\/+$/, ''))}${esc(path)}$`)
+}
+
 async function expectPageRendered(page: Page, path: string) {
   const errors = collectPageErrors(page)
   await page.goto(path)
@@ -103,7 +111,7 @@ test.describe('protected pages (authenticated session)', () => {
   for (const path of PROTECTED_PAGES) {
     test(`renders ${path}`, async ({ authedPage }) => {
       await expectPageRendered(authedPage, path)
-      await expect(authedPage).toHaveURL(new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      await expect(authedPage).toHaveURL(pageURL(path))
     })
   }
 })
@@ -121,7 +129,7 @@ test.describe('public pages', () => {
   for (const path of PUBLIC_PAGES) {
     test(`renders ${path}`, async ({ page }) => {
       await expectPageRendered(page, path)
-      await expect(page).toHaveURL(new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+      await expect(page).toHaveURL(pageURL(path))
     })
   }
 })

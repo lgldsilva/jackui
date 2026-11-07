@@ -1,6 +1,7 @@
 // k6 load profile for jackui — moderate profile for a 2-OCPU aarch64 node.
 // Safe reads of the API surface plus net-zero writes and a login beat; envs:
-//   TARGET (base URL), ADMIN_USER/ADMIN_PASS (sweep admin), SMOKE=1 (20s run).
+//   TARGET (base URL), ADMIN_USER/ADMIN_PASS (sweep admin — ADMIN_PASS is
+//   required, no default is shipped), SMOKE=1 (20s run).
 // Full profile: 2m ramp to 10 VUs → 2m plateau → 30s spike to 25 → ramp down,
 // with constant-arrival writes and logins running concurrently.
 // Run (host network):
@@ -30,7 +31,7 @@ import { Trend, Counter } from 'k6/metrics';
 
 const BASE = (__ENV.TARGET || 'http://127.0.0.1:30108').replace(/\/$/, '');
 const ADMIN_USER = __ENV.ADMIN_USER || 'admin';
-const ADMIN_PASS = __ENV.ADMIN_PASS || 'SweepJackui-2026-Admin!';
+const ADMIN_PASS = __ENV.ADMIN_PASS || ''; // required — setup() fails without it
 
 // expected: HTTP status the route returns on a healthy app (probed before the run).
 // tag: short metric prefix.
@@ -137,6 +138,7 @@ function loginOnce() {
 }
 
 export function setup() {
+  if (!ADMIN_PASS) fail('setup: ADMIN_PASS env var is not set — no default password is shipped');
   return { token: loginOnce() };
 }
 
