@@ -243,7 +243,6 @@ export function handleSummary(data) {
   lines.push('==== PER-ROUTE p95 / ERR ====');
   const sorted = Object.keys(trends).sort();
   for (const tag of sorted) {
-    const t = trends[tag];
     const dur = data.metrics[`t_${tag}_dur`];
     const err = data.metrics[`c_${tag}_err`];
     const p95 = dur ? dur.values['p(95)'] : 0;
