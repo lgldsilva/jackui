@@ -110,7 +110,8 @@ func TestApplyFilePriorities_SelectedWantedRestCancelled(t *testing.T) {
 	}
 	g := Group{Key: grpKeyOf(members[0]), UserID: 1, Members: members}
 
-	w.applyFilePriorities(context.Background(), g, tor.InfoHash(), tor)
+	// Production registers the group init before applying priorities.
+	w.applyFilePriorities(withInitGen(context.Background(), w.registerGroupPending(g, func() {})), g, tor.InfoHash(), tor)
 
 	files := tor.Files()
 	for i, f := range files {
