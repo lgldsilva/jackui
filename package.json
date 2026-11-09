@@ -17,7 +17,7 @@
     "pack": "npm run build:go && npm run build:frontend && npx electron-builder --config electron/builder.config.ts --dir"
   },
   "devDependencies": {
-    "electron": "^43.8.4",
+    "electron": "^43.8.7",
     "electron-builder": "^26.18.0",
     "concurrently": "^10.0.6",
     "tsx": "^4.23.15",
