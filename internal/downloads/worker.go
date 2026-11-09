@@ -103,7 +103,12 @@ type Worker struct {
 	// tracked. Populated alongside `pending` once the hash is known; cleared with
 	// it. A zero hash (pre-metadata single-file init) means "hash unknown yet".
 	pendingHash map[int]metainfo.Hash
-	retries     map[int]int // transient init failures per download.ID
+	// pendingGen stamps each in-flight init with a generation (see
+	// init_gen.go): a cancelled init that exits AFTER a newer init registered
+	// for the same id must not clear, promote over or retry-count the newer one.
+	pendingGen map[int]uint64
+	pendingSeq uint64
+	retries    map[int]int // transient init failures per download.ID
 	// removed is a tombstone set of download IDs deleted via Remove(). An init
 	// goroutine that was already resolving metadata when the delete landed must
 	// NOT promote the row back into `tracked` (or re-register streamer
@@ -235,6 +240,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		tracked:         make(map[int]*trackedDL),
 		pending:         make(map[int]context.CancelFunc),
 		pendingHash:     make(map[int]metainfo.Hash),
+		pendingGen:      make(map[int]uint64),
 		retries:         make(map[int]int),
 		removed:         make(map[int]struct{}),
 		stop:            make(chan struct{}),
@@ -475,8 +481,9 @@ func (w *Worker) torrentStillActive(td *trackedDL) bool {
 func (w *Worker) startInit(d Download) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.mu.Lock()
-	w.setPendingLocked(d.ID, d.InfoHash, cancel)
+	gen := w.setPendingLocked(d.ID, d.InfoHash, cancel)
 	w.mu.Unlock()
+	ctx = withInitGen(ctx, gen)
 	w.doneWG.Add(1)
 	go w.initDownload(ctx, d)
 }
@@ -485,13 +492,19 @@ func (w *Worker) startInit(d Download) {
 // torrent hash (parsed from the row's infoHash; zero when unknown). Caller holds
 // w.mu. Keeps `pending` and `pendingHash` in lockstep so Remove can find a
 // sibling still in init.
-func (w *Worker) setPendingLocked(id int, infoHash string, cancel context.CancelFunc) {
+func (w *Worker) setPendingLocked(id int, infoHash string, cancel context.CancelFunc) uint64 {
+	w.pendingSeq++
+	if w.pendingGen == nil {
+		w.pendingGen = make(map[int]uint64)
+	}
+	w.pendingGen[id] = w.pendingSeq
 	w.pending[id] = cancel
 	var h metainfo.Hash
 	if infoHash != "" {
 		_ = h.FromHexString(infoHash)
 	}
 	w.pendingHash[id] = h
+	return w.pendingSeq
 }
 
 // clearPendingLocked drops an id's in-flight init bookkeeping (cancel + hash).
@@ -499,6 +512,7 @@ func (w *Worker) setPendingLocked(id int, infoHash string, cancel context.Cancel
 func (w *Worker) clearPendingLocked(id int) {
 	delete(w.pending, id)
 	delete(w.pendingHash, id)
+	delete(w.pendingGen, id)
 }
 
 // pendingSiblingLocked reports whether ANY in-flight init (other than excludeID)

@@ -114,10 +114,8 @@ func (w *Worker) preemptTeardown(d Download) {
 // blindly would expose a sibling file of the same torrent to LRU eviction.
 // Caller must hold w.mu.
 func (w *Worker) unregisterLocked(td *trackedDL) {
-	for id, other := range w.tracked {
-		if id != td.id && other.name == td.name {
-			return // a sibling still needs the protection
-		}
+	if w.protectionInUseLocked(td.name, td.hash, td.id) {
+		return // a sibling (any user) still needs the protection
 	}
 	w.streamer.UnregisterDownload(td.name)
 }

@@ -20,7 +20,7 @@ func (w *Worker) startGroupInit(g Group) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	w.registerGroupPending(g, cancel)
+	ctx = withInitGen(ctx, w.registerGroupPending(g, cancel))
 	w.doneWG.Add(1)
 	go w.initGroup(ctx, g)
 }
@@ -29,12 +29,20 @@ func (w *Worker) startGroupInit(g Group) {
 // the tick cleanup / Remove / preempt path can abort the group init by cancelling
 // any one member (cancel is idempotent). clearGroupPending removes the entries
 // when the init goroutine exits.
-func (w *Worker) registerGroupPending(g Group, cancel context.CancelFunc) {
+func (w *Worker) registerGroupPending(g Group, cancel context.CancelFunc) uint64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	for _, m := range g.Members {
+	// One generation for the whole group: every member's entry is stamped with it.
+	var gen uint64
+	for i, m := range g.Members {
+		if i == 0 {
+			gen = w.setPendingLocked(m.ID, m.InfoHash, cancel)
+			continue
+		}
 		w.setPendingLocked(m.ID, m.InfoHash, cancel)
+		w.pendingGen[m.ID] = gen
 	}
+	return gen
 }
 
 // initGroup resolves a multi-file selected group's torrent ONCE, applies file
@@ -44,7 +52,7 @@ func (w *Worker) registerGroupPending(g Group, cancel context.CancelFunc) {
 // group is retried/failed via the representative row.
 func (w *Worker) initGroup(ctx context.Context, g Group) {
 	defer w.doneWG.Done()
-	defer w.clearGroupPending(g)
+	defer w.clearGroupPending(ctx, g)
 
 	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -52,18 +60,18 @@ func (w *Worker) initGroup(ctx context.Context, g Group) {
 	rep := g.Members[0]
 	hash, err := w.ensureActiveWithFallback(ctx, &rep)
 	if err != nil {
-		w.failOrRetryGroup(g, "load torrent: "+err.Error())
+		w.failOrRetryGroup(ctx, g, "load torrent: "+err.Error())
 		return
 	}
 	t, ok := w.streamer.Client().Torrent(hash)
 	if !ok {
-		w.failOrRetryGroup(g, "torrent gone after EnsureActive")
+		w.failOrRetryGroup(ctx, g, "torrent gone after EnsureActive")
 		return
 	}
 	select {
 	case <-t.GotInfo():
 	case <-ctx.Done():
-		w.failOrRetryGroup(g, "timeout waiting for metadata")
+		w.failOrRetryGroup(ctx, g, "timeout waiting for metadata")
 		return
 	}
 	w.applyFilePriorities(ctx, g, hash, t)
@@ -82,7 +90,10 @@ func (w *Worker) applyFilePriorities(ctx context.Context, g Group, hash metainfo
 		// A member removed while this shared init was resolving metadata must NOT be
 		// marked wanted / tracked — that would resurrect a deleted row and fetch a
 		// file the user just cancelled. The tombstone is the authoritative guard.
-		if w.isRemoved(m.ID) {
+		// Same for a member whose init was cancelled after GotInfo (preempt/pause
+		// re-queued it): marking it wanted would download a queued row until the
+		// next tick undid it.
+		if w.isRemoved(m.ID) || !w.stillInitOwner(ctx, m.ID) {
 			continue
 		}
 		idx, ok := w.resolveFileIndex(&m, files)
@@ -123,20 +134,20 @@ func (w *Worker) persistMemberMetadata(d Download, t *torrent.Torrent, f *torren
 // clearGroupPending removes every member's pending entry and deletion tombstone
 // once the group init goroutine exits (mirrors initDownload's deferred cleanup,
 // per-id so a reused id starts clean).
-func (w *Worker) clearGroupPending(g Group) {
+func (w *Worker) clearGroupPending(ctx context.Context, g Group) {
+	gen := initGen(ctx)
 	w.mu.Lock()
 	for _, m := range g.Members {
-		w.clearPendingLocked(m.ID)
-		delete(w.removed, m.ID)
+		w.releasePendingLocked(m.ID, gen)
 	}
 	w.mu.Unlock()
 }
 
 // failOrRetryGroup applies failOrRetry to every member so a transient group-init
 // failure retries on the next tick (or fails the whole group at the cap).
-func (w *Worker) failOrRetryGroup(g Group, msg string) {
+func (w *Worker) failOrRetryGroup(ctx context.Context, g Group, msg string) {
 	for _, m := range g.Members {
-		w.failOrRetry(m, msg)
+		w.failOrRetry(ctx, m, msg)
 	}
 }
 
@@ -210,13 +221,5 @@ func (w *Worker) trackMember(d Download, t *torrent.Torrent, f *torrent.File, wh
 // sibling still needs it (mirrors unregisterLocked but by name, for the abort
 // path where there's no trackedDL to pass).
 func (w *Worker) unregisterByName(name string) {
-	w.mu.Lock()
-	for _, other := range w.tracked {
-		if other.name == name {
-			w.mu.Unlock()
-			return
-		}
-	}
-	w.mu.Unlock()
-	w.streamer.UnregisterDownload(name)
+	w.releaseProtection(name, metainfo.Hash{}, -1)
 }

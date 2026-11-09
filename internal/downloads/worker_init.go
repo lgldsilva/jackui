@@ -22,15 +22,16 @@ import (
 // touching the row's status.
 func (w *Worker) initDownload(ctx context.Context, d Download) {
 	defer w.doneWG.Done()
+	gen := initGen(ctx)
 	defer func() {
 		w.mu.Lock()
-		w.clearPendingLocked(d.ID)
-		// Clear any deletion tombstone now that THIS init has fully exited: the
-		// resurrection window is closed (we either bailed or promoted under the
-		// lock above), so an ID reused by a later Create starts clean. Done here
-		// (always-run defer) so the tombstone never leaks when init bails before
-		// the promotion guard (e.g. EnsureActive failed).
-		delete(w.removed, d.ID)
+		// Clear pending + any deletion tombstone now that THIS init has fully
+		// exited: the resurrection window is closed (we either bailed or promoted
+		// under the lock above), so an ID reused by a later Create starts clean.
+		// Done here (always-run defer) so the tombstone never leaks when init
+		// bails before the promotion guard (e.g. EnsureActive failed). Only the
+		// current owner clears — see init_gen.go.
+		w.releasePendingLocked(d.ID, gen)
 		w.mu.Unlock()
 	}()
 
@@ -64,12 +65,12 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 	// ensureActiveWithFallback recovers via a bare info_hash magnet.
 	hash, err := w.ensureActiveWithFallback(ctx, &d)
 	if err != nil {
-		w.failOrRetry(d, "load torrent: "+err.Error())
+		w.failOrRetry(ctx, d, "load torrent: "+err.Error())
 		return nil, "", false
 	}
 	t, ok := w.streamer.Client().Torrent(hash)
 	if !ok {
-		w.failOrRetry(d, "torrent gone after EnsureActive")
+		w.failOrRetry(ctx, d, "torrent gone after EnsureActive")
 		return nil, "", false
 	}
 	// Block waiting for metadata so the file slice is populated. ctx already
@@ -77,7 +78,7 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 	select {
 	case <-t.GotInfo():
 	case <-ctx.Done():
-		w.failOrRetry(d, "timeout waiting for metadata")
+		w.failOrRetry(ctx, d, "timeout waiting for metadata")
 		return nil, "", false
 	}
 
@@ -124,7 +125,7 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 		lastProgressAt: now,
 	}
 	td.lastProgressBytes, _, _ = td.progress()
-	if !w.promoteOrAbort(d, td, name) {
+	if !w.promoteOrAbort(ctx, d, td, name) {
 		return nil, "", false
 	}
 	return td, name, true
@@ -143,13 +144,13 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 // On abort it undoes the eviction protection initDownload speculatively
 // registered. The tombstone itself is cleared by initDownload's deferred
 // cleanup once this goroutine exits.
-func (w *Worker) promoteOrAbort(d Download, td *trackedDL, name string) bool {
+func (w *Worker) promoteOrAbort(ctx context.Context, d Download, td *trackedDL, name string) bool {
 	w.mu.Lock()
-	_, stillPending := w.pending[d.ID]
+	stillPending := w.ownsPendingLocked(d.ID, initGen(ctx))
 	_, tombstoned := w.removed[d.ID]
 	if !stillPending || tombstoned {
 		w.mu.Unlock()
-		w.streamer.UnregisterDownload(name)
+		w.releaseProtection(name, td.hash, d.ID)
 		return false
 	}
 	w.tracked[d.ID] = td
