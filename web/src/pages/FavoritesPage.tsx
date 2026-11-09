@@ -21,6 +21,7 @@ import { useToast } from '../components/Toast'
 import { useAuth } from '../auth/AuthContext'
 import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
+import { useMountedRef } from '../lib/useMountedRef'
 import { useRevealHidden } from '../lib/reveal'
 import { SortKey, SortDir, sortFavorites } from '../lib/favSort'
 import { errMessage } from '../lib/errMessage'
@@ -47,8 +48,9 @@ export default function FavoritesPage() {
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
   const { notify } = useToast()
-  const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  // StrictMode-safe (a ref only cleared in cleanup stayed false after the dev
+  // double-mount, dropping every loadDownloadsForFavs result).
+  const mountedRef = useMountedRef()
   // Favorite being sent to the download modal (destination + file selection).
   const [downloadTarget, setDownloadTarget] = useState<SearchResult | null>(null)
   // Mobile folder dropdown (the sidebar is hidden md:block — without this there's

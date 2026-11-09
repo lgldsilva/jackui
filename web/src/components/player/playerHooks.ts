@@ -392,9 +392,14 @@ export function useTrackProbe(opts: TrackProbeOpts) {
     // async probe callback.
     const savedChoice = load<SubChoiceLite | null>(`sub.${info.infoHash}.${selectedFile}`, null)
     const hasSavedChoice = !!savedChoice && (savedChoice.external !== null || savedChoice.embedded !== null || savedChoice.sidecar !== null)
+    // A probe for the PREVIOUS file (season pack: ep1 → ep2 before ep1's probe
+    // returns) must not land on the new file — it would show ep1's tracks and
+    // the persist effect would save ep1's subtitle pick under ep2's key.
+    let cancelled = false
 
     streamProbe(info.infoHash, selectedFile)
       .then(p => {
+        if (cancelled) return
         const safe = { audio: p.audio ?? [], subtitles: p.subtitles ?? [] }
         setProbe(safe)
         const ptSub = safe.subtitles.find(t => !t.image && /^(pt|por)/i.test(t.language || ''))
@@ -408,6 +413,7 @@ export function useTrackProbe(opts: TrackProbeOpts) {
     // Sidecar subtitle files (separate .srt in the torrent) — cheap, parallel with probe
     streamSidecars(info.infoHash, selectedFile)
       .then(list => {
+        if (cancelled) return
         setSidecars(list ?? [])
         // Auto-pick pt sidecar if no embedded already chosen and no saved choice
         if (!hasSavedChoice && !subActive && embeddedSub === null && list && list.length > 0) {
@@ -418,7 +424,8 @@ export function useTrackProbe(opts: TrackProbeOpts) {
           }
         }
       })
-      .catch(() => setSidecars([]))
+      .catch(() => { if (!cancelled) setSidecars([]) })
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash, selectedFile, serverReady])
 }

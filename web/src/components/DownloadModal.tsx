@@ -6,13 +6,14 @@ import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
   createParamsWhenFilesUnknown,
-  streamAdd, streamMetadata, StreamFile, TorrentInfo,
+  streamAdd, streamMetadata, StreamFile,
   dedupCheck, dedupLink, DedupCheckResult,
 } from '../api/client'
 import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import DownloadDestinationPicker from './DownloadDestinationPicker'
 import { FileSelectionSection } from './files/FileSelectionSection'
+import { resolveTorrentFiles } from './files/resolveTorrentFiles'
 import DedupPrompt from './DedupPrompt'
 import { linkableItems, planAfterLink } from '../lib/dedup'
 import { errMessage } from '../lib/errMessage'
@@ -199,32 +200,28 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   useEffect(() => {
     if (!result || selectedClientId !== INTERNAL_ID) {
       setFiles(null)
+      // A load cancelled by switching to an external client must not leave
+      // the spinner stuck (its async body bails before clearing it).
+      setFilesLoading(false)
+      setFilesError('')
       return
     }
     let cancelled = false
     setFilesLoading(true)
     setFilesError('')
-    const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
-    const infoHash = result.infoHash || canonicalInfoHash(result.infoHash, magnet)
-    const sourceForAdd = magnet || result.link || ''
-    ;(async () => {
-      let info: TorrentInfo | null = null
-      if (infoHash) info = await streamMetadata(infoHash)
-      if (!info && sourceForAdd) {
-        try { info = await streamAdd(sourceForAdd) } catch (e) {
-          if (!cancelled) setFilesError((e as Error)?.message || t('downloads.modal.metadataResolveFailed'))
-        }
-      }
+    resolveTorrentFiles(result, { metadata: streamMetadata, add: streamAdd }, {
+      notYet: t('downloads.modal.metadataNotYet'),
+      fallbackFailed: t('downloads.modal.metadataResolveFailed'),
+    }).then((res) => {
       if (cancelled) return
-      if ((info?.files?.length ?? 0) > 0) {
-        const resolved = info!.files ?? []
-        setFiles(resolved)
-        setSelectedFiles(pickInitialSelection(resolved, initialFileIndices))
-      } else if (!filesError) {
-        setFilesError(t('downloads.modal.metadataNotYet'))
+      if (res.files) {
+        setFiles(res.files)
+        setSelectedFiles(pickInitialSelection(res.files, initialFileIndices))
+      } else {
+        setFilesError(res.error)
       }
       setFilesLoading(false)
-    })()
+    })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, selectedClientId])
