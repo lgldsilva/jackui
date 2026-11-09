@@ -94,9 +94,9 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 // the row in `downloading` so the next tick re-launches init; at the cap it
 // flips the row to `failed`. A cancelled download (no longer in `pending`) is
 // left untouched.
-func (w *Worker) failOrRetry(d Download, msg string) {
+func (w *Worker) failOrRetry(ctx context.Context, d Download, msg string) {
 	w.mu.Lock()
-	_, stillPending := w.pending[d.ID]
+	stillPending := w.ownsPendingLocked(d.ID, initGen(ctx))
 	if !stillPending {
 		w.mu.Unlock()
 		return // cancelled during init — don't clobber status

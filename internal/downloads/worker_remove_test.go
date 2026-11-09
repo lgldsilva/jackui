@@ -185,7 +185,7 @@ func TestWorkerInit_TombstonedRowNotPromoted(t *testing.T) {
 	// Drive the promotion path the way initDownload does after GotInfo.
 	w.streamer.RegisterDownload("Late")
 	td := &trackedDL{id: d.ID, name: "Late", hash: hashFromHex(t, testHashHex)}
-	promoted := w.promoteOrAbort(*d, td, "Late")
+	promoted := w.promoteOrAbort(context.Background(), *d, td, "Late")
 
 	if promoted {
 		t.Fatal("a tombstoned (deleted) row must NOT be promoted by a late init")
@@ -213,7 +213,7 @@ func TestWorkerInit_LivePromoted(t *testing.T) {
 	w.mu.Unlock()
 
 	td := &trackedDL{id: d.ID, name: "Live", hash: hashFromHex(t, testHashHex)}
-	if !w.promoteOrAbort(*d, td, "Live") {
+	if !w.promoteOrAbort(context.Background(), *d, td, "Live") {
 		t.Fatal("a live (non-deleted) row must be promoted")
 	}
 	w.mu.Lock()
