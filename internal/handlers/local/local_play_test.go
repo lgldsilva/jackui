@@ -34,7 +34,7 @@ func TestFirstFormatName(t *testing.T) {
 	}
 }
 
-func TestMountSourceAndCloseSource(t *testing.T) {
+func TestMountSourceIsClosableOwnedSession(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.bin")
 	if err := os.WriteFile(p, []byte("abcdef"), 0o644); err != nil {
@@ -44,25 +44,31 @@ func TestMountSourceAndCloseSource(t *testing.T) {
 	defer reg.Close()
 
 	f, _ := os.Open(p)
-	src, key := mountSource(reg, "k-hls", f, 6)
-	if key != "k-hls" {
-		t.Fatalf("key=%q want k-hls", key)
-	}
+	src := mountSource(reg, "k-hls", f, 6)
 	if _, ok := reg.Get("k-hls"); !ok {
 		t.Fatal("mountSource did not register the session")
 	}
-	if _, isSession := src.(*localstream.Session); !isSession {
-		t.Fatal("expected a *localstream.Session source")
+	if _, owned := src.(*localstream.OwnedSession); !owned {
+		t.Fatalf("expected an *localstream.OwnedSession source, got %T", src)
 	}
-	closeSource(reg, key, src, f)
+	// The transcoder releases the source via io.Closer — that must close the
+	// file and unmap the status slot (it used to be a no-op: fd leak).
+	if err := src.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reg.Get("k-hls"); ok {
+		t.Fatal("Close must unmap the session")
+	}
+	if _, err := f.Stat(); err == nil {
+		t.Fatal("Close must close the underlying file")
+	}
 
 	// nil registry → raw file passthrough.
 	f2, _ := os.Open(p)
-	src2, key2 := mountSource(nil, "x", f2, 6)
-	if src2 != f2 || key2 != "x" {
+	if src2 := mountSource(nil, "x", f2, 6); src2 != f2 {
 		t.Fatal("nil-reg mountSource should return the raw file unchanged")
 	}
-	closeSource(nil, key2, src2, f2)
+	_ = f2.Close()
 }
 
 // TestClassifyForBrowser pins the direct-play vs HLS decision so a future tweak
