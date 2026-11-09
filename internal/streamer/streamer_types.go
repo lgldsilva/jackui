@@ -26,6 +26,11 @@ type entry struct {
 	// instead of lingering until the idle reaper. While viewers > 0 the torrent
 	// survives — so closing one of several browsers doesn't kill the others.
 	viewers int
+	// viewerOwners splits viewers by lease owner (user + optional playback id,
+	// see AcquireViewerFor) so one client's release — or a duplicate/forged
+	// release — can't consume another client's lease. Legacy owner-less
+	// acquires (AcquireViewer) only touch the viewers total.
+	viewerOwners map[string]int
 	// leaseAt is when the viewer lease was last ACQUIRED (AcquireViewer). The
 	// frontend releases the lease on React unmount only — there is no
 	// pagehide/beforeunload release — so a dead tab leaves viewers > 0 forever;

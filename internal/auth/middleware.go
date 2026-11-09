@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -200,6 +201,13 @@ func UserIDFromCtx(c *gin.Context) (int, bool, bool) {
 		return 0, false, false
 	}
 	return claims.UserID, claims.Role == RoleAdmin, true
+}
+
+// UserKey is a stable per-user key ("u<id>") for per-user resource accounting
+// (HLS session caps, viewer leases). Auth disabled → "u0" for everyone.
+func UserKey(c *gin.Context) string {
+	uid, _, _ := UserIDFromCtx(c)
+	return "u" + strconv.Itoa(uid)
 }
 
 func extractToken(c *gin.Context) string {

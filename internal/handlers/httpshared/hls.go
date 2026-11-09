@@ -1,6 +1,7 @@
 package httpshared
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -70,4 +71,13 @@ func ServeSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
 	c.Header("Content-Type", "video/mp2t")
 	c.Header("Cache-Control", "max-age=3600")
 	c.File(path)
+}
+
+// HLSStartStatus maps a GetOrStart error to its HTTP status: the session cap
+// is a 429 (retryable once another playback ends), anything else a 500.
+func HLSStartStatus(err error) int {
+	if errors.Is(err, transcode.ErrTooManySessions) {
+		return http.StatusTooManyRequests
+	}
+	return http.StatusInternalServerError
 }

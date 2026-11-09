@@ -130,6 +130,8 @@ All variables below accept empty/unset as "use default". Application defaults ar
 | | `JACKUI_PEERS_HIGH` | `200` | Swarm high-water mark |
 | | `JACKUI_PEER_PORT` | — | Fixed listen port (overrides forwarded port) |
 | | `JACKUI_MAX_GPU_TRANSCODES` | `3` | Cap on concurrent HW decoders (`0` = unlimited) |
+| | `JACKUI_HLS_MAX_SESSIONS` | `24` | Cap on concurrent HLS ffmpeg sessions; over it → `429` (`0` = unlimited) |
+| | `JACKUI_HLS_MAX_SESSIONS_PER_USER` | `8` | Per-user HLS session cap; at the cap the user's least-recently-used session is replaced (`0` = unlimited) |
 | | `JACKUI_MAX_UPLOAD_MB` | — | Max upload per torrent (MiB) |
 | | `JACKUI_IDLE_MINUTES` | `30` | Drop torrent after N min idle (files stay) |
 | | `JACKUI_METADATA_SECONDS` | `60` | Metadata fetch timeout |
