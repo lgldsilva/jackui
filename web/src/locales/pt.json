@@ -218,6 +218,7 @@
     "add_to_playlist": "Adicionar a uma playlist",
     "open_magnet": "Abrir com app associado (qBittorrent, etc.)",
     "copy_magnet": "Copiar link magnet",
+    "copied": "Copiado!",
     "download_torrent": "Baixar arquivo .torrent",
     "send_to_client": "Enviar para cliente de download (qBittorrent/Deluge)",
     "moreActions": "Mais ações",

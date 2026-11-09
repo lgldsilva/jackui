@@ -29,38 +29,46 @@ export function TransfersProvider({ children }: TransfersProviderProps) {
   const [transfers, setTransfers] = useState<TransferSnapshot[]>([])
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopped = useRef(false)
+  // gen identifies the ONE live poll loop. Every (re)start bumps it, and a
+  // loop whose generation is stale neither applies its response nor
+  // reschedules — otherwise bump() during an in-flight request (when
+  // timer.current holds an already-fired timeout) started a second loop that
+  // never died, one extra poller per move/promote/cancel.
+  const gen = useRef(0)
 
-  const poll = useCallback(async () => {
-    if (stopped.current) return
+  const poll = useCallback(async (my: number) => {
+    if (stopped.current || my !== gen.current) return
     let next = POLL_IDLE_MS
     try {
       const list = await transfersList()
-      if (stopped.current) return
+      if (stopped.current || my !== gen.current) return
       setTransfers(list)
       // Keep polling fast while anything is still running OR queued.
       next = list.some((t) => t.status === 'running' || t.status === 'queued') ? POLL_ACTIVE_MS : POLL_IDLE_MS
     } catch {
       // transient (e.g. token refresh) — back off to idle and try again
     }
+    if (my !== gen.current) return
     // Pause while the tab is hidden: the transfers dock in the background
     // doesn't need to run when nobody is looking. visibilitychange resumes on
     // focus; bump() also forces an immediate poll after any user move/promote.
     // timer=null signals "paused" so the resume doesn't duplicate.
     if (!stopped.current && !document.hidden) {
-      timer.current = setTimeout(poll, next)
+      timer.current = setTimeout(() => { poll(my).catch(() => {}) }, next)
     } else {
       timer.current = null
     }
   }, [])
 
+  // firePoll (re)starts THE poll loop: retires any previous loop (pending
+  // timer or in-flight request) and polls now.
   const firePoll = useCallback(() => {
-    poll().catch(() => { /* next interval retries */ })
+    gen.current += 1
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    poll(gen.current).catch(() => { /* next interval retries */ })
   }, [poll])
 
-  const bump = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current)
-    firePoll()
-  }, [firePoll])
+  const bump = firePoll
 
   // Optimistically drop the job from the dock, tell the backend to abort, then
   // refresh (the job will come back as "canceled" briefly, then prune).
@@ -84,6 +92,7 @@ export function TransfersProvider({ children }: TransfersProviderProps) {
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       stopped.current = true
+      gen.current += 1
       if (timer.current) { clearTimeout(timer.current); timer.current = null }
       document.removeEventListener('visibilitychange', onVisible)
     }
