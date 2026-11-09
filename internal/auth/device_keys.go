@@ -65,6 +65,11 @@ type DeviceKeyMeta struct {
 const deviceKeyCols = `k.id, k.user_id, u.username, k.device_id, k.name, k.model, k.pin_hash,
 	k.pin_failures, k.pin_locked_until, k.created_at, k.last_used_at, k.last_ip`
 
+// deviceKeySelect is the shared SELECT…JOIN…WHERE prefix. Callers append only
+// the predicate (and any ORDER BY) so the column list and "SELECT " live once.
+const deviceKeySelect = "SELECT " + deviceKeyCols +
+	" FROM device_keys k JOIN users u ON u.id = k.user_id WHERE "
+
 type rowScanner interface{ Scan(dest ...any) error }
 
 func scanDeviceKey(r rowScanner) (*DeviceKey, error) {
@@ -121,7 +126,7 @@ func (s *Store) LookupDeviceKey(plain string) (*DeviceKey, error) {
 		return nil, ErrDeviceKeyInvalid
 	}
 	k, err := scanDeviceKey(s.db.QueryRow(
-		"SELECT "+deviceKeyCols+" FROM device_keys k JOIN users u ON u.id = k.user_id WHERE k.key_hash = ? AND k.revoked_at IS NULL",
+		deviceKeySelect+"k.key_hash = ? AND k.revoked_at IS NULL",
 		sha256Hex(plain),
 	))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -138,7 +143,7 @@ func (s *Store) TouchDeviceKey(id int64, ip string) error {
 
 // ListDeviceKeys returns active keys. userID < 0 lists every user's keys (admin).
 func (s *Store) ListDeviceKeys(userID int) ([]DeviceKey, error) {
-	q := "SELECT " + deviceKeyCols + " FROM device_keys k JOIN users u ON u.id = k.user_id WHERE k.revoked_at IS NULL"
+	q := deviceKeySelect + "k.revoked_at IS NULL"
 	args := []any{}
 	if userID >= 0 {
 		q += " AND k.user_id = ?"
@@ -150,7 +155,7 @@ func (s *Store) ListDeviceKeys(userID int) ([]DeviceKey, error) {
 // DeviceProfiles lists the active keys sharing deviceID (the TV's profile picker).
 func (s *Store) DeviceProfiles(deviceID string) ([]DeviceKey, error) {
 	return s.queryDeviceKeys(
-		"SELECT "+deviceKeyCols+" FROM device_keys k JOIN users u ON u.id = k.user_id WHERE k.device_id = ? AND k.revoked_at IS NULL ORDER BY u.username",
+		deviceKeySelect+"k.device_id = ? AND k.revoked_at IS NULL ORDER BY u.username",
 		deviceID,
 	)
 }
