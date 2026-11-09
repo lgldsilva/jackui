@@ -6,13 +6,14 @@ import {
   SearchResult, DownloadClient, getClients, downloadTorrent, downloadCreate,
   downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
   createParamsWhenFilesUnknown,
-  streamAdd, streamMetadata, StreamFile, TorrentInfo,
+  streamAdd, StreamFile,
   dedupCheck, dedupLink, DedupCheckResult,
 } from '../api/client'
 import { Sheet } from './Sheet'
 import { load, save, pushMRU } from '../lib/storage'
 import DownloadDestinationPicker from './DownloadDestinationPicker'
 import { FileSelectionSection } from './files/FileSelectionSection'
+import { useTorrentFiles } from './files/useTorrentFiles'
 import DedupPrompt from './DedupPrompt'
 import { linkableItems, planAfterLink } from '../lib/dedup'
 import { errMessage } from '../lib/errMessage'
@@ -148,9 +149,6 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   // Torrent files preview — when destination = internal JackUI, the picker shows
   // the list for the user to check/uncheck what to download. null = still loading
   // or external destination (an external client downloads everything, no way to filter).
-  const [files, setFiles] = useState<StreamFile[] | null>(null)
-  const [filesLoading, setFilesLoading] = useState(false)
-  const [filesError, setFilesError] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set())
   // Chosen destination for the internal download (#16); empty = default dir.
   const [dest, setDest] = useState<{ destBase: string; destSubdir: string }>({ destBase: '', destSubdir: '' })
@@ -168,8 +166,6 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
     setError('')
     setSuccess(false)
     setSuccessInfo(null)
-    setFiles(null)
-    setFilesError('')
     setSelectedFiles(new Set())
     setDedup(null)
     setRecentPaths(load<string[]>(KEY_RECENT_PATHS, []))
@@ -196,38 +192,12 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
   // cache first (instant if the torrent was played/downloaded before);
   // if empty, does streamAdd to resolve. Failures become a friendly notice — the user
   // can still click Confirm and the worker tries to resolve on the backend.
-  useEffect(() => {
-    if (!result || selectedClientId !== INTERNAL_ID) {
-      setFiles(null)
-      return
-    }
-    let cancelled = false
-    setFilesLoading(true)
-    setFilesError('')
-    const magnet = result.magnetUri || (result.infoHash ? `magnet:?xt=urn:btih:${result.infoHash}` : '')
-    const infoHash = result.infoHash || canonicalInfoHash(result.infoHash, magnet)
-    const sourceForAdd = magnet || result.link || ''
-    ;(async () => {
-      let info: TorrentInfo | null = null
-      if (infoHash) info = await streamMetadata(infoHash)
-      if (!info && sourceForAdd) {
-        try { info = await streamAdd(sourceForAdd) } catch (e) {
-          if (!cancelled) setFilesError((e as Error)?.message || t('downloads.modal.metadataResolveFailed'))
-        }
-      }
-      if (cancelled) return
-      if ((info?.files?.length ?? 0) > 0) {
-        const resolved = info!.files ?? []
-        setFiles(resolved)
-        setSelectedFiles(pickInitialSelection(resolved, initialFileIndices))
-      } else if (!filesError) {
-        setFilesError(t('downloads.modal.metadataNotYet'))
-      }
-      setFilesLoading(false)
-    })()
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result, selectedClientId])
+  const { files, loading: filesLoading, error: filesError } = useTorrentFiles(
+    result,
+    selectedClientId === INTERNAL_ID,
+    { notYet: t('downloads.modal.metadataNotYet'), fallbackFailed: t('downloads.modal.metadataResolveFailed') },
+    (resolved) => setSelectedFiles(pickInitialSelection(resolved, initialFileIndices)),
+  )
 
   // finishInternal enqueues the internal download for `selection`. Clears the
   // dedup prompt either way so an error surfaces in the modal.
