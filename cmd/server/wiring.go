@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"log/slog"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -133,8 +132,8 @@ func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) streamer.C
 		PieceHashers:       cfg.Stream.PieceHashers,
 		SeedTrackers:       cfg.Stream.SeedTrackers,
 	}
-	if u, perr := url.Parse(cfg.Jackett.URL); perr == nil {
-		sc.JackettHost = u.Hostname()
+	if addr, ok := streamer.JackettAddrFromURL(cfg.Jackett.URL); ok {
+		sc.JackettAddr = addr
 	}
 	// Inbound BitTorrent peer port. Behind a VPN it must be the provider's
 	// forwarded port (read from gluetun) so peers can reach us — seeds public

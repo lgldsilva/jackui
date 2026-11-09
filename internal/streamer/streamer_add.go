@@ -208,18 +208,22 @@ func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 }
 
 func (s *Streamer) injectJackettAPIKey(torrentURL string) string {
-	if s.cfg.JackettHost == "" {
+	addr, apiKey := s.jackett()
+	if addr == "" || apiKey == "" {
 		return torrentURL
 	}
 	u, err := url.Parse(torrentURL)
-	if err != nil || u.Hostname() != s.cfg.JackettHost {
+	if err != nil {
 		return torrentURL
 	}
-	if s.cfg.JackettAPIKey == "" || u.Query().Get("apikey") != "" {
+	if got, ok := jackettAddrFromParsed(u); !ok || got != addr {
+		return torrentURL
+	}
+	if u.Query().Get("apikey") != "" {
 		return torrentURL
 	}
 	q := u.Query()
-	q.Set("apikey", s.cfg.JackettAPIKey)
+	q.Set("apikey", apiKey)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -265,7 +269,8 @@ func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string, ds 
 	var capturedMagnet string
 
 	torrentURL = s.injectJackettAPIKey(torrentURL)
-	httpClient := newSSRFGuardedClient(s.cfg.JackettHost, &capturedMagnet)
+	jackettAddr, _ := s.jackett()
+	httpClient := newSSRFGuardedClient(jackettAddr, &capturedMagnet)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", torrentURL, nil)
 	if err != nil {

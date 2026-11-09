@@ -72,6 +72,10 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 		AudioCodec:   c.Query("acodec"),
 		Container:    c.DefaultQuery("container", "mp4"),
 	}
+	if err := transcode.ValidateOptions(nil, opts); err != nil {
+		httpshared.RespondError(c, http.StatusBadRequest, err)
+		return
+	}
 
 	// External subtitle burn-in (additive; absent/empty burnsub = unchanged
 	// behavior). The path is fully guarded before any ffmpeg args are built.
@@ -118,7 +122,7 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 // libass sentinel is the same client-input problem the early Cached() check
 // reports as 400 — errors.Is also matches ValidateOptions' wrapped form.
 func transcodeRunStatus(err error) int {
-	if errors.Is(err, transcode.ErrSubtitlesFilterUnavailable) {
+	if errors.Is(err, transcode.ErrSubtitlesFilterUnavailable) || errors.Is(err, transcode.ErrInvalidOption) {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

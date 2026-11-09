@@ -42,8 +42,8 @@ func TestAddFromTorrentURL_RetriesOn404(t *testing.T) {
 	defer srv.Close()
 
 	u, _ := url.Parse(srv.URL)
-	// JackettHost makes the SSRF guard trust the loopback httptest server.
-	s, err := newTestStreamer(t, Config{DataDir: t.TempDir(), JackettHost: u.Hostname()})
+	// JackettAddr makes the SSRF guard trust the loopback httptest server.
+	s, err := newTestStreamer(t, Config{DataDir: t.TempDir(), JackettAddr: u.Host})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

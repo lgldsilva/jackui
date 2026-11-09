@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,11 +79,14 @@ type Config struct {
 	MaxDownloadRate int64
 	// MaxUploadRate caps outbound peer bandwidth in bytes/sec; 0 = unlimited.
 	MaxUploadRate int64
-	// JackettHost is the host (no port) of the configured Jackett instance. The
-	// SSRF guard trusts it (Jackett lives on the private LAN, so its download
+	// JackettAddr is the host:port of the configured Jackett instance (port
+	// defaulted from the scheme — see JackettAddrFromURL). The SSRF guard trusts
+	// exactly that address (Jackett lives on the private LAN, so its download
 	// links are legitimately private addresses) and the apikey below is injected
-	// server-side so it never has to travel through the browser.
-	JackettHost   string
+	// server-side so it never has to travel through the browser. Matching the
+	// port matters: trusting the bare host would open every other service on
+	// the Jackett box to SSRF, with the apikey attached.
+	JackettAddr   string
 	JackettAPIKey string
 	// ListenPort is the BitTorrent peer port for inbound connections. 0 → DefaultPeerPort.
 	// Behind a VPN this should be the provider's forwarded port so peers can
@@ -113,13 +115,16 @@ type Config struct {
 type FilePathResolver func(hash metainfo.Hash, fileIdx int) (string, bool)
 
 type Streamer struct {
-	cfg    Config
-	client *torrent.Client
-	mu     sync.Mutex
-	active map[metainfo.Hash]*entry
-	favs   *FavoritesStore // optional — nil disables favorites protection
-	cache  *MetadataCache  // optional — nil disables instant-open snapshots
-	stop   chan struct{}
+	cfg Config
+	// jackettMu guards cfg.JackettAddr/JackettAPIKey, which PUT /config rewrites
+	// while Add requests read them.
+	jackettMu sync.RWMutex
+	client    *torrent.Client
+	mu        sync.Mutex
+	active    map[metainfo.Hash]*entry
+	favs      *FavoritesStore // optional — nil disables favorites protection
+	cache     *MetadataCache  // optional — nil disables instant-open snapshots
+	stop      chan struct{}
 	// closeOnce makes Close() idempotent: manual shutdown and the GC loop's
 	// teardown can both call it, and close(s.stop) panics on a second close.
 	closeOnce        sync.Once
@@ -314,12 +319,23 @@ func (s *Streamer) SetMetadataCache(c *MetadataCache) { s.cache = c }
 // MetadataCache returns the attached cache (may be nil).
 func (s *Streamer) MetadataCache() *MetadataCache { return s.cache }
 
-// UpdateJackettHost refreshes the trusted Jackett hostname used by the SSRF
-// guard. Called after the user changes the Jackett URL via the API.
-func (s *Streamer) UpdateJackettHost(rawURL string) {
-	if u, err := url.Parse(rawURL); err == nil {
-		s.cfg.JackettHost = u.Hostname()
+// UpdateJackett refreshes the trusted Jackett address used by the SSRF guard
+// and the apikey injected into its download links. Called after the user
+// changes the Jackett config via the API. An unparseable URL keeps the
+// previous address; the key is always replaced.
+func (s *Streamer) UpdateJackett(rawURL, apiKey string) {
+	s.jackettMu.Lock()
+	defer s.jackettMu.Unlock()
+	if addr, ok := JackettAddrFromURL(rawURL); ok {
+		s.cfg.JackettAddr = addr
 	}
+	s.cfg.JackettAPIKey = apiKey
+}
+
+func (s *Streamer) jackett() (addr, apiKey string) {
+	s.jackettMu.RLock()
+	defer s.jackettMu.RUnlock()
+	return s.cfg.JackettAddr, s.cfg.JackettAPIKey
 }
 
 func New(cfg Config) (*Streamer, error) {
