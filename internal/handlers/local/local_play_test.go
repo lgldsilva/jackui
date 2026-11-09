@@ -65,7 +65,7 @@ func TestMountSourceIsClosableOwnedSession(t *testing.T) {
 
 	// nil registry → raw file passthrough.
 	f2, _ := os.Open(p)
-	if src2 := mountSource(nil, "x", f2, 6); src2 != f2 {
+	if mountSource(nil, "x", f2, 6) != f2 {
 		t.Fatal("nil-reg mountSource should return the raw file unchanged")
 	}
 	_ = f2.Close()
