@@ -63,4 +63,44 @@ describe('TransfersProvider polling', () => {
     await act(async () => { first([{ id: 'old', status: 'done' }]) })
     expect(result.current.transfers).toEqual(fresh)
   })
+
+  it('pauses while the tab is hidden and resumes on visibilitychange', async () => {
+    renderHook(() => useTransfers(), { wrapper })
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    await act(async () => { pending.splice(0).forEach((r) => r([])) })
+    list.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+    expect(list).not.toHaveBeenCalled() // paused: no timer rescheduled
+
+    hidden.mockReturnValue(false)
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(list).toHaveBeenCalledTimes(1)
+    hidden.mockRestore()
+  })
+
+  it('polls fast while a job is running and cancel() drops it optimistically', async () => {
+    const { result } = renderHook(() => useTransfers(), { wrapper })
+    await act(async () => { pending.splice(0).forEach((r) => r([{ id: 'j1', status: 'running' }])) })
+    expect(result.current.transfers).toHaveLength(1)
+    list.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    expect(list).toHaveBeenCalledTimes(1) // 1s cadence while running
+
+    await act(async () => { result.current.cancel('j1') })
+    expect(result.current.transfers).toHaveLength(0)
+  })
+
+  it('survives a failed poll and keeps polling', async () => {
+    renderHook(() => useTransfers(), { wrapper })
+    list.mockImplementationOnce(() => Promise.reject(new Error('401')))
+    // first (mount) call is pending; fail it via a fresh rejected poll path
+    await act(async () => { pending.splice(0).forEach((r) => r([])) })
+    list.mockClear()
+    list.mockImplementationOnce(() => Promise.reject(new Error('401')))
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(list).toHaveBeenCalledTimes(1)
+    list.mockImplementation(() => new Promise((r) => pending.push(r)))
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(list).toHaveBeenCalledTimes(2) // backed off to idle and retried
+  })
 })

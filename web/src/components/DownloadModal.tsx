@@ -221,7 +221,7 @@ export default function DownloadModal({ result, onClose, initialFileIndices, nes
         setFilesError(res.error)
       }
       setFilesLoading(false)
-    })
+    }).catch(() => { if (!cancelled) setFilesLoading(false) }) // resolveTorrentFiles never rejects; belt and braces
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, selectedClientId])
