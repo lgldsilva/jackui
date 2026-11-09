@@ -1916,5 +1916,35 @@
       "aiRename": "Organizando (IA)",
       "generic": "Transferência"
     }
+  },
+  "link": {
+    "title": "Conectar dispositivo",
+    "loading": "Carregando…",
+    "enter_code": "Digite o código exibido na TV",
+    "continue": "Continuar",
+    "not_found": "Código inválido ou expirado. Gere um novo QR na TV.",
+    "asks": "“{{name}}” quer acessar sua conta",
+    "from_ip": "Pedido de {{ip}}",
+    "warning": "Só autorize se este pedido veio de um dispositivo seu, agora. O dispositivo poderá navegar e reproduzir com sua conta, sem acesso a senha, MFA ou administração.",
+    "authorize": "Autorizar",
+    "deny": "Recusar",
+    "approved": "“{{name}}” conectado. Pode voltar para a TV.",
+    "denied": "Pedido recusado.",
+    "go_home": "Ir para o início"
+  },
+  "devices": {
+    "title": "Dispositivos",
+    "loading": "Carregando dispositivos…",
+    "hint": "TVs e apps conectados por QR code. Remover desconecta o dispositivo em até 15 minutos.",
+    "empty": "Nenhum dispositivo conectado.",
+    "last_used": "Usado em {{when}}",
+    "never_used": "Nunca usado",
+    "has_pin": "com PIN",
+    "revoke": "Remover dispositivo",
+    "revoke_confirm": "Remover “{{name}}”? Ele precisará ser conectado de novo.",
+    "pin_edit": "PIN do perfil",
+    "pin_placeholder": "PIN (4–6 dígitos)",
+    "pin_save": "Salvar PIN",
+    "pin_clear": "Remover PIN"
   }
 }

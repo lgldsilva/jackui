@@ -7,6 +7,7 @@ import UsersAdminCard from '../../components/UsersAdminCard'
 import ErrorBoundary from '../../components/ErrorBoundary'
 import { Sheet } from '../../components/Sheet'
 import { getRefreshToken } from '../../auth/AuthContext'
+import DevicesCard from '../../components/devices/DevicesCard'
 
 // SessionsList — body of the sessions modal. Early-returns instead of nested
 // ternaries (S3358), outside the parent component (S6478).
@@ -80,6 +81,8 @@ export default function AccountTab() {
     <>
       <ErrorBoundary title={t('settings.error_account_card')}><AccountCard /></ErrorBoundary>
       <ErrorBoundary title={t('settings.error_users_card')}><UsersAdminCard /></ErrorBoundary>
+
+      <ErrorBoundary title={t('devices.title')}><DevicesCard /></ErrorBoundary>
 
       {/* Sessions modal trigger */}
       <section className="card">
