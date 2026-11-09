@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localcache"
@@ -136,10 +137,12 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 		ForceVOD:   true,
 		AudioOnly:  src.audioOnly,
 		AudioTrack: src.audioTrack,
+		Owner:      auth.UserKey(c),
 	})
 	if err != nil {
-		// GetOrStart owns the source and has already closed it.
-		httpshared.RespondError(c, http.StatusInternalServerError, err)
+		// GetOrStart owns the source and has already closed it, including when
+		// the session cap refuses the start.
+		httpshared.RespondError(c, httpshared.HLSStartStatus(err), err)
 		return nil, err
 	}
 	return sess, nil

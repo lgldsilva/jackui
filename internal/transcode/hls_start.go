@@ -47,9 +47,21 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 		}
 		ch, inFlight := m.starting[effKey]
 		if !inFlight {
+			victim, aerr := m.admitLocked(opts.Owner)
+			if aerr != nil {
+				m.mu.Unlock()
+				closeIfCloser(opts.Source)
+				return nil, aerr
+			}
 			ch = make(chan struct{})
 			m.starting[effKey] = ch
+			if m.startingOwner != nil {
+				m.startingOwner[effKey] = opts.Owner
+			}
 			m.mu.Unlock()
+			if victim != nil {
+				victim.stop()
+			}
 			break // we are the builder
 		}
 		m.mu.Unlock()
@@ -67,10 +79,12 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	s, err := m.buildSession(ctx, effKey, opts)
 	m.mu.Lock()
 	if err == nil {
+		s.owner = opts.Owner
 		m.sess[effKey] = s
 	}
 	ch := m.starting[effKey]
 	delete(m.starting, effKey)
+	delete(m.startingOwner, effKey)
 	m.mu.Unlock()
 	close(ch) // wake waiters: on success they find the session; on failure one retries
 	if err != nil {
