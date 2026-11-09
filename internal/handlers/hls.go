@@ -246,6 +246,7 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 		// Player already probed to pick HLS vs direct-play — reuse that
 		// duration so we don't block first-frame on a second 30s probe.
 		KnownDurationSec: pickKnownDuration(probeSource(hc)),
+		Owner:            auth.UserKey(hc.c),
 	}
 	if t := hlsAudioTrackParam(hc.c); t >= 0 {
 		// Audio-only rendition (a/:track): audio-only session for track t, no video.
@@ -257,7 +258,7 @@ func startHLSSession(hc *hlsCtx, source io.ReadSeekCloser, sourceSize int64, com
 	}
 	sess, err := hc.mgr.GetOrStart(hc.c.Request.Context(), opts)
 	if err != nil {
-		httpshared.RespondError(hc.c, http.StatusInternalServerError, err)
+		httpshared.RespondError(hc.c, httpshared.HLSStartStatus(err), err)
 		return nil, err
 	}
 	return sess, nil
