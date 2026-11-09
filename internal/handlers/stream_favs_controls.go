@@ -165,9 +165,18 @@ func StreamViewerOpen(s *streamer.Streamer) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		s.AcquireViewer(h)
+		s.AcquireViewerFor(h, viewerLeaseOwner(c))
 		c.JSON(http.StatusOK, gin.H{"message": "viewing"})
 	}
+}
+
+// viewerLeaseOwner keys a viewer lease by the authenticated user plus the
+// optional client playback id (?playback=, same validation as the HLS session
+// key). Only the same owner can release the lease, so a duplicate or foreign
+// DELETE can no longer end someone else's playback (and with it every HLS
+// transcode for the hash). Auth disabled → user 0 for everyone, as before.
+func viewerLeaseOwner(c *gin.Context) string {
+	return auth.UserKey(c) + ":" + httpshared.PlaybackSession(c)
 }
 
 // StreamViewerClose handles DELETE /api/stream/:hash/viewer — releases a viewer
@@ -190,7 +199,7 @@ func StreamViewerClose(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager
 		// torrent stays alive to seed (seed-tracker) or finish a background
 		// download. The transcode only feeds the player; leaving it running burned
 		// CPU + a GPU-decode slot for nobody until the idle reaper (5min).
-		_, lastViewer := s.ReleaseViewer(h)
+		_, lastViewer := s.ReleaseViewerFor(h, viewerLeaseOwner(c))
 		if lastViewer {
 			if hlsMgr != nil {
 				hlsMgr.CloseForHash(h.HexString())
