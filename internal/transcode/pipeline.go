@@ -23,6 +23,30 @@ import (
 // filter and is unaffected.)
 var ErrSubtitlesFilterUnavailable = errors.New("transcode: ffmpeg build has no libass 'subtitles' filter; external subtitle burn-in unavailable")
 
+// ErrInvalidOption marks a codec/container value outside the whitelist. The
+// values come straight from query params and are otherwise passed to ffmpeg
+// verbatim (-c:v / -c:a / -f), which would let a client pick any muxer
+// (tee, segment, image2…) or an arbitrarily expensive encoder.
+var ErrInvalidOption = errors.New("transcode: invalid option")
+
+var (
+	allowedVideoCodecs = map[string]bool{"": true, "h264": true, "hevc": true}
+	allowedAudioCodecs = map[string]bool{"": true, "aac": true, "copy": true}
+	allowedContainers  = map[string]bool{"": true, "mp4": true, "matroska": true, "webm": true, "mpegts": true}
+)
+
+func validateCodecOptions(opts Options) error {
+	switch {
+	case !allowedVideoCodecs[opts.VideoCodec]:
+		return fmt.Errorf("video codec %q: %w", opts.VideoCodec, ErrInvalidOption)
+	case !allowedAudioCodecs[opts.AudioCodec]:
+		return fmt.Errorf("audio codec %q: %w", opts.AudioCodec, ErrInvalidOption)
+	case !allowedContainers[opts.Container]:
+		return fmt.Errorf("container %q: %w", opts.Container, ErrInvalidOption)
+	}
+	return nil
+}
+
 // Options describes how to transcode one stream segment.
 // All fields are optional — empty means "keep original / passthrough".
 type Options struct {
@@ -76,7 +100,7 @@ func Run(ctx context.Context, in io.Reader, w http.ResponseWriter, opts Options)
 	w.Header().Set("Content-Type", containerMime(container))
 	w.Header().Set("Accept-Ranges", "bytes")
 
-	// fixed/config binary; user values are operands of -i or integers; exec without shell
+	// fixed/config binary; user codec/container values are whitelisted by ValidateOptions, the rest are -i operands or integers; exec without shell
 	cmd := exec.CommandContext(ctx, caps.FFmpegPath, args...)
 	cmd.Stdin = in
 	cmd.Stdout = w
@@ -239,6 +263,9 @@ func ValidBurnFilePath(root, candidate string) bool {
 // with a typed 400 instead of a mid-stream 500. Nil caps defers to Run's own
 // "capabilities not probed" error (existing behavior for unprobed hosts).
 func ValidateOptions(caps *Capabilities, opts Options) error {
+	if err := validateCodecOptions(opts); err != nil {
+		return err
+	}
 	if opts.SubBurnFile == "" {
 		return nil
 	}
