@@ -11,8 +11,8 @@ import (
 
 // HLS session inspection/close (Peek/Close/Sessions/snapshot) — extracted from hls.go.
 // closeIfCloser closes a source that supports it (torrent FileReader,
-// *os.File). Sources owned elsewhere (e.g. localstream.Session, returned to
-// its registry) simply don't implement io.Closer and pass through.
+// *os.File, localstream.OwnedSession). A source that doesn't implement
+// io.Closer is owned elsewhere and passes through.
 func closeIfCloser(src io.ReadSeeker) {
 	if c, ok := src.(io.Closer); ok && c != nil {
 		_ = c.Close()
