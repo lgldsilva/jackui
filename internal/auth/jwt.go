@@ -23,6 +23,10 @@ type Claims struct {
 	// (isMediaPath). Middleware Required rejects tokens with scope="media"
 	// to prevent their use on sensitive routes via the Authorization header.
 	Scope string `json:"scope,omitempty"`
+	// AMR is the authentication method: "" for interactive logins, AMRDevice
+	// for tokens minted from a paired device key (denied admin + account
+	// security routes — see AdminOnly and DeviceRestrict).
+	AMR string `json:"amr,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -52,25 +56,12 @@ func (t *TokenManager) SetMediaTTL(d time.Duration) {
 
 // SignAccess creates a new short-lived access JWT for the user.
 func (t *TokenManager) SignAccess(u *User) (string, time.Time, error) {
-	now := time.Now()
-	exp := now.Add(t.accessTTL)
-	claims := Claims{
-		UserID:   u.ID,
-		Username: u.Username,
-		Role:     u.Role,
-		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(exp),
-			Issuer:    "jackui",
-			Subject:   fmt.Sprintf("%d", u.ID),
-		},
-	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	s, err := tok.SignedString(t.secret)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("sign: %w", err)
-	}
-	return s, exp, nil
+	return t.sign(u, "", "", t.accessTTL)
+}
+
+// SignDeviceAccess is SignAccess for a paired device (amr=device).
+func (t *TokenManager) SignDeviceAccess(u *User) (string, time.Time, error) {
+	return t.sign(u, "", AMRDevice, t.accessTTL)
 }
 
 // SignMedia issues a scope="media" JWT with a long TTL, meant for media URLs
@@ -79,13 +70,18 @@ func (t *TokenManager) SignAccess(u *User) (string, time.Time, error) {
 // keep identifying the requester. It is NOT accepted on routes that use the
 // Authorization header (see middleware Required).
 func (t *TokenManager) SignMedia(u *User) (string, time.Time, error) {
+	return t.sign(u, ScopeMedia, "", t.mediaTTL)
+}
+
+func (t *TokenManager) sign(u *User, scope, amr string, ttl time.Duration) (string, time.Time, error) {
 	now := time.Now()
-	exp := now.Add(t.mediaTTL)
+	exp := now.Add(ttl)
 	claims := Claims{
 		UserID:   u.ID,
 		Username: u.Username,
 		Role:     u.Role,
-		Scope:    ScopeMedia,
+		Scope:    scope,
+		AMR:      amr,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(exp),
