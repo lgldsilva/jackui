@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -19,30 +20,66 @@ func isBlockedFetchIP(ip net.IP) bool {
 		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
 }
 
-func newSSRFGuardedClient(jackettHost string, capturedMagnet *string) *http.Client {
+// JackettAddrFromURL returns the normalised host:port the SSRF guard trusts
+// for a Jackett base URL, defaulting the port from the scheme.
+func JackettAddrFromURL(rawURL string) (string, bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", false
+	}
+	return jackettAddrFromParsed(u)
+}
+
+func jackettAddrFromParsed(u *url.URL) (string, bool) {
+	host := u.Hostname()
+	if host == "" {
+		return "", false
+	}
+	port := u.Port()
+	if port == "" {
+		switch strings.ToLower(u.Scheme) {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		default:
+			return "", false
+		}
+	}
+	return net.JoinHostPort(strings.ToLower(host), port), true
+}
+
+// sameAddr compares two host:port strings case-insensitively on the host.
+func sameAddr(a, b string) bool {
+	ah, ap, err1 := net.SplitHostPort(a)
+	bh, bp, err2 := net.SplitHostPort(b)
+	return err1 == nil && err2 == nil && ap == bp && strings.EqualFold(ah, bh)
+}
+
+func newSSRFGuardedClient(jackettAddr string, capturedMagnet *string) *http.Client {
 	return &http.Client{
 		Timeout:   30 * time.Second,
-		Transport: newSSRFTransport(jackettHost),
+		Transport: newSSRFTransport(jackettAddr),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return checkRedirect(req, via, capturedMagnet)
 		},
 	}
 }
 
-func newSSRFTransport(jackettHost string) *http.Transport {
+func newSSRFTransport(jackettAddr string) *http.Transport {
 	return &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return ssrfDialContext(ctx, network, addr, jackettHost)
+			return ssrfDialContext(ctx, network, addr, jackettAddr)
 		},
 	}
 }
 
-func ssrfDialContext(ctx context.Context, network, addr, jackettHost string) (net.Conn, error) {
+func ssrfDialContext(ctx context.Context, network, addr, jackettAddr string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
-	trusted := jackettHost != "" && host == jackettHost
+	trusted := jackettAddr != "" && sameAddr(addr, jackettAddr)
 	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return nil, err

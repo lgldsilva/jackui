@@ -180,11 +180,17 @@ func Test_str3_SSRFDialContextTrustedHostBypass(t *testing.T) {
 	defer ln.Close()
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 
-	conn, err := ssrfDialContext(context.Background(), "tcp", "127.0.0.1:"+port, "127.0.0.1")
+	conn, err := ssrfDialContext(context.Background(), "tcp", "127.0.0.1:"+port, "127.0.0.1:"+port)
 	if err != nil {
 		t.Fatalf("trusted-host dial should succeed: %v", err)
 	}
 	conn.Close()
+
+	// Same host, DIFFERENT port: must not inherit the Jackett trust — otherwise
+	// every service on the Jackett box is reachable through /api/stream/add.
+	if _, err := ssrfDialContext(context.Background(), "tcp", "127.0.0.1:"+port, "127.0.0.1:9117"); err == nil {
+		t.Fatal("dial to a non-Jackett port on the trusted host must be refused")
+	}
 }
 
 func Test_str3_InjectJackettAPIKey(t *testing.T) {
@@ -196,15 +202,18 @@ func Test_str3_InjectJackettAPIKey(t *testing.T) {
 		wantHasKey bool
 	}{
 		{"no jackett host configured", "", "k", "https://idx.example/t.torrent", false},
-		{"different host", "jackett.lan", "k", "https://other.example/t.torrent", false},
-		{"empty api key", "jackett.lan", "", "https://jackett.lan/t.torrent", false},
-		{"already has apikey", "jackett.lan", "k", "https://jackett.lan/t.torrent?apikey=old", false},
-		{"injects key", "jackett.lan", "secret", "https://jackett.lan/dl?file=x", true},
-		{"unparseable url", "jackett.lan", "secret", "://bad-url", false},
+		{"different host", "jackett.lan:443", "k", "https://other.example/t.torrent", false},
+		{"empty api key", "jackett.lan:443", "", "https://jackett.lan/t.torrent", false},
+		{"already has apikey", "jackett.lan:443", "k", "https://jackett.lan/t.torrent?apikey=old", false},
+		{"injects key", "jackett.lan:443", "secret", "https://jackett.lan/dl?file=x", true},
+		{"injects key, explicit port", "jackett.lan:9117", "secret", "http://JACKETT.lan:9117/dl?file=x", true},
+		{"same host other port", "jackett.lan:9117", "secret", "http://jackett.lan:8080/dl?file=x", false},
+		{"same host other scheme default port", "jackett.lan:443", "secret", "http://jackett.lan/dl?file=x", false},
+		{"unparseable url", "jackett.lan:443", "secret", "://bad-url", false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := &Streamer{cfg: Config{JackettHost: tc.host, JackettAPIKey: tc.apiKey}}
+			s := &Streamer{cfg: Config{JackettAddr: tc.host, JackettAPIKey: tc.apiKey}}
 			got := s.injectJackettAPIKey(tc.url)
 			has := bytes.Contains([]byte(got), []byte("apikey="+tc.apiKey)) && tc.apiKey != ""
 			if tc.wantHasKey {
