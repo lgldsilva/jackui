@@ -204,6 +204,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		pub.POST("/verify-email", handlers.VerifyEmail(deps.authStore))
 		pub.POST("/forgot", handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 		pub.POST("/reset", handlers.Reset(deps.authStore))
+		registerDevicePublicRoutes(pub, deps)
 		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(deps.authStore, deps.waManager))
 		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(deps.authStore, deps.tokenMgr, deps.waManager))
 		// Google OAuth login (opt-in via JACKUI_OAUTH_*). /providers stays public
@@ -235,6 +236,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	if deps.tokenMgr != nil {
 		api.Use(auth.Required(deps.tokenMgr))
 		api.Use(auth.GuestRestrict())
+		api.Use(auth.DeviceRestrict())
 	}
 	api.Use(middleware.Incognito())
 	api.Use(middleware.RevealHidden())
@@ -691,6 +693,7 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/auth/passkey/register/begin", handlers.PasskeyRegisterBegin(deps.authStore, deps.waManager))
 	api.POST("/auth/passkey/register/finish", handlers.PasskeyRegisterFinish(deps.authStore, deps.waManager))
 	api.DELETE("/auth/passkey/:id", handlers.PasskeyDelete(deps.authStore))
+	registerDeviceRoutes(api, deps)
 	api.POST("/user/ntfy-topic", handlers.SetNtfyTopic(deps.authStore))
 	api.POST("/user/notify-test", handlers.NotifyTest(deps.cfg, deps.authStore))
 	// Incognito session management
