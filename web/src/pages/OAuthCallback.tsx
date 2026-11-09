@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Loader2, AlertCircle } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { oauthExchange } from '../api/client'
+import { takeReturnPath } from '../lib/returnPath'
 
 function AuthErrorBanner({ message }: { readonly message: string }) {
   return (
@@ -95,7 +96,7 @@ export default function OAuthCallbackPage() {
     oauthExchange(code)
       .then(bundle => {
         completeOAuthLogin(bundle)
-        nav('/', { replace: true })
+        nav(takeReturnPath('/'), { replace: true })
       })
       .catch((err: any) => {
         if (err?.response?.data?.mfaRequired) {
@@ -117,7 +118,7 @@ export default function OAuthCallbackPage() {
     try {
       const bundle = await oauthExchange(code, totp)
       completeOAuthLogin(bundle)
-      nav('/', { replace: true })
+      nav(takeReturnPath('/'), { replace: true })
     } catch (err: any) {
       setError(err?.response?.data?.error || t('login.invalid_code'))
     } finally {

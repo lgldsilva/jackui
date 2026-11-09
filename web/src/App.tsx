@@ -25,6 +25,7 @@ const VerifyEmailPage = lazy(() => import('./pages/AuthFlows').then(m => ({ defa
 const ForgotPasswordPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.ForgotPasswordPage })))
 const ResetPasswordPage = lazy(() => import('./pages/AuthFlows').then(m => ({ default: m.ResetPasswordPage })))
 const OAuthCallbackPage = lazy(() => import('./pages/OAuthCallback'))
+const LinkPage = lazy(() => import('./pages/LinkPage'))
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import PlayerProvider from './components/PlayerProvider'
 import { ConfirmProvider } from './components/ConfirmDialog'
@@ -130,6 +131,7 @@ function AppRoutes() {
       <Route path="/library" element={<ProtectedRoute><LibraryPage /></ProtectedRoute>} />
       <Route path="/discover" element={<ProtectedRoute><DiscoverPage /></ProtectedRoute>} />
       <Route path="/watchlist" element={<ProtectedRoute><WatchlistPage /></ProtectedRoute>} />
+      <Route path="/link" element={<ProtectedRoute><LinkPage /></ProtectedRoute>} />
       <Route path="/stats" element={<ProtectedRoute><StatsPage /></ProtectedRoute>} />
       <Route path="/local" element={<ProtectedRoute><LocalPage /></ProtectedRoute>} />
       <Route path="/downloads" element={<ProtectedRoute><DownloadsPage /></ProtectedRoute>} />
