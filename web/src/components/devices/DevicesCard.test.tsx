@@ -51,6 +51,18 @@ describe('DevicesCard', () => {
     expect(confirm).toHaveBeenCalledTimes(2)
   })
 
+  it('shows an error when revoke fails and keeps the device', async () => {
+    listDevices.mockResolvedValue([tv])
+    revokeDevice.mockRejectedValue({ response: { data: { error: 'could not revoke' } } })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<DevicesCard />)
+    await userEvent.click(await screen.findByRole('button', { name: /remover dispositivo|remove device/i }))
+    expect(revokeDevice).toHaveBeenCalledWith(7)
+    expect(await screen.findByText('could not revoke')).toBeInTheDocument()
+    expect(screen.getByText('TV da sala')).toBeInTheDocument()
+    expect(listDevices).toHaveBeenCalledTimes(1)
+  })
+
   it('sets and clears the profile PIN (digits only)', async () => {
     listDevices.mockResolvedValue([tv])
     setDevicePin.mockResolvedValue(undefined)

@@ -33,10 +33,11 @@ function PinEditor({ device, onDone }: { readonly device: PairedDevice; readonly
 function DeviceRow({ device, onChanged }: { readonly device: PairedDevice; readonly onChanged: () => void }) {
   const { t } = useTranslation()
   const [editing, setEditing] = useState(false)
+  const [error, setError] = useState('')
   const remove = async () => {
     if (!window.confirm(t('devices.revoke_confirm', { name: device.name }))) return
-    await revokeDevice(device.id)
-    onChanged()
+    setError('')
+    try { await revokeDevice(device.id); onChanged() } catch (err) { setError(errMessage(err)) }
   }
   return (
     <li className="py-2 border-b border-default last:border-0">
@@ -57,6 +58,7 @@ function DeviceRow({ device, onChanged }: { readonly device: PairedDevice; reado
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
       {editing && <PinEditor device={device} onDone={() => { setEditing(false); onChanged() }} />}
     </li>
   )
