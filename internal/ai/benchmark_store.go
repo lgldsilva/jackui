@@ -257,6 +257,9 @@ func (s *BenchmarkStore) Results() []SlotScore {
 			out = append(out, sc)
 		}
 	}
+	if rows.Err() != nil {
+		return nil // a truncated read must not look like the full result set
+	}
 	return out
 }
 
@@ -277,6 +280,9 @@ func (s *BenchmarkStore) Order() []string {
 		if rows.Scan(&id) == nil {
 			ids = append(ids, id)
 		}
+	}
+	if rows.Err() != nil {
+		return nil // a truncated order would reorder the chain wrongly; keep config order
 	}
 	return ids
 }
@@ -299,6 +305,11 @@ func (s *BenchmarkStore) Cases() []BenchmarkCase {
 		if rows.Scan(&bc.Raw, &bc.Expect, &bc.Task, &bc.Origin) == nil {
 			out = append(out, bc)
 		}
+	}
+	if rows.Err() != nil {
+		// A failed read is NOT an empty table: never re-seed (that would overwrite
+		// the user's edited set) — serve the defaults in memory only.
+		return AllDefaultBenchmarkCases()
 	}
 	if len(out) == 0 {
 		def := AllDefaultBenchmarkCases()
@@ -384,6 +395,9 @@ func (s *BenchmarkStore) LoadCostConfig() (CostConfig, bool) {
 		case "local_watts":
 			cc.LocalWatts = v
 		}
+	}
+	if rows.Err() != nil {
+		return CostConfig{}, false
 	}
 	return cc, found
 }

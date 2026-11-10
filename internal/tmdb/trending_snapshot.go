@@ -61,6 +61,9 @@ func (c *Client) prevWeekRanks(curWeek string) map[int]int {
 			ranks[id] = rank
 		}
 	}
+	if rows.Err() != nil {
+		return map[int]int{} // partial ranks would show bogus "new"/movement badges
+	}
 	return ranks
 }
 
