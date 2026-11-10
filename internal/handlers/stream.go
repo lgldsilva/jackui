@@ -114,27 +114,11 @@ func StreamAddTorrentFile(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 
-		t, err := s.Client().AddTorrent(mi)
+		// AddMetainfo drops the handle itself on failure; adding via the raw
+		// client and then re-adding by magnet leaked it on every later error.
+		info, err := s.AddMetainfo(c.Request.Context(), mi)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to add torrent: "+err.Error())
-			return
-		}
-
-		// Wait for metadata
-		select {
-		case <-t.GotInfo():
-		default:
-		}
-
-		m, merr := mi.MagnetV2()
-		if merr != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, merr)
-			return
-		}
-		magnet := m.String()
-		info, err := s.Add(c.Request.Context(), magnet)
-		if err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 
