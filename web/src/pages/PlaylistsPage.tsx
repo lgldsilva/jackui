@@ -104,7 +104,7 @@ export default function PlaylistsPage() {
             <Link to={`/playlists/${p.id}`} key={p.id} className="card flex flex-col gap-2 hover:border-blue-500/30 group">
               <div className="flex items-start justify-between gap-2">
                 <h3 className="text-base font-medium text-text-primary line-clamp-1 flex-1">{p.name}</h3>
-                <button aria-label={t('playlists.delete_title')} onClick={(e) => { e.preventDefault(); remove(p) }} className="text-text-muted hover:text-red-400 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
+                <button aria-label={t('playlists.delete_title')} onClick={(e) => { e.preventDefault(); void remove(p) }} className="text-text-muted hover:text-red-400 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="w-4 h-4" /></button>
               </div>
               {p.description && <p className="text-xs text-text-muted line-clamp-2">{p.description}</p>}
               <div className="flex items-center gap-3 text-xs text-text-muted mt-auto pt-2 border-t border-default">

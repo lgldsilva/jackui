@@ -119,7 +119,7 @@ export default function PlaylistDetailPage() {
                 className="input-field text-sm"
               />
               <div className="flex gap-2">
-                <button onClick={saveMeta} className="btn-primary flex items-center gap-1.5">
+                <button onClick={() => { void saveMeta() }} className="btn-primary flex items-center gap-1.5">
                   <Check className="w-4 h-4" /> {t('playlists.save')}
                 </button>
                 <button onClick={() => { setEditing(false); setName(playlist.name); setDescription(playlist.description) }} className="btn-secondary">
@@ -222,7 +222,7 @@ export default function PlaylistDetailPage() {
                   <Play className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); removeItem(it) }}
+                  onClick={(e) => { e.stopPropagation(); void removeItem(it) }}
                   title={t('playlists.remove_item')}
                   aria-label={t('playlists.remove_item')}
                   className="flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 sm:p-1 text-text-muted hover:text-red-400 flex-shrink-0 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
