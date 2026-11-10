@@ -141,10 +141,10 @@ func TestHLSPipelineProducesPlaylistForMP4(t *testing.T) {
 	}
 	defer mgr.Close(sess.Key)
 
-	if err := sess.WaitForMaster(30 * time.Second); err != nil {
+	if err := sess.WaitForMaster(context.Background(), 30*time.Second); err != nil {
 		t.Fatalf("master playlist never produced: %v", err)
 	}
-	if _, err := sess.WaitForSegment("seg_00000.ts", 10*time.Second); err != nil {
+	if _, err := sess.WaitForSegment(context.Background(), "seg_00000.ts", 10*time.Second); err != nil {
 		t.Fatalf("first segment never produced: %v", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestHLSPipelineHandles4KSource(t *testing.T) {
 	// 60s timeout — 4K encode is slow on CPU (libx264 ultrafast). If we don't
 	// see a playlist in 60s the pipeline likely died from "Invalid Level"
 	// (the bug we're guarding against).
-	if err := sess.WaitForMaster(60 * time.Second); err != nil {
+	if err := sess.WaitForMaster(context.Background(), 60*time.Second); err != nil {
 		t.Fatalf("master playlist never produced for 4K source — likely Invalid Level: %v", err)
 	}
 }

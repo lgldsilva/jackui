@@ -166,7 +166,7 @@ func mountSource(reg *localstream.Registry, meterKey string, f *os.File, size in
 }
 
 func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
-	if err := sess.WaitForMaster(60 * time.Second); err != nil {
+	if err := sess.WaitForMaster(c.Request.Context(), 60*time.Second); err != nil {
 		httpshared.RespondErrorFields(c, http.StatusServiceUnavailable, err, gin.H{"code": "transcode_failed"})
 		return false
 	}

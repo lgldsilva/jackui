@@ -84,7 +84,7 @@ func TestHLSAudioOnlyRenditionE2E(t *testing.T) {
 	}
 	defer mgr.Close(sess.Key)
 
-	seg, err := sess.WaitForSegment("seg_00000.ts", 60*time.Second)
+	seg, err := sess.WaitForSegment(context.Background(), "seg_00000.ts", 60*time.Second)
 	if err != nil {
 		t.Fatalf("audio-only segment never produced: %v", err)
 	}
