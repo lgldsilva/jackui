@@ -66,6 +66,12 @@ func (s *Store) LoadOrCreateVAPID() (publicKey, privateKey string, err error) {
 
 // Subscribe upserts a browser endpoint for the user. An endpoint that changes
 // hands (browser profile re-login as another user) is re-owned, not duplicated.
+//
+// Accepted trade-off (#200): a user who knows another user's endpoint URL
+// could take it over (and with it that browser's notifications). Endpoints are
+// unguessable capability URLs issued by the push service and only ever leave
+// the browser through this API, so the risk is low; rejecting re-own would
+// instead break switching users in the same browser profile.
 func (s *Store) Subscribe(userID int, endpoint, p256dh, auth string) error {
 	if endpoint == "" || p256dh == "" || auth == "" {
 		return errors.New("endpoint, p256dh and auth are required")

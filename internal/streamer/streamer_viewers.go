@@ -2,6 +2,7 @@ package streamer
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -165,4 +166,27 @@ func (e *entry) takeLease(owner string) bool {
 	}
 	e.viewers--
 	return true
+}
+
+// ViewedBy reports whether any fresh viewer lease on hash belongs to userKey
+// (auth.UserKey, "u<id>"). Lease owners are "<userKey>:<playback>", so the
+// match is on the "<userKey>:" prefix. Used to authorize a viewer to control a
+// stream-only torrent it is watching.
+func (s *Streamer) ViewedBy(hash metainfo.Hash, userKey string) bool {
+	if s == nil || userKey == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.active[hash]
+	if !ok || !e.leaseFresh(s.leaseTTL(), time.Now()) {
+		return false
+	}
+	prefix := userKey + ":"
+	for owner, n := range e.viewerOwners {
+		if n > 0 && strings.HasPrefix(owner, prefix) {
+			return true
+		}
+	}
+	return false
 }
