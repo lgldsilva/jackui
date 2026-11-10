@@ -84,10 +84,16 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	}
 
 	s, err := m.buildSession(ctx, effKey, opts)
+	return m.finishBuild(effKey, opts, s, err)
+}
+
+// finishBuild publishes a freshly built session (or its failure) and releases
+// the `starting` slot, waking the waiters. A build that raced Stop() is torn
+// down instead of registered: the stopped gcLoop would never reap it.
+func (m *HLSSessionManager) finishBuild(effKey string, opts HLSStartOpts, s *HLSSession, err error) (*HLSSession, error) {
 	m.mu.Lock()
 	var orphan *HLSSession
 	if err == nil && m.stopped {
-		// Stop() ran while we were building: it could not see this session.
 		orphan, s, err = s, nil, ErrManagerStopped
 	}
 	if err == nil {
@@ -99,11 +105,11 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	delete(m.startingOwner, effKey)
 	m.mu.Unlock()
 	close(ch) // wake waiters: on success they find the session; on failure one retries
-	if orphan != nil {
+	switch {
+	case orphan != nil:
 		orphan.stop() // owns (and closes) opts.Source
 		return nil, err
-	}
-	if err != nil {
+	case err != nil:
 		closeIfCloser(opts.Source)
 		return nil, err
 	}
