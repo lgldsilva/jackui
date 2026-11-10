@@ -167,19 +167,24 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 	if item.Magnet == "" || item.Title == "" {
 		return nil, errors.New("magnet and title required")
 	}
-	// Determine next position
-	var maxPos sql.NullInt64
-	_ = s.db.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos)
-	nextPos := 0
-	if maxPos.Valid {
-		nextPos = int(maxPos.Int64) + 1
-	}
-
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Lock the playlist row so concurrent adds serialize on MAX(position)
+	// (read outside the tx, two adds used to get the same position).
+	if err := lockPlaylist(tx, playlistID); err != nil {
+		return nil, err
+	}
+	var maxPos sql.NullInt64
+	if err := tx.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos); err != nil {
+		return nil, err
+	}
+	nextPos := 0
+	if maxPos.Valid {
+		nextPos = int(maxPos.Int64) + 1
+	}
 
 	var libraryIDArg any
 	if item.LibraryID != nil {
@@ -274,27 +279,56 @@ func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool)
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := lockPlaylist(tx, playlistID); err != nil {
+		return err
+	}
 
-	var curPos int
+	var curPos, count int
 	if err := tx.QueryRow(`SELECT position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
 		itemID, playlistID).Scan(&curPos); err != nil {
 		return fmt.Errorf("item not found")
 	}
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&count); err != nil {
+		return err
+	}
+	newPos = max(0, min(newPos, count-1)) // out-of-range moves go to the ends, never leave a gap
 	if curPos == newPos {
 		return nil
 	}
-	if newPos > curPos {
-		// Shift items between (curPos, newPos] down by 1
-		_, _ = tx.Exec(`UPDATE playlist_items SET position = position - 1
-		         WHERE playlist_id = ? AND position > ? AND position <= ?`, playlistID, curPos, newPos)
-	} else {
-		// Shift items between [newPos, curPos) up by 1
-		_, _ = tx.Exec(`UPDATE playlist_items SET position = position + 1
-		         WHERE playlist_id = ? AND position >= ? AND position < ?`, playlistID, newPos, curPos)
+	for _, st := range reorderStatements(playlistID, itemID, curPos, newPos) {
+		if _, err := tx.Exec(st.q, st.args...); err != nil {
+			return err
+		}
 	}
-	_, _ = tx.Exec(`UPDATE playlist_items SET position = ? WHERE id = ?`, newPos, itemID)
-	_, _ = tx.Exec(`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID)
 	return tx.Commit()
+}
+
+type sqlStmt struct {
+	q    string
+	args []any
+}
+
+// reorderStatements shifts the items between the old and new position by one
+// and places the moved item, then bumps the playlist's updated_at.
+func reorderStatements(playlistID, itemID, curPos, newPos int) []sqlStmt {
+	shift := sqlStmt{`UPDATE playlist_items SET position = position - 1
+		WHERE playlist_id = ? AND position > ? AND position <= ?`, []any{playlistID, curPos, newPos}}
+	if newPos < curPos {
+		shift = sqlStmt{`UPDATE playlist_items SET position = position + 1
+			WHERE playlist_id = ? AND position >= ? AND position < ?`, []any{playlistID, newPos, curPos}}
+	}
+	return []sqlStmt{
+		shift,
+		{`UPDATE playlist_items SET position = ? WHERE id = ?`, []any{newPos, itemID}},
+		{`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, []any{playlistID}},
+	}
+}
+
+// lockPlaylist takes a row lock on the playlist for the rest of tx, serializing
+// position changes (add/reorder) on the same playlist.
+func lockPlaylist(tx *dbutil.Tx, playlistID int) error {
+	var id int
+	return tx.QueryRow(`SELECT id FROM playlists WHERE id = ? FOR UPDATE`, playlistID).Scan(&id)
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────

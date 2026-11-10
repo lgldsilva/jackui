@@ -51,9 +51,27 @@ func readCapped(body io.Reader, max int64, what string) ([]byte, error) {
 }
 
 type Client struct {
-	URL    string
-	APIKey string
+	// mu guards url/apiKey: PUT /api/config swaps them while searches run.
+	mu     sync.RWMutex
+	url    string
+	apiKey string
 	http   *http.Client
+}
+
+// Endpoint returns the current Jackett base URL and API key as one consistent
+// pair (never the new URL with the old key mid-update).
+func (c *Client) Endpoint() (baseURL, apiKey string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.url, c.apiKey
+}
+
+// SetEndpoint atomically replaces the Jackett base URL and API key.
+func (c *Client) SetEndpoint(baseURL, apiKey string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.url = strings.TrimRight(baseURL, "/")
+	c.apiKey = apiKey
 }
 
 // stripAPIKey removes the apikey query param from a Jackett download link before
@@ -133,19 +151,20 @@ type jackettIndexer struct {
 
 func New(apiURL, apiKey string) *Client {
 	return &Client{
-		URL:    strings.TrimRight(apiURL, "/"),
-		APIKey: apiKey,
+		url:    strings.TrimRight(apiURL, "/"),
+		apiKey: apiKey,
 		http:   &http.Client{Timeout: 150 * time.Second},
 	}
 }
 
 func (c *Client) Search(query, category string, indexers []string) ([]Result, error) {
+	base, apiKey := c.Endpoint()
 	indexer := "all"
 	if len(indexers) > 0 && indexers[0] != "" && indexers[0] != "all" {
 		indexer = strings.Join(indexers, ",")
 	}
 
-	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results", c.URL, url.PathEscape(indexer))
+	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results", base, url.PathEscape(indexer))
 
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
@@ -153,7 +172,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 	}
 
 	q := req.URL.Query()
-	q.Set("apikey", c.APIKey)
+	q.Set("apikey", apiKey)
 	q.Set("Query", query)
 	if category != "" && category != "all" {
 		q.Set("Category[]", category)
@@ -210,17 +229,18 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 }
 
 func (c *Client) GetIndexers() ([]Indexer, error) {
+	base, apiKey := c.Endpoint()
 	// Jackett's /api/v2.0/indexers only works for admin-cookie sessions; with
 	// apikey-only auth it returns 302 → /UI/Login. We try once, but if we hit
 	// the login redirect we return an empty list (not an error) so the frontend
 	// degrades gracefully into "search-all-indexers" mode without breaking.
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v2.0/indexers", c.URL), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/api/v2.0/indexers", base), nil)
 	if err != nil {
 		return nil, fmt.Errorf(errFailedToCreateRequest, err)
 	}
 
 	q := req.URL.Query()
-	q.Set("apikey", c.APIKey)
+	q.Set("apikey", apiKey)
 	q.Set("configured", "true")
 	req.URL.RawQuery = q.Encode()
 
@@ -274,13 +294,14 @@ func (c *Client) GetIndexers() ([]Indexer, error) {
 // authorized" probe. A 200 means everything works; 302 means we hit the login
 // redirect (key invalid or Jackett misconfigured); other codes are real errors.
 func (c *Client) TestConnection() error {
-	endpoint := c.URL + torznabAPIEndpoint
+	base, apiKey := c.Endpoint()
+	endpoint := base + torznabAPIEndpoint
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return fmt.Errorf(errFailedToCreateRequest, err)
 	}
 	q := req.URL.Query()
-	q.Set("apikey", c.APIKey)
+	q.Set("apikey", apiKey)
 	q.Set("t", "caps")
 	req.URL.RawQuery = q.Encode()
 
@@ -368,13 +389,14 @@ const (
 // fetchIndexers does one t=indexers request. `retryable` marks the transient
 // app-level failures (torznab <error>, malformed XML) worth another attempt.
 func (c *Client) fetchIndexers() (out []Indexer, retryable bool, err error) {
-	endpoint := c.URL + torznabAPIEndpoint
+	base, apiKey := c.Endpoint()
+	endpoint := base + torznabAPIEndpoint
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("build request: %w", err)
 	}
 	q := req.URL.Query()
-	q.Set("apikey", c.APIKey)
+	q.Set("apikey", apiKey)
 	q.Set("t", "indexers")
 	q.Set("configured", "true")
 	req.URL.RawQuery = q.Encode()
@@ -439,13 +461,14 @@ func (c *Client) ListIndexers() ([]Indexer, error) {
 
 // SearchOnIndexer queries one specific indexer (by id). Used for parallel fan-out.
 func (c *Client) SearchOnIndexer(ctx context.Context, indexerID, query, category string) ([]Result, error) {
-	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results", c.URL, url.PathEscape(indexerID))
+	base, apiKey := c.Endpoint()
+	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results", base, url.PathEscape(indexerID))
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	q := req.URL.Query()
-	q.Set("apikey", c.APIKey)
+	q.Set("apikey", apiKey)
 	q.Set("Query", query)
 	if category != "" && category != "all" {
 		q.Set("Category[]", category)

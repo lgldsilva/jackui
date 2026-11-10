@@ -326,12 +326,38 @@ func TestStreamSearch_ListError(t *testing.T) {
 
 func TestNew_TrimsTrailingSlash(t *testing.T) {
 	c := New("http://jackett:9117/", "key")
-	if c.URL != "http://jackett:9117" {
-		t.Fatalf("URL = %q", c.URL)
+	if base, key := c.Endpoint(); base != "http://jackett:9117" || key != "key" {
+		t.Fatalf("Endpoint = %q, %q", base, key)
 	}
-	if c.APIKey != "key" {
-		t.Fatalf("APIKey = %q", c.APIKey)
+	c.SetEndpoint("http://other:9117/", "k2")
+	if base, key := c.Endpoint(); base != "http://other:9117" || key != "k2" {
+		t.Fatalf("after SetEndpoint = %q, %q", base, key)
 	}
+}
+
+// Regression (#200): PUT /api/config rewrote URL/APIKey without a lock while
+// searches read them. Run under -race: concurrent SetEndpoint + Endpoint must
+// be race-free and always observe a consistent pair.
+func TestClient_EndpointConcurrentUpdate(t *testing.T) {
+	c := New("http://a", "ka")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 2000; i++ {
+			if i%2 == 0 {
+				c.SetEndpoint("http://a", "ka")
+			} else {
+				c.SetEndpoint("http://b", "kb")
+			}
+		}
+	}()
+	for i := 0; i < 2000; i++ {
+		base, key := c.Endpoint()
+		if (base == "http://a") != (key == "ka") {
+			t.Fatalf("torn read: %q with %q", base, key)
+		}
+	}
+	<-done
 }
 
 func TestFormatAge_DifferentFormats(t *testing.T) {
