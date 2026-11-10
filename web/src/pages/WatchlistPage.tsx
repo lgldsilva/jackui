@@ -19,6 +19,7 @@ import { formatBytes } from '../lib/format'
 import { autoFilterSummary } from '../lib/watchlist'
 import { usePlayer } from '../components/PlayerProvider'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
+import { notifyError } from '../components/Toast'
 
 export default function WatchlistPage() {
   const [lists, setLists] = useState<Watchlist[]>([])
@@ -39,6 +40,8 @@ export default function WatchlistPage() {
     setLoading(true)
     try {
       setLists(await watchlistsList())
+    } catch (err) {
+      notifyError(err)
     } finally {
       setLoading(false)
     }
@@ -48,16 +51,20 @@ export default function WatchlistPage() {
   const ptr = usePullToRefresh({ onRefresh: load, disabled: loading })
 
   const create = async (input: WatchlistInput) => {
-    await watchlistsCreate(input)
-    setCreating(false)
-    await load()
+    try {
+      await watchlistsCreate(input)
+      setCreating(false)
+      await load()
+    } catch (err) { notifyError(err) }
   }
 
   const saveEdit = async (input: WatchlistInput) => {
     if (editingID === null) return
-    await watchlistsUpdate(editingID, input)
-    setEditingID(null)
-    await load()
+    try {
+      await watchlistsUpdate(editingID, input)
+      setEditingID(null)
+      await load()
+    } catch (err) { notifyError(err) }
   }
   const removeOne = async (id: number) => {
     const ok = await confirm({
@@ -67,15 +74,17 @@ export default function WatchlistPage() {
       destructive: true,
     })
     if (!ok) return
-    await watchlistsDelete(id)
-    if (hitsFor === id) { setHitsFor(null); setHits([]) }
-    await load()
+    try {
+      await watchlistsDelete(id)
+      if (hitsFor === id) { setHitsFor(null); setHits([]) }
+      await load()
+    } catch (err) { notifyError(err) }
   }
   const toggleHits = async (id: number) => {
     if (hitsFor === id) { setHitsFor(null); setHits([]); setHitFilter(''); return }
     setHitsFor(id)
     setHitFilter('')
-    setHits(await watchlistsHits(id))
+    try { setHits(await watchlistsHits(id)) } catch (err) { notifyError(err) }
   }
 
   const hitToResult = (h: WatchlistHit): SearchResult => ({

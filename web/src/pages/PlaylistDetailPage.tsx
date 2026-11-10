@@ -9,6 +9,7 @@ import {
 import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
 import { newTabProps, playHref } from '../lib/cardNav'
+import { notifyError } from '../components/Toast'
 
 export default function PlaylistDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -40,6 +41,8 @@ export default function PlaylistDetailPage() {
       setItems(its || [])
       setName(p.name)
       setDescription(p.description || '')
+    } catch (err) {
+      notifyError(err)
     } finally {
       setLoading(false)
     }
@@ -49,15 +52,19 @@ export default function PlaylistDetailPage() {
 
   const saveMeta = async () => {
     if (!playlist) return
-    await playlistsUpdate(playlist.id, name, description)
-    setPlaylist({ ...playlist, name, description })
-    setEditing(false)
+    try {
+      await playlistsUpdate(playlist.id, name, description)
+      setPlaylist({ ...playlist, name, description })
+      setEditing(false)
+    } catch (err) { notifyError(err) }
   }
 
   const removeItem = async (it: PlaylistItem) => {
     if (!playlist) return
-    await playlistsRemoveItem(playlist.id, it.id)
-    setItems(items.filter(x => x.id !== it.id).map((x, i) => ({ ...x, position: i })))
+    try {
+      await playlistsRemoveItem(playlist.id, it.id)
+      setItems(prev => prev.filter(x => x.id !== it.id).map((x, i) => ({ ...x, position: i })))
+    } catch (err) { notifyError(err) }
   }
 
   const [dragIdx, setDragIdx] = useState<number | null>(null)
@@ -82,7 +89,8 @@ export default function PlaylistDetailPage() {
     setItems(reordered.map((x, i) => ({ ...x, position: i })))
     try {
       await playlistsReorderItem(playlist.id, moved.id, to)
-    } catch {
+    } catch (err) {
+      notifyError(err)
       load()
     }
   }

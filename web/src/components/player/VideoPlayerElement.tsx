@@ -177,7 +177,7 @@ function videoSrcAttr(iosNative: boolean, engineActive: boolean, useHlsJs: boole
   return streamURL || undefined
 }
 
-function attachHlsJs(
+export function attachHlsJs(
   video: HTMLVideoElement,
   streamURL: string,
   onHlsAudioCount: ((n: number) => void) | undefined,
@@ -200,19 +200,27 @@ function attachHlsJs(
     fragLoadingTimeOut: 60000,
     manifestLoadingTimeOut: 30000,
   })
-  hls.on(Hls.Events.ERROR, (_evt, data) => recoverHlsFatal(hls, data))
+  let released = false
+  // Drop every reference to this instance exactly once — on an unrecoverable
+  // fatal error (hls.js already destroyed it) or on effect cleanup. Keeping a
+  // destroyed Hls in hlsRef/state let the quality menu and seamless-audio code
+  // call into it (#200).
+  const release = (destroy: boolean) => {
+    if (released) return
+    released = true
+    if (hlsRef.current === hls) hlsRef.current = null
+    onHls(null)
+    onHlsAudioCount?.(0)
+    if (destroy) hls.destroy()
+  }
+  hls.on(Hls.Events.ERROR, (_evt, data) => { if (recoverHlsFatal(hls, data)) release(false) })
   hls.on(Hls.Events.MANIFEST_PARSED, () => { tryAutoplayMutedFallback(video) })
   wireHlsAudioSubs(hls, onHlsAudioCount)
   hlsRef.current = hls
   onHls(hls)
   hls.loadSource(streamURL)
   hls.attachMedia(video)
-  return () => {
-    hlsRef.current = null
-    onHls(null)
-    onHlsAudioCount?.(0)
-    hls.destroy()
-  }
+  return () => release(true)
 }
 
 function nudgeOnGap(

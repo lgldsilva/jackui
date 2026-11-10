@@ -63,6 +63,23 @@ export function parseFileIndex(s: string | null): number | undefined {
   return Number.isFinite(n) && n >= 0 ? n : undefined
 }
 
+// fileParam is the `?f=` value for a player file index (null = no param).
+export function fileParam(idx: number | undefined): string | null {
+  return idx === undefined || idx < 0 ? null : String(idx)
+}
+
+// urlFileSwitch decides URL→state for an UNCHANGED ?play: when only ?f moved
+// (back/forward, edited link) to a valid index different from the last synced
+// one, returns the file to switch to inside the open player; else undefined.
+export function urlFileSwitch(
+  hash: string | null,
+  fParam: string | null,
+  last: { readonly hash: string | null; readonly file: string | null },
+): number | undefined {
+  if (!hash || hash !== last.hash || fParam === last.file) return undefined
+  return parseFileIndex(fParam)
+}
+
 // playResolvedFromLibrary picks the nicest metadata for `hash` from a library
 // list (title/magnet + persisted kind) and plays it, falling back to a synthetic
 // magnet when the hash isn't in the list.

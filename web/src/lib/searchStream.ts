@@ -73,6 +73,11 @@ export type SearchStreamOptions = {
   readonly makeEventSource?: (url: string) => EventSourceLike
   readonly maxRetries?: number
   readonly baseDelayMs?: number
+  // Rebuilds the URL before each RECONNECT. The first connection uses `url`;
+  // a reconnect after a long search must not replay its `?token=`, which may
+  // have expired meanwhile (every retry would 401 and the tab would die). A
+  // rejection keeps the previous URL.
+  readonly refreshUrl?: () => Promise<string>
 }
 
 export type SearchStreamHandle = { close(): void }
@@ -106,6 +111,15 @@ export function openSearchStream(
   let closed = false
   let attempts = 0
   let timer: ReturnType<typeof setTimeout> | null = null
+  let currentUrl = url
+
+  const reconnect = async () => {
+    if (closed) return
+    if (opts.refreshUrl) {
+      try { currentUrl = await opts.refreshUrl() } catch { /* keep the previous URL */ }
+    }
+    connect()
+  }
 
   const handleDrop = () => {
     // Take over from the native auto-reconnect so the backoff is ours.
@@ -118,12 +132,12 @@ export function openSearchStream(
       return
     }
     attempts = decision.attempt
-    timer = setTimeout(connect, decision.delayMs)
+    timer = setTimeout(() => { void reconnect() }, decision.delayMs)
   }
 
   const connect = () => {
     if (closed) return
-    const source = makeEventSource(url)
+    const source = makeEventSource(currentUrl)
     es = source
 
     source.addEventListener('result', (e) => {

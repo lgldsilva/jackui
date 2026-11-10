@@ -5,6 +5,8 @@ import App from './App'
 import { bootstrapTheme } from './lib/theme'
 import { bootRouteRestore } from './lib/bootRoute'
 import { registerServiceWorker } from './lib/push'
+import { installUnhandledRejectionToast } from './lib/unhandledRejection'
+import { notify } from './components/Toast'
 import './index.css'
 
 // Set the dark class + color-scheme BEFORE React renders so the first paint
@@ -19,6 +21,9 @@ bootRouteRestore()
 // so Web Push arrives with the tab closed; iOS additionally requires the PWA
 // installed to the home screen.
 registerServiceWorker()
+
+// Last-resort feedback for rejections no handler caught (see the module doc).
+installUnhandledRejectionToast((msg) => notify(msg, 'error'))
 
 import './lib/i18n'
 

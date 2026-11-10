@@ -52,6 +52,7 @@ export default function PlayerModal({
   result,
   onClose,
   initialFileIndex,
+  onFileSelected,
   initialSeek,
   playlist = null,
   onPlaylistAdvance,
@@ -370,6 +371,12 @@ export default function PlayerModal({
     playFile(initialFileIndex)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialFileIndex])
+
+  // Mirror the playing file up to the provider (keeps ?f= in sync).
+  useEffect(() => {
+    if (selectedFile >= 0) onFileSelected?.(selectedFile)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFile])
 
   // "No video file": informational notice — disappears on its own after a few seconds.
   const [showNoVideoBanner, setShowNoVideoBanner] = useState(true)
