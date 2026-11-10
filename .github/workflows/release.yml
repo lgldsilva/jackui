@@ -175,6 +175,10 @@ jobs:
           # another "v" here — the old `v${{ ... }}` produced orphan "vv" tags.
           tag_name: ${{ needs.semver.outputs.version }}
           name: ${{ needs.semver.outputs.version }}
+          # Pin a newly created tag to the commit that was BUILT. Without it the
+          # action tags the branch HEAD at release time; if main moved during the
+          # ~30 min build, the tag lands on an unbuilt commit (v0.107.0).
+          target_commitish: ${{ github.sha }}
           body: ${{ steps.changelog.outputs.changelog }}
           fail_on_unmatched_files: true
           files: bom.json
