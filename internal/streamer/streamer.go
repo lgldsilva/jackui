@@ -126,9 +126,9 @@ type Streamer struct {
 	// mu): concurrent Adds of one magnet share a single anacrolix handle, so a
 	// giving-up Add may only Drop it when nobody else is waiting on it.
 	addWaiters map[metainfo.Hash]int
-	favs      *FavoritesStore // optional — nil disables favorites protection
-	cache     *MetadataCache  // optional — nil disables instant-open snapshots
-	stop      chan struct{}
+	favs       *FavoritesStore // optional — nil disables favorites protection
+	cache      *MetadataCache  // optional — nil disables instant-open snapshots
+	stop       chan struct{}
 	// closeOnce makes Close() idempotent: manual shutdown and the GC loop's
 	// teardown can both call it, and close(s.stop) panics on a second close.
 	closeOnce        sync.Once
