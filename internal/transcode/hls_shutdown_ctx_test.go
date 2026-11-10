@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -67,5 +68,63 @@ func TestBuildSession_SourceServerFailureRemovesDir(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("session dir left behind after a failed build: %v", err)
+	}
+}
+
+// A build that finishes after Stop() must be torn down (source closed, dir
+// removed, waiters woken) instead of registered where no reaper runs.
+func TestFinishBuild_RacingStopTearsDownSession(t *testing.T) {
+	m := lifecycleManager(t)
+	const key = "race-stop"
+	ch := make(chan struct{})
+	m.mu.Lock()
+	m.starting[key] = ch
+	m.mu.Unlock()
+	m.Stop()
+
+	src := &fakeSource{}
+	dir := t.TempDir()
+	built := &HLSSession{Key: key, Dir: dir, source: src, mgr: m}
+	got, err := m.finishBuild(key, HLSStartOpts{Source: src}, built, nil)
+	if got != nil || !errors.Is(err, ErrManagerStopped) {
+		t.Fatalf("finishBuild = %v, %v; want nil, ErrManagerStopped", got, err)
+	}
+	if !src.closed.Load() {
+		t.Fatal("orphaned session's source must be closed")
+	}
+	if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+		t.Fatalf("orphaned session dir must be removed: %v", statErr)
+	}
+	select {
+	case <-ch:
+	default:
+		t.Fatal("waiters on the starting slot must be woken")
+	}
+	if len(m.sess) != 0 {
+		t.Fatal("orphaned session must not be registered")
+	}
+}
+
+func TestWaitFor_EncoderEndedPaths(t *testing.T) {
+	s := &HLSSession{Dir: t.TempDir(), closed: true}
+	if err := s.WaitForMaster(context.Background(), time.Minute); err == nil {
+		t.Fatal("closed session without a playlist must fail")
+	}
+	if _, err := s.WaitForSegment(context.Background(), "seg_00000.ts", time.Minute); err == nil {
+		t.Fatal("closed session without the segment must fail")
+	}
+	// Written just before ffmpeg exited: still served.
+	if err := os.WriteFile(filepath.Join(s.Dir, hlsPlaylistFile), []byte("#EXTM3U"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WaitForMaster(context.Background(), time.Minute); err != nil {
+		t.Fatalf("existing playlist on a closed session: %v", err)
+	}
+	if _, err := s.WaitForSegment(context.Background(), "../x.ts", time.Second); err == nil {
+		t.Fatal("traversal segment name must be rejected")
+	}
+	open := &HLSSession{Dir: t.TempDir()}
+	if _, err := open.WaitForSegment(context.Background(), "seg_00001.ts", 200*time.Millisecond); err == nil {
+		t.Fatal("missing segment must time out")
 	}
 }
