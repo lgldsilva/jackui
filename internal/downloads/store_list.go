@@ -2,6 +2,7 @@ package downloads
 
 import (
 	"database/sql"
+	"strings"
 )
 
 // ListMaxResults caps list endpoints so a multi-file pack cannot return unbounded
@@ -247,4 +248,26 @@ func scanSlice(rows *sql.Rows) ([]Download, error) {
 		}
 	}
 	return out, rows.Err()
+}
+
+// HashOwnerIDs returns the set of users holding ANY download row (any status)
+// for infoHash — the owners allowed to control that torrent's swarm state.
+func (s *Store) HashOwnerIDs(infoHash string) (map[int]bool, error) {
+	owners := map[int]bool{}
+	if s == nil || infoHash == "" {
+		return owners, nil
+	}
+	rows, err := s.db.Query(`SELECT DISTINCT user_id FROM downloads WHERE info_hash = ?`, strings.ToLower(infoHash))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		owners[id] = true
+	}
+	return owners, rows.Err()
 }

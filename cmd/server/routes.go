@@ -337,10 +337,11 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	adminAPI.POST("/stream/active/resume", handlers.StreamResumeAll(deps.streamSrv))
 	api.GET("/stream/limits", handlers.StreamGetLimits(deps.streamSrv))
 	adminAPI.POST("/stream/limits", handlers.StreamSetLimits(deps.streamSrv))
-	api.POST("/stream/:hash/pause", handlers.StreamPause(deps.streamSrv))
-	api.POST("/stream/:hash/resume", handlers.StreamResume(deps.streamSrv))
-	api.POST("/stream/:hash/priority", handlers.StreamSetPriority(deps.streamSrv))
-	api.POST("/stream/:hash/files/:idx/priority", handlers.StreamSetFilePriority(deps.streamSrv))
+	ctl := torrentControlGuard(deps)
+	api.POST("/stream/:hash/pause", ctl, handlers.StreamPause(deps.streamSrv))
+	api.POST("/stream/:hash/resume", ctl, handlers.StreamResume(deps.streamSrv))
+	api.POST("/stream/:hash/priority", ctl, handlers.StreamSetPriority(deps.streamSrv))
+	api.POST("/stream/:hash/files/:idx/priority", ctl, handlers.StreamSetFilePriority(deps.streamSrv))
 	api.GET("/stream/favorites", handlers.StreamFavorites(deps.streamSrv))
 	api.POST("/stream/favorite", handlers.StreamFavorite(deps.streamSrv))
 	api.DELETE("/stream/favorite/:name", handlers.StreamUnfavorite(deps.streamSrv))
@@ -711,4 +712,18 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	adminGroup.GET("/:id/sessions", handlers.AdminListUserSessions(deps.authStore))
 	adminGroup.DELETE("/:id/sessions", handlers.AdminRevokeUserSessions(deps.authStore))
 	adminGroup.DELETE("/:id/sessions/:sid", handlers.AdminRevokeUserSession(deps.authStore))
+}
+
+// torrentControlGuard scopes the per-hash swarm controls to the torrent's
+// owners (see handlers.TorrentControlGuard). Auth disabled → no-op, matching
+// how adminAPI is only gated when a token manager exists.
+func torrentControlGuard(deps *appDeps) gin.HandlerFunc {
+	if deps.tokenMgr == nil {
+		return func(c *gin.Context) { c.Next() }
+	}
+	a := handlers.TorrentControlAuthz{Downloads: deps.downloadsStore, Viewers: deps.streamSrv}
+	if deps.libraryStore != nil { // a typed-nil *library.Store would panic
+		a.Library = deps.libraryStore
+	}
+	return handlers.TorrentControlGuard(a)
 }
