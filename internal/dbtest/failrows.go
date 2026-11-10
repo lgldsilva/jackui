@@ -31,7 +31,7 @@ func NewFailRowsDB(t *testing.T, rows [][]any, err error) *FailRowsDB {
 	f := &FailRowsDB{}
 	c := &failRowsConnector{rows: rows, err: err, execs: &f.execs}
 	f.DB = sql.OpenDB(c)
-	t.Cleanup(func() { _ = f.DB.Close() })
+	t.Cleanup(func() { _ = f.Close() })
 	return f
 }
 
