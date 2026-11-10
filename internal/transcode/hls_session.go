@@ -298,8 +298,10 @@ func (s *HLSSession) RestartAt(seg int) error {
 // WaitForMaster blocks up to `timeout` waiting for the master `index.m3u8`
 // to appear. ffmpeg only writes the playlist after the first segment is
 // completely encoded, so the wait is bounded by `-hls_time 4` plus encoder
-// startup. We bail if the session ends without writing one.
-func (s *HLSSession) WaitForMaster(timeout time.Duration) error {
+// startup. We bail if the session ends without writing one, or when ctx (the
+// request) is done — a client that went away must stop holding the handler
+// goroutine and stop refreshing LastAccess (which kept the session alive).
+func (s *HLSSession) WaitForMaster(ctx context.Context, timeout time.Duration) error {
 	path := filepath.Join(s.Dir, hlsPlaylistFile)
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(150 * time.Millisecond)
@@ -327,6 +329,8 @@ func (s *HLSSession) WaitForMaster(timeout time.Duration) error {
 		}
 
 		select {
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-ticker.C:
 			if time.Now().After(deadline) {
 				return fmt.Errorf("hls master not ready within %s", timeout)
@@ -337,8 +341,9 @@ func (s *HLSSession) WaitForMaster(timeout time.Duration) error {
 
 // WaitForSegment blocks for the named segment file (basename only) to exist
 // and be fully written. ffmpeg's `temp_file` flag means segments appear
-// atomically — once `seg_NNN.ts` is visible, it's complete.
-func (s *HLSSession) WaitForSegment(name string, timeout time.Duration) (string, error) {
+// atomically — once `seg_NNN.ts` is visible, it's complete. Returns ctx.Err()
+// when the request is done first.
+func (s *HLSSession) WaitForSegment(ctx context.Context, name string, timeout time.Duration) (string, error) {
 	// Defensively reject anything with a slash to prevent path traversal.
 	if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
 		return "", errors.New("invalid segment name")
@@ -373,6 +378,8 @@ func (s *HLSSession) WaitForSegment(name string, timeout time.Duration) (string,
 		}
 
 		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
 		case <-ticker.C:
 			if time.Now().After(deadline) {
 				return "", fmt.Errorf("segment %s not ready within %s", name, timeout)

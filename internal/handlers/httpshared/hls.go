@@ -63,7 +63,7 @@ func EnsureVODSegment(sess *transcode.HLSSession, segName string) {
 
 // ServeSegment waits for the requested .ts segment (up to 30s) and streams it.
 func ServeSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
-	path, err := sess.WaitForSegment(segName, 30*time.Second)
+	path, err := sess.WaitForSegment(c.Request.Context(), segName, 30*time.Second)
 	if err != nil {
 		RespondError(c, http.StatusNotFound, err)
 		return

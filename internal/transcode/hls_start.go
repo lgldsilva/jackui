@@ -26,6 +26,13 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	effKey := m.EffectiveKey(opts.Key, opts.NativeHLS)
 	for {
 		m.mu.Lock()
+		if m.stopped {
+			// After Stop() the gcLoop is gone: a session started now would
+			// never be reaped (ffmpeg + loopback server leaked until exit).
+			m.mu.Unlock()
+			closeIfCloser(opts.Source)
+			return nil, ErrManagerStopped
+		}
 		if s, ok := m.sess[effKey]; ok {
 			if s.failedBeforeOutput() {
 				// The encoder died before producing anything (bad args, invalid
@@ -78,6 +85,11 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 
 	s, err := m.buildSession(ctx, effKey, opts)
 	m.mu.Lock()
+	var orphan *HLSSession
+	if err == nil && m.stopped {
+		// Stop() ran while we were building: it could not see this session.
+		orphan, s, err = s, nil, ErrManagerStopped
+	}
 	if err == nil {
 		s.owner = opts.Owner
 		m.sess[effKey] = s
@@ -87,6 +99,10 @@ func (m *HLSSessionManager) GetOrStart(ctx context.Context, opts HLSStartOpts) (
 	delete(m.startingOwner, effKey)
 	m.mu.Unlock()
 	close(ch) // wake waiters: on success they find the session; on failure one retries
+	if orphan != nil {
+		orphan.stop() // owns (and closes) opts.Source
+		return nil, err
+	}
 	if err != nil {
 		closeIfCloser(opts.Source)
 		return nil, err
@@ -198,6 +214,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 
 	srv, inputURL, err := startSourceServer(opts)
 	if err != nil {
+		_ = os.RemoveAll(dir) // created above; nothing else will ever reap it
 		return nil, err
 	}
 

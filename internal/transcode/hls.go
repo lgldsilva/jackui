@@ -229,6 +229,10 @@ func (m *HLSSessionManager) Stop() {
 // callers holding a stale pointer must re-enter via GetOrStart.
 var errSessionStopped = errors.New("hls session stopped")
 
+// ErrManagerStopped is returned by GetOrStart after the manager was stopped
+// (shutdown): no new encoder may start once the reaper is gone.
+var ErrManagerStopped = errors.New("hls session manager stopped")
+
 // hlsIdleReapAfter is how long a session may go without a segment request
 // before it's reaped. Was 60s, but in VOD mode Safari pre-buffers aggressively
 // (it knows the total duration), then STOPS requesting for a while once its
