@@ -303,40 +303,10 @@ func (s *HLSSession) RestartAt(seg int) error {
 // goroutine and stop refreshing LastAccess (which kept the session alive).
 func (s *HLSSession) WaitForMaster(ctx context.Context, timeout time.Duration) error {
 	path := filepath.Join(s.Dir, hlsPlaylistFile)
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(150 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		// Check the file FIRST so a fast encode (whole input <4s) that
-		// closes between our last check and now still gets a positive
-		// result.
-		if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
-			return nil
-		}
-		// Keep the session alive while a client is actively waiting.
-		s.mu.Lock()
-		s.LastAccess = time.Now()
-		closed := s.closed
-		s.mu.Unlock()
-		if closed {
-			// One last check — fsync race: ffmpeg may have written the
-			// playlist just before exiting.
-			if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
-				return nil
-			}
-			return errors.New("hls session ended before producing playlist")
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("hls master not ready within %s", timeout)
-			}
-		}
-	}
+	// Keep the session alive on every tick while a client is actively waiting.
+	return s.pollReady(ctx, path, timeout, true,
+		errors.New("hls session ended before producing playlist"),
+		fmt.Errorf("hls master not ready within %s", timeout))
 }
 
 // WaitForSegment blocks for the named segment file (basename only) to exist
@@ -352,40 +322,66 @@ func (s *HLSSession) WaitForSegment(ctx context.Context, name string, timeout ti
 	// Any segment request counts as activity — even when it doesn't exist yet
 	// (404) — otherwise the GC reaps the session during the post-seek hole
 	// window where the player insists on requesting not-yet-generated segments.
-	s.mu.Lock()
-	s.LastAccess = time.Now()
-	s.mu.Unlock()
+	s.touch()
+	if err := s.pollReady(ctx, path, timeout, false,
+		errors.New("segment not found and encoder ended"),
+		fmt.Errorf("segment %s not ready within %s", name, timeout)); err != nil {
+		return "", err
+	}
+	s.touch()
+	return path, nil
+}
+
+// pollReady polls every 150ms until path holds data. It fails with closedErr
+// when the encoder ended without producing it (after one last check — ffmpeg
+// may have written it just before exiting), with timeoutErr past the timeout,
+// or with ctx.Err() when ctx is done. touchEachTick refreshes LastAccess on
+// every poll.
+func (s *HLSSession) pollReady(ctx context.Context, path string, timeout time.Duration, touchEachTick bool, closedErr, timeoutErr error) error {
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
-
 	for {
-		s.mu.Lock()
-		closed := s.closed
-		s.mu.Unlock()
-		if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
-			s.mu.Lock()
-			s.LastAccess = time.Now()
-			s.mu.Unlock()
-			return path, nil
+		// Check the file FIRST so a fast encode that closes between the last
+		// check and now still gets a positive result.
+		if fileHasData(path) {
+			return nil
 		}
-		if closed {
-			// Last chance: ffmpeg exited; check one more time, otherwise 404.
-			if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
-				return path, nil
+		if touchEachTick {
+			s.touch()
+		}
+		if s.isClosed() {
+			if fileHasData(path) {
+				return nil
 			}
-			return "", errors.New("segment not found and encoder ended")
+			return closedErr
 		}
-
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return ctx.Err()
 		case <-ticker.C:
 			if time.Now().After(deadline) {
-				return "", fmt.Errorf("segment %s not ready within %s", name, timeout)
+				return timeoutErr
 			}
 		}
 	}
+}
+
+func fileHasData(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Size() > 0
+}
+
+func (s *HLSSession) touch() {
+	s.mu.Lock()
+	s.LastAccess = time.Now()
+	s.mu.Unlock()
+}
+
+func (s *HLSSession) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
 }
 
 // failedBeforeOutput reports a session whose encoder exited with a hard error
