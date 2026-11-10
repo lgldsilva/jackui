@@ -309,3 +309,39 @@ describe('useSubtitles auto pipeline (lane W2)', () => {
     expect(mocks.subtitlesSearch).toHaveBeenCalledWith('Show', { season: 1, episode: 1 })
   })
 })
+
+// Regression (#200): blob: URLs created for subtitles leaked when the player
+// unmounted — the embedded-VTT effect never revoked on unmount, and the custom
+// upload's cleanup used a state updater that never runs after unmount.
+describe('useSubtitles blob URL lifetime', () => {
+  let revoke: ReturnType<typeof vi.spyOn>
+  beforeEach(() => { revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {}) })
+  afterEach(() => { vi.restoreAllMocks(); mocks.isLocalHash.mockReturnValue(false) })
+
+  it('revokes the local embedded VTT blob on unmount', async () => {
+    mocks.isLocalHash.mockReturnValue(true)
+    mocks.localSubtrackBlobURL.mockResolvedValue('blob:embedded')
+    const { result, unmount } = await renderSubs()
+    act(() => { result.current.setEmbeddedSub(0) })
+    await drain()
+    expect(result.current.localEmbeddedVttURL).toBe('blob:embedded')
+
+    revoke.mockClear()
+    unmount()
+    expect(revoke).toHaveBeenCalledWith('blob:embedded')
+  })
+
+  it('revokes the uploaded subtitle blob on unmount', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:custom')
+    const { result, unmount } = await renderSubs()
+    const file = new File(['WEBVTT\n'], 'x.vtt', { type: 'text/vtt' })
+    await act(async () => {
+      await result.current.handleCustomSubtitleUpload({ target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>)
+    })
+    expect(result.current.customSubURL).toBe('blob:custom')
+
+    revoke.mockClear()
+    unmount()
+    expect(revoke).toHaveBeenCalledWith('blob:custom')
+  })
+})

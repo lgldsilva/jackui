@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, type Dispatch, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import { SearchResult, withToken, appendAudioSearchParams, type AudioSearchPrefs } from '../../api/client'
+import { api } from '../../api/http'
 import { isIncognito } from '../../lib/incognito'
 import { openSearchStream, type SearchStreamHandle } from '../../lib/searchStream'
 import { appendResult, setErrorMsg, type TabState } from '../../lib/searchTabs'
@@ -60,7 +61,8 @@ export function useSearchStreams(
     // with backoff while the tab stays in 'live' (the backend's cache phase
     // re-emits what already arrived; appendResult dedupes the replay). Only
     // after the retry budget is exhausted does the tab go to 'error'.
-    const handle = openSearchStream(withToken(`/api/search/stream?${params}`), {
+    const path = `/api/search/stream?${params}`
+    const handle = openSearchStream(withToken(path), {
       onResult: (result) => setTabs(prev => appendResult(prev, tabId, result as SearchResult)),
       onLive: () => updateTab(tabId, { phase: 'live' }),
       onServerError: (message) => setTabs(prev => setErrorMsg(prev, tabId, message)),
@@ -72,7 +74,7 @@ export function useSearchStreams(
         esMap.current.delete(tabId)
         updateTab(tabId, { phase: 'error', error: t('search.connection_lost') })
       },
-    })
+    }, { refreshUrl: () => freshTokenURL(path) })
     esMap.current.set(tabId, handle)
   }, [updateTab, setTabs, t])
 
@@ -87,4 +89,13 @@ export function useSearchStreams(
   }, [updateTab])
 
   return { handleSearch, stopSearch, closeStream }
+}
+
+// freshTokenURL rebuilds an EventSource URL with the CURRENT access token. The
+// /auth/me ping goes through axios, so an expired token is refreshed by the
+// AuthContext 401 interceptor (which stores the new one) before withToken reads
+// it. Failure is fine — auth may be disabled, or the retry will surface it.
+export async function freshTokenURL(path: string): Promise<string> {
+  try { await api.get('/auth/me') } catch { /* best effort */ }
+  return withToken(path)
 }

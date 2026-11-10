@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { HardDriveDownload, Loader2, Check, AlertCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { parseLocalHash, localCacheStart, localCacheStatus, LocalCacheStatus } from '../../api/client'
+import { useMountedRef } from '../../lib/useMountedRef'
+
+const isInFlight = (s?: string) => s === 'queued' || s === 'copying'
 
 // LocalCacheButton is the "cache mark" + trigger for a local/rclone file in the
 // player. For LOCAL files the old "Download to Server" (torrent) button makes no
@@ -13,6 +16,7 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
   const loc = parseLocalHash(hash)
   const [st, setSt] = useState<LocalCacheStatus | null>(null)
   const pollRef = useRef<ReturnType<typeof globalThis.setInterval> | null>(null)
+  const mounted = useMountedRef()
 
   const stopPoll = () => {
     if (pollRef.current) {
@@ -25,13 +29,16 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
     if (!loc) return
     try {
       const s = await localCacheStatus(loc.mount, loc.path)
+      if (!mounted.current) return
       setSt(s)
-      // Stop polling once it settles (ready/error/none).
-      if (s.status !== 'queued' && s.status !== 'copying') stopPoll()
+      // Poll while a copy is in flight — including one started before this
+      // player opened (reopen mid-copy) — and stop once it settles.
+      if (isInFlight(s.status)) ensurePoll()
+      else stopPoll()
     } catch { /* transient — keep polling */ }
   }
 
-  // Fetch the initial mark; poll only while a copy is in flight.
+  // Fetch the initial mark; refresh() starts polling if a copy is in flight.
   useEffect(() => {
     if (!loc) return
     refresh()
@@ -39,8 +46,8 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hash])
 
-  const startPoll = () => {
-    stopPoll()
+  const ensurePoll = () => {
+    if (pollRef.current) return
     // Skip the poll fetch while the tab is backgrounded (resumes on return).
     pollRef.current = globalThis.setInterval(() => { if (!document.hidden) refresh() }, 2000)
   }
@@ -48,10 +55,12 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
   const onClick = async () => {
     if (!loc) return
     const status = st?.status
-    if (status === 'queued' || status === 'copying' || status === 'ready') return
+    if (isInFlight(status) || status === 'ready') return
     try {
-      setSt(await localCacheStart(loc.mount, loc.path))
-      startPoll()
+      const s = await localCacheStart(loc.mount, loc.path)
+      if (!mounted.current) return
+      setSt(s)
+      ensurePoll()
     } catch { /* surfaced on next poll */ }
   }
 
@@ -62,7 +71,7 @@ export function LocalCacheButton({ hash }: { readonly hash: string }) {
   if (!loc || !st?.cacheable) return null
 
   const status = st?.status ?? 'none'
-  const busy = status === 'queued' || status === 'copying'
+  const busy = isInFlight(status)
   const ready = status === 'ready'
   const errored = status === 'error'
 

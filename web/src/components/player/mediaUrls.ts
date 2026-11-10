@@ -228,12 +228,14 @@ export function computeMediaUrls(input: MediaUrlInput) {
 // recoverHlsFatal handles hls.js FATAL errors outside the component (keeps
 // VideoPlayerElement's cognitive complexity low). The DECISION is pure
 // (hlsFatalAction, testable); here we only apply the effect to the Hls object.
-export function recoverHlsFatal(hls: Hls, data: ErrorData) {
-  if (!data.fatal) return
+// Returns true when the instance was destroyed, so the owner can drop every
+// reference to it (a destroyed Hls must not be reused by menus/audio switching).
+export function recoverHlsFatal(hls: Hls, data: ErrorData): boolean {
+  if (!data.fatal) return false
   switch (hlsFatalAction(data.type, Hls.ErrorTypes)) {
-    case 'startLoad': hls.startLoad(); break
-    case 'recoverMedia': hls.recoverMediaError(); break
-    default: hls.destroy()
+    case 'startLoad': hls.startLoad(); return false
+    case 'recoverMedia': hls.recoverMediaError(); return false
+    default: hls.destroy(); return true
   }
 }
 

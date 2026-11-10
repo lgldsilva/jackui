@@ -209,3 +209,53 @@ describe('openSearchStream', () => {
     expect(cb.onDone).toHaveBeenCalledTimes(1)
   })
 })
+
+// Regression (#200): a reconnect replayed the original ?token=, which may have
+// expired during a long search — every retry 401'd and the tab died.
+describe('openSearchStream refreshUrl', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  function harness(refreshUrl: () => Promise<string>) {
+    const urls: string[] = []
+    const sources: FakeEventSource[] = []
+    const cb: SearchStreamCallbacks = {
+      onResult: vi.fn(), onLive: vi.fn(), onServerError: vi.fn(), onDone: vi.fn(), onGiveUp: vi.fn(),
+    }
+    const handle = openSearchStream('/s?token=old', cb, {
+      refreshUrl,
+      makeEventSource: (u) => {
+        urls.push(u)
+        const es = new FakeEventSource()
+        sources.push(es)
+        return es
+      },
+    })
+    return { urls, handle, last: () => sources[sources.length - 1] }
+  }
+
+  it('reconnects with a freshly built URL', async () => {
+    const { urls, last } = harness(async () => '/s?token=new')
+    last().emit('error')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(urls).toEqual(['/s?token=old', '/s?token=new'])
+  })
+
+  it('keeps the previous URL when the refresh fails', async () => {
+    const { urls, last } = harness(() => Promise.reject(new Error('offline')))
+    last().emit('error')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(urls).toEqual(['/s?token=old', '/s?token=old'])
+  })
+
+  it('does not connect when closed while refreshing', async () => {
+    let release: (u: string) => void = () => {}
+    const { urls, handle, last } = harness(() => new Promise<string>((r) => { release = r }))
+    last().emit('error')
+    await vi.advanceTimersByTimeAsync(1000)
+    handle.close()
+    release('/s?token=new')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(urls).toEqual(['/s?token=old'])
+  })
+})

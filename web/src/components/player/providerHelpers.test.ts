@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { parseFileIndex, parsePositiveInt, applyPlayHash, type PlayUrlDeps } from './providerHelpers'
+import { parseFileIndex, parsePositiveInt, applyPlayHash, fileParam, urlFileSwitch, type PlayUrlDeps } from './providerHelpers'
 
 function deps(over: Partial<PlayUrlDeps> = {}): PlayUrlDeps {
   return {
@@ -53,5 +53,27 @@ describe('applyPlayHash file index', () => {
     })
     applyPlayHash('local-abc', null, null, d)
     expect(d.playSingle).toHaveBeenCalledWith(expect.anything(), undefined, undefined, true)
+  })
+})
+
+describe('fileParam', () => {
+  it.each([[undefined, null], [-1, null], [0, '0'], [7, '7']] as const)('%s → %s', (i, want) => {
+    expect(fileParam(i)).toBe(want)
+  })
+})
+
+describe('urlFileSwitch', () => {
+  const H = 'h'
+  it('switches when only ?f moved for the synced torrent', () => {
+    expect(urlFileSwitch(H, '3', { hash: H, file: '0' })).toBe(3)
+  })
+  it.each([
+    ['different torrent', H, '3', { hash: 'x', file: '0' }],
+    ['no hash', null, '3', { hash: null, file: '0' }],
+    ['unchanged ?f', H, '0', { hash: H, file: '0' }],
+    ['invalid ?f', H, 'abc', { hash: H, file: '0' }],
+    ['removed ?f', H, null, { hash: H, file: '0' }],
+  ])('no switch: %s', (_n, h, f, last) => {
+    expect(urlFileSwitch(h, f, last)).toBeUndefined()
   })
 })
