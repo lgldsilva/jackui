@@ -1,8 +1,6 @@
 # Stage 1: Build frontend
 FROM node:24-alpine AS frontend
 
-# ImageMagick renders SVG → PNG for PWA icons (iOS requires PNG for apple-touch-icon)
-RUN apk add --no-cache imagemagick imagemagick-svg
 
 WORKDIR /app/web
 
@@ -11,11 +9,6 @@ RUN npm ci
 
 COPY web/ ./
 
-# Generate PNG icons from the SVG source (only if SVG exists)
-RUN if [ -f public/favicon.svg ]; then \
-      magick -background none -density 1024 public/favicon.svg -resize 192x192 public/icon-192.png && \
-      magick -background none -density 1024 public/favicon.svg -resize 512x512 public/icon-512.png; \
-    fi
 
 ARG BUILD_TIMESTAMP
 RUN echo "Build at $BUILD_TIMESTAMP" && npm run build
