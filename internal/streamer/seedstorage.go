@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	g "github.com/anacrolix/generics"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 )
@@ -22,27 +23,43 @@ import (
 // no resolver, the layout can't be resolved, or file 0 still lives under DataDir
 // (where the default storage already points). Only relocations OUTSIDE DataDir
 // switch to this storage, so the normal streaming/download paths are unchanged.
+// Pieces that touch a relocated file are read-only (readOnlyClient): they are
+// verified and seeded from disk but never written. Files that fall back to
+// DataDir stay writable.
 func (s *Streamer) relocatedStorage(info *metainfo.Info, hash metainfo.Hash) storage.ClientImpl {
 	if !s.needsRelocatedStorage(info, hash) {
 		return nil
 	}
-	return storage.NewFileOpts(storage.NewFileClientOpts{
+	relocated := newFileIndexSet()
+	return readOnlyClient{relocated: relocated, inner: storage.NewFileOpts(storage.NewFileClientOpts{
 		// ClientBaseDir only roots the FilePathMaker fallback below.
 		ClientBaseDir: s.cfg.DataDir,
-		// In-memory completion (not a DB under DataDir): the default client storage
-		// already owns a completion DB there, and opening a second one at the same
-		// path would lock/conflict. In-memory means anacrolix re-verifies the real
-		// file on add (hash-check marks complete pieces → seeds, never re-downloads)
-		// and again after a restart — exactly what we want for a relocated seed.
-		PieceCompletion: storage.NewMapPieceCompletion(),
+		// Completion must come from a real hash check ("verify passes"), never
+		// from file names: part files are OFF, because with them anacrolix (a)
+		// marks a final-named file complete by size alone and (b) renames a file
+		// that fails verification to <name>.part — making a user's bulk file
+		// vanish. Completion persists in the shared download DB (distinct from the
+		// default client's Bolt, so no lock clash), so only the first activation
+		// hashes the bulk file; later boots/reseeds reuse the verdict.
+		PieceCompletion: s.relocatedPieceCompletion(),
+		UsePartFiles:    g.Some(false),
 		// Root the torrent at "/" so each file's absolute real path is used
 		// verbatim (joined under "/", it stays a valid sub-path).
 		TorrentDirMaker: func(string, *metainfo.Info, metainfo.Hash) string { return string(os.PathSeparator) },
-		FilePathMaker:   s.relocatedFilePathMaker(hash),
-	})
+		FilePathMaker:   s.relocatedFilePathMaker(hash, relocated.add),
+	})}
 }
 
 // needsRelocatedStorage is true only when file 0 is a real file outside DataDir.
+// relocatedPieceCompletion is the shared persistent DB when available, else an
+// in-memory map (re-verified on each activation).
+func (s *Streamer) relocatedPieceCompletion() storage.PieceCompletion {
+	if s.dlPieceCompletion != nil {
+		return s.dlPieceCompletion
+	}
+	return storage.NewMapPieceCompletion()
+}
+
 func (s *Streamer) needsRelocatedStorage(info *metainfo.Info, hash metainfo.Hash) bool {
 	if s.filePathResolver == nil || info == nil || len(info.UpvertedFiles()) == 0 {
 		return false
@@ -63,10 +80,15 @@ func (s *Streamer) needsRelocatedStorage(info *metainfo.Info, hash metainfo.Hash
 	return true
 }
 
-func (s *Streamer) relocatedFilePathMaker(hash metainfo.Hash) storage.FilePathMaker {
+// relocatedFilePathMaker resolves each file to its real path; onResolved (may be
+// nil) is told which file indices were relocated so their pieces can be locked.
+func (s *Streamer) relocatedFilePathMaker(hash metainfo.Hash, onResolved func(int)) storage.FilePathMaker {
 	return func(o storage.FilePathMakerOpts) string {
 		if idx := fileIndexInInfo(o.Info, o.File); idx >= 0 {
 			if p, ok := s.filePathResolver(hash, idx); ok && p != "" {
+				if onResolved != nil {
+					onResolved(idx)
+				}
 				return strings.TrimPrefix(p, string(os.PathSeparator))
 			}
 		}
