@@ -1,9 +1,13 @@
 package streamer
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
+
+	"github.com/anacrolix/torrent/bencode"
+	"github.com/anacrolix/torrent/metainfo"
 )
 
 // deadMagnet is a syntactically valid magnet whose metadata can never arrive:
@@ -105,5 +109,82 @@ func TestWatchOrphans_StrikesOnClientActiveGap(t *testing.T) {
 	s.watchOrphans()
 	if s.orphanStrikes != 0 {
 		t.Fatalf("strikes = %d, want 0 once every handle is registered", s.orphanStrikes)
+	}
+}
+
+// Regression (#200): two concurrent Adds of the same magnet share ONE anacrolix
+// handle. When the first caller gave up (ctx canceled), it Dropped that handle
+// although the second caller was still waiting for its metadata — killing the
+// second Add. A giving-up Add may only drop a handle nobody else is waiting on.
+func TestAddCanceledDoesNotDropHandleAnotherAddAwaits(t *testing.T) {
+	s, err := newTestStreamer(t, Config{DataDir: t.TempDir(), MetadataWait: time.Minute})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer s.Close()
+
+	longCtx, cancelLong := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelLong()
+	longDone := make(chan error, 1)
+	go func() {
+		_, err := s.Add(longCtx, deadMagnet)
+		longDone <- err
+	}()
+
+	// Let the long Add create the handle and enter its wait first.
+	deadline := time.Now().Add(2 * time.Second)
+	for len(s.client.Torrents()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	shortCtx, cancelShort := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancelShort()
+	if _, err := s.Add(shortCtx, deadMagnet); err == nil {
+		t.Fatal("short Add must fail on its canceled context")
+	}
+	if got := len(s.client.Torrents()); got != 1 {
+		t.Fatalf("client holds %d torrents after the short Add gave up, want 1 (the long Add still awaits it)", got)
+	}
+
+	if err := <-longDone; err == nil {
+		t.Fatal("long Add of a dead magnet must eventually fail")
+	}
+	if got := len(s.client.Torrents()); got != 0 {
+		t.Fatalf("client holds %d torrents after every Add gave up, want 0", got)
+	}
+}
+
+func TestAddMetainfo_RegistersUploadedTorrent(t *testing.T) {
+	s, err := newTestStreamer(t, Config{DataDir: t.TempDir(), MetadataWait: time.Second})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer s.Close()
+
+	data := bytes.Repeat([]byte("u"), 1<<14)
+	ph := metainfo.HashBytes(data)
+	infoBytes, err := bencode.Marshal(metainfo.Info{Name: "upload.mkv", PieceLength: 1 << 14, Pieces: ph[:], Length: int64(len(data))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mi := &metainfo.MetaInfo{InfoBytes: infoBytes}
+
+	info, err := s.AddMetainfo(context.Background(), mi)
+	if err != nil {
+		t.Fatalf("AddMetainfo: %v", err)
+	}
+	if info.InfoHash != mi.HashInfoBytes().HexString() {
+		t.Fatalf("info hash = %s, want %s", info.InfoHash, mi.HashInfoBytes().HexString())
+	}
+	s.mu.Lock()
+	_, live := s.active[mi.HashInfoBytes()]
+	waiters := len(s.addWaiters)
+	s.mu.Unlock()
+	if !live || waiters != 0 {
+		t.Fatalf("live=%v waiters=%d, want registered and no pending waiters", live, waiters)
+	}
+
+	if _, err := NewForTesting().AddMetainfo(context.Background(), mi); err == nil {
+		t.Fatal("AddMetainfo without a client must fail")
 	}
 }

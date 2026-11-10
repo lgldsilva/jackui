@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/anacrolix/torrent/metainfo"
 
 	"github.com/lgldsilva/jackui/internal/diskutil"
 )
@@ -124,11 +127,18 @@ func (s *Streamer) buildActiveMaps() (map[string]bool, map[string]string, int) {
 // Favorites are preserved on disk; their active torrent is dropped but files remain.
 func (s *Streamer) ClearAll() error {
 	s.mu.Lock()
-	for h, e := range s.active {
-		e.t.Drop()
-		delete(s.active, h)
+	hashes := make([]metainfo.Hash, 0, len(s.active))
+	for h := range s.active {
+		hashes = append(hashes, h)
 	}
 	s.mu.Unlock()
+	// Through drop(): a torrent someone is watching (viewer lease) or a
+	// protected background download survives "clear cache" — it used to be
+	// torn down mid-playback — and the verified-file keys are purged with it.
+	// Survivors stay in s.active, so evictionBlocked keeps their bytes below.
+	for _, h := range hashes {
+		_ = s.drop(h, true)
+	}
 
 	entries, err := os.ReadDir(s.cfg.DataDir)
 	if err != nil {
@@ -162,26 +172,20 @@ func (s *Streamer) ClearAll() error {
 // Refuses if the entry is favorited (use Favorites().Remove first).
 // If the torrent is currently active, it is dropped first.
 func (s *Streamer) ClearEntry(name string) error {
-	// Reject "." / ".." / "" explicitly: the prefix guard below used to admit
-	// abs == dirAbs, so DELETE /api/stream/cache?entry=. wiped the WHOLE
-	// DataDir (favorites bytes, .metainfo, .piece-completion-dl).
-	if clean := filepath.Clean(name); clean == "." || clean == ".." {
-		return fmt.Errorf("invalid cache entry %q", name)
+	clean, err := cleanCacheEntryName(name)
+	if err != nil {
+		return err
 	}
-	if s.favs != nil && s.favs.IsFavorite(name) {
-		return fmt.Errorf("entry %q is a favorite — unfavorite it before removing", name)
+	if s.favs != nil && s.favs.IsFavorite(clean) {
+		return fmt.Errorf("entry %q is a favorite — unfavorite it before removing", clean)
 	}
-	// Drop matching active torrent if any
-	s.mu.Lock()
-	for h, e := range s.active {
-		if e.t.Name() == name {
-			e.t.Drop()
-			delete(s.active, h)
-			break
-		}
+	if err := s.dropEntryTorrent(clean); err != nil {
+		return err
 	}
-	s.mu.Unlock()
-
+	if s.evictionBlocked(clean) {
+		return fmt.Errorf("entry %q is protected by an active download", clean)
+	}
+	name = clean
 	full := filepath.Join(s.cfg.DataDir, filepath.Clean(name))
 	// Safety: refuse to delete outside DataDir. Strict prefix only — an entry
 	// EQUAL to DataDir itself is never a valid target.
@@ -335,4 +339,40 @@ func fmtBytes(n int64) string {
 		u++
 	}
 	return fmt.Sprintf("%.2f %s", v, units[u])
+}
+
+// cleanCacheEntryName normalizes a user-supplied cache entry name and rejects
+// anything that is not a regular top-level entry: "."/".." used to wipe the
+// whole DataDir, and "sub/../.metainfo" cleaned to the internal .metainfo dir
+// (dot-entries are bookkeeping — ClearAll skips them too).
+func cleanCacheEntryName(name string) (string, error) {
+	clean := filepath.Clean(name)
+	first := strings.SplitN(clean, string(os.PathSeparator), 2)[0]
+	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(first, ".") {
+		return "", fmt.Errorf("invalid cache entry %q", name)
+	}
+	return clean, nil
+}
+
+// dropEntryTorrent stops the active torrent stored under entry name, honouring
+// viewer leases and download protection: deleting the bytes under a torrent
+// someone is still watching would break that playback.
+func (s *Streamer) dropEntryTorrent(name string) error {
+	s.mu.Lock()
+	var hash metainfo.Hash
+	found := false
+	for h, e := range s.active {
+		if e.t.Name() == name {
+			hash, found = h, true
+			break
+		}
+	}
+	s.mu.Unlock()
+	if !found {
+		return nil
+	}
+	if err := s.drop(hash, true); err != nil && !errors.Is(err, ErrTorrentNotActive) {
+		return fmt.Errorf("entry %q is in use: %w", name, err)
+	}
+	return nil
 }

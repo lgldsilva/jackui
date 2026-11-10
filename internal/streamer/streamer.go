@@ -122,6 +122,10 @@ type Streamer struct {
 	client    *torrent.Client
 	mu        sync.Mutex
 	active    map[metainfo.Hash]*entry
+	// addWaiters counts Adds still waiting for metadata per hash (guarded by
+	// mu): concurrent Adds of one magnet share a single anacrolix handle, so a
+	// giving-up Add may only Drop it when nobody else is waiting on it.
+	addWaiters map[metainfo.Hash]int
 	favs      *FavoritesStore // optional — nil disables favorites protection
 	cache     *MetadataCache  // optional — nil disables instant-open snapshots
 	stop      chan struct{}
