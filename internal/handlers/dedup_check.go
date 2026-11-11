@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path"
@@ -251,23 +252,35 @@ type dedupLinkReq struct {
 	Items    []dedupLinkItem `json:"items"`
 }
 
+// linkFileSizer reports the size the torrent's cached metadata declares for a
+// file (streamer.CachedFileSize). An interface so tests need no live streamer.
+type linkFileSizer interface {
+	CachedFileSize(h metainfo.Hash, fileIdx int) (int64, bool)
+}
+
 // DedupLink (POST /api/downloads/link) creates completed+linked download rows
 // for files the user confirmed they already have (the "you already have it" flow). Each
 // item's path is resolved through the browser's per-user access control, so a
-// user can only link to files they're allowed to see.
-func DedupLink(dls *downloads.Store, b *local.Browser) gin.HandlerFunc {
+// user can only link to files they're allowed to see, and must match the size
+// the torrent's cached metadata declares for that file index.
+func DedupLink(dls *downloads.Store, b *local.Browser, sz linkFileSizer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req dedupLinkReq
 		if err := c.ShouldBindJSON(&req); err != nil || req.InfoHash == "" || len(req.Items) == 0 {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "infoHash and items are required")
 			return
 		}
+		var hash metainfo.Hash
+		if err := hash.FromHexString(req.InfoHash); err != nil {
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "bad info hash")
+			return
+		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		username := userFromCtx(c)
+		lk := dedupLinker{dls: dls, b: b, sz: sz, hash: hash, username: userFromCtx(c), userID: userID, req: req}
 		linked := 0
 		errs := []string{}
 		for _, it := range req.Items {
-			if err := linkOneItem(dls, b, username, userID, req, it); err != nil {
+			if err := lk.link(it); err != nil {
 				errs = append(errs, err.Error())
 				continue
 			}
@@ -277,10 +290,23 @@ func DedupLink(dls *downloads.Store, b *local.Browser) gin.HandlerFunc {
 	}
 }
 
-// linkOneItem resolves+validates one link item and records the linked row. The
-// per-item core of DedupLink, extracted so the handler's loop stays flat.
-func linkOneItem(dls *downloads.Store, b *local.Browser, username string, userID int, req dedupLinkReq, it dedupLinkItem) error {
-	abs, err := resolveLinkTarget(b, username, it)
+// dedupLinker carries the per-request context of one DedupLink call.
+type dedupLinker struct {
+	dls      *downloads.Store
+	b        *local.Browser
+	sz       linkFileSizer
+	hash     metainfo.Hash
+	username string
+	userID   int
+	req      dedupLinkReq
+}
+
+// link resolves+validates one item and records the linked row. The torrent
+// file must be known to the cached metadata and the on-disk size must match:
+// completed rows are served (and seeded) for every user of the torrent, so a
+// mismatched link would hand out — or let anacrolix overwrite — foreign bytes.
+func (lk dedupLinker) link(it dedupLinkItem) error {
+	abs, err := resolveLinkTarget(lk.b, lk.username, it)
 	if err != nil {
 		return err
 	}
@@ -288,9 +314,16 @@ func linkOneItem(dls *downloads.Store, b *local.Browser, username string, userID
 	if statErr != nil || st.IsDir() {
 		return errors.New(it.RelPath + ": not a file")
 	}
-	_, err = dls.CreateLinked(downloads.Download{
-		UserID: userID, InfoHash: req.InfoHash, FileIndex: it.FileIndex,
-		Magnet: req.Magnet, Name: req.Name,
+	want, ok := lk.sz.CachedFileSize(lk.hash, it.FileIndex)
+	if !ok {
+		return fmt.Errorf("%s: file index %d unknown in torrent metadata", it.RelPath, it.FileIndex)
+	}
+	if st.Size() != want {
+		return fmt.Errorf("%s: size %d does not match torrent file size %d", it.RelPath, st.Size(), want)
+	}
+	_, err = lk.dls.CreateLinked(downloads.Download{
+		UserID: lk.userID, InfoHash: lk.hash.HexString(), FileIndex: it.FileIndex,
+		Magnet: lk.req.Magnet, Name: lk.req.Name,
 	}, abs, st.Size())
 	return err
 }

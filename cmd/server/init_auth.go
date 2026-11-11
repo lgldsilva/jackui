@@ -35,6 +35,9 @@ func initDB(deps *appDeps) {
 
 func initAuth(deps *appDeps) {
 	deps.loginLockout = auth.NewLockout(5, 15*time.Minute)
+	deps.deviceFlow = auth.NewDeviceFlow()
+	// Wrong pairing codes per user: 10 misses → 15 min lock (codes can't be enumerated).
+	deps.deviceLockout = auth.NewLockout(10, 15*time.Minute)
 	if !deps.cfg.Auth.Enabled {
 		if os.Getenv("JACKUI_ALLOW_INSECURE_AUTH") != "1" {
 			log.Fatalf("Auth disabled — set JACKUI_AUTH_ENABLED=1 (recommended) or JACKUI_ALLOW_INSECURE_AUTH=1 for dev/LAN only")

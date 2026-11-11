@@ -44,7 +44,14 @@ type HLSSessionManager struct {
 	// spawned two ffmpegs writing into the SAME segment dir, and the session
 	// that lost the map insert leaked its encoder forever.
 	starting map[string]chan struct{}
-	vodMode  VODMode
+	// startingOwner mirrors starting with the owner of each in-flight build so
+	// the per-owner cap counts sessions that are still launching.
+	startingOwner map[string]string
+	// maxSessions / maxPerOwner cap concurrent sessions (0 = unlimited); see
+	// hls_limits.go. Guarded by mu.
+	maxSessions int
+	maxPerOwner int
+	vodMode     VODMode
 	// durCache memoises the probed duration per content key (the raw key, shared
 	// across the -vod/-evt session variants) so a re-created session on a slow
 	// rclone/Drive mount enters VOD immediately instead of re-probing for 30s.
@@ -68,6 +75,7 @@ type HLSSessionManager struct {
 // (deduped across concurrent requests for the same content).
 type HLSSession struct {
 	Key        string
+	owner      string // HLSStartOpts.Owner — per-owner cap accounting
 	Dir        string
 	Cmd        *exec.Cmd
 	Cancel     context.CancelFunc
@@ -159,6 +167,10 @@ func NewHLSManager(baseDir string) (*HLSSessionManager, error) {
 		starting: make(map[string]chan struct{}),
 		stopCh:   make(chan struct{}),
 		gpuSem:   newGPUSem(gpuTranscodeLimitFromEnv()),
+
+		startingOwner: make(map[string]string),
+		maxSessions:   hlsLimitFromEnv("JACKUI_HLS_MAX_SESSIONS", defaultMaxHLSSessions),
+		maxPerOwner:   hlsLimitFromEnv("JACKUI_HLS_MAX_SESSIONS_PER_USER", defaultMaxHLSSessionsPerUser),
 	}
 	go m.gcLoop()
 	return m, nil
@@ -216,6 +228,10 @@ func (m *HLSSessionManager) Stop() {
 // errSessionStopped means the manager already reaped/closed this session —
 // callers holding a stale pointer must re-enter via GetOrStart.
 var errSessionStopped = errors.New("hls session stopped")
+
+// ErrManagerStopped is returned by GetOrStart after the manager was stopped
+// (shutdown): no new encoder may start once the reaper is gone.
+var ErrManagerStopped = errors.New("hls session manager stopped")
 
 // hlsIdleReapAfter is how long a session may go without a segment request
 // before it's reaped. Was 60s, but in VOD mode Safari pre-buffers aggressively
@@ -310,6 +326,9 @@ type HLSStartOpts struct {
 	// `-vN`) → per-rung Dir/segments, so only one rung plays at a time and
 	// seek-restart works identically to today, with no cross-variant coordination.
 	Variant Variant
+	// Owner identifies who started the session (e.g. "u<userID>") for the
+	// per-owner session cap; empty = not counted per owner.
+	Owner string
 }
 
 // The #61 finite-VOD path (synthetic playlist + forced keyframes + seek-restart)

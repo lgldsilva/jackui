@@ -80,14 +80,6 @@ export function useSubtitles(opts: UseSubtitlesOpts) {
   // Store the original (un-offset) cue timings the first time we see them
   const origCuesRef = useRef<{ start: number; end: number }[]>([])
 
-  useEffect(() => {
-    return () => {
-      setCustomSubURL(prev => {
-        if (prev) URL.revokeObjectURL(prev)
-        return null
-      })
-    }
-  }, [])
 
   const handleCustomSubtitleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -153,6 +145,18 @@ export function useSubtitles(opts: UseSubtitlesOpts) {
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.infoHash, selectedFile, embeddedSub, mediaToken])
+
+  // Revoke whatever blob: URLs are live when the player unmounts. Refs, not a
+  // state updater: an updater queued from an unmount cleanup never runs, so the
+  // old setCustomSubURL(prev => revoke(prev)) leaked, and the embedded-VTT
+  // effect only revoked on change, never on unmount (#200).
+  const blobURLs = useRef<{ custom: string | null; embedded: string }>({ custom: null, embedded: '' })
+  blobURLs.current = { custom: customSubURL, embedded: localEmbeddedVttURL }
+  useEffect(() => () => {
+    const { custom, embedded } = blobURLs.current
+    if (custom) URL.revokeObjectURL(custom)
+    if (embedded) URL.revokeObjectURL(embedded)
+  }, [])
 
   // Detect season/episode from title for better subtitle matches
   const parseSeasonEpisode = (title: string): { season?: number; episode?: number; cleanQuery: string } => {

@@ -14,6 +14,8 @@ import {
   tryBootRestorePlaylist,
   handleClearedPlayUrl,
   applyPlayHash,
+  fileParam,
+  urlFileSwitch,
   type PlayUrlDeps,
 } from './player/providerHelpers'
 
@@ -355,6 +357,9 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // intra-session updates. The dep on `searchParams.get('play')` is enough — it
   // only fires when the URL itself changes, which is the trigger we actually want.
   const lastSyncedHashRef = useRef<string | null>(null)
+  // The ?f= value last written/applied — together with the hash it keys the
+  // loop breaker, so a file switch inside the SAME torrent still syncs (#200).
+  const lastSyncedFileRef = useRef<string | null>(null)
   // Guarantees the playlist restoration on cold boot (URL without ?play) runs ONCE.
   // After that, a URL without ?play = the user closed the player → don't re-open.
   const bootRestoredRef = useRef(false)
@@ -387,7 +392,14 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
       bootRestoredRef.current = true
       if (tryBootRestorePlaylist(hash, realHash(), deps)) return
     }
-    if (hash === lastSyncedHashRef.current) return
+    if (hash === lastSyncedHashRef.current) {
+      const f = urlFileSwitch(hash, fileUrlParam, { hash: lastSyncedHashRef.current, file: lastSyncedFileRef.current })
+      lastSyncedFileRef.current = fileUrlParam
+      // PlayerModal applies a changed initialFileIndex to the open player.
+      if (f !== undefined) setCurrent(c => (c ? { ...c, fileIdx: f } : c))
+      return
+    }
+    lastSyncedFileRef.current = fileUrlParam
     if (!hash) {
       handleClearedPlayUrl(realHash(), deps)
       return
@@ -399,13 +411,15 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
   // state → URL
   useEffect(() => {
     const newHash = current?.result?.infoHash || null
-    if (newHash === lastSyncedHashRef.current) return
+    const newFile = fileParam(current?.fileIdx)
+    if (newHash === lastSyncedHashRef.current && newFile === lastSyncedFileRef.current) return
     lastSyncedHashRef.current = newHash
+    lastSyncedFileRef.current = newFile
     const params = new URLSearchParams(globalThis.location.search)
     if (newHash) {
       params.set('play', newHash)
-      if (current?.fileIdx === undefined) params.delete('f')
-      else params.set('f', String(current.fileIdx))
+      if (newFile === null) params.delete('f')
+      else params.set('f', newFile)
       // We intentionally don't write `t` here — resume position comes from the
       // server's per-user library and updates every ~15s. Persisting it in the
       // URL on every tick would spam history and is the user's job (paste from
@@ -420,6 +434,21 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
     setSearchParams(params, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current])
+
+  // player → URL: a file picked inside the open player (same torrent) updates
+  // ?f= without touching `current` (that would re-init the stream session).
+  const onFileSelected = useCallback((idx: number) => {
+    const f = fileParam(idx)
+    if (!current || f === lastSyncedFileRef.current) return
+    lastSyncedFileRef.current = f
+    const hash = current.result?.infoHash
+    if (!hash || hash !== lastSyncedHashRef.current) return
+    const params = new URLSearchParams(globalThis.location.search)
+    params.set('play', hash)
+    if (f === null) params.delete('f')
+    else params.set('f', f)
+    setSearchParams(params, { replace: true })
+  }, [current, setSearchParams])
 
   // Choose between AudioBar (persistent bottom bar) and PlayerModal (full-screen)
   // based on the current playback context.
@@ -462,6 +491,7 @@ export default function PlayerProvider({ children }: { readonly children: ReactN
           key={currentKind === 'audio' ? 'audio' : 'video'}
           result={current.result}
           initialFileIndex={current.fileIdx}
+          onFileSelected={onFileSelected}
           initialSeek={current.initialSeek}
           onClose={close}
           playlist={playlistView}

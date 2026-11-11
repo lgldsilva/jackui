@@ -204,6 +204,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		pub.POST("/verify-email", handlers.VerifyEmail(deps.authStore))
 		pub.POST("/forgot", handlers.Forgot(deps.authStore, deps.mlr, deps.cfg.BaseURL))
 		pub.POST("/reset", handlers.Reset(deps.authStore))
+		registerDevicePublicRoutes(pub, deps)
 		pub.POST("/passkey/login/begin", handlers.PasskeyLoginBegin(deps.authStore, deps.waManager))
 		pub.POST("/passkey/login/finish", handlers.PasskeyLoginFinish(deps.authStore, deps.tokenMgr, deps.waManager))
 		// Google OAuth login (opt-in via JACKUI_OAUTH_*). /providers stays public
@@ -235,6 +236,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	if deps.tokenMgr != nil {
 		api.Use(auth.Required(deps.tokenMgr))
 		api.Use(auth.GuestRestrict())
+		api.Use(auth.DeviceRestrict())
 	}
 	api.Use(middleware.Incognito())
 	api.Use(middleware.RevealHidden())
@@ -335,10 +337,11 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	adminAPI.POST("/stream/active/resume", handlers.StreamResumeAll(deps.streamSrv))
 	api.GET("/stream/limits", handlers.StreamGetLimits(deps.streamSrv))
 	adminAPI.POST("/stream/limits", handlers.StreamSetLimits(deps.streamSrv))
-	api.POST("/stream/:hash/pause", handlers.StreamPause(deps.streamSrv))
-	api.POST("/stream/:hash/resume", handlers.StreamResume(deps.streamSrv))
-	api.POST("/stream/:hash/priority", handlers.StreamSetPriority(deps.streamSrv))
-	api.POST("/stream/:hash/files/:idx/priority", handlers.StreamSetFilePriority(deps.streamSrv))
+	ctl := torrentControlGuard(deps)
+	api.POST("/stream/:hash/pause", ctl, handlers.StreamPause(deps.streamSrv))
+	api.POST("/stream/:hash/resume", ctl, handlers.StreamResume(deps.streamSrv))
+	api.POST("/stream/:hash/priority", ctl, handlers.StreamSetPriority(deps.streamSrv))
+	api.POST("/stream/:hash/files/:idx/priority", ctl, handlers.StreamSetFilePriority(deps.streamSrv))
 	api.GET("/stream/favorites", handlers.StreamFavorites(deps.streamSrv))
 	api.POST("/stream/favorite", handlers.StreamFavorite(deps.streamSrv))
 	api.DELETE("/stream/favorite/:name", handlers.StreamUnfavorite(deps.streamSrv))
@@ -508,7 +511,7 @@ func registerDownloadRoutes(api *gin.RouterGroup, deps *appDeps) {
 	// Cross-torrent dedup (#23): check which of a torrent's files the user already
 	// has (by content) and link to them instead of re-downloading.
 	api.POST("/downloads/dedup-check", handlers.DedupCheck(deps.streamSrv, deps.downloadsStore, deps.localBrowser))
-	api.POST("/downloads/link", handlers.DedupLink(deps.downloadsStore, deps.localBrowser))
+	api.POST("/downloads/link", handlers.DedupLink(deps.downloadsStore, deps.localBrowser, deps.streamSrv))
 	api.GET("/downloads/destinations", handlers.DownloadsDestinations(deps.destinations))
 	api.GET("/downloads/dest/browse", handlers.DownloadsDestinationBrowse(deps.destinations))
 	api.DELETE("/downloads/:id", handlers.DownloadsDelete(deps.downloadsStore, downloadRemoverDep(deps)))
@@ -691,6 +694,7 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/auth/passkey/register/begin", handlers.PasskeyRegisterBegin(deps.authStore, deps.waManager))
 	api.POST("/auth/passkey/register/finish", handlers.PasskeyRegisterFinish(deps.authStore, deps.waManager))
 	api.DELETE("/auth/passkey/:id", handlers.PasskeyDelete(deps.authStore))
+	registerDeviceRoutes(api, deps)
 	api.POST("/user/ntfy-topic", handlers.SetNtfyTopic(deps.authStore))
 	api.POST("/user/notify-test", handlers.NotifyTest(deps.cfg, deps.authStore))
 	// Incognito session management
@@ -708,4 +712,18 @@ func registerAuthRoutes(api *gin.RouterGroup, deps *appDeps) {
 	adminGroup.GET("/:id/sessions", handlers.AdminListUserSessions(deps.authStore))
 	adminGroup.DELETE("/:id/sessions", handlers.AdminRevokeUserSessions(deps.authStore))
 	adminGroup.DELETE("/:id/sessions/:sid", handlers.AdminRevokeUserSession(deps.authStore))
+}
+
+// torrentControlGuard scopes the per-hash swarm controls to the torrent's
+// owners (see handlers.TorrentControlGuard). Auth disabled → no-op, matching
+// how adminAPI is only gated when a token manager exists.
+func torrentControlGuard(deps *appDeps) gin.HandlerFunc {
+	if deps.tokenMgr == nil {
+		return func(c *gin.Context) { c.Next() }
+	}
+	a := handlers.TorrentControlAuthz{Downloads: deps.downloadsStore, Viewers: deps.streamSrv}
+	if deps.libraryStore != nil { // a typed-nil *library.Store would panic
+		a.Library = deps.libraryStore
+	}
+	return handlers.TorrentControlGuard(a)
 }

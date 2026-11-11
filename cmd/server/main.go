@@ -117,6 +117,8 @@ type appDeps struct {
 	tokenMgr         *auth.TokenManager
 	waManager        *auth.WAManager
 	loginLockout     *auth.Lockout
+	deviceFlow       *auth.DeviceFlow
+	deviceLockout    *auth.Lockout
 	mlr              *mailer.Mailer
 	promoteDests     []httpshared.PromoteDest
 	destinations     *handlers.DestinationService

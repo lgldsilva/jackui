@@ -2,6 +2,7 @@ package streamer
 
 import (
 	"log"
+	"strings"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -41,12 +42,23 @@ func (e *entry) leaseFresh(ttl time.Duration, now time.Time) bool {
 // AcquireViewer registers an open player session ("lease") on a torrent and
 // cancels any pending drop. Called when the player opens a stream. No-op if the
 // torrent isn't active (e.g. a local file, which lives outside the streamer).
-func (s *Streamer) AcquireViewer(hash metainfo.Hash) {
+func (s *Streamer) AcquireViewer(hash metainfo.Hash) { s.AcquireViewerFor(hash, "") }
+
+// AcquireViewerFor is AcquireViewer with a lease owner; only a release by the
+// same owner (ReleaseViewerFor) can end this lease. Empty owner = legacy
+// anonymous lease.
+func (s *Streamer) AcquireViewerFor(hash metainfo.Hash, owner string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.active[hash]
 	if !ok {
 		return
+	}
+	if owner != "" {
+		if e.viewerOwners == nil {
+			e.viewerOwners = map[string]int{}
+		}
+		e.viewerOwners[owner]++
 	}
 	e.viewers++
 	e.leaseAt = time.Now()
@@ -68,14 +80,19 @@ func (s *Streamer) AcquireViewer(hash metainfo.Hash) {
 // exists only to feed the player, so the caller must stop it once nobody is
 // watching, while the torrent keeps seeding/downloading on its own.
 func (s *Streamer) ReleaseViewer(hash metainfo.Hash) (scheduled, lastViewer bool) {
+	return s.ReleaseViewerFor(hash, "")
+}
+
+// ReleaseViewerFor releases one lease held by owner. A release that matches
+// no lease (owner holds none, or no viewers at all) is a no-op returning
+// (false, false): it must never report lastViewer, because the caller then
+// tears down every HLS transcode for the hash.
+func (s *Streamer) ReleaseViewerFor(hash metainfo.Hash, owner string) (scheduled, lastViewer bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.active[hash]
-	if !ok {
+	if !ok || !e.takeLease(owner) {
 		return false, false
-	}
-	if e.viewers > 0 {
-		e.viewers--
 	}
 	if e.viewers > 0 {
 		return false, false // another viewer still watching
@@ -131,4 +148,45 @@ func (s *Streamer) dropIfStillIdle(hash metainfo.Hash, e *entry) {
 	log.Printf("streamer: dropping stream-only torrent %s (%s) — no viewers", e.t.Name(), hash.HexString()[:8])
 	e.t.Drop()
 	s.purgeVerifiedFiles(hash)
+}
+
+// takeLease consumes one lease of owner; false when there is none to take.
+func (e *entry) takeLease(owner string) bool {
+	if e.viewers <= 0 {
+		return false
+	}
+	if owner != "" {
+		if e.viewerOwners[owner] <= 0 {
+			return false
+		}
+		e.viewerOwners[owner]--
+		if e.viewerOwners[owner] == 0 {
+			delete(e.viewerOwners, owner)
+		}
+	}
+	e.viewers--
+	return true
+}
+
+// ViewedBy reports whether any fresh viewer lease on hash belongs to userKey
+// (auth.UserKey, "u<id>"). Lease owners are "<userKey>:<playback>", so the
+// match is on the "<userKey>:" prefix. Used to authorize a viewer to control a
+// stream-only torrent it is watching.
+func (s *Streamer) ViewedBy(hash metainfo.Hash, userKey string) bool {
+	if s == nil || userKey == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.active[hash]
+	if !ok || !e.leaseFresh(s.leaseTTL(), time.Now()) {
+		return false
+	}
+	prefix := userKey + ":"
+	for owner, n := range e.viewerOwners {
+		if n > 0 && strings.HasPrefix(owner, prefix) {
+			return true
+		}
+	}
+	return false
 }

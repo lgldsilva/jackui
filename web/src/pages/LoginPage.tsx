@@ -1,17 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { LogIn, Loader2, AlertCircle, KeyRound } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { isPasskeySupported } from '../api/client'
 import GoogleSignInSection from '../components/GoogleSignInSection'
+import { fromLocation, rememberReturnPath, takeReturnPath } from '../lib/returnPath'
 
 export default function LoginPage() {
   const { t } = useTranslation()
   const { login, loginWithPasskey } = useAuth()
   const nav = useNavigate()
   const location = useLocation()
-  const from = (location.state as { from?: { pathname?: string } })?.from?.pathname || '/'
+  // pathname + search: the TV pairing link (/link?code=…) needs its query.
+  const from = fromLocation(location.state)
+  // Google OAuth leaves the SPA; stash a resumable target so the callback can return to it.
+  useEffect(() => { rememberReturnPath(from) }, [from])
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -27,7 +31,7 @@ export default function LoginPage() {
     setError('')
     try {
       await login(username, password, remember, totp)
-      nav(from, { replace: true })
+      nav(takeReturnPath(from), { replace: true })
     } catch (err: any) {
       // Account has MFA → ask for the 6-digit code and resubmit.
       if (err?.response?.data?.mfaRequired) {
@@ -50,7 +54,7 @@ export default function LoginPage() {
     setError('')
     try {
       await loginWithPasskey(username, remember)
-      nav(from, { replace: true })
+      nav(takeReturnPath(from), { replace: true })
     } catch (err: any) {
       // A user cancelling the browser prompt throws NotAllowedError — treat as silent.
       if (err?.name === 'NotAllowedError' || err?.name === 'AbortError') {

@@ -260,7 +260,7 @@ func TestWorker_FailOrRetryBelowMax(t *testing.T) {
 	w.pending[d.ID] = func() {}
 	w.mu.Unlock()
 
-	w.failOrRetry(*d, "transient error")
+	w.failOrRetry(context.Background(), *d, "transient error")
 
 	w.mu.Lock()
 	n := w.retries[d.ID]
@@ -296,7 +296,7 @@ func TestWorker_FailOrRetryAtMax(t *testing.T) {
 	w.retries[d.ID] = maxInitRetries - 1
 	w.mu.Unlock()
 
-	w.failOrRetry(*d, "final error")
+	w.failOrRetry(context.Background(), *d, "final error")
 
 	got, _ := store.Get(1, d.ID)
 	if got.Status != StatusFailed {
@@ -329,7 +329,7 @@ func TestWorker_FailOrRetryCancelled(t *testing.T) {
 	})
 
 	// No pending entry => cancelled
-	w.failOrRetry(*d, "cancelled error")
+	w.failOrRetry(context.Background(), *d, "cancelled error")
 
 	got, _ := store.Get(1, d.ID)
 	if got.Status != StatusDownloading {

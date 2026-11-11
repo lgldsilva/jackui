@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	lb "github.com/lgldsilva/jackui/internal/local"
 	"github.com/lgldsilva/jackui/internal/localcache"
@@ -120,10 +121,10 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 	}
 	// Wrap the file in a metered, read-ahead Session before handing it to the
 	// transcoder: ffmpeg's Range reads now feed the speed indicator and benefit
-	// from aligned read-ahead on slow mounts. The registry owns the handle and
-	// reaps it when ffmpeg stops pulling (it outlives this request). The metering
-	// key (transferKeyHLS == key+"-hls") is what /local/transfer-status looks up.
-	source, meterKey := mountSource(reg, key+"-hls", f, src.stat.Size())
+	// from aligned read-ahead on slow mounts. The HLS session owns the handle
+	// and closes it when it stops (it outlives this request). The metering key
+	// (transferKeyHLS == key+"-hls") is what /local/transfer-status looks up.
+	source := mountSource(reg, key+"-hls", f, src.stat.Size())
 	sess, err := mgr.GetOrStart(c.Request.Context(), transcode.HLSStartOpts{
 		Key:              key,
 		Source:           source,
@@ -136,43 +137,36 @@ func startLocalHLSSession(c *gin.Context, mgr *transcode.HLSSessionManager, reg 
 		ForceVOD:   true,
 		AudioOnly:  src.audioOnly,
 		AudioTrack: src.audioTrack,
+		Owner:      auth.UserKey(c),
 	})
 	if err != nil {
-		closeSource(reg, meterKey, source, f)
-		httpshared.RespondError(c, http.StatusInternalServerError, err)
+		// GetOrStart owns the source and has already closed it, including when
+		// the session cap refuses the start.
+		httpshared.RespondError(c, httpshared.HLSStartStatus(err), err)
 		return nil, err
 	}
 	return sess, nil
 }
 
-// mountSource returns the io.ReadSeeker the transcoder reads through plus the
-// registry key it was filed under. With a registry it is a shared metered
-// Session; without one it is the raw file (keeps tests / nil-reg paths working).
-func mountSource(reg *localstream.Registry, meterKey string, f *os.File, size int64) (io.ReadSeeker, string) {
+// mountSource returns the source the transcoder reads through. With a registry
+// it is an OwnedSession: metered + read-ahead, visible to /local/transfer-status
+// under meterKey, and an io.Closer so the transcoder releases it (duplicate
+// request, session stop, start failure). Without a registry it is the raw file.
+//
+// OpenOwned (NOT OpenShared): each transcode session must read through its OWN
+// cursor. The meterKey is the same for every client of a (mount,path), but two
+// concurrent sessions for the same file (e.g. a Chrome VOD client + a Safari
+// native-HLS client = different HLS effKeys) would otherwise share ONE cursor —
+// their interleaved Seek+Read thrash each other and the second client stalls.
+func mountSource(reg *localstream.Registry, meterKey string, f *os.File, size int64) io.ReadSeekCloser {
 	if reg == nil {
-		return f, meterKey
+		return f
 	}
-	// OpenSolo (NOT OpenShared): each transcode session must read through its OWN
-	// cursor. The meterKey is the same for every client of a (mount,path), but two
-	// concurrent sessions for the same file (e.g. a Chrome VOD client + a Safari
-	// native-HLS client = different HLS effKeys, or any two ffmpeg launches) would
-	// otherwise share ONE OpenShared Session/cursor — their interleaved Seek+Read
-	// thrash each other and the second client stalls. OpenSolo gives each its own
-	// handle (same fix the direct-play path uses); GetOrStart closes the loser's
-	// source when it dedupes same-effKey callers.
-	return reg.OpenSolo(meterKey, f, size), meterKey
-}
-
-func closeSource(reg *localstream.Registry, meterKey string, source io.ReadSeeker, f *os.File) {
-	if s, ok := source.(*localstream.Session); ok && reg != nil {
-		reg.Release(meterKey, s)
-		return
-	}
-	_ = f.Close()
+	return reg.OpenOwned(meterKey, f, size)
 }
 
 func waitLocalPlaylist(c *gin.Context, sess *transcode.HLSSession) bool {
-	if err := sess.WaitForMaster(60 * time.Second); err != nil {
+	if err := sess.WaitForMaster(c.Request.Context(), 60*time.Second); err != nil {
 		httpshared.RespondErrorFields(c, http.StatusServiceUnavailable, err, gin.H{"code": "transcode_failed"})
 		return false
 	}

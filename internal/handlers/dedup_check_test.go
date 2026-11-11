@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/anacrolix/torrent/metainfo"
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
@@ -218,15 +220,29 @@ func dedupCtx(t *testing.T, userID int, username, body string) (*gin.Context, *h
 	return c, w
 }
 
+const linkHashHex = "0123456789abcdef0123456789abcdef01234567"
+
+// linkHash is linkHashHex as a JSON string literal, for request bodies.
+const linkHash = `"` + linkHashHex + `"`
+
+// fakeSizer stands in for the streamer's cached-metadata lookup: fileIndex →
+// declared size; absent = torrent/file unknown.
+type fakeSizer map[int]int64
+
+func (f fakeSizer) CachedFileSize(_ metainfo.Hash, idx int) (int64, bool) {
+	v, ok := f[idx]
+	return v, ok
+}
+
 func TestDedupLink_Endpoint(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "movie.mkv"), []byte("body bytes"))
 	b := local.NewBrowser([]config.ExternalMount{{Name: "Lib", Path: dir}})
 	st := dedupStore(t)
 
-	body := `{"infoHash":"abc","magnet":"magnet:abc","name":"Movie","items":[{"fileIndex":0,"mount":"Lib","relPath":"movie.mkv"}]}`
+	body := `{"infoHash":` + linkHash + `,"magnet":"magnet:abc","name":"Movie","items":[{"fileIndex":0,"mount":"Lib","relPath":"movie.mkv"}]}`
 	c, w := dedupCtx(t, 1, "alice", body)
-	DedupLink(st, b)(c)
+	DedupLink(st, b, fakeSizer{0: int64(len("body bytes"))})(c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -238,7 +254,7 @@ func TestDedupLink_Endpoint(t *testing.T) {
 	if resp.Linked != 1 {
 		t.Fatalf("linked=%d errors=%v", resp.Linked, resp.Errors)
 	}
-	got, err := st.GetByKey(1, "abc", 0)
+	got, err := st.GetByKey(1, linkHashHex, 0)
 	if err != nil || got == nil || !got.Linked || got.Status != downloads.StatusCompleted {
 		t.Fatalf("linked row not created correctly: %+v err=%v", got, err)
 	}
@@ -251,14 +267,14 @@ func TestDedupLink_BadRequestsAndGuards(t *testing.T) {
 
 	// Missing infoHash → 400.
 	c, w := dedupCtx(t, 1, "alice", `{"items":[{"fileIndex":0,"mount":"Lib","relPath":"x"}]}`)
-	DedupLink(st, b)(c)
+	DedupLink(st, b, fakeSizer{})(c)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("missing infoHash: status=%d", w.Code)
 	}
 
 	// Inaccessible mount + missing file → reported as errors, linked=0.
-	c, w = dedupCtx(t, 1, "alice", `{"infoHash":"h","items":[{"fileIndex":0,"mount":"Nope","relPath":"x"},{"fileIndex":-1,"mount":"Lib","relPath":"y"},{"fileIndex":0,"mount":"Lib","relPath":"missing.mkv"}]}`)
-	DedupLink(st, b)(c)
+	c, w = dedupCtx(t, 1, "alice", `{"infoHash":`+linkHash+`,"items":[{"fileIndex":0,"mount":"Nope","relPath":"x"},{"fileIndex":-1,"mount":"Lib","relPath":"y"},{"fileIndex":0,"mount":"Lib","relPath":"missing.mkv"}]}`)
+	DedupLink(st, b, fakeSizer{0: 1})(c)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d", w.Code)
 	}
@@ -298,5 +314,52 @@ func TestUserFromCtx_NoClaims(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	if got := userFromCtx(c); got != "" {
 		t.Errorf("no claims: got %q, want empty", got)
+	}
+}
+
+// Regression: /downloads/link used to accept any (infoHash, fileIndex) and bind
+// it to any readable file. The streamer's FilePathResolver serves completed rows
+// of ANY owner, so a mismatched link made every user's playback (and seeding /
+// relocated storage writes) of that torrent file hit the wrong bytes.
+func TestDedupLink_RejectsUnverifiableLinks(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "movie.mkv"), []byte("body bytes"))
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Lib", Path: dir}})
+	st := dedupStore(t)
+
+	cases := map[string]struct {
+		sizer fakeSizer
+		index int
+	}{
+		"size mismatch":         {fakeSizer{0: 99}, 0},
+		"index not in metadata": {fakeSizer{0: 10}, 5},
+		"metadata unknown":      {fakeSizer{}, 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			body := `{"infoHash":` + linkHash + `,"items":[{"fileIndex":` + strconv.Itoa(tc.index) + `,"mount":"Lib","relPath":"movie.mkv"}]}`
+			c, w := dedupCtx(t, 1, "alice", body)
+			DedupLink(st, b, tc.sizer)(c)
+			var resp struct {
+				Linked int      `json:"linked"`
+				Errors []string `json:"errors"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			if w.Code != http.StatusOK || resp.Linked != 0 || len(resp.Errors) != 1 {
+				t.Fatalf("status=%d linked=%d errors=%v", w.Code, resp.Linked, resp.Errors)
+			}
+			if got, _ := st.GetByKey(1, linkHashHex, tc.index); got != nil {
+				t.Fatalf("unverifiable link must not create a row: %+v", got)
+			}
+		})
+	}
+}
+
+func TestDedupLink_RejectsMalformedInfoHash(t *testing.T) {
+	b := local.NewBrowser([]config.ExternalMount{{Name: "Lib", Path: t.TempDir()}})
+	c, w := dedupCtx(t, 1, "alice", `{"infoHash":"abc","items":[{"fileIndex":0,"mount":"Lib","relPath":"x"}]}`)
+	DedupLink(dedupStore(t), b, fakeSizer{0: 1})(c)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", w.Code)
 	}
 }

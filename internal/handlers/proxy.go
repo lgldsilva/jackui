@@ -62,7 +62,8 @@ func sanitizeJackettURL(rawURL string, client *jackett.Client) (*url.URL, int, e
 }
 
 func isJackettURL(u *url.URL, client *jackett.Client) bool {
-	jackettBase, err := url.Parse(client.URL)
+	base, _ := client.Endpoint()
+	jackettBase, err := url.Parse(base)
 	if err != nil {
 		return false
 	}
@@ -81,11 +82,12 @@ func isJackettURL(u *url.URL, client *jackett.Client) bool {
 }
 
 func injectAPIKey(u *url.URL, client *jackett.Client) {
-	if client.APIKey == "" || u.Query().Get("apikey") != "" {
+	_, apiKey := client.Endpoint()
+	if apiKey == "" || u.Query().Get("apikey") != "" {
 		return
 	}
 	q := u.Query()
-	q.Set("apikey", client.APIKey)
+	q.Set("apikey", apiKey)
 	u.RawQuery = q.Encode()
 }
 

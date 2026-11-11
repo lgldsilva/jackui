@@ -136,3 +136,39 @@ func TestFileRelPath_CorruptMetainfoResolvesEmpty(t *testing.T) {
 		t.Fatalf("corrupt metainfo = %q, want empty", got)
 	}
 }
+
+func TestCachedFileSize_BothSources(t *testing.T) {
+	const hex = "dddddddddddddddddddddddddddddddddddddddd"
+	s := NewForTesting()
+	mc, err := NewMetadataCache(dbtest.NewDB(t))
+	if err != nil {
+		t.Fatalf("NewMetadataCache: %v", err)
+	}
+	t.Cleanup(func() { _ = mc.Close() })
+	s.SetMetadataCache(mc)
+	if err := mc.Set(&TorrentInfo{InfoHash: hex, Name: "P", Files: []FileInfo{{Index: 0, Path: "P/a.mkv", Size: 1234}}}); err != nil {
+		t.Fatalf("cache Set: %v", err)
+	}
+	if got, ok := s.CachedFileSize(relpathHash(t, hex), 0); !ok || got != 1234 {
+		t.Fatalf("cache size = %d,%v want 1234,true", got, ok)
+	}
+
+	dir := t.TempDir()
+	s.metainfoDir = dir
+	piece := metainfo.HashBytes(bytes.Repeat([]byte("z"), 4))
+	h := writeTestMetainfo(t, dir, metainfo.Info{
+		Name: "Pack", PieceLength: 1 << 14, Pieces: piece[:],
+		Files: []metainfo.FileInfo{{Path: []string{"a"}, Length: 3}, {Path: []string{"b"}, Length: 7}},
+	})
+	if got, ok := s.CachedFileSize(h, 1); !ok || got != 7 {
+		t.Fatalf("metainfo size = %d,%v want 7,true", got, ok)
+	}
+	for _, idx := range []int{-1, 2} {
+		if _, ok := s.CachedFileSize(h, idx); ok {
+			t.Fatalf("index %d must be unknown", idx)
+		}
+	}
+	if _, ok := s.CachedFileSize(relpathHash(t, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"), 0); ok {
+		t.Fatal("unknown hash must be unknown")
+	}
+}

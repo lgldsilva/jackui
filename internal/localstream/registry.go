@@ -24,6 +24,10 @@ type Registry struct {
 	readaheadBytes int
 	now            func() time.Time
 	stop           chan struct{}
+	// owned tracks OpenOwned sessions (closed by their owner, never reaped);
+	// a shadowed one is still here so Close and slot fallback can find it.
+	owned    map[*Session]ownedRef
+	ownedSeq uint64
 }
 
 // NewRegistry builds a Registry whose sessions read ahead readaheadMB at a
@@ -45,6 +49,7 @@ func newRegistry(readaheadMB int, nowFn func() time.Time, runGC bool) *Registry 
 		readaheadBytes: bytes,
 		now:            nowFn,
 		stop:           make(chan struct{}),
+		owned:          make(map[*Session]ownedRef),
 	}
 	if runGC {
 		go r.gcLoop()
@@ -124,6 +129,10 @@ func (r *Registry) Close() {
 		e.s.close()
 		delete(r.sess, k)
 	}
+	for s := range r.owned {
+		s.close()
+		delete(r.owned, s)
+	}
 }
 
 func (r *Registry) gcLoop() {
@@ -146,6 +155,9 @@ func (r *Registry) reap() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for k, e := range r.sess {
+		if r.isOwnedLocked(e.s) {
+			continue // its owner (a running transcode) closes it
+		}
 		if e.s.idleFor(now) > idleReapAfter {
 			e.s.close()
 			delete(r.sess, k)

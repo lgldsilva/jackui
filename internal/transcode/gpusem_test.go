@@ -392,7 +392,7 @@ exit 0
 
 	// The session begins HW (slot held). After the OOM relaunch it must produce
 	// the playlist via the software-decode path.
-	if err := sess.WaitForMaster(5 * time.Second); err != nil {
+	if err := sess.WaitForMaster(context.Background(), 5*time.Second); err != nil {
 		t.Fatalf("WaitForMaster after CUDA-OOM recovery: %v", err)
 	}
 

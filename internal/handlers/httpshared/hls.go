@@ -1,6 +1,7 @@
 package httpshared
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func EnsureVODSegment(sess *transcode.HLSSession, segName string) {
 
 // ServeSegment waits for the requested .ts segment (up to 30s) and streams it.
 func ServeSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
-	path, err := sess.WaitForSegment(segName, 30*time.Second)
+	path, err := sess.WaitForSegment(c.Request.Context(), segName, 30*time.Second)
 	if err != nil {
 		RespondError(c, http.StatusNotFound, err)
 		return
@@ -70,4 +71,13 @@ func ServeSegment(c *gin.Context, sess *transcode.HLSSession, segName string) {
 	c.Header("Content-Type", "video/mp2t")
 	c.Header("Cache-Control", "max-age=3600")
 	c.File(path)
+}
+
+// HLSStartStatus maps a GetOrStart error to its HTTP status: the session cap
+// is a 429 (retryable once another playback ends), anything else a 500.
+func HLSStartStatus(err error) int {
+	if errors.Is(err, transcode.ErrTooManySessions) {
+		return http.StatusTooManyRequests
+	}
+	return http.StatusInternalServerError
 }

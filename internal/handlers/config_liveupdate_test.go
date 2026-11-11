@@ -39,10 +39,7 @@ func TestUpdateConfig_RefreshesLiveClients(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
-	if jc.URL != "http://new.host:9117" {
-		t.Errorf("live jackett URL = %q, want new.host", jc.URL)
-	}
-	if jc.APIKey != "new-key" {
-		t.Errorf("live jackett APIKey = %q, want new-key", jc.APIKey)
+	if base, key := jc.Endpoint(); base != "http://new.host:9117" || key != "new-key" {
+		t.Errorf("live jackett endpoint = %q, %q; want new.host, new-key", base, key)
 	}
 }

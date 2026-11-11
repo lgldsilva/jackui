@@ -112,6 +112,12 @@ func (w *Worker) reseedAfterCompletion(d Download, renamed bool) {
 	if err := h.FromHexString(d.InfoHash); err != nil {
 		return
 	}
+	if w.hashInUse(h, d.ID) {
+		// Another row (e.g. another user's download of the same torrent) is still
+		// downloading it: dropping or re-adding the shared handle would kill it.
+		log.Printf("downloads: #%d %q complete; torrent still in use by another row — not dropped/reseeded", d.ID, d.Name)
+		return
+	}
 	if !w.streamer.MatchesSeedTrackerCached(h) {
 		// Public/indexer swarms: stop seeding and release mmap/RSS.
 		w.dropTorrent(h)
@@ -199,7 +205,7 @@ func (w *Worker) tryFinalizeBulk(d Download, name string, relPaths []string, who
 		if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
 			log.Printf(logFmtSetFilePathFailed, d.ID, err)
 		}
-		w.streamer.UnregisterDownload(name)
+		w.releaseProtection(name, parseHash(d.InfoHash), d.ID)
 		log.Printf("downloads: #%d %q already in bulk (no move) → %s", d.ID, name, dst)
 		return dst, true
 	}
@@ -314,7 +320,7 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string, job 
 	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
 		log.Printf(logFmtSetFilePathFailed, d.ID, err)
 	}
-	w.streamer.UnregisterDownload(torrentName)
+	w.releaseProtection(torrentName, parseHash(d.InfoHash), d.ID)
 	log.Printf("downloads: moved #%d %q → %s", d.ID, torrentName, dst)
 	return dst, nil
 }
@@ -344,7 +350,7 @@ func (w *Worker) moveCompletedTorrentFiles(d Download, torrentName string, relPa
 	if err := w.store.SetFilePath(d.UserID, d.ID, destDir); err != nil {
 		log.Printf(logFmtSetFilePathFailed, d.ID, err)
 	}
-	w.streamer.UnregisterDownload(torrentName)
+	w.releaseProtection(torrentName, parseHash(d.InfoHash), d.ID)
 	log.Printf("downloads: moved whole torrent #%d %q (%d files) → %s", d.ID, torrentName, len(relPaths), destDir)
 	return destDir, nil
 }

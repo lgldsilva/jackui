@@ -173,6 +173,9 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 		}
 		job.Fail(err)
 		log.Printf("downloads: group %s move failed: %v", g.Key, err)
+		// Mirror the single-row failure path: an errored group no longer needs
+		// eviction protection (it stayed pinned until restart).
+		w.releaseProtection(name, parseHash(g.Members[0].InfoHash), -1)
 		return
 	}
 	ids := make([]int, 0, len(movers))
@@ -182,7 +185,7 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 	if _, err := w.store.CompleteGroup(ids); err != nil {
 		log.Printf("downloads: set group %s completed: %v", g.Key, err)
 	}
-	w.streamer.UnregisterDownload(name)
+	w.releaseProtection(name, parseHash(g.Members[0].InfoHash), -1)
 	job.Done()
 	log.Printf("downloads: completed group %s %q (%d files)", g.Key, name, len(movers))
 	// Whole-torrent groups skip AI-rename (renamed=false): the rename chain targets

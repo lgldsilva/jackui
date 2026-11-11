@@ -1,10 +1,11 @@
 package tmdb
 
 import (
+	"io"
 	"testing"
+	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
-	"time"
 )
 
 func newSnapTestClient(t *testing.T) *Client {
@@ -115,6 +116,44 @@ func TestSnapshot_DBErrorsAreSafe(t *testing.T) {
 	}
 	if got := c.prevWeekRanks("2099-W01"); len(got) != 0 {
 		t.Errorf("prevWeekRanks on closed DB should be empty, got %d", len(got))
+	}
+}
+
+func TestPrevWeekRanks_DiscardsPartialOnRowsErr(t *testing.T) {
+	// The week lookup and the rank scan need different row shapes. A single
+	// FailRowsDB result can't serve both, so the rank scan is the only query
+	// that fails mid-iteration. The clean scan proves those rows are readable;
+	// the failed scan must not publish them (a partial week would badge the
+	// rest of the list as "new").
+	ranks := [][]any{{int64(10), int64(0)}, {int64(20), int64(1)}}
+	week := dbtest.QueryResult{Rows: [][]any{{"2026-W40"}}}
+
+	okDB := dbtest.NewFailRowsDBQueries(t,
+		dbtest.QueryResult{Match: "tmdb_id, rank", Rows: ranks},
+		week,
+	)
+	okClient, err := New("key", "", okDB.DB)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got := okClient.prevWeekRanks("2026-W41")
+	if len(got) != 2 || got[10] != 0 || got[20] != 1 {
+		t.Fatalf("clean scan = %v, want map[10:0 20:1]", got)
+	}
+
+	badDB := dbtest.NewFailRowsDBQueries(t,
+		dbtest.QueryResult{Match: "tmdb_id, rank", Rows: ranks, Err: io.ErrUnexpectedEOF},
+		week,
+	)
+	badClient, err := New("key", "", badDB.DB)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := badClient.prevWeekRanks("2026-W41"); len(got) != 0 {
+		t.Fatalf("prevWeekRanks = %v, want an empty map after rows.Err", got)
+	}
+	if n := badDB.Queries(); n != 2 {
+		t.Fatalf("driver queries = %d, want 2 (the week lookup must succeed so the rank scan is what fails)", n)
 	}
 }
 

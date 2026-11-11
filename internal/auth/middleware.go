@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -93,12 +94,14 @@ func mediaTokenAllowed(c *gin.Context) bool {
 	}
 }
 
-// AdminOnly aborts with 403 unless the request was authenticated as an admin.
+// AdminOnly aborts with 403 unless the request was authenticated as an admin
+// through an interactive login — a paired-device token (amr=device) never
+// reaches the admin surface, even for an admin account.
 // Must be chained after Required.
 func AdminOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := ClaimsFromCtx(c)
-		if !ok || claims.Role != RoleAdmin {
+		if !ok || claims.Role != RoleAdmin || claims.AMR == AMRDevice {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "admin only"})
 			return
 		}
@@ -144,15 +147,30 @@ func guestAuthSelfAllowed(method, path string) bool {
 			path == "/api/auth/email" ||
 			path == "/api/auth/sessions" ||
 			path == "/api/auth/sessions/revoke-others" ||
-			path == "/api/auth/media-token"
+			path == "/api/auth/media-token" ||
+			// Pairing a TV to the guest's own account + managing own devices.
+			path == "/api/auth/device/approve" ||
+			isOneSegmentUnder(path, "/api/auth/devices/", "/pin")
 	case http.MethodDelete:
-		// DELETE /api/auth/sessions/:id — exactly one extra segment, so nothing
-		// nested deeper (or under another root) can ride this exception.
-		rest, ok := strings.CutPrefix(path, "/api/auth/sessions/")
-		return ok && rest != "" && !strings.Contains(rest, "/")
+		// DELETE /api/auth/sessions/:id and /api/auth/devices/:id — exactly one
+		// extra segment, so nothing nested deeper (or under another root) can
+		// ride this exception.
+		return isOneSegmentUnder(path, "/api/auth/sessions/", "") ||
+			isOneSegmentUnder(path, "/api/auth/devices/", "")
 	default:
 		return false
 	}
+}
+
+// isOneSegmentUnder reports whether path is prefix + ONE non-empty segment +
+// suffix (e.g. "/api/auth/devices/" + "12" + "/pin").
+func isOneSegmentUnder(path, prefix, suffix string) bool {
+	rest, ok := strings.CutPrefix(path, prefix)
+	if !ok {
+		return false
+	}
+	rest, ok = strings.CutSuffix(rest, suffix)
+	return ok && rest != "" && !strings.Contains(rest, "/")
 }
 
 // GuestRestrict blocks mutating methods (POST, DELETE, PUT, PATCH) for guests.
@@ -200,6 +218,13 @@ func UserIDFromCtx(c *gin.Context) (int, bool, bool) {
 		return 0, false, false
 	}
 	return claims.UserID, claims.Role == RoleAdmin, true
+}
+
+// UserKey is a stable per-user key ("u<id>") for per-user resource accounting
+// (HLS session caps, viewer leases). Auth disabled → "u0" for everyone.
+func UserKey(c *gin.Context) string {
+	uid, _, _ := UserIDFromCtx(c)
+	return "u" + strconv.Itoa(uid)
 }
 
 func extractToken(c *gin.Context) string {

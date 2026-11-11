@@ -42,25 +42,66 @@ func (s *Streamer) addWithStorage(ctx context.Context, magnetOrURL string, ds *D
 	if err != nil {
 		return nil, err
 	}
+	return s.finishAdd(ctx, t)
+}
+
+// AddMetainfo adds a parsed .torrent (upload) and registers it. Same cleanup
+// guarantees as Add: on failure the handle is dropped unless it is live or
+// another Add is still waiting on it — the add-file handler used to call
+// AddTorrent directly and leak the handle on every later error.
+func (s *Streamer) AddMetainfo(ctx context.Context, mi *metainfo.MetaInfo) (*TorrentInfo, error) {
+	if s.client == nil {
+		return nil, errors.New("torrent client unavailable")
+	}
+	t, err := s.addCachedMetainfo(mi, mi.HashInfoBytes(), nil)
+	if err != nil {
+		return nil, err
+	}
+	return s.finishAdd(ctx, t)
+}
+
+// finishAdd waits for t's metadata and registers it, or cleans the handle up.
+func (s *Streamer) finishAdd(ctx context.Context, t *torrent.Torrent) (*TorrentInfo, error) {
+	h := t.InfoHash()
+	s.beginAddWait(h)
 	t.AddTrackers(publicTrackers)
 	if err := waitForMetadata(ctx, t, s.cfg.MetadataWait); err != nil {
 		// The handle the client created must not outlive the failed Add: it was
 		// never registered in s.active, so no reaper can reach it — left
 		// behind, it announces to trackers+DHT forever and, on late metadata,
 		// holds make([]Piece, NumPieces) (288 B/piece on v1.61.0) for the life
-		// of the process. The live-guard closes the razor edge where metadata
-		// arrived exactly as the deadline fired and a concurrent Add of the
-		// same magnet registered the handle between our failure and this Drop
-		// (Drop itself is idempotent — anacrolix guards on t.closed).
-		s.mu.Lock()
-		_, live := s.active[t.InfoHash()]
-		s.mu.Unlock()
-		if !live {
+		// of the process. Keep it when it went live meanwhile (a concurrent Add
+		// registered it) or when another Add is still waiting on the same
+		// handle (dropping it would fail that Add). Drop is idempotent.
+		if s.endAddWait(h) {
 			t.Drop()
 		}
 		return nil, err
 	}
+	s.endAddWait(h)
 	return s.registerTorrent(t), nil
+}
+
+// beginAddWait records an Add waiting for h's metadata.
+func (s *Streamer) beginAddWait(h metainfo.Hash) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.addWaiters == nil {
+		s.addWaiters = map[metainfo.Hash]int{}
+	}
+	s.addWaiters[h]++
+}
+
+// endAddWait ends one Add's wait on h and reports whether the handle is now
+// orphaned: no other Add waits on it and it is not registered in s.active.
+func (s *Streamer) endAddWait(h metainfo.Hash) (orphan bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.addWaiters[h]--; s.addWaiters[h] <= 0 {
+		delete(s.addWaiters, h)
+	}
+	_, live := s.active[h]
+	return !live && s.addWaiters[h] == 0
 }
 
 func cleanSource(magnetOrURL string) string {
@@ -208,18 +249,22 @@ func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 }
 
 func (s *Streamer) injectJackettAPIKey(torrentURL string) string {
-	if s.cfg.JackettHost == "" {
+	addr, apiKey := s.jackett()
+	if addr == "" || apiKey == "" {
 		return torrentURL
 	}
 	u, err := url.Parse(torrentURL)
-	if err != nil || u.Hostname() != s.cfg.JackettHost {
+	if err != nil {
 		return torrentURL
 	}
-	if s.cfg.JackettAPIKey == "" || u.Query().Get("apikey") != "" {
+	if got, ok := jackettAddrFromParsed(u); !ok || got != addr {
+		return torrentURL
+	}
+	if u.Query().Get("apikey") != "" {
 		return torrentURL
 	}
 	q := u.Query()
-	q.Set("apikey", s.cfg.JackettAPIKey)
+	q.Set("apikey", apiKey)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -265,7 +310,8 @@ func (s *Streamer) addFromTorrentURL(ctx context.Context, torrentURL string, ds 
 	var capturedMagnet string
 
 	torrentURL = s.injectJackettAPIKey(torrentURL)
-	httpClient := newSSRFGuardedClient(s.cfg.JackettHost, &capturedMagnet)
+	jackettAddr, _ := s.jackett()
+	httpClient := newSSRFGuardedClient(jackettAddr, &capturedMagnet)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", torrentURL, nil)
 	if err != nil {

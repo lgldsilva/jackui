@@ -91,12 +91,12 @@ func UpdateConfig(cfg *config.Config, configPath string, jackettClient *jackett.
 
 		// Update live Jackett client so searches use the new URL/key.
 		if jackettClient != nil {
-			jackettClient.URL = cfg.Jackett.URL
-			jackettClient.APIKey = cfg.Jackett.APIKey
+			jackettClient.SetEndpoint(cfg.Jackett.URL, cfg.Jackett.APIKey)
 		}
-		// Update the SSRF guard's trusted host so torrent fetches aren't blocked.
+		// Update the SSRF guard's trusted address + injected apikey so torrent
+		// fetches follow the new Jackett config.
 		if streamSrv != nil && req.Jackett.URL != "" {
-			streamSrv.UpdateJackettHost(req.Jackett.URL)
+			streamSrv.UpdateJackett(cfg.Jackett.URL, cfg.Jackett.APIKey)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "config saved successfully"})

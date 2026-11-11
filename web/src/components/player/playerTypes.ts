@@ -18,6 +18,9 @@ export type PlayerModalProps = {
   readonly result: SearchResult | null
   readonly onClose: () => void
   readonly initialFileIndex?: number
+  // Reports the file actually playing (user pick inside the player) so the
+  // provider can mirror it into `?f=`.
+  readonly onFileSelected?: (fileIndex: number) => void
   readonly initialSeek?: number
   readonly playlist?: PlaylistMeta | null
   readonly onPlaylistAdvance?: () => void
