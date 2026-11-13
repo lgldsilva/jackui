@@ -67,9 +67,8 @@ func TestCoreRoutes(t *testing.T) {
 		// The resume-position ping is a no-op on a missing entry (player keeps
 		// pinging after a concurrent delete) — that's the pinned contract.
 		{method: "PATCH", path: "/api/library/" + bogusID, body: `{}`, want: 200},
-		// Store errors are mapped to 500 even for "not found or not owned"
-		// (see routes issue note in the PR).
-		{method: "DELETE", path: "/api/library/" + bogusID, want: 500},
+		// Store not-found maps to 404 (sentinel fix, sweep 2026-11-06 §3.2.6).
+		{method: "DELETE", path: "/api/library/" + bogusID, want: 404},
 		{method: "DELETE", path: "/api/library", want: 200},
 
 		// --- transfers ---

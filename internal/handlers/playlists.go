@@ -86,7 +86,7 @@ func PlaylistsUpdate(store *playlists.Store) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.Update(id, userID, req.Name, req.Description, isAdmin); err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "updated"})
@@ -103,7 +103,7 @@ func PlaylistsDelete(store *playlists.Store) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.Delete(id, userID, isAdmin); err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "deleted"})
@@ -126,7 +126,7 @@ func PlaylistsAddItem(store *playlists.Store) gin.HandlerFunc {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		it, err := store.AddItem(id, userID, req, isAdmin)
 		if err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, it)
@@ -140,7 +140,7 @@ func PlaylistsRemoveItem(store *playlists.Store) gin.HandlerFunc {
 		itemID, _ := strconv.Atoi(c.Param("itemId"))
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.RemoveItem(id, itemID, userID, isAdmin); err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "removed"})
@@ -161,7 +161,7 @@ func PlaylistsReorderItem(store *playlists.Store) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := store.Reorder(id, itemID, userID, req.Position, isAdmin); err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "reordered"})

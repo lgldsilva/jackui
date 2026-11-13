@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -225,10 +226,10 @@ func TestPlaylistsRemoveItem_InvalidID(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// When id fails to parse, itemID remains 0, but handler still tries
-	// to remove — returns 200 because RemoveItem doesn't return error for missing item
-	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 200 or 500", w.Code)
+	// The unparsable playlist id resolves to 0, which owns no playlist: the
+	// store's not-found sentinel now maps to 404 (sweep 2026-11-06 §3.2.6).
+	if w.Code != http.StatusOK && w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 200 or 404", w.Code)
 	}
 }
 
@@ -288,5 +289,39 @@ func TestPlaylists_FullCRUD(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list) != 1 {
 		t.Errorf("expected 1 playlist, got %d", len(list))
+	}
+}
+
+// Sweep e2e 2026-11-06 §3.2.6: mutações em playlist inexistente respondiam 500
+// enquanto o GET já respondia 404. O contrato correto é 404 para todas as
+// mutações (sentinela playlists.ErrNotFound).
+func TestPlaylistsMutationsNotFoundStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	st, err := playlists.New(seededPool(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.PATCH("/api/playlists/:id", PlaylistsUpdate(st))
+	router.DELETE("/api/playlists/:id", PlaylistsDelete(st))
+	router.POST("/api/playlists/:id/items", PlaylistsAddItem(st))
+	router.DELETE("/api/playlists/:id/items/:itemId", PlaylistsRemoveItem(st))
+	router.PATCH("/api/playlists/:id/items/:itemId", PlaylistsReorderItem(st))
+
+	cases := []struct{ method, path, body string }{
+		{"PATCH", "/api/playlists/999999", `{"name":"x"}`},
+		{"DELETE", "/api/playlists/999999", ""},
+		{"POST", "/api/playlists/999999/items", `{"title":"t","magnet":"m"}`},
+		{"DELETE", "/api/playlists/999999/items/1", ""},
+		{"PATCH", "/api/playlists/999999/items/1", `{"position":0}`},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s %s status = %d, want 404", tc.method, tc.path, w.Code)
+		}
 	}
 }

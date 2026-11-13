@@ -179,10 +179,14 @@ func Test_plwReorderEdgeCases(t *testing.T) {
 func Test_plwOwnsPlaylistIncludeAll(t *testing.T) {
 	s := plwStore(t)
 	p, _ := s.Create(1, "P", "")
-	if !s.ownsPlaylist(p.ID, 0, true) {
+	owned, err := s.ownsPlaylist(p.ID, 0, true)
+	if err != nil {
+		t.Fatalf("plw: ownsPlaylist infra error = %v", err)
+	}
+	if !owned {
 		t.Error("plw: admin includeAll should own existing playlist")
 	}
-	if s.ownsPlaylist(999999, 0, true) {
+	if owned, _ := s.ownsPlaylist(999999, 0, true); owned {
 		t.Error("plw: admin should not own missing playlist")
 	}
 }
