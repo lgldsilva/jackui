@@ -14,9 +14,13 @@ import (
 )
 
 const (
-	sqlAndUserID        = " AND user_id = ?"
-	errPlaylistNotFound = "playlist not found or not owned"
+	sqlAndUserID = " AND user_id = ?"
 )
+
+// ErrNotFound is returned when the playlist does not exist or is not owned by
+// the caller. Handlers map it to HTTP 404 (sweep e2e 2026-11-06 §3.2.6: the
+// GETs already answered 404 while the mutations leaked 500).
+var ErrNotFound = errors.New("playlist not found or not owned")
 
 // Playlist is one user-owned ordered collection.
 type Playlist struct {
@@ -134,7 +138,7 @@ func (s *Store) Update(id, userID int, name, description string, includeAll bool
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf(errPlaylistNotFound)
+		return ErrNotFound
 	}
 	return nil
 }
@@ -152,7 +156,7 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf(errPlaylistNotFound)
+		return ErrNotFound
 	}
 	return nil
 }
@@ -161,8 +165,12 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 
 // AddItem appends an item to the end of the playlist.
 func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*Item, error) {
-	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return nil, fmt.Errorf(errPlaylistNotFound)
+	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+	if err != nil {
+		return nil, err
+	}
+	if !owned {
+		return nil, ErrNotFound
 	}
 	if item.Magnet == "" || item.Title == "" {
 		return nil, errors.New("magnet and title required")
@@ -212,8 +220,12 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 
 // Items returns all items in a playlist, ordered by position.
 func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
-	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return nil, fmt.Errorf(errPlaylistNotFound)
+	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+	if err != nil {
+		return nil, err
+	}
+	if !owned {
+		return nil, ErrNotFound
 	}
 	rows, err := s.db.Query(`
 		SELECT id, playlist_id, position, library_id, title, magnet, info_hash, file_index, added_at
@@ -241,8 +253,12 @@ func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
 
 // RemoveItem deletes an item and compacts positions.
 func (s *Store) RemoveItem(playlistID, itemID, userID int, includeAll bool) error {
-	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return fmt.Errorf(errPlaylistNotFound)
+	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return ErrNotFound
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -271,8 +287,12 @@ func (s *Store) RemoveItem(playlistID, itemID, userID int, includeAll bool) erro
 
 // Reorder moves an item to a new position, shifting siblings as needed.
 func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool) error {
-	if !s.ownsPlaylist(playlistID, userID, includeAll) {
-		return fmt.Errorf(errPlaylistNotFound)
+	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return ErrNotFound
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -333,15 +353,24 @@ func lockPlaylist(tx *dbutil.Tx, playlistID int) error {
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-func (s *Store) ownsPlaylist(playlistID, userID int, includeAll bool) bool {
-	if includeAll {
-		var n int
-		_ = s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ?`, playlistID).Scan(&n)
-		return n > 0
-	}
+// ownsPlaylist reports whether the playlist exists (and is owned, unless the
+// caller is an admin). Infrastructure failures are returned as an error so the
+// handlers can answer 500 instead of mistaking a dead database for a missing
+// playlist (sonar_error_coverage pool-close contract).
+func (s *Store) ownsPlaylist(playlistID, userID int, includeAll bool) (bool, error) {
 	var n int
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ? AND user_id = ?`, playlistID, userID).Scan(&n)
-	return n > 0
+	if includeAll {
+		err := s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ?`, playlistID).Scan(&n)
+		if err != nil {
+			return false, err
+		}
+		return n > 0, nil
+	}
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ? AND user_id = ?`, playlistID, userID).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func (s *Store) getItem(id int) (*Item, error) {

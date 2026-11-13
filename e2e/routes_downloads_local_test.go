@@ -108,12 +108,12 @@ func TestWatchlistPlaylistRoutes(t *testing.T) {
 		{method: "GET", path: "/api/playlists", want: 200},
 		{method: "POST", path: "/api/playlists", body: `{}`, want: 400},
 		{method: "GET", path: "/api/playlists/" + bogusID, want: 404},
-		// Unlike the GET (which maps not-found to 404), the mutation handlers
-		// pass the store's "playlist not found or not owned" through as 500.
-		{method: "PATCH", path: "/api/playlists/" + bogusID, body: `{}`, want: 500},
-		{method: "DELETE", path: "/api/playlists/" + bogusID, want: 500},
-		{method: "POST", path: "/api/playlists/" + bogusID + "/items", body: `{"title":"e2e"}`, want: 500},
-		{method: "DELETE", path: "/api/playlists/" + bogusID + "/items/" + bogusID, want: 500},
-		{method: "PATCH", path: "/api/playlists/" + bogusID + "/items/" + bogusID, body: `{"position":0}`, want: 500},
+		// Mutations map the store not-found sentinel to 404, same as the GET
+		// (sentinel fix, sweep 2026-11-06 §3.2.6).
+		{method: "PATCH", path: "/api/playlists/" + bogusID, body: `{}`, want: 404},
+		{method: "DELETE", path: "/api/playlists/" + bogusID, want: 404},
+		{method: "POST", path: "/api/playlists/" + bogusID + "/items", body: `{"title":"e2e"}`, want: 404},
+		{method: "DELETE", path: "/api/playlists/" + bogusID + "/items/" + bogusID, want: 404},
+		{method: "PATCH", path: "/api/playlists/" + bogusID + "/items/" + bogusID, body: `{"position":0}`, want: 404},
 	})
 }
