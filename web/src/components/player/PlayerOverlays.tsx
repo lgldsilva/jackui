@@ -143,6 +143,7 @@ export function MediaNavButtons({ mediaFileIndices, mediaCursor, currentEp, onPr
     <>
       <button
         onClick={onPrevMedia}
+        data-space-toggles-playback
         disabled={!hasPrevMedia}
         title={t('player.overlays.prevEpisode')}
         className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"
@@ -152,6 +153,7 @@ export function MediaNavButtons({ mediaFileIndices, mediaCursor, currentEp, onPr
       </button>
       <button
         onClick={onNextMedia}
+        data-space-toggles-playback
         disabled={!hasNextMedia}
         title={t('player.overlays.nextEpisode')}
         className="flex items-center gap-1 text-sm sm:text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 border border-blue-500/30 px-3 sm:px-2 py-2 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg transition-colors disabled:opacity-30 flex-shrink-0"

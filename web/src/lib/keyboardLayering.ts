@@ -3,8 +3,9 @@
 
 /**
  * Opt-out for an activatable control inside the player whose Space must keep
- * toggling playback. File rows keep focus after a mouse click, and re-activating
- * one restarts the file from 0 instead of pausing.
+ * toggling playback. File rows and prev/next buttons keep focus after a mouse
+ * click, and re-activating one restarts the file or skips another track instead
+ * of pausing.
  */
 export const SPACE_TOGGLES_PLAYBACK_ATTR = 'data-space-toggles-playback'
 
