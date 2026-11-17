@@ -115,6 +115,32 @@ describe('PlaylistDetailPage request ordering (#223)', () => {
     expect(screen.queryByText('Previous playlist')).not.toBeInTheDocument()
   })
 
+  it('does not toast a late failure of the previous playlist', async () => {
+    const pending = new Map<number, Deferred<unknown>>()
+    m.get.mockImplementation((id: number) => {
+      const d = deferred<unknown>()
+      pending.set(id, d)
+      return d.promise
+    })
+    let go: (to: string) => void = () => {}
+    const Nav = () => { go = useNavigate(); return null }
+    render(
+      <MemoryRouter initialEntries={['/playlists/7']}>
+        <Nav />
+        <Routes><Route path="/playlists/:id" element={<PlaylistDetailPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending.has(7)).toBe(true))
+    act(() => go('/playlists/8'))
+    await waitFor(() => expect(pending.has(8)).toBe(true))
+
+    await act(async () => { pending.get(8)?.resolve(named(8, 'Current playlist')) })
+    await act(async () => { pending.get(7)?.reject(boom) })
+
+    expect(m.notifyError).not.toHaveBeenCalled()
+    expect(screen.getByText('Current playlist')).toBeInTheDocument()
+  })
+
   it('shows not-found instead of an endless spinner for a non-numeric id', async () => {
     render(
       <MemoryRouter initialEntries={['/playlists/abc']}>

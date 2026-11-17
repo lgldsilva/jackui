@@ -231,7 +231,7 @@ describe('FavoritesPage — hidden curtain stays closed (#223)', () => {
 
       // The closed-curtain list was fetched before the move landed, so only a
       // fresh fetch can tell whether the favorite is still visible.
-      expect(calls.length).toBe(before + 1)
+      expect(calls).toHaveLength(before + 1)
       expect(last().includeHidden).toBe(false)
       await settle(last(), [])
       expect(names()).toEqual([])

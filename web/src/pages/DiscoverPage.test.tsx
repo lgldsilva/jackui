@@ -45,4 +45,32 @@ describe('DiscoverPage request ordering (#223)', () => {
     expect(screen.getByAltText('Picked year hit')).toBeInTheDocument()
     expect(screen.queryByAltText('Any year hit')).not.toBeInTheDocument()
   })
+
+  it('ignores a late failure of the previous filter and shows the current list', async () => {
+    const pending = new Map<number, Deferred<unknown[]>>()
+    m.trending.mockImplementation((opts: { year: number }) => {
+      const d = deferred<unknown[]>()
+      pending.set(opts.year, d)
+      return d.promise
+    })
+    render(<MemoryRouter><DiscoverPage /></MemoryRouter>)
+    await waitFor(() => expect(pending.has(0)).toBe(true))
+    fireEvent.change(screen.getByTitle('Filter by year'), { target: { value: '2020' } })
+    await waitFor(() => expect(pending.has(2020)).toBe(true))
+
+    await act(async () => { pending.get(2020)?.resolve([match(2, 'Picked year hit')]) })
+    await act(async () => { pending.get(0)?.reject(new Error('stale failure')) })
+
+    expect(screen.getByAltText('Picked year hit')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows the error of the current request, with a fallback message for non-Error rejections', async () => {
+    m.trending.mockRejectedValueOnce(new Error('tmdb down')).mockRejectedValueOnce('nope')
+    render(<MemoryRouter><DiscoverPage /></MemoryRouter>)
+    expect(await screen.findByRole('alert')).toHaveTextContent('tmdb down')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load trending titles"))
+  })
 })
