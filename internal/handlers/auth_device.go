@@ -97,7 +97,7 @@ func signDeviceSession(tm *auth.TokenManager, user *auth.User) (deviceSessionRes
 	if err != nil {
 		return deviceSessionResp{}, err
 	}
-	media, mexp, err := tm.SignMedia(user)
+	media, mexp, err := tm.SignDeviceMedia(user)
 	if err != nil {
 		return deviceSessionResp{}, err
 	}

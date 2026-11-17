@@ -137,6 +137,22 @@ When JackUI auth is **enabled** (`JACKUI_AUTH_ENABLED=1`):
 - The client must send **Basic Auth** (a JackUI username/password).
 - The session-id is only issued after valid credentials.
 - Downloads are associated with the authenticated user's **userID**.
+- Only **active** accounts are accepted: `guest`, `pending` and `disabled`
+  accounts get **HTTP 401**, even with the right password.
+- A session lasts **1 hour** from the handshake (absolute, not idle). After
+  that the client gets a 409 and re-authenticates transparently — this is what
+  makes a disabled account, a role change or a new password take effect.
+- `session-get` reports only the caller's own `session-id` (empty when auth is
+  off).
+- `session-set` and `group-set` change settings shared by every user (global
+  rate limits, queue, alt-speed), so they are **admin-only**; other users get
+  `"result": "forbidden: admin only"`.
+
+> **MFA limitation.** Transmission clients can only send Basic Auth, so an
+> account with MFA (TOTP) enabled authenticates here with its
+> **password alone** — the second factor does not protect this endpoint. If
+> that matters, give the `*arr` a dedicated non-admin account without MFA and
+> a long random password, and keep the endpoint off the public internet.
 
 When auth is **disabled**:
 - Any request is accepted (there's no auth store to validate against).

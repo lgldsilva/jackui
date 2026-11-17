@@ -5,6 +5,17 @@ set -euo pipefail
 
 readonly ARTIFACT_DIR="${CI_ARTIFACT_DIR:-/artifacts}"
 readonly SERVER_BIN=/tmp/jackui-ci-server
+# The race detector multiplies runtime, so it is scoped to the packages that
+# own goroutines and shared state instead of the whole module. Keep in sync
+# with GO_RACE_PKGS in the Makefile (scripts/ci-container_test.sh checks both).
+readonly RACE_PKGS=(
+	./internal/streamer/...
+	./internal/downloads/...
+	./internal/transcode/...
+	./internal/transfer/...
+	./internal/localcache/...
+	./internal/watchlist/...
+)
 server_pid=""
 
 stop_server() {
@@ -41,14 +52,28 @@ download_modules_with_retry() {
 	done
 }
 
+# cmd/server embeds ui/dist, which only exists after the web build further
+# down, so ./cmd/... would not even compile here. Seed a placeholder; vite's
+# emptyOutDir replaces it before the smoke binary is built.
+seed_ui_dist() {
+	mkdir -p ui/dist
+	[[ -n "$(ls -A ui/dist)" ]] || : >ui/dist/.placeholder
+}
+
+run_go_gates() {
+	[[ -z "$(gofmt -l .)" ]]
+	go vet ./cmd/... ./internal/...
+	go test -p 4 -timeout 20m -coverprofile="${ARTIFACT_DIR}/coverage.out" ./cmd/... ./internal/...
+	go test -race -timeout 20m "${RACE_PKGS[@]}"
+}
+
 main() {
 	mkdir -p "${ARTIFACT_DIR}" /tmp/jackui-ci-stream /tmp/jackui-ci-downloads /tmp/jackui-ci-library
 	trap stop_server EXIT INT TERM
 
 	download_modules_with_retry
-	[[ -z "$(gofmt -l .)" ]]
-	go vet ./internal/...
-	go test -p 4 -timeout 20m -coverprofile="${ARTIFACT_DIR}/coverage.out" ./internal/...
+	seed_ui_dist
+	run_go_gates
 
 	pushd web >/dev/null
 	npm ci --ignore-scripts
