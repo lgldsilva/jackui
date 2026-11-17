@@ -139,7 +139,7 @@ func StreamHLSMaster(s *streamer.Streamer, mgr *transcode.HLSSessionManager, sto
 		if !ok {
 			return
 		}
-		hc.mediaRenditions = cfg != nil && cfg.Stream.HLSMediaRenditions
+		hc.mediaRenditions = cfg != nil && cfg.StreamSnapshot().HLSMediaRenditions
 		// Probe-only MASTER when the source warrants one (≥2 ABR rungs, or — with
 		// renditions on — ≥2 audio tracks / text subs). Else the legacy
 		// single-variant media playlist (sub-1080p / unknown-height sources).

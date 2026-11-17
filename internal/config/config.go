@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 
 	"gopkg.in/yaml.v3"
 )
@@ -38,6 +37,10 @@ type Config struct {
 	// client IP. Empty (default) trusts none: the client IP is the socket peer.
 	// Env: JACKUI_TRUSTED_PROXIES (comma-separated).
 	TrustedProxies []string `yaml:"trusted_proxies,omitempty"`
+
+	// persist separates what config.yaml holds from the env-merged values in
+	// this struct; nil for a Config that did not come from Load.
+	persist *persistState
 }
 
 // SMTPConfig configures outbound email (password reset, email verification,
@@ -297,40 +300,6 @@ type SubtitlesConfig struct {
 	BurnDefault bool `yaml:"burn_default"`
 }
 
-// subtitlesMu guards Config.Subtitles at RUNTIME: the settings POST swaps the
-// whole section under the write lock and every reader — the status endpoints,
-// the search-language resolution, the AutoFetcher settings closure in
-// cmd/server and Save's own marshal — reads a consistent COPY through
-// SubtitlesSnapshot. Without it a torn string read (a Go string is ptr+len)
-// can panic a reader that lives OUTSIDE gin's per-request recovery (the
-// AutoFetcher goroutines) and take the whole process down.
-//
-// Package-level (not a Config field) so Config stays a plain copyable struct
-// (Save marshals a shallow view); Config is a process singleton. Load-time
-// writes (applySubtitlesDefaults, seedDefaults) run before the HTTP server
-// accepts requests — single-goroutine, no lock needed.
-var subtitlesMu sync.RWMutex
-
-// SubtitlesSnapshot returns a consistent copy of the live subtitles settings.
-// The ONLY sanctioned way to read cfg.Subtitles from runtime code — direct
-// field access races the settings POST writer and can tear strings. The same
-// rule applies to Save, which must marshal the section through this method.
-func (c *Config) SubtitlesSnapshot() SubtitlesConfig {
-	subtitlesMu.RLock()
-	defer subtitlesMu.RUnlock()
-	return c.Subtitles
-}
-
-// SetSubtitles atomically replaces the live subtitles settings (the write half
-// of SubtitlesSnapshot). Callers that persist with Save keep the previous
-// snapshot and restore it when Save fails (see SubtitlesUpdateSettings;
-// MountsUpdate is the same snapshot→mutate→Save→rollback pattern).
-func (c *Config) SetSubtitles(s SubtitlesConfig) {
-	subtitlesMu.Lock()
-	defer subtitlesMu.Unlock()
-	c.Subtitles = s
-}
-
 type DownloadClient struct {
 	ID       string `yaml:"id"`
 	Name     string `yaml:"name"`
@@ -349,8 +318,11 @@ func Load(path string) (*Config, error) {
 			cfg := defaultConfig()
 			// A fresh boot must still honour env overrides (auth, JWT secret, port,
 			// …); otherwise the first launch ignores JACKUI_AUTH_ENABLED/JWT_SECRET
-			// and initAuth fatals even when they were set correctly.
-			applyEnvOverrides(cfg)
+			// and initAuth fatals even when they were set correctly. They stay in
+			// memory only: the created file holds the defaults.
+			if err := applyEnvLayer(cfg); err != nil {
+				return nil, err
+			}
 			if saveErr := cfg.Save(path); saveErr != nil {
 				return nil, fmt.Errorf("failed to create default config: %w", saveErr)
 			}
@@ -370,7 +342,9 @@ func Load(path string) (*Config, error) {
 
 	applySubtitlesDefaults(&cfg, data)
 
-	applyEnvOverrides(&cfg)
+	if err := applyEnvLayer(&cfg); err != nil {
+		return nil, err
+	}
 
 	return &cfg, nil
 }
@@ -398,30 +372,6 @@ func applySubtitlesDefaults(cfg *Config, raw []byte) {
 	if probe.Subtitles.AutoFetch == nil {
 		cfg.Subtitles.AutoFetch = true
 	}
-}
-
-func (c *Config) Save(path string) error {
-	// Marshal under the subtitles READ lock: any settings handler may Save
-	// concurrently with a SubtitlesUpdateSettings swap, and the marshal must
-	// never read a half-swapped Subtitles section (the writer takes the write
-	// lock in SetSubtitles — a torn string read here could corrupt the saved
-	// file or panic). The lock is released before the file write, so two
-	// concurrent saves still write independently. The remaining sections are
-	// written at boot or by their own snapshot-restore handlers.
-	subtitlesMu.RLock()
-	data, err := yaml.Marshal(c)
-	subtitlesMu.RUnlock()
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	// 0600: config.yaml holds credentials (JWT secret, SMTP and download-client
-	// passwords, AI API keys) — nothing else on the host needs to read it.
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
-	}
-
-	return nil
 }
 
 func autoSeedChain(cfg *Config) {

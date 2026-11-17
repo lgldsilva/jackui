@@ -185,7 +185,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 		trpc := transmissionrpc.NewHandler(
 			deps.downloadsStore, deps.streamSrv, deps.authStore,
 			deps.streamCfg.DataDir, deps.cfg.Stream.DownloadDir,
-			deps.cfg.Stream.SharedDir, func() bool { return deps.cfg.DownloadsQueue.AutoPromoteArr },
+			deps.cfg.Stream.SharedDir, func() bool { return deps.cfg.DownloadsQueueSnapshot().AutoPromoteArr },
 		)
 		trpc.SetLockout(deps.loginLockout)
 		trpc.RegisterRoutes(router)
