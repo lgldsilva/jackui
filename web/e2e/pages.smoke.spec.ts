@@ -25,6 +25,7 @@ const PROTECTED_PAGES = [
   '/library',
   '/discover',
   '/watchlist',
+  '/link',
   '/stats',
   '/local',
   '/downloads',

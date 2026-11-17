@@ -75,9 +75,21 @@ test_workflow_runs_this_suite() {
 	grep -Fq 'scripts/ci-container_test.sh' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'workflow does not run the CI container contract tests'
 }
 
+# The Playwright page smoke has one entry point shared by CI and `make`, and
+# the web gates above (tsc, eslint) must keep covering the spec itself.
+test_e2e_smoke_is_wired() {
+	local web="${PROJECT_ROOT}/web"
+	grep -Eq '^[[:space:]]*run: scripts/e2e-smoke\.sh$' "${PROJECT_ROOT}/.github/workflows/ci.yml" || fail 'workflow does not run scripts/e2e-smoke.sh'
+	assert_lines_contain "${MAKEFILE}" '^[[:space:]]*@?\./scripts/e2e-smoke\.sh' './scripts/e2e-smoke.sh'
+	assert_lines_contain "${web}/package.json" '"e2e":' 'playwright test'
+	assert_lines_contain "${web}/package.json" '"lint":' ' e2e '
+	assert_lines_contain "${web}/tsconfig.json" '"include":' '"e2e"'
+}
+
 test_go_gates_cover_cmd
 test_ui_dist_is_seeded_before_go_gates
 test_race_detector_gate
 test_handlers_race_gate
 test_workflow_runs_this_suite
+test_e2e_smoke_is_wired
 printf 'ci-container contract tests passed\n'

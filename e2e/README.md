@@ -59,8 +59,12 @@ changes one of these statuses, the diff is the regression.
 
 ```sh
 cd web
-E2E_BASE_URL=http://127.0.0.1:8989 E2E_ADMIN_PASSWORD='…' npx playwright test
+E2E_BASE_URL=http://127.0.0.1:8989 E2E_ADMIN_PASSWORD='…' npm run e2e
 ```
+
+`make e2e-smoke` (`scripts/e2e-smoke.sh`, also the CI `e2e-smoke` job) builds
+and boots a disposable server itself; it only needs `E2E_DATABASE_URL` pointing
+at a throwaway database. See [docs/CICD.md](../docs/CICD.md).
 
 Every page route renders inside `#route-root` with no uncaught JS error;
 protected routes redirect anonymous visitors to `/login`; the admin login
