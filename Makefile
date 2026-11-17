@@ -2,7 +2,7 @@
         deploy-vpn deploy-auto-vpn deploy-nvidia-vpn deploy-vaapi-vpn \
         detect-gpu \
         restart logs down build test test-verbose test-race test-coverage clean \
-        dev-frontend dev-backend probe-gpu sonar-scan _ui-dist-stub
+        dev-frontend dev-backend probe-gpu sonar-scan e2e-smoke _ui-dist-stub
 
 # ─────────────────────────────────────────
 # Deploy variants — combine GPU vendor × VPN
@@ -368,6 +368,14 @@ test-coverage:
 	$(call step,Running web tests with coverage...)
 	@cd web && npm test -- --coverage
 	$(call ok,Web coverage report in web/coverage/)
+
+# Playwright SPA page smoke against a freshly built server (same script as the
+# CI `e2e-smoke` job). Needs a DISPOSABLE database and a local Chromium:
+#   cd web && npx playwright install chromium
+#   E2E_ALLOW_HOST_NETWORK=1 E2E_DATABASE_URL=postgres://…/jackui_test?sslmode=disable make e2e-smoke
+# (the opt-in is required outside CI: the server starts its torrent client).
+e2e-smoke:
+	@./scripts/e2e-smoke.sh
 
 # CA-3.2 — pass-rate over N consecutive runs (default 20). E.g.: make test-stability RUNS=5
 test-stability:
