@@ -13,7 +13,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,6 +49,8 @@ type entry struct {
 	Err        string    `json:"-"`
 	CachePath  string    `json:"cachePath"`
 	LastAccess time.Time `json:"lastAccess"`
+
+	cancel context.CancelFunc // aborts this entry's in-flight copy; nil unless copying
 }
 
 type job struct {
@@ -103,6 +104,7 @@ func newCache(root string, maxBytes int64, nowFn func() time.Time, runWorker boo
 		done:     make(chan struct{}),
 	}
 	c.loadIndex()
+	c.sweepPartials()
 	if runWorker {
 		go func() {
 			defer close(c.done)
@@ -122,7 +124,8 @@ func key(mount, path string) string {
 
 // Enqueue marks (mount, path) for caching: copies srcAbs (the resolved on-disk
 // path on the slow mount) to local disk in the background. A no-op if the file
-// is already cached or in flight.
+// is already cached or in flight. A file larger than the whole cache is
+// rejected up front: it would be copied in full and then evicted at once.
 func (c *Cache) Enqueue(mount, path, srcAbs string, size int64) {
 	k := key(mount, path)
 	c.mu.Lock()
@@ -130,10 +133,16 @@ func (c *Cache) Enqueue(mount, path, srcAbs string, size int64) {
 		c.mu.Unlock()
 		return
 	}
-	c.entries[k] = &entry{
+	e := &entry{
 		Mount: mount, Path: path, Size: size, Status: StatusQueued,
 		CachePath:  filepath.Join(c.root, k+filepath.Ext(path)),
 		LastAccess: c.now(),
+	}
+	c.entries[k] = e
+	if size > c.maxBytes {
+		e.Status, e.Err = StatusError, errTooLarge
+		c.mu.Unlock()
+		return
 	}
 	c.mu.Unlock()
 	select {
@@ -175,19 +184,27 @@ func (c *Cache) StatusFor(mount, path string) Snapshot {
 	return snapshotOf(e)
 }
 
-// Remove drops a cached/queued entry and deletes its file.
+// Remove drops a cached/queued entry and deletes its file. A copy in flight
+// for the entry is cancelled (the worker deletes its partial file), so it
+// stops pulling the remote file and frees the single worker for queued jobs.
 func (c *Cache) Remove(mount, path string) {
 	k := key(mount, path)
 	c.mu.Lock()
 	e, ok := c.entries[k]
+	var cancel context.CancelFunc
 	if ok {
 		delete(c.entries, k)
+		cancel = e.cancel
 	}
 	c.mu.Unlock()
-	if ok {
-		_ = os.Remove(e.CachePath)
-		c.saveIndex()
+	if !ok {
+		return
 	}
+	if cancel != nil {
+		cancel()
+	}
+	_ = os.Remove(e.CachePath)
+	c.saveIndex()
 }
 
 func snapshotOf(e *entry) Snapshot {
@@ -212,75 +229,6 @@ func (c *Cache) worker() {
 			c.runJob(j)
 		}
 	}
-}
-
-// runJob copies the source file to its cache path, reporting progress, then
-// marks it ready and evicts down to the size cap. Errors are recorded on the
-// entry (the UI surfaces them) rather than panicking.
-func (c *Cache) runJob(j job) {
-	c.mu.Lock()
-	e, ok := c.entries[j.key]
-	c.mu.Unlock()
-	if !ok {
-		return
-	}
-	c.setStatus(j.key, StatusCopying, "")
-	if err := c.copyFile(c.ctx, j.key, j.srcAbs, e.CachePath); err != nil {
-		_ = os.Remove(e.CachePath)
-		c.setStatus(j.key, StatusError, err.Error())
-		return
-	}
-	c.mu.Lock()
-	e.Status = StatusReady
-	e.LastAccess = c.now()
-	c.mu.Unlock()
-	c.evict()
-	c.saveIndex()
-}
-
-// copyFile checks ctx between chunks, so a cancel takes effect within one
-// chunk rather than after the whole (possibly multi-GB) file. A read already
-// blocked inside the remote mount still has to return first.
-func (c *Cache) copyFile(ctx context.Context, k, srcAbs, dst string) error {
-	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
-	in, err := os.Open(srcAbs)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	buf := make([]byte, copyChunk)
-	var copied int64
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		n, rerr := in.Read(buf)
-		if n > 0 {
-			if _, werr := out.Write(buf[:n]); werr != nil {
-				return werr
-			}
-			copied += int64(n)
-			c.mu.Lock()
-			if e, ok := c.entries[k]; ok {
-				e.Copied = copied
-			}
-			c.mu.Unlock()
-		}
-		if rerr == io.EOF {
-			break
-		}
-		if rerr != nil {
-			return rerr
-		}
-	}
-	return out.Close()
 }
 
 func (c *Cache) setStatus(k string, s Status, errMsg string) {
