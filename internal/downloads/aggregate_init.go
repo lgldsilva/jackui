@@ -147,35 +147,6 @@ func (w *Worker) failOrRetryGroup(ctx context.Context, g Group, msg string) {
 	}
 }
 
-// adoptSiblings marks any selected member NOT yet tracked onto the group's
-// already-live torrent: it claims that single file (VerifyFile dedupes per
-// (hash,file) inside the streamer, so no redundant whole-torrent re-hash) and
-// tracks it. Whole-torrent groups have a single member that the init already
-// handled, so there's nothing to adopt. This is the cheap O(new files) path that
-// replaces a full per-row init for every sibling.
-func (w *Worker) adoptSiblings(ctx context.Context, g Group, state groupState) {
-	if g.isWhole() || state.torrent == nil {
-		return
-	}
-	files := state.torrent.Files()
-	hash := state.torrent.InfoHash()
-	name := state.torrent.Name()
-	for _, m := range g.Members {
-		if _, ok := state.tracked[m.ID]; ok {
-			continue
-		}
-		idx, okIdx := w.resolveFileIndex(&m, files)
-		if !okIdx {
-			continue
-		}
-		if err := w.streamer.VerifyFile(ctx, hash, idx); err != nil {
-			log.Printf("downloads: verify adopted file #%d: %v", m.ID, err)
-		}
-		files[idx].Download()
-		w.trackMember(m, state.torrent, files[idx], nil, name, hash)
-	}
-}
-
 // isRemoved reports whether a download ID carries a deletion tombstone (Remove()
 // landed while a shared init was in flight). Takes w.mu briefly.
 func (w *Worker) isRemoved(id int) bool {

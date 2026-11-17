@@ -137,6 +137,11 @@ type Worker struct {
 	// row is being deleted regardless; at worst the idle reaper reclaims it.
 	dropSeed func(metainfo.Hash) error
 
+	// verifyFile reconciles one file's on-disk pieces (streamer.VerifyFile). A
+	// seam so the sibling-adoption path can be tested against a verify that
+	// blocks, which a real client only does under a busy verify queue.
+	verifyFile func(context.Context, metainfo.Hash, int) error
+
 	stop   chan struct{}
 	doneWG sync.WaitGroup
 
@@ -269,6 +274,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 	if cfg.Streamer != nil {
 		w.drop = cfg.Streamer.Drop
 		w.dropSeed = cfg.Streamer.DropSeed
+		w.verifyFile = cfg.Streamer.VerifyFile
 	}
 	// Pre-register eviction protection + self-heal completed orphans (extracted
 	// to keep NewWorker's cognitive complexity low).
