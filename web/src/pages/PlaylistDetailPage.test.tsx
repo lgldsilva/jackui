@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
+import { deferred, type Deferred } from '../lib/deferred.testutil'
 
 const m = vi.hoisted(() => ({
   notifyError: vi.fn(),
@@ -76,5 +77,51 @@ describe('PlaylistDetailPage failures surface as toasts (#200)', () => {
     await userEvent.click(down)
     await waitFor(() => expect(m.notifyError).toHaveBeenCalledWith(boom))
     await waitFor(() => expect(m.get).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('PlaylistDetailPage request ordering (#223)', () => {
+  beforeEach(() => vi.clearAllMocks())
+  afterEach(cleanup)
+
+  const named = (id: number, name: string) => ({
+    playlist: { ...data.playlist, id, name },
+    items: [],
+  })
+
+  it('keeps the playlist of the current route when the previous one answers late', async () => {
+    const pending = new Map<number, Deferred<unknown>>()
+    m.get.mockImplementation((id: number) => {
+      const d = deferred<unknown>()
+      pending.set(id, d)
+      return d.promise
+    })
+    let go: (to: string) => void = () => {}
+    const Nav = () => { go = useNavigate(); return null }
+    render(
+      <MemoryRouter initialEntries={['/playlists/7']}>
+        <Nav />
+        <Routes><Route path="/playlists/:id" element={<PlaylistDetailPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending.has(7)).toBe(true))
+    act(() => go('/playlists/8'))
+    await waitFor(() => expect(pending.has(8)).toBe(true))
+
+    await act(async () => { pending.get(8)?.resolve(named(8, 'Current playlist')) })
+    await act(async () => { pending.get(7)?.resolve(named(7, 'Previous playlist')) })
+
+    expect(screen.getByText('Current playlist')).toBeInTheDocument()
+    expect(screen.queryByText('Previous playlist')).not.toBeInTheDocument()
+  })
+
+  it('shows not-found instead of an endless spinner for a non-numeric id', async () => {
+    render(
+      <MemoryRouter initialEntries={['/playlists/abc']}>
+        <Routes><Route path="/playlists/:id" element={<PlaylistDetailPage />} /></Routes>
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('Playlist not found')).toBeInTheDocument()
+    expect(m.get).not.toHaveBeenCalled()
   })
 })
