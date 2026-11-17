@@ -31,6 +31,7 @@ import { renderPlaylistBar } from './player/PlaylistBar'
 import { VideoErrorOverlay } from './player/VideoErrorOverlay'
 import { ActiveStreamView } from './player/ActiveStreamView'
 import { usePlayerDownloads } from './player/usePlayerDownloads'
+import { usePlayerShellFocus } from './player/usePlayerShellFocus'
 import { useStreamSession } from './player/useStreamSession'
 import { useResumePlayback } from './player/useResumePlayback'
 import { useVideoFallback } from './player/useVideoFallback'
@@ -94,6 +95,7 @@ export default function PlayerModal({
   // Lock background scroll while the player is full-screen; allow it when
   // minimized (PiP) so the user can still browse the page behind the card.
   useScrollLock(!minimized)
+  const shellRef = usePlayerShellFocus(minimized)
   // Mobile: secondary controls collapsed behind an "Options" toggle.
   const [showMobileOpts, setShowMobileOpts] = useState(false)
   // Subtitles backend configured? (feature flag; the rest of the subtitle
@@ -408,7 +410,7 @@ export default function PlayerModal({
   )
 
   return (
-    <div {...shellProps({ minimized, audioMode, fullViewport, onHome, onClose, setMinimized, ariaLabel: info?.name || result.title })}>
+    <div ref={shellRef} {...shellProps({ minimized, audioMode, fullViewport, onHome, onClose, setMinimized, ariaLabel: info?.name || result.title })}>
       <div className={minimizedOrFullClass(minimized, audioMode, fullViewport)}>
         {/* Minimized (PiP) control strip — renderPlayerHeader returns null when
             minimized. This bar restores the expand + close affordances. */}
