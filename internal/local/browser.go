@@ -25,7 +25,8 @@ type Entry struct {
 	// "clean empty folders" never removes it even when it holds no files.
 	Locked bool `json:"locked,omitempty"`
 	// Incomplete flags a download still in progress: a ".part" file, or a
-	// directory whose tree still holds one. Lets the browser show a "baixando"
+	// directory holding one — directly, or nested within the listing's scan
+	// budget (browser_partscan.go). Lets the browser show a "baixando"
 	// indicator instead of presenting a half-written file as if it were ready.
 	Incomplete bool `json:"incomplete,omitempty"`
 }

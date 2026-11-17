@@ -247,6 +247,7 @@ type trackingReader struct {
 	window   int64
 	pos      int64
 	last     pieceWindow
+	forks    forkState
 }
 
 func (r *trackingReader) bumpAccess() {
