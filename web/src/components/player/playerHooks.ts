@@ -2,6 +2,7 @@ import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect, useMe
 import { interpretPlayerKey, nextSpeed } from '../../lib/playerShortcuts'
 import { shouldIgnorePlayerShortcut } from '../../lib/keyboardLayering'
 import { useFocusModality } from '../../lib/focusModality'
+import { useSpaceKeyUpGuard } from './useSpaceKeyUpGuard'
 import { SPEED_OPTIONS } from './playerFormat'
 import { findIntroSkip, shouldShowSkipIntro } from '../../lib/skipIntro'
 import type { MediaChapter } from '../../api/stream-types'
@@ -52,11 +53,13 @@ export function useKeyboardShortcuts({
   videoRef, minimized, requestFullscreen, onNext, onPrev, chapters, setPlaybackSpeed, playbackSpeed = 1,
 }: KeyboardShortcutsOpts) {
   const focusModality = useFocusModality(!minimized)
+  const spaceKeyUpPending = useSpaceKeyUpGuard(!minimized)
   useEffect(() => {
     if (minimized) return
     const isPointerFocused = (el: Element) => focusModality.current?.focusedBy(el) !== 'keyboard'
-    let spaceKeyUpPending = false
     const handleKeyDown = (e: KeyboardEvent) => {
+      // A new Space press: whatever the previous one left pending is stale.
+      if (e.key === ' ') spaceKeyUpPending.current = false
       const v = videoRef.current
       if (!v) return
       if (shouldIgnorePlayerShortcut(e, v, isPointerFocused)) return
@@ -64,22 +67,11 @@ export function useKeyboardShortcuts({
       if (!action) return
       const dur = Number.isFinite(v.duration) ? v.duration : Infinity
       e.preventDefault()
-      if (e.key === ' ') spaceKeyUpPending = true
+      if (e.key === ' ') spaceKeyUpPending.current = true
       applyShortcutAction(v, action, { dur, requestFullscreen, onNext, onPrev, chapters, setPlaybackSpeed, playbackSpeed })
     }
-    // Firefox clicks a focused button on Space keyup even when keydown was
-    // preventDefault-ed; swallow the keyup of a Space the player handled.
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key !== ' ' || !spaceKeyUpPending) return
-      spaceKeyUpPending = false
-      e.preventDefault()
-    }
     globalThis.addEventListener('keydown', handleKeyDown)
-    globalThis.addEventListener('keyup', handleKeyUp)
-    return () => {
-      globalThis.removeEventListener('keydown', handleKeyDown)
-      globalThis.removeEventListener('keyup', handleKeyUp)
-    }
+    return () => globalThis.removeEventListener('keydown', handleKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [minimized, onNext, onPrev, chapters, playbackSpeed])
 }

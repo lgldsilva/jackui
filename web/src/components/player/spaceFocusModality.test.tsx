@@ -19,12 +19,15 @@ afterEach(cleanup)
 // keyboard. One rule for every button, so new controls cannot regress it.
 function setupShortcuts(strict = false) {
   const media = { paused: true, currentTime: 50, duration: 100, play: vi.fn(() => Promise.resolve()), pause: vi.fn() }
-  const { unmount } = renderHook(() => useKeyboardShortcuts({
-    videoRef: { current: media as unknown as HTMLMediaElement },
-    minimized: false,
-    requestFullscreen: vi.fn(),
-  }), strict ? { wrapper: StrictMode } : undefined)
-  return { media, unmount }
+  const videoRef = { current: media as unknown as HTMLMediaElement }
+  const requestFullscreen = vi.fn()
+  // onNext gets a NEW identity on every render, like the real call site
+  // (usePlayerTransport passes un-memoized handlers), so the effect re-runs.
+  const { unmount, rerender } = renderHook(
+    ({ minimized }: { minimized: boolean }) => useKeyboardShortcuts({ videoRef, minimized, requestFullscreen, onNext: () => {} }),
+    { initialProps: { minimized: false }, ...(strict ? { wrapper: StrictMode } : {}) },
+  )
+  return { media, unmount, rerender }
 }
 
 const t = i18n.t.bind(i18n)
@@ -159,6 +162,67 @@ describe('Space keyup after a handled keydown', () => {
     expect(prevented(next, 'keyUp')).toBe(false)
     fireEvent.keyDown(next, { key: ' ' })
     expect(prevented(next, 'keyUp')).toBe(true)
+    expect(prevented(next, 'keyUp')).toBe(false)
+  })
+
+  // The media element fires timeupdate right after play()/pause(), which
+  // re-renders the player between the keydown and the keyup.
+  it('survives a player re-render between keydown and keyup', () => {
+    const { rerender } = setupShortcuts()
+    render(<SimpleAudioControls onPrev={vi.fn()} onNext={vi.fn()} hasPrev hasNext />)
+    const next = screen.getByRole('button', { name: t('player.controls.next') })
+    pointerFocus(next)
+    fireEvent.keyDown(next, { key: ' ' })
+    rerender({ minimized: false })
+    expect(prevented(next, 'keyUp')).toBe(true)
+    expect(prevented(next, 'keyUp')).toBe(false)
+  })
+
+  it('forgets a pending keyup on window blur (Space held while the window loses focus)', () => {
+    const { media } = setupShortcuts()
+    render(<SimpleAudioControls onPrev={vi.fn()} onNext={vi.fn()} hasPrev hasNext />)
+    const next = screen.getByRole('button', { name: t('player.controls.next') })
+    pointerFocus(next)
+    fireEvent.keyDown(next, { key: ' ' })
+    fireEvent.blur(window)
+    const prev = screen.getByRole('button', { name: t('player.controls.prev') })
+    keyboardFocus(prev)
+    expect(prevented(prev, 'keyDown')).toBe(false)
+    expect(prevented(prev, 'keyUp')).toBe(false)
+    expect(media.play).toHaveBeenCalledTimes(1)
+  })
+
+  it('forgets a pending keyup on window blur even with no further keydown', () => {
+    setupShortcuts()
+    render(<SimpleAudioControls onPrev={vi.fn()} onNext={vi.fn()} hasPrev hasNext />)
+    const next = screen.getByRole('button', { name: t('player.controls.next') })
+    pointerFocus(next)
+    fireEvent.keyDown(next, { key: ' ' })
+    fireEvent.blur(window)
+    expect(prevented(next, 'keyUp')).toBe(false)
+  })
+
+  it('forgets a pending keyup when a later Space keydown is left to a control', () => {
+    setupShortcuts()
+    render(<SimpleAudioControls onPrev={vi.fn()} onNext={vi.fn()} hasPrev hasNext />)
+    const next = screen.getByRole('button', { name: t('player.controls.next') })
+    pointerFocus(next)
+    fireEvent.keyDown(next, { key: ' ' })
+    const prev = screen.getByRole('button', { name: t('player.controls.prev') })
+    keyboardFocus(prev)
+    expect(prevented(prev, 'keyDown')).toBe(false)
+    expect(prevented(prev, 'keyUp')).toBe(false)
+  })
+
+  it('forgets a pending keyup when the player is minimized', () => {
+    const { rerender } = setupShortcuts()
+    render(<SimpleAudioControls onPrev={vi.fn()} onNext={vi.fn()} hasPrev hasNext />)
+    const next = screen.getByRole('button', { name: t('player.controls.next') })
+    pointerFocus(next)
+    fireEvent.keyDown(next, { key: ' ' })
+    rerender({ minimized: true })
+    expect(prevented(next, 'keyUp')).toBe(false)
+    rerender({ minimized: false })
     expect(prevented(next, 'keyUp')).toBe(false)
   })
 

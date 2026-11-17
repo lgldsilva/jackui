@@ -56,7 +56,7 @@ function isLayeredOverPlayer(target: Element): boolean {
 export function shouldIgnorePlayerShortcut(
   e: KeyboardEvent,
   media: Element | null,
-  isPointerFocused: PointerFocusTest = () => false,
+  isPointerFocused: PointerFocusTest,
 ): boolean {
   if (isBrowserOrImeKey(e)) return true
   const target = e.target
