@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/metainfo"
 	"golang.org/x/time/rate"
 )
@@ -118,6 +119,7 @@ func (s *Streamer) applyAccessStamps(stamps []accessStamp) {
 func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 	var dropped []metainfo.Hash
 	var stamps []accessStamp
+	var victims []*torrent.Torrent
 	s.mu.Lock()
 	for h, e := range s.active {
 		if now.Sub(e.lastAccess) <= s.cfg.IdleTimeout {
@@ -151,10 +153,16 @@ func (s *Streamer) dropIdleTorrents(now time.Time) []metainfo.Hash {
 		log.Printf("streamer: dropping idle torrent %s (%s)", e.t.Name(), h.HexString()[:8])
 		stamps = append(stamps, accessStamp{e.t.Name(), e.lastAccess})
 		delete(s.active, h)
-		e.t.Drop()
+		victims = append(victims, e.t)
 		dropped = append(dropped, h)
 	}
 	s.mu.Unlock()
+	// Drop takes the anacrolix client lock and waits for the storage to close
+	// (mmap unmap / file close); under s.mu that stalled every streaming Read,
+	// which takes s.mu in bumpAccess.
+	for _, t := range victims {
+		t.Drop()
+	}
 	s.applyAccessStamps(stamps)
 	return dropped
 }
