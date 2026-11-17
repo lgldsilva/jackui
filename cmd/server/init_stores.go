@@ -110,6 +110,15 @@ func initDownloadsStore(deps *appDeps) {
 		handlers.ReconcilePendingTransfers(ts, deps.transferTracker, d, deps.streamSrv)
 	}
 
+	// Wired BEFORE the per-file resolver: boot-time seeding gates on
+	// HasFilePathResolver, so the batch one must already be in place by then.
+	deps.streamSrv.SetFileLayoutResolver(func(h metainfo.Hash, relPaths []string) map[int]string {
+		paths, err := d.GetCompletedPathsRel(h.HexString(), relPaths, -1)
+		if err != nil {
+			return nil
+		}
+		return paths
+	})
 	deps.streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
 		// FileRelPath lets the store resolve files inside whole-torrent rows
 		// (file_path = destination DIRECTORY) without activating the torrent.

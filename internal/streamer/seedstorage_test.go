@@ -91,21 +91,27 @@ func twoFileInfo() *metainfo.Info {
 	}
 }
 
-func TestFileIndexInInfo(t *testing.T) {
+func TestFileIndexByPath(t *testing.T) {
 	info := twoFileInfo()
-	files := info.UpvertedFiles()
-	if got := fileIndexInInfo(info, &files[0]); got != 0 {
-		t.Fatalf("file 0 index = %d, want 0", got)
+	byPath := fileIndexByPath(info)
+	if got, ok := byPath["a.mkv"]; !ok || got != 0 {
+		t.Fatalf("file 0 index = %d (%v), want 0", got, ok)
 	}
-	if got := fileIndexInInfo(info, &files[1]); got != 1 {
-		t.Fatalf("file 1 index = %d, want 1", got)
+	if got, ok := byPath[filepath.Join("subdir", "b.mkv")]; !ok || got != 1 {
+		t.Fatalf("file 1 index = %d (%v), want 1", got, ok)
 	}
-	other := metainfo.FileInfo{Path: []string{"nope.mkv"}}
-	if got := fileIndexInInfo(info, &other); got != -1 {
-		t.Fatalf("unknown file index = %d, want -1", got)
+	if _, ok := byPath["nope.mkv"]; ok {
+		t.Fatal("unknown file must not be indexed")
 	}
-	if got := fileIndexInInfo(nil, &files[0]); got != -1 {
-		t.Fatalf("nil info = %d, want -1", got)
+	if fileIndexByPath(nil) != nil {
+		t.Fatal("nil info must yield no index")
+	}
+	// A duplicated in-torrent path keeps the FIRST index, as the linear scan did.
+	dup := &metainfo.Info{Name: "D", Files: []metainfo.FileInfo{
+		{Length: 1, Path: []string{"x"}}, {Length: 1, Path: []string{"x"}},
+	}}
+	if got := fileIndexByPath(dup)["x"]; got != 0 {
+		t.Fatalf("duplicate path index = %d, want 0", got)
 	}
 }
 
