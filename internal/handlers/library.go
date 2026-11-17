@@ -170,7 +170,7 @@ func LibraryDelete(lib *library.Store) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		if err := lib.Delete(id, userID, isAdmin); err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			RespondStoreError(c, err, library.ErrNotFound)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "deleted"})

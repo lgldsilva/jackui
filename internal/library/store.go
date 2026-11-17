@@ -6,7 +6,6 @@ package library
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -14,6 +13,10 @@ import (
 )
 
 const sqlAndUserID = " AND user_id = ?"
+
+// ErrNotFound is returned when the library entry does not exist or is not
+// owned by the caller. Handlers map it to HTTP 404 (sweep e2e 2026-11-06).
+var ErrNotFound = errors.New("entry not found or not owned")
 
 // UpsertInput groups the parameters for Upsert.
 type UpsertInput struct {
@@ -304,8 +307,13 @@ func (s *Store) UpdateResume(id, userID int, resumeSeconds, durationSeconds floa
 		q += sqlAndUserID
 		args = append(args, userID)
 	}
-	_, err := s.db.Exec(q, args...)
-	return err
+	// Deliberately tolerant: this endpoint is the player's resume heartbeat.
+	// A 0-row UPDATE (entry deleted mid-playback, or an incognito-only session)
+	// must stay a silent 200, not an error the player has to handle.
+	if _, err := s.db.Exec(q, args...); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Delete removes an entry. Returns an error if the entry isn't owned by user (unless admin).
@@ -321,7 +329,7 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("entry not found or not owned")
+		return ErrNotFound
 	}
 	return nil
 }
