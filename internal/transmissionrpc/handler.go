@@ -68,6 +68,9 @@ type rpcRequest struct {
 type rpcIdentity struct {
 	userID int
 	admin  bool
+	// sessionID is the session this request authenticated with ("" when auth
+	// is disabled). session-get echoes it back to its owner only.
+	sessionID string
 }
 
 // owns reports whether ident may see/act on a download row. Admins keep full
@@ -123,12 +126,9 @@ type Handler struct {
 	lockout *auth.Lockout
 
 	mu sync.RWMutex
-	// sessionID → userID. When auth is disabled all sessions map to 0 (system).
-	sessions map[string]int
-	// userID → admin? Captured at Basic-Auth verify time alongside the session
-	// so session reuse doesn't need a DB hit per RPC. Sessions only exist for
-	// users whose role passed the guest check.
-	roles map[int]bool
+	// sessionID → authenticated client (see rpc_sessions.go). Empty when auth
+	// is disabled: every request is then the system identity.
+	sessions map[string]rpcSession
 
 	// Mutable session state (set via session-set)
 	altSpeedEnabled      bool
@@ -155,8 +155,7 @@ func NewHandler(store *downloads.Store, s *streamer.Streamer, authStore *auth.St
 		downloadDir:          downloadDir,
 		sharedDir:            sharedDir,
 		autoPromote:          autoPromote,
-		sessions:             make(map[string]int),
-		roles:                make(map[int]bool),
+		sessions:             make(map[string]rpcSession),
 		startAddedTorrents:   true,
 		downloadQueueEnabled: true,
 		downloadQueueSize:    5,
@@ -399,9 +398,13 @@ func (h *Handler) dispatch(req rpcRequest, ident rpcIdentity) rpcResponse {
 		args = make(map[string]interface{})
 	}
 
+	if adminOnlyMethods[req.Method] && !ident.admin {
+		return failResp("forbidden: admin only")
+	}
+
 	switch req.Method {
 	case "session-get":
-		return h.methodSessionGet()
+		return h.methodSessionGet(ident.sessionID)
 	case "session-set":
 		return h.methodSessionSet(args)
 	case "session-stats":

@@ -38,51 +38,60 @@ func (h *Handler) emit409(c *gin.Context, sid string) {
 
 // resolveSessionUser authenticates the caller via session-id or Basic Auth.
 // Returns (identity, false) after emitting 409 (handshake needed) — or after
-// answering the request itself with 401 (guest role refused) / 429 (locked
-// out by repeated password failures).
+// answering the request itself with 401 (guest role or non-active account
+// refused) / 429 (locked out by repeated password failures).
 func (h *Handler) resolveSessionUser(c *gin.Context, sessionID string) (rpcIdentity, bool) {
 	if h.authStore == nil {
 		// Auth disabled: local-trusted deployment; the system identity has
 		// full cross-user visibility.
 		return rpcIdentity{userID: 0, admin: true}, true
 	}
-	h.mu.RLock()
-	uid, known := h.sessions[sessionID]
-	admin := h.roles[uid]
-	h.mu.RUnlock()
-	if known {
-		return rpcIdentity{userID: uid, admin: admin}, true
+	if ident, known := h.lookupSession(sessionID); known {
+		return ident, true
 	}
 	sid := newSessionID()
 	if user, pass, pwok := c.Request.BasicAuth(); pwok {
 		if h.rejectIfLocked(c, user) {
 			return rpcIdentity{}, false
 		}
-		u, err := h.authStore.VerifyPassword(user, pass)
-		switch {
-		case err != nil || u == nil:
-			// Bad credentials still answer 409 (the *arr handshake the client
-			// expects), but count toward the brute-force lockout.
-			if h.lockout != nil {
-				h.lockout.Fail(user)
-			}
-		case u.Role == auth.RoleGuest:
-			// Guests are read-only UI visitors; the RPC can add/remove any
-			// download, so they never get past authentication.
-			rejectUnauthorized(c)
+		if !h.establishSession(c, sid, user, pass) {
 			return rpcIdentity{}, false
-		default:
-			if h.lockout != nil {
-				h.lockout.Reset(user)
-			}
-			h.mu.Lock()
-			h.sessions[sid] = u.ID
-			h.roles[u.ID] = u.Role == auth.RoleAdmin
-			h.mu.Unlock()
 		}
 	}
 	h.emit409(c, sid)
 	return rpcIdentity{}, false
+}
+
+// establishSession verifies the Basic-Auth credentials and, when they belong
+// to an account allowed on the RPC, registers sid for it. Returns false when
+// it already answered the request (401); bad credentials return true so the
+// caller still emits the 409 handshake the *arr expects.
+//
+// KNOWN LIMITATION: the password alone is enough even when the account has
+// MFA enabled. Transmission clients (*arr) can only send Basic Auth, so there
+// is no channel for a TOTP code; refusing MFA accounts would break existing
+// integrations. Use a dedicated non-MFA account for the *arr if that matters
+// (see docs/TRANSMISSION_RPC.md).
+func (h *Handler) establishSession(c *gin.Context, sid, user, pass string) bool {
+	u, err := h.authStore.VerifyPassword(user, pass)
+	if err != nil || u == nil {
+		// Count toward the brute-force lockout.
+		if h.lockout != nil {
+			h.lockout.Fail(user)
+		}
+		return true
+	}
+	// Guests are read-only UI visitors (the RPC can add/remove downloads), and
+	// pending/disabled accounts may not log in anywhere — mirror handlers.Login.
+	if u.Role == auth.RoleGuest || u.Status != auth.StatusActive {
+		rejectUnauthorized(c)
+		return false
+	}
+	if h.lockout != nil {
+		h.lockout.Reset(user)
+	}
+	h.openSession(sid, u.ID, u.Role == auth.RoleAdmin)
+	return true
 }
 
 // ─── session-set ───────────────────────────────────────────────────────────
@@ -187,7 +196,9 @@ func (h *Handler) autoPromoteOn() bool {
 	return h.sharedDir != "" && h.autoPromote != nil && h.autoPromote()
 }
 
-func (h *Handler) methodSessionGet() rpcResponse {
+// sessionID is the CALLER's own session id (empty when auth is off). Never
+// report any other id: a session id alone authenticates as its owner.
+func (h *Handler) methodSessionGet(sessionID string) rpcResponse {
 	dir := h.downloadDir
 	if h.autoPromoteOn() {
 		dir = h.sharedDir // base of the Transmission-style completed-downloads tree
@@ -199,10 +210,6 @@ func (h *Handler) methodSessionGet() rpcResponse {
 	if stat, err := getFreeBytes(dir); err == nil {
 		freeSpace = stat
 	}
-
-	// Generate a stable session-id for this response (matches the one in
-	// the header we sent on the 409, or a fresh one when auth is disabled).
-	sessionID := h.generateSessionID(dir)
 
 	peerPort := 51469
 	if h.streamer != nil {
@@ -296,16 +303,6 @@ func (h *Handler) methodSessionGet() rpcResponse {
 			"speed-units":  []string{"B/s", "kB/s", "MB/s", "GB/s", "TB/s"},
 		},
 	})
-}
-
-// generateSessionID returns a deterministic session ID for the response.
-func (h *Handler) generateSessionID(dir string) string {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for sid := range h.sessions {
-		return sid
-	}
-	return newSessionID()
 }
 
 // ─── session-stats ─────────────────────────────────────────────────────────
