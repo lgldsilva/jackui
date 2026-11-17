@@ -3,6 +3,7 @@ import { render, screen, cleanup, act, fireEvent, waitFor } from '@testing-libra
 import { MemoryRouter } from 'react-router-dom'
 import { deferred, type Deferred } from '../lib/deferred.testutil'
 
+const ptr = vi.hoisted(() => ({ onRefresh: undefined as undefined | (() => Promise<void>) }))
 const m = vi.hoisted(() => ({
   notifyError: vi.fn(),
   confirm: vi.fn(),
@@ -24,6 +25,12 @@ vi.mock('../api/client', async () => {
     searchCache: (...a: unknown[]) => m.cache(...a),
   }
 })
+vi.mock('../lib/usePullToRefresh', () => ({
+  usePullToRefresh: (opts: { onRefresh: () => Promise<void> }) => {
+    ptr.onRefresh = opts.onRefresh
+    return { pull: 0, progress: 0, refreshing: false }
+  },
+}))
 vi.mock('../components/NavHeader', () => ({ default: () => null }))
 vi.mock('../components/DownloadModal', () => ({ default: () => null }))
 vi.mock('../components/TorrentContentsModal', () => ({ default: () => null }))
@@ -70,6 +77,30 @@ describe('HistoryPage', () => {
 
       await act(async () => { pending.get('beta')?.resolve([result('Beta result')]) })
       await act(async () => { pending.get('alpha')?.resolve([result('Alpha result')]) })
+
+      expect(titles()).toEqual(['Beta result'])
+    })
+
+    it('pull-to-refresh reloads the query selected while the history list was refreshing', async () => {
+      const pending = new Map<string, Deferred<unknown[]>>()
+      m.results.mockImplementation((q: string) => {
+        const d = deferred<unknown[]>()
+        pending.set(q, d)
+        return d.promise
+      })
+      renderPage()
+      fireEvent.click(await screen.findByText('alpha'))
+      await act(async () => { pending.get('alpha')?.resolve([result('Alpha result')]) })
+
+      const refreshing = deferred<unknown[]>()
+      m.history.mockReturnValue(refreshing.promise)
+      let done: Promise<void> = Promise.resolve()
+      act(() => { done = ptr.onRefresh?.() ?? Promise.resolve() })
+      fireEvent.click(screen.getByText('beta'))
+      await act(async () => { refreshing.resolve([entry('alpha'), entry('beta')]) })
+      await act(async () => { pending.get('beta')?.resolve([result('Beta result')]) })
+      await act(async () => { pending.get('alpha')?.resolve([result('Alpha result')]) })
+      await act(async () => { await done })
 
       expect(titles()).toEqual(['Beta result'])
     })
@@ -153,6 +184,20 @@ describe('HistoryPage', () => {
       await waitFor(() => expect(m.notifyError).toHaveBeenCalledWith(boom))
       expect(screen.getByText('alpha')).toBeInTheDocument()
       expect(screen.getByText('beta')).toBeInTheDocument()
+    })
+
+    it('shows the empty state, not a stale error, after a delete empties the list', async () => {
+      m.history.mockResolvedValueOnce([entry('alpha')])
+      m.del.mockResolvedValue(undefined)
+      renderPage()
+      await screen.findByText('alpha')
+      m.history.mockRejectedValueOnce(boom)
+      await act(async () => { await ptr.onRefresh?.() })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Remove from cache' }))
+
+      expect(await screen.findByText('No saved searches')).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
   })
 })

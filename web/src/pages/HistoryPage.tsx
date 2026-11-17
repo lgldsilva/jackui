@@ -105,9 +105,11 @@ export default function HistoryPage() {
   const ptr = usePullToRefresh({
     onRefresh: async () => {
       await loadHistory()
-      if (selected) {
+      // Read the selection after the await: it may have changed meanwhile.
+      const open = selectedRef.current
+      if (open) {
         const isLatest = resultsReq.begin()
-        const data = await getHistoryResults(selected).catch(() => [])
+        const data = await getHistoryResults(open).catch(() => [])
         if (!isLatest()) return
         setResults(data || [])
         setLoadingResults(false)
@@ -206,6 +208,7 @@ export default function HistoryPage() {
       return
     }
     setEntries([])
+    setLoadError(null)
     closeSelected()
   }
 
@@ -246,6 +249,8 @@ export default function HistoryPage() {
       return
     }
     setEntries(prev => prev.filter(en => en.query !== q))
+    // The server answered, so an error left by an earlier failed refresh is stale.
+    setLoadError(null)
     if (selected === q) closeSelected()
   }
   const handleDeleteEntry = (q: string, e: React.MouseEvent) => {
