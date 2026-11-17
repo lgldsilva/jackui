@@ -324,7 +324,7 @@ func transferMode(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
 	}
-	return cfg.Stream.TransferConcurrencyMode
+	return cfg.StreamSnapshot().TransferConcurrencyMode
 }
 
 // shouldSerialize decides, based on mode + destination disk, whether copies run

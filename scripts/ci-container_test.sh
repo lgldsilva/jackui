@@ -10,7 +10,10 @@ readonly SCRIPT_DIR
 readonly PROJECT_ROOT="${SCRIPT_DIR}/.."
 readonly CONTAINER_SCRIPT="${SCRIPT_DIR}/ci-container.sh"
 readonly MAKEFILE="${PROJECT_ROOT}/Makefile"
-readonly RACE_PKGS=(streamer downloads transcode transfer localcache watchlist)
+readonly RACE_PKGS=(streamer downloads transcode transfer localcache watchlist config)
+# internal/handlers is too slow to run whole under the race detector; the gate
+# runs these tests by name instead.
+readonly HANDLERS_RACE_TESTS=(TestConfigHandlers_ConcurrentWritesAndReadsAreRaceFree)
 
 fail() {
 	printf 'FAIL: %s\n' "$*" >&2
@@ -47,11 +50,24 @@ test_ui_dist_is_seeded_before_go_gates() {
 
 test_race_detector_gate() {
 	local pkg
-	assert_lines_contain "${CONTAINER_SCRIPT}" '^[[:space:]]*go test .*-race' '"${RACE_PKGS[@]}"'
-	assert_lines_contain "${MAKEFILE}" '^[[:space:]]*@?go test .*-race' '$(GO_RACE_PKGS)'
+	assert_lines_contain "${CONTAINER_SCRIPT}" '^[[:space:]]*go test .*-race.*RACE_PKGS' '"${RACE_PKGS[@]}"'
+	assert_lines_contain "${MAKEFILE}" '^[[:space:]]*@?go test .*-race.*RACE_PKGS' '$(GO_RACE_PKGS)'
 	for pkg in "${RACE_PKGS[@]}"; do
 		grep -Eq "^[[:space:]]*\./internal/${pkg}/\.\.\.\$" "${CONTAINER_SCRIPT}" || fail "CI race gate misses internal/${pkg}"
 		grep -E '^GO_RACE_PKGS[[:space:]]*:?=' "${MAKEFILE}" | grep -Fq "./internal/${pkg}/..." || fail "Makefile race gate misses internal/${pkg}"
+	done
+}
+
+# A -run filter that matches nothing still exits 0, so a renamed test would
+# silently empty the gate: each name must be in both gates and still exist.
+test_handlers_race_gate() {
+	local name
+	assert_lines_contain "${CONTAINER_SCRIPT}" '^[[:space:]]*go test .*-race.*\./internal/handlers/' '"${HANDLERS_RACE_RUN}"'
+	assert_lines_contain "${MAKEFILE}" '^[[:space:]]*@?go test .*-race.*\./internal/handlers/' '$(GO_RACE_HANDLERS_RUN)'
+	for name in "${HANDLERS_RACE_TESTS[@]}"; do
+		grep -E '^readonly HANDLERS_RACE_RUN=' "${CONTAINER_SCRIPT}" | grep -Fq "${name}" || fail "CI race gate misses ${name}"
+		grep -E '^GO_RACE_HANDLERS_RUN[[:space:]]*:?=' "${MAKEFILE}" | grep -Fq "${name}" || fail "Makefile race gate misses ${name}"
+		grep -rqE "^func ${name}\(" "${PROJECT_ROOT}/internal/handlers" || fail "internal/handlers has no test named ${name}"
 	done
 }
 
@@ -62,5 +78,6 @@ test_workflow_runs_this_suite() {
 test_go_gates_cover_cmd
 test_ui_dist_is_seeded_before_go_gates
 test_race_detector_gate
+test_handlers_race_gate
 test_workflow_runs_this_suite
 printf 'ci-container contract tests passed\n'
