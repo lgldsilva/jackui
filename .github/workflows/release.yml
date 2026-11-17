@@ -60,6 +60,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
@@ -116,60 +118,67 @@ jobs:
         id: ts
         run: echo "ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
-      # Scan amd64 BEFORE multi-arch push so CRITICAL CVEs never land on GHCR.
-      - name: Build amd64 image for scan (no push)
+      # Every image is pushed BY DIGEST only (no tag), scanned from the registry
+      # by that digest, and tagged last. The digest a tag ends up serving is the
+      # digest that was scanned, on every platform; a failed gate leaves
+      # :latest, :<version> and :nvidia exactly where they were.
+      - name: Build multi-arch image (push by digest, no tag)
+        id: build_default
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
           context: .
-          push: false
-          load: true
-          tags: jackui:scan
-          platforms: linux/amd64
-          build-args: |
-            GIT_COMMIT=${{ github.sha }}
-            APP_VERSION=${{ needs.semver.outputs.version }}
-            BUILD_TIMESTAMP=${{ steps.ts.outputs.ts }}
-
-      - name: Trivy scan (pre-push gate)
-        run: |
-          trivy image --severity CRITICAL --exit-code 1 --ignore-unfixed jackui:scan
-
-      - name: Build and push (multi-arch)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ needs.semver.outputs.version }}
           platforms: linux/amd64,linux/arm64
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             APP_VERSION=${{ needs.semver.outputs.version }}
             BUILD_TIMESTAMP=${{ steps.ts.outputs.ts }}
 
-      - name: Build and push (nvidia)
+      # Scanned before the NVIDIA build so a failing default image stops the
+      # run early.
+      - name: Trivy gate + SBOM (default image, amd64)
+        env:
+          DIGEST: ${{ steps.build_default.outputs.digest }}
+        run: bash scripts/release-images.sh scan "${IMAGE}@${DIGEST}" linux/amd64 sbom/bom-linux-amd64.json
+
+      - name: Trivy gate + SBOM (default image, arm64)
+        env:
+          DIGEST: ${{ steps.build_default.outputs.digest }}
+        run: bash scripts/release-images.sh scan "${IMAGE}@${DIGEST}" linux/arm64 sbom/bom-linux-arm64.json
+
+      - name: Build nvidia image (push by digest, no tag)
+        id: build_nvidia
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
           context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:nvidia
-          platforms: linux/amd64
           file: Dockerfile.nvidia
+          platforms: linux/amd64
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             GIT_COMMIT=${{ github.sha }}
             APP_VERSION=${{ needs.semver.outputs.version }}
             BUILD_TIMESTAMP=${{ steps.ts.outputs.ts }}
 
-      - name: Generate SBOM
+      - name: Trivy gate + SBOM (nvidia image, amd64)
+        env:
+          DIGEST: ${{ steps.build_nvidia.outputs.digest }}
+        run: bash scripts/release-images.sh scan "${IMAGE}@${DIGEST}" linux/amd64 sbom/bom-nvidia-linux-amd64.json
+
+      # Tags move only here, after every gate above passed.
+      - name: Promote scanned digests to tags
+        env:
+          DEFAULT_DIGEST: ${{ steps.build_default.outputs.digest }}
+          NVIDIA_DIGEST: ${{ steps.build_nvidia.outputs.digest }}
+          VERSION: ${{ needs.semver.outputs.version }}
         run: |
-          trivy image --format cyclonedx --output bom.json --ignore-unfixed jackui:scan
+          bash scripts/release-images.sh promote "${IMAGE}@${DEFAULT_DIGEST}" "${VERSION}" latest
+          bash scripts/release-images.sh promote "${IMAGE}@${NVIDIA_DIGEST}" nvidia
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: sbom
-          path: bom.json
+          path: sbom/bom-*.json
+          if-no-files-found: error
 
   release:
     needs: [semver, build-and-push]
@@ -210,6 +219,9 @@ jobs:
           target_commitish: ${{ github.sha }}
           body: ${{ steps.changelog.outputs.changelog }}
           fail_on_unmatched_files: true
-          files: bom.json
+          files: |
+            bom-linux-amd64.json
+            bom-linux-arm64.json
+            bom-nvidia-linux-amd64.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
