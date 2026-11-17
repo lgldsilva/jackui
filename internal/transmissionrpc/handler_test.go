@@ -32,11 +32,11 @@ func TestSessionGet(t *testing.T) {
 	h := &Handler{
 		dataDir:     "/data/streams",
 		downloadDir: "/data/downloads",
-		sessions:    make(map[string]int),
+		sessions:    make(map[string]rpcSession),
 	}
 	gin.SetMode(gin.ReleaseMode)
 
-	resp := h.methodSessionGet()
+	resp := h.methodSessionGet("")
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
@@ -57,7 +57,7 @@ func TestSessionGet(t *testing.T) {
 }
 
 func TestSessionStats(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodSessionStats()
@@ -67,7 +67,7 @@ func TestSessionStats(t *testing.T) {
 }
 
 func TestPortTest(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.dispatch(rpcRequest{Method: "port-test"}, sysIdent)
@@ -168,7 +168,7 @@ func TestParseIDs(t *testing.T) {
 }
 
 func TestRPCErrorOnMissingMethod(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.dispatch(rpcRequest{Method: "non-existent-method"}, sysIdent)
@@ -178,7 +178,7 @@ func TestRPCErrorOnMissingMethod(t *testing.T) {
 }
 
 func TestRPCHandlerNoAuth(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.New()
@@ -300,7 +300,7 @@ func TestTorrentSet_Labels_UpdatesCategory(t *testing.T) {
 
 // buildTorrent não deve dar panic quando StartedAt é nil num download completo.
 func TestBuildTorrent_NilStartedAt_NoPanic(t *testing.T) {
-	h := &Handler{dataDir: "/data", downloadDir: "/data", sessions: make(map[string]int)}
+	h := &Handler{dataDir: "/data", downloadDir: "/data", sessions: make(map[string]rpcSession)}
 	now := time.Now()
 	d := downloads.Download{
 		ID: 1, Status: downloads.StatusCompleted,
@@ -336,7 +336,7 @@ var allTorrentFields = []string{
 }
 
 func TestBuildTorrent_AllFieldsPresent(t *testing.T) {
-	h := &Handler{dataDir: "/data", downloadDir: "/downloads", sessions: make(map[string]int)}
+	h := &Handler{dataDir: "/data", downloadDir: "/downloads", sessions: make(map[string]rpcSession)}
 	started := time.Now().Add(-time.Hour)
 	now := time.Now()
 	d := downloads.Download{
@@ -394,7 +394,7 @@ func TestSessionSet_AltSpeed(t *testing.T) {
 	}
 
 	// Verify the values propagate to session-get
-	sg := h.methodSessionGet()
+	sg := h.methodSessionGet("")
 	if sg.Arguments["alt-speed-enabled"] != true {
 		t.Error("session-get alt-speed-enabled should be true")
 	}
@@ -455,7 +455,7 @@ func TestSessionSet_NoArgs(t *testing.T) {
 // ─── session-close ────────────────────────────────────────────────────────
 
 func TestSessionClose(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodSessionClose()
@@ -660,7 +660,7 @@ func TestTorrentReannounce_NoIDs_ReturnsSuccess(t *testing.T) {
 // ─── queue-move-* ─────────────────────────────────────────────────────────
 
 func TestQueueMove_Top_ReturnsSuccess(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodQueueMove(map[string]interface{}{
@@ -672,7 +672,7 @@ func TestQueueMove_Top_ReturnsSuccess(t *testing.T) {
 }
 
 func TestQueueMove_Up_Down_Bottom(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	for _, dir := range []string{"up", "down", "bottom"} {
@@ -688,7 +688,7 @@ func TestQueueMove_Up_Down_Bottom(t *testing.T) {
 // ─── dispatch coverage ────────────────────────────────────────────────────
 
 func TestDispatch_NewMethods_ReturnSuccess(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	methods := []string{
@@ -709,7 +709,7 @@ func TestDispatch_NewMethods_ReturnSuccess(t *testing.T) {
 // ─── forEachDownload ──────────────────────────────────────────────────────
 
 func TestForEachDownload_NoStore(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	called := false
@@ -795,7 +795,7 @@ func TestNewHandler_Defaults(t *testing.T) {
 // ─── group-get / group-set ─────────────────────────────────────────────────
 
 func TestGroupGet_Default(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodGroupGet(nil)
@@ -813,7 +813,7 @@ func TestGroupGet_Default(t *testing.T) {
 }
 
 func TestGroupGet_WithNameFilter(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	// Unknown name should return empty
@@ -836,7 +836,7 @@ func TestGroupGet_WithNameFilter(t *testing.T) {
 }
 
 func TestGroupSet_MissingName(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.methodGroupSet(map[string]interface{}{
@@ -1013,7 +1013,7 @@ func TestBuildPeers_NoTorrentObj(t *testing.T) {
 // ─── activeTorrentObjects ──────────────────────────────────────────────────
 
 func TestActiveTorrentObjects_NoStreamer(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	result := h.activeTorrentObjects(nil)
 	if len(result) != 0 {
 		t.Errorf("expected empty map with nil streamer, got %d items", len(result))
@@ -1326,7 +1326,7 @@ func TestHandleJSONRPC_Notification(t *testing.T) {
 }
 
 func TestHandleJSONRPC_UnknownMethod(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	body := `{"jsonrpc":"2.0","method":"nonexistent","params":{},"id":1}`
@@ -1353,7 +1353,7 @@ func TestHandleJSONRPC_UnknownMethod(t *testing.T) {
 }
 
 func TestHandleJSONRPC_ParseError(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	body := `not valid json`
@@ -1416,7 +1416,7 @@ func TestBuildPieces_NoTorrentObj(t *testing.T) {
 // ─── torrentView with download stats ───────────────────────────────────────
 
 func TestBuildTorrent_UploadRatio_NoTorrent(t *testing.T) {
-	h := &Handler{dataDir: "/data", downloadDir: "/downloads", sessions: make(map[string]int)}
+	h := &Handler{dataDir: "/data", downloadDir: "/downloads", sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	d := downloads.Download{
@@ -1758,7 +1758,7 @@ func TestTorrentAdd_PeerLimitAndPriority(t *testing.T) {
 // ─── dispatch coverage for port-test ──────────────────────────────────────
 
 func TestDispatch_BespokePortTest(t *testing.T) {
-	h := &Handler{sessions: make(map[string]int)}
+	h := &Handler{sessions: make(map[string]rpcSession)}
 	gin.SetMode(gin.ReleaseMode)
 
 	resp := h.dispatch(rpcRequest{Method: "port-test"}, sysIdent)

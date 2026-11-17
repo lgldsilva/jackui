@@ -73,6 +73,13 @@ func (t *TokenManager) SignMedia(u *User) (string, time.Time, error) {
 	return t.sign(u, ScopeMedia, "", t.mediaTTL)
 }
 
+// SignDeviceMedia is SignMedia for a paired device. The media token keeps
+// amr=device: it is accepted on every GET under the media prefixes, and
+// admin-only reads live there too (/api/stream/cache, /api/stream/settings).
+func (t *TokenManager) SignDeviceMedia(u *User) (string, time.Time, error) {
+	return t.sign(u, ScopeMedia, AMRDevice, t.mediaTTL)
+}
+
 func (t *TokenManager) sign(u *User, scope, amr string, ttl time.Duration) (string, time.Time, error) {
 	now := time.Now()
 	exp := now.Add(ttl)

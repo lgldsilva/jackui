@@ -3,6 +3,7 @@ import { spawn, ChildProcess } from 'child_process'
 import { createWriteStream, existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { resolveDownloadPath } from './downloadName.js'
 import * as http from 'http'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -838,7 +839,7 @@ async function downloadFileWithDialog(
   const dir = sub ? join(folder, sub) : folder
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-  const defaultPath = join(dir, suggestedName)
+  const defaultPath = resolveDownloadPath(dir, suggestedName)
 
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath,
@@ -882,7 +883,7 @@ ipcMain.handle(
     const dir = sub ? join(baseFolder, sub) : baseFolder
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 
-    const destPath = join(dir, suggestedName)
+    const destPath = resolveDownloadPath(dir, suggestedName)
     const result = await downloadFromServer(destPath, apiPath)
     return { ...result, filePath: destPath }
   }

@@ -135,6 +135,7 @@ func peerPortRefreshHandler(ctrlURL string, s *streamer.Streamer, restart chan<-
 
 func setupRouter(deps *appDeps) *gin.Engine {
 	router := gin.New()
+	applyTrustedProxies(router, deps.cfg.TrustedProxies)
 	// Custom formatter instead of gin.Logger(): media routes authenticate via
 	// ?token=<JWT> (<video> can't send headers), and the default access log was
 	// writing those JWTs verbatim into `docker logs`.
