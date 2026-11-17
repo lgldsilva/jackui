@@ -197,8 +197,9 @@ func (w *Worker) initTarget(ctx context.Context, d *Download, hash metainfo.Hash
 		log.Printf("downloads: verify file (structural error) for download %d: %v", d.ID, err)
 	}
 	// File.Download() sets piece priority to Normal across the file's piece
-	// range — anacrolix then schedules a full download to completion.
-	f.Download()
+	// range — anacrolix then schedules a full download to completion. Claimed so
+	// another row's priority reconcile can't cancel it before we are tracked.
+	w.claimAndWant(ctx, d.ID, hash, f)
 	return f, nil, true
 }
 
