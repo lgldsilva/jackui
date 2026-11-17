@@ -8,6 +8,7 @@
   "scripts": {
     "postinstall": "bash scripts/version.sh && npm run build:electron-ts",
     "build:electron-ts": "tsc -p electron/tsconfig.json",
+    "test:electron": "tsx --test electron/*.test.ts",
     "dev:electron": "npm run build:electron-ts && npx electron . --dev",
     "dev:backend": "go run ./cmd/server",
     "dev": "concurrently --kill-others \"npm run dev:backend\" \"sleep 2 && npm run dev:electron\"",
