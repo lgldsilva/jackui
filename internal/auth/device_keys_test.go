@@ -157,3 +157,26 @@ func TestDeviceKey_PINLifecycleAndLockout(t *testing.T) {
 		t.Fatal("clearing the PIN failed")
 	}
 }
+
+// Revoke-all hits every active key of the user and nobody else's.
+func TestRevokeAllDeviceKeys_ScopedToUser(t *testing.T) {
+	s := newDeviceStore(t)
+	tv, _ := mustDeviceKey(t, s, 1, "tv-1")
+	box, _ := mustDeviceKey(t, s, 1, "box-1")
+	other, _ := mustDeviceKey(t, s, 2, "tv-1")
+
+	if err := s.RevokeAllDeviceKeys(1); err != nil {
+		t.Fatalf("RevokeAllDeviceKeys: %v", err)
+	}
+	for _, k := range []string{tv, box} {
+		if _, err := s.LookupDeviceKey(k); !errors.Is(err, ErrDeviceKeyInvalid) {
+			t.Fatalf("revoked key still resolves: err = %v", err)
+		}
+	}
+	if k, err := s.LookupDeviceKey(other); err != nil || k.UserID != 2 {
+		t.Fatalf("another user's key must survive: %+v, %v", k, err)
+	}
+	if err := s.RevokeAllDeviceKeys(1); err != nil {
+		t.Fatalf("revoking with nothing left must be a no-op: %v", err)
+	}
+}
