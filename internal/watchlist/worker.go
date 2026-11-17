@@ -61,6 +61,8 @@ type Worker struct {
 	startDelay   time.Duration // boot grace before the first pass (tests shrink it)
 	kick         chan int      // watchlist IDs to check immediately
 	stop         chan struct{}
+	ctx          context.Context // cancelled by Stop: aborts an in-flight pass
+	cancel       context.CancelFunc
 	stopOnce     sync.Once      // guards close(stop) against a double Stop() panic
 	wg           sync.WaitGroup // Stop() waits for the goroutine to actually exit
 }
@@ -76,7 +78,10 @@ func NewWorker(store *Store, searcher Searcher, notifier Notifier, defaultTopic 
 	if store != nil && store.DefaultEvery <= 0 {
 		store.DefaultEvery = interval
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Worker{
+		ctx:          ctx,
+		cancel:       cancel,
 		store:        store,
 		searcher:     searcher,
 		notifier:     notifier,
@@ -138,8 +143,13 @@ func (w *Worker) Kick(id int) {
 // Stop signals the worker and waits for its goroutine to exit. sync.Once makes
 // a second call safe (double close(stop) would otherwise panic); WaitGroup
 // ensures no runOnce is still touching the stores after Stop returns.
+// Cancelling the context aborts a pass that is mid-search: process shutdown
+// only grants every cleanup a few seconds in total before it force-exits.
 func (w *Worker) Stop() {
-	w.stopOnce.Do(func() { close(w.stop) })
+	w.stopOnce.Do(func() {
+		w.cancel()
+		close(w.stop)
+	})
 	w.wg.Wait()
 }
 
@@ -177,9 +187,14 @@ func (w *Worker) processLists(lists []Watchlist) {
 	if len(lists) == 0 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(w.ctx, 5*time.Minute)
 	defer cancel()
 	for _, wl := range lists {
+		// Checked before MarkChecked re-arms the item, so a list skipped by a
+		// shutdown (or the pass budget) stays due for the next pass.
+		if ctx.Err() != nil {
+			return
+		}
 		w.processOne(ctx, &wl)
 	}
 }
@@ -202,7 +217,7 @@ func (w *Worker) processOne(ctx context.Context, wl *Watchlist) {
 	if err := w.store.MarkChecked(wl.ID, next); err != nil {
 		log.Printf("watchlist[%d]: MarkChecked failed: %v", wl.ID, err)
 	}
-	results, err := w.searcher.Search(wl.Query, wl.Category, nil)
+	results, err := search(ctx, w.searcher, wl.Query, wl.Category)
 	if err != nil {
 		log.Printf("watchlist[%d]: jackett search failed: %v", wl.ID, err)
 		return

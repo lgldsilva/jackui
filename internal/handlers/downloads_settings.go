@@ -24,7 +24,7 @@ type downloadsQueueBody struct {
 }
 
 func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
-	q := cfg.DownloadsQueue
+	q := cfg.DownloadsQueueSnapshot()
 	mcv := q.MaxConcurrentVerify
 	if mcv < 1 {
 		mcv = 1
@@ -39,7 +39,7 @@ func currentDownloadsQueue(cfg *config.Config) downloadsQueueBody {
 		AgingCap:                q.AgingCap,
 		RotationEnabled:         q.RotationEnabled,
 		AutoPromoteArr:          q.AutoPromoteArr,
-		TransferConcurrencyMode: transferModeOrAuto(cfg.Stream.TransferConcurrencyMode),
+		TransferConcurrencyMode: transferModeOrAuto(cfg.StreamSnapshot().TransferConcurrencyMode),
 	}
 }
 
@@ -86,6 +86,24 @@ func validateDownloadsQueue(b *downloadsQueueBody) string {
 	return ""
 }
 
+func applyDownloadsQueue(cfg *config.Config, b *downloadsQueueBody) {
+	cfg.DownloadsQueue.MaxActive = b.MaxActive
+	cfg.DownloadsQueue.PerUserMaxActive = b.PerUserMaxActive
+	cfg.DownloadsQueue.MaxConcurrentVerify = b.MaxConcurrentVerify
+	cfg.DownloadsQueue.StallThresholdMin = b.StallThresholdMin
+	cfg.DownloadsQueue.MaxStalls = b.MaxStalls
+	cfg.DownloadsQueue.AgingStepMin = b.AgingStepMin
+	cfg.DownloadsQueue.AgingCap = b.AgingCap
+	cfg.DownloadsQueue.RotationEnabled = b.RotationEnabled
+	cfg.DownloadsQueue.AutoPromoteArr = b.AutoPromoteArr
+	// "auto" is the default; persist empty to keep the yaml clean.
+	if b.TransferConcurrencyMode == transferModeAuto {
+		cfg.Stream.TransferConcurrencyMode = ""
+	} else {
+		cfg.Stream.TransferConcurrencyMode = b.TransferConcurrencyMode
+	}
+}
+
 // DownloadsUpdateSettings handles PUT /api/downloads/settings (AdminOnly). The
 // worker reads these live each tick, so everything applies without a restart.
 // setVerifyConcurrency applies maxConcurrentVerify to the streamer (may be nil).
@@ -104,21 +122,7 @@ func DownloadsUpdateSettings(cfg *config.Config, configPath string, setVerifyCon
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, msg)
 			return
 		}
-		cfg.DownloadsQueue.MaxActive = b.MaxActive
-		cfg.DownloadsQueue.PerUserMaxActive = b.PerUserMaxActive
-		cfg.DownloadsQueue.MaxConcurrentVerify = b.MaxConcurrentVerify
-		cfg.DownloadsQueue.StallThresholdMin = b.StallThresholdMin
-		cfg.DownloadsQueue.MaxStalls = b.MaxStalls
-		cfg.DownloadsQueue.AgingStepMin = b.AgingStepMin
-		cfg.DownloadsQueue.AgingCap = b.AgingCap
-		cfg.DownloadsQueue.RotationEnabled = b.RotationEnabled
-		cfg.DownloadsQueue.AutoPromoteArr = b.AutoPromoteArr
-		// "auto" is the default; persist empty to keep the yaml clean.
-		if b.TransferConcurrencyMode == transferModeAuto {
-			cfg.Stream.TransferConcurrencyMode = ""
-		} else {
-			cfg.Stream.TransferConcurrencyMode = b.TransferConcurrencyMode
-		}
+		cfg.Update(func(c *config.Config) { applyDownloadsQueue(c, &b) })
 		if setVerifyConcurrency != nil {
 			setVerifyConcurrency(b.MaxConcurrentVerify)
 		}

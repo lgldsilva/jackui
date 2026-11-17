@@ -46,8 +46,10 @@ type configUpdateRequest struct {
 // GetConfig handles GET /api/config
 func GetConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clients := make([]downloadClientResponse, 0, len(cfg.DownloadClients))
-		for _, dc := range cfg.DownloadClients {
+		saved := cfg.DownloadClientsSnapshot()
+		jackettURL, jackettKey := cfg.JackettSnapshot()
+		clients := make([]downloadClientResponse, 0, len(saved))
+		for _, dc := range saved {
 			clients = append(clients, downloadClientResponse{
 				ID:       dc.ID,
 				Name:     dc.Name,
@@ -60,11 +62,11 @@ func GetConfig(cfg *config.Config, configPath string) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, configResponse{
-			Port: cfg.Port,
+			Port: cfg.PortSnapshot(),
 			Jackett: jackettConfigResponse{
-				URL: cfg.Jackett.URL,
+				URL: jackettURL,
 				// Never echo the key back; just signal whether one is set.
-				APIKeySet: cfg.Jackett.APIKey != "",
+				APIKeySet: jackettKey != "",
 			},
 			Clients:      clients,
 			EnvOverrides: config.ActiveEnvOverrides(),
@@ -81,8 +83,10 @@ func UpdateConfig(cfg *config.Config, configPath string, jackettClient *jackett.
 			return
 		}
 
-		applyConfigUpdates(cfg, &req)
-		cfg.DownloadClients = mergeDownloadClients(cfg.DownloadClients, req.Clients)
+		cfg.Update(func(c *config.Config) {
+			applyConfigUpdates(c, &req)
+			c.DownloadClients = mergeDownloadClients(c.DownloadClients, req.Clients)
+		})
 
 		if err := cfg.Save(configPath); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error())
@@ -90,13 +94,14 @@ func UpdateConfig(cfg *config.Config, configPath string, jackettClient *jackett.
 		}
 
 		// Update live Jackett client so searches use the new URL/key.
+		jackettURL, jackettKey := cfg.JackettSnapshot()
 		if jackettClient != nil {
-			jackettClient.SetEndpoint(cfg.Jackett.URL, cfg.Jackett.APIKey)
+			jackettClient.SetEndpoint(jackettURL, jackettKey)
 		}
 		// Update the SSRF guard's trusted address + injected apikey so torrent
 		// fetches follow the new Jackett config.
 		if streamSrv != nil && req.Jackett.URL != "" {
-			streamSrv.UpdateJackett(cfg.Jackett.URL, cfg.Jackett.APIKey)
+			streamSrv.UpdateJackett(jackettURL, jackettKey)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "config saved successfully"})
@@ -147,7 +152,7 @@ func resolveClientPassword(password, id string, existing []config.DownloadClient
 // stored key" (matching the save semantics).
 func TestJackett(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		url, apiKey := cfg.Jackett.URL, cfg.Jackett.APIKey
+		url, apiKey := cfg.JackettSnapshot()
 		var body struct {
 			URL    string `json:"url"`
 			APIKey string `json:"apiKey"`

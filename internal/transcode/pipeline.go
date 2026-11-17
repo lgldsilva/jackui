@@ -102,9 +102,11 @@ func Run(ctx context.Context, in io.Reader, w http.ResponseWriter, opts Options)
 
 	// fixed/config binary; user codec/container values are whitelisted by ValidateOptions, the rest are -i operands or integers; exec without shell
 	cmd := exec.CommandContext(ctx, caps.FFmpegPath, args...)
-	cmd.Stdin = in
+	if err := feedStdin(cmd, in); err != nil {
+		return fmt.Errorf("transcode: %w", err)
+	}
 	cmd.Stdout = w
-	stderr := &strings.Builder{}
+	stderr := newTailBuffer(runStderrTailBytes)
 	cmd.Stderr = stderr
 
 	log.Printf("transcode: ffmpeg %s", strings.Join(args, " "))

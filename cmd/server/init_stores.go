@@ -137,7 +137,7 @@ func initDownloadsStore(deps *appDeps) {
 	// Live queue settings: the worker reads this each tick, so PUT /downloads/settings
 	// (which mutates deps.cfg.DownloadsQueue) takes effect without a restart.
 	queueSettings := func() downloads.QueueSettings {
-		q := deps.cfg.DownloadsQueue
+		q := deps.cfg.DownloadsQueueSnapshot()
 		return downloads.QueueSettings{
 			MaxActive:         q.MaxActive,
 			PerUserMaxActive:  q.PerUserMaxActive,

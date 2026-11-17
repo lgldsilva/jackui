@@ -105,10 +105,6 @@ func SubtitlesGetSettings(cfg *config.Config) gin.HandlerFunc {
 // write goes through SetSubtitles (whole-section swap under the config
 // package's RWMutex) and every read through SubtitlesSnapshot. NEVER touch the
 // raw cfg.Subtitles fields at runtime.
-//
-// NOTE: MountsUpdate (mounts.go) mutates cfg.External.Mounts in place with the
-// same pre-existing unsynchronized pattern; it is OUT OF SCOPE here and was
-// deliberately left unchanged.
 func SubtitlesUpdateSettings(cfg *config.Config, configPath string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var b subtitlesSettingsBody

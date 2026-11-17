@@ -14,7 +14,7 @@ import (
 // AllowedUsers (which the public /local/mounts endpoint deliberately omits).
 func MountsGet(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		mounts := cfg.External.Mounts
+		mounts := cfg.MountsSnapshot()
 		if mounts == nil {
 			mounts = []config.ExternalMount{}
 		}
@@ -38,10 +38,13 @@ func MountsUpdate(cfg *config.Config, configPath string, browser *local.Browser)
 		// Snapshot → mutate → Save. On a Save failure the in-memory config is
 		// ROLLED BACK so GET /api/mounts keeps reporting what is actually
 		// persisted (and the browser is never updated with unsaved state).
-		old := cfg.External.Mounts
-		cfg.External.Mounts = mounts
+		var old []config.ExternalMount
+		cfg.Update(func(c *config.Config) {
+			old = c.External.Mounts
+			c.External.Mounts = mounts
+		})
 		if err := cfg.Save(configPath); err != nil {
-			cfg.External.Mounts = old
+			cfg.Update(func(c *config.Config) { c.External.Mounts = old })
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error()+
 				" — nothing was changed; config.yaml must be writable by the container uid (fix owner/permissions on the host)")
 			return
