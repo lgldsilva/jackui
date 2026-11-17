@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -196,9 +197,10 @@ func TestLibraryDelete_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Delete on non-existent returns 500 (store.Delete fails)
-	if w.Code != http.StatusOK && w.Code != http.StatusInternalServerError {
-		t.Errorf("status = %d, want 200 or 500", w.Code)
+	// Delete on non-existent maps to 404 (store not-found sentinel, sweep
+	// 2026-11-06 §3.2.6); a real entry deletes with 200.
+	if w.Code != http.StatusOK && w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 200 or 404", w.Code)
 	}
 }
 
@@ -237,5 +239,31 @@ func TestLibraryList_WithInvalidLimit(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+// Sweep e2e 2026-11-06 §3.2.6: DELETE/UpdateResume em entry inexistente
+// respondiam 500; o GET já respondia 404. Contrato: 404.
+func TestLibraryMutationsNotFoundStatus(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lib, err := library.New(seededPool(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	router := gin.New()
+	router.DELETE("/api/library/:id", LibraryDelete(lib))
+	// UpdateResume is intentionally NOT covered here: it is the player's
+	// heartbeat and must stay a tolerant 200 even for missing entries.
+
+	for _, tc := range []struct{ method, path, body string }{
+		{"DELETE", "/api/library/999999", ""},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("%s %s status = %d, want 404", tc.method, tc.path, w.Code)
+		}
 	}
 }
