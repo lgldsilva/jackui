@@ -21,8 +21,10 @@ GitHub (PR / push main / tag v*)
    │    └─ Go + JavaScript/TypeScript security-and-quality
    │
    └─ Release (.github/workflows/release.yml)
-        on: push tags v*, workflow_dispatch
-        ├─ semver          scripts/semver.sh
+        on: push tags v*, workflow_dispatch (main or a v* tag only)
+        ├─ semver          scripts/semver.sh + scripts/release-guard.sh
+        │                  (a published <semver> is never overwritten from another commit)
+        ├─ ci              calls ci.yml; build/push needs it green
         ├─ build amd64     load local (no push)
         ├─ Trivy gate      CRITICAL fails BEFORE registry push
         ├─ push multi-arch ghcr.io/<owner>/jackui:{version,latest} (amd64+arm64)
