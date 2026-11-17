@@ -158,6 +158,12 @@ func New(apiURL, apiKey string) *Client {
 }
 
 func (c *Client) Search(query, category string, indexers []string) ([]Result, error) {
+	return c.SearchContext(context.Background(), query, category, indexers)
+}
+
+// SearchContext is Search bound to ctx: cancelling it aborts the in-flight
+// request and the retry backoff (a search can otherwise take minutes).
+func (c *Client) SearchContext(ctx context.Context, query, category string, indexers []string) ([]Result, error) {
 	base, apiKey := c.Endpoint()
 	indexer := "all"
 	if len(indexers) > 0 && indexers[0] != "" && indexers[0] != "all" {
@@ -166,7 +172,7 @@ func (c *Client) Search(query, category string, indexers []string) ([]Result, er
 
 	endpoint := fmt.Sprintf("%s/api/v2.0/indexers/%s/results", base, url.PathEscape(indexer))
 
-	req, err := http.NewRequest("GET", endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf(errFailedToCreateRequest, err)
 	}

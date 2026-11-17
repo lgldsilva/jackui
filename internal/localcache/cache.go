@@ -8,6 +8,7 @@
 package localcache
 
 import (
+	"context"
 	// #nosec G505 -- sha1 imported for content hashing (dedup/oshash), not security crypto
 	"crypto/sha1"
 	"encoding/hex"
@@ -64,7 +65,8 @@ type Cache struct {
 	mu      sync.Mutex
 	entries map[string]*entry
 	jobs    chan job
-	stop    chan struct{}
+	ctx     context.Context // cancelled by Close: stops the worker and aborts its copy
+	cancel  context.CancelFunc
 	done    chan struct{} // closed when the copy worker exits (or immediately if none)
 }
 
@@ -89,13 +91,15 @@ func newCache(root string, maxBytes int64, nowFn func() time.Time, runWorker boo
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	c := &Cache{
 		root:     root,
 		maxBytes: maxBytes,
 		now:      nowFn,
 		entries:  make(map[string]*entry),
 		jobs:     make(chan job, 64),
-		stop:     make(chan struct{}),
+		ctx:      ctx,
+		cancel:   cancel,
 		done:     make(chan struct{}),
 	}
 	c.loadIndex()
@@ -202,7 +206,7 @@ func snapshotOf(e *entry) Snapshot {
 func (c *Cache) worker() {
 	for {
 		select {
-		case <-c.stop:
+		case <-c.ctx.Done():
 			return
 		case j := <-c.jobs:
 			c.runJob(j)
@@ -221,7 +225,7 @@ func (c *Cache) runJob(j job) {
 		return
 	}
 	c.setStatus(j.key, StatusCopying, "")
-	if err := c.copyFile(j.key, j.srcAbs, e.CachePath); err != nil {
+	if err := c.copyFile(c.ctx, j.key, j.srcAbs, e.CachePath); err != nil {
 		_ = os.Remove(e.CachePath)
 		c.setStatus(j.key, StatusError, err.Error())
 		return
@@ -234,7 +238,10 @@ func (c *Cache) runJob(j job) {
 	c.saveIndex()
 }
 
-func (c *Cache) copyFile(k, srcAbs, dst string) error {
+// copyFile checks ctx between chunks, so a cancel takes effect within one
+// chunk rather than after the whole (possibly multi-GB) file. A read already
+// blocked inside the remote mount still has to return first.
+func (c *Cache) copyFile(ctx context.Context, k, srcAbs, dst string) error {
 	// #nosec G304 -- path validated by Browser.ResolvePath (guards traversal/symlink) or derived from internal hash/config
 	in, err := os.Open(srcAbs)
 	if err != nil {
@@ -251,6 +258,9 @@ func (c *Cache) copyFile(k, srcAbs, dst string) error {
 	buf := make([]byte, copyChunk)
 	var copied int64
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		n, rerr := in.Read(buf)
 		if n > 0 {
 			if _, werr := out.Write(buf[:n]); werr != nil {
@@ -309,14 +319,11 @@ func (c *Cache) evict() {
 	}
 }
 
-// Close stops the worker and waits for it to finish so callers (and test
-// TempDirs) can safely remove the cache root afterward.
+// Close stops the worker, aborting an in-flight copy (its partial file is
+// removed), and waits for it to exit so callers (and test TempDirs) can safely
+// remove the cache root afterward.
 func (c *Cache) Close() {
-	select {
-	case <-c.stop:
-	default:
-		close(c.stop)
-	}
+	c.cancel()
 	<-c.done
 }
 
