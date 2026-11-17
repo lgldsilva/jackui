@@ -27,12 +27,20 @@ func initHistoryStore(deps *appDeps) {
 	deps.historyStore = store
 	log.Printf("History store: PostgreSQL")
 	go func() {
+		// Prune shortly after boot, then daily. Sleeping a full day BEFORE the
+		// first pass meant an instance redeployed more often than that never
+		// pruned `results` at all.
+		time.Sleep(historyCleanupDelay)
 		for {
-			time.Sleep(24 * time.Hour)
 			_ = store.Cleanup(90 * 24 * time.Hour)
+			time.Sleep(24 * time.Hour)
 		}
 	}()
 }
+
+// historyCleanupDelay keeps the first retention pass out of the boot burst
+// (migrations, piece verify, seed resume).
+const historyCleanupDelay = 5 * time.Minute
 
 func initLibraryStore(deps *appDeps) {
 	if deps.streamSrv == nil {

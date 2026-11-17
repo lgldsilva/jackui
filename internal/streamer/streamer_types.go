@@ -11,10 +11,14 @@ type entry struct {
 	t          *torrent.Torrent
 	lastAccess time.Time
 	// Rate sampling: anacrolix only exposes cumulative byte counters, so we cache the
-	// previous sample and compute per-second rates from the delta between buildInfo calls.
+	// previous sample and compute per-second rates from the delta between samples.
+	// downRate/upRate hold the last computed rates, shared by every reader (see
+	// sampleRate).
 	lastBytesRead    int64
 	lastBytesWritten int64
 	lastSampleAt     time.Time
+	downRate         int64
+	upRate           int64
 	// paused tracks the soft-pause state. anacrolix has no native Pause; we
 	// model it by setting MaxEstablishedConns to 0 so no new peers connect.
 	paused bool

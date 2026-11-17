@@ -126,38 +126,12 @@ func (s *Streamer) GlobalStats() GlobalRate {
 	return g
 }
 
-// sampleRateLocked computes per-second rates for an entry by diffing against the
-// previous sample and then updates the entry's sample state. Caller holds s.mu.
-//
-// Returns (0, 0) on the very first sample after Add or when the elapsed window is
-// too small (< 250ms) to give a meaningful rate.
+// sampleRateLocked returns the entry's per-second rates, reading the anacrolix
+// counters only when the shared sample is due (see entry.sampleRate). Caller
+// holds s.mu.
 func sampleRateLocked(e *entry, now time.Time) (downRate, upRate int64) {
-	st := e.t.Stats()
-	br := st.BytesReadData.Int64()
-	bw := st.BytesWrittenData.Int64()
-	elapsed := now.Sub(e.lastSampleAt).Seconds()
-
-	if e.lastSampleAt.IsZero() || elapsed < 0.25 {
-		// First sample after Add or sampled too soon — record and emit zero.
-		e.lastBytesRead = br
-		e.lastBytesWritten = bw
-		e.lastSampleAt = now
-		return 0, 0
-	}
-
-	dr := br - e.lastBytesRead
-	dw := bw - e.lastBytesWritten
-	if dr < 0 {
-		dr = 0 // counter reset (e.g., torrent dropped + re-added)
-	}
-	if dw < 0 {
-		dw = 0
-	}
-	downRate = int64(float64(dr) / elapsed)
-	upRate = int64(float64(dw) / elapsed)
-
-	e.lastBytesRead = br
-	e.lastBytesWritten = bw
-	e.lastSampleAt = now
-	return downRate, upRate
+	return e.sampleRate(now, func() (int64, int64) {
+		st := e.t.Stats()
+		return st.BytesReadData.Int64(), st.BytesWrittenData.Int64()
+	})
 }

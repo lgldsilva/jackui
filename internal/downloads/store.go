@@ -270,41 +270,6 @@ func (s *Store) GetCompletedPath(infoHash string, fileIndex int, userID int) (st
 	return filePath, nil
 }
 
-// GetCompletedPathRel resolves the on-disk path of ONE file from a completed
-// download. Per-file rows behave exactly like GetCompletedPath. When the
-// torrent was downloaded as a single whole-torrent item, only the
-// FileIndexWholeTorrent row exists and its file_path is the torrent's
-// destination DIRECTORY (moveCompletedTree preserved the in-torrent structure
-// under it), so the file is located by joining that directory with relPath —
-// the torrent-relative path the caller reads from the cached metainfo; the
-// store alone can't map a file index to a path without activating the torrent.
-//
-// relPath is untrusted (it ultimately comes from torrent metadata): traversal
-// is rejected and the resolved path must be an existing regular file under the
-// destination directory. Empty relPath skips the whole-torrent fallback.
-func (s *Store) GetCompletedPathRel(infoHash string, fileIndex int, relPath string, userID int) (string, error) {
-	path, err := s.GetCompletedPath(infoHash, fileIndex, userID)
-	if err != nil || path != "" {
-		return path, err
-	}
-	if s == nil || relPath == "" || fileIndex < 0 {
-		return "", nil
-	}
-	var destDir, name string
-	if userID >= 0 {
-		err = s.db.QueryRow(sqlCompletedWholeForUser, infoHash, FileIndexWholeTorrent, userID).Scan(&destDir, &name)
-	} else {
-		err = s.db.QueryRow(sqlCompletedWholeAny, infoHash, FileIndexWholeTorrent).Scan(&destDir, &name)
-	}
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return resolveWholeTorrentFile(destDir, name, relPath), nil
-}
-
 // resolveWholeTorrentFile maps a torrent-relative path into the moved tree
 // under destDir, mirroring wholeTorrentDest (the move that produced the tree).
 // Traversal attempts, paths escaping destDir and entries missing from disk all

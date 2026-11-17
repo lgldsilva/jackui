@@ -65,3 +65,10 @@ func mustFixture(step string, err error) {
 		panic("SeedActiveForTesting: " + step + ": " + err.Error())
 	}
 }
+
+// FileListBuildsForTesting reports how many full per-file torrent snapshots
+// (Get/GetUntouched) were built, so tests in other packages can pin that a hot
+// path does not trigger the O(files) walk.
+func (s *Streamer) FileListBuildsForTesting() int64 {
+	return s.fileListBuilds.Load()
+}
