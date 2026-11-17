@@ -49,8 +49,7 @@ func TestStreamRoutes(t *testing.T) {
 		{method: "GET", path: "/api/stream/probe/" + bogusHash + "/" + bogusFile, want: 502},
 		{method: "GET", path: "/api/stream/audio/meta/" + bogusHash + "/" + bogusFile, want: 200},
 		{method: "GET", path: "/api/stream/subtrack/" + bogusHash + "/" + bogusFile + "/" + bogusFile, want: 502},
-		// 500 with an empty body is the pinned contract for a dead playlist.
-		{method: "GET", path: "/api/stream/playlist/" + bogusHash + "/" + bogusFile, want: 500},
+		{method: "GET", path: "/api/stream/playlist/" + bogusHash + "/" + bogusFile, want: 404},
 		{method: "POST", path: "/api/stream/prefetch/" + bogusHash + "/" + bogusFile, want: 404},
 		{method: "GET", path: "/api/stream/artwork/" + bogusHash + "/" + bogusFile, want: 404},
 		// Metadata of an unknown hash is a cached empty record → 200.
@@ -76,16 +75,16 @@ func TestStreamRoutes(t *testing.T) {
 		{method: "GET", path: "/api/stream/sidecars/" + bogusHash + "/" + bogusFile, want: 502},
 		{method: "GET", path: "/api/stream/sidecar/" + bogusHash + "/" + bogusFile, want: 502},
 
-		// --- HLS renditions: no session for a bogus hash → 500 (empty body),
+		// --- HLS renditions: no session and no source for a bogus hash → 404,
 		// except the subtitle mini-playlist, which is generated without a
 		// session and references the subtrack endpoint.
-		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/index.m3u8", want: 500},
-		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/v/0/index.m3u8", want: 500},
-		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/v/0/" + bogusSeg, want: 500},
-		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/a/0/index.m3u8", want: 500},
-		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/a/0/" + bogusSeg, want: 500},
+		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/index.m3u8", want: 404},
+		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/v/0/index.m3u8", want: 404},
+		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/v/0/" + bogusSeg, want: 404},
+		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/a/0/index.m3u8", want: 404},
+		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/a/0/" + bogusSeg, want: 404},
 		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/sub/0/index.m3u8", want: 200},
-		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/" + bogusSeg, want: 500},
+		{method: "GET", path: "/api/stream/hls/" + bogusHash + "/" + bogusFile + "/" + bogusSeg, want: 404},
 		{method: "GET", path: "/api/local/hls/index.m3u8", want: 400},
 		{method: "GET", path: "/api/local/hls/seg", want: 400},
 
