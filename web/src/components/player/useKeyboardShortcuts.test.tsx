@@ -49,6 +49,17 @@ function renderPlayerShell(overlay: boolean) {
   )
 }
 
+function pointerFocus(el: HTMLElement) {
+  fireEvent.pointerDown(el)
+  fireEvent.mouseDown(el)
+  el.focus()
+}
+
+function keyboardFocus(el: HTMLElement) {
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Tab' })
+  el.focus()
+}
+
 // fireEvent returns false when a handler called preventDefault().
 const press = (el: Element | Document, init: KeyboardEventInit) => !fireEvent.keyDown(el, init)
 
@@ -102,9 +113,10 @@ describe('useKeyboardShortcuts — guards', () => {
     expect(media.play).not.toHaveBeenCalled()
   })
 
-  it('lets Space activate a focused button instead of toggling playback', () => {
+  it('lets Space activate a keyboard-focused button instead of toggling playback', () => {
     const { media } = setup()
     renderPlayerShell(false)
+    keyboardFocus(screen.getByTestId('own'))
     expect(press(screen.getByTestId('own'), { key: ' ' })).toBe(false)
     expect(media.play).not.toHaveBeenCalled()
   })
@@ -167,14 +179,24 @@ describe('useKeyboardShortcuts — file rows', () => {
     )
   }
 
-  it.each(['flat', 'tree'])('Space on a %s file row toggles playback and does not re-activate the row', (view) => {
+  it.each(['flat', 'tree'])('Space on a pointer-focused %s file row toggles playback and does not re-activate the row', (view) => {
     const { media } = setup()
     const playFile = vi.fn()
     renderRows(playFile)
     const rowEl = screen.getByTestId(view).querySelector('button')!
+    pointerFocus(rowEl)
     expect(press(rowEl, { key: ' ' })).toBe(true)
     expect(media.play).toHaveBeenCalledTimes(1)
     expect(playFile).not.toHaveBeenCalled()
+  })
+
+  it('leaves Space on a keyboard-focused file row to the row (native activation)', () => {
+    const { media } = setup()
+    renderRows(vi.fn())
+    const rowEl = screen.getByTestId('tree').querySelector('button')!
+    keyboardFocus(rowEl)
+    expect(press(rowEl, { key: ' ' })).toBe(false)
+    expect(media.play).not.toHaveBeenCalled()
   })
 
   it('leaves Enter on a file row to the native button click', () => {

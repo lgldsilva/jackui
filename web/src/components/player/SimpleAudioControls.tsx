@@ -51,7 +51,6 @@ export function SimpleAudioControls({
       <button
         type="button"
         onClick={onPrev}
-        data-space-toggles-playback
         disabled={!hasPrev}
         title={t('player.controls.prev')}
         aria-label={t('player.controls.prev')}
@@ -62,7 +61,6 @@ export function SimpleAudioControls({
       <button
         type="button"
         onClick={onNext}
-        data-space-toggles-playback
         disabled={!hasNext}
         title={t('player.controls.next')}
         aria-label={t('player.controls.next')}

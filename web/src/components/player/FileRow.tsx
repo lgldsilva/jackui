@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next'
 import { TorrentInfo, streamThumbnailURL } from '../../api/client'
 import { detectViewerKind } from '../viewer/viewerKind'
 import { useHoverThumb } from '../FileThumbHover'
-import { SPACE_TOGGLES_PLAYBACK_ATTR } from '../../lib/keyboardLayering'
 import { fileType, formatSize, FILE_EXTRA_RE, FILE_AUDIO_RE } from './playerFormat'
 
 // One file entry, shared by the flat list (FilePickerSidebar) and the tree
@@ -81,7 +80,6 @@ function FileRowImpl(
       onMouseMove={hoverThumb.move}
       onMouseLeave={hoverThumb.hide}
       title={f.path}
-      {...{ [SPACE_TOGGLES_PLAYBACK_ATTR]: '' }}
       {...treeItemProps}
       className={`flex flex-col flex-shrink-0 gap-1 px-3 py-2.5 sm:py-2 min-h-[48px] sm:min-h-0 rounded-lg text-sm sm:text-xs transition-colors text-left w-full ${fileBtnClass(selected, isPlayable, canPreview, extra)}`}
     >

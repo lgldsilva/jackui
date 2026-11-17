@@ -69,7 +69,7 @@ export function PlayerExperienceOverlays({
           <p className="text-[11px] uppercase tracking-wide text-white/60">{t('player.overlays.upNextIn', { n: upNextCountdown(currentTime, duration) })}</p>
           {nextLabel && <p className="text-sm font-medium mt-0.5 line-clamp-2">{nextLabel}</p>}
           <div className="flex gap-2 mt-2">
-            <button type="button" onClick={() => onNext?.()} data-space-toggles-playback className="btn-primary !py-1 !px-3 text-xs">
+            <button type="button" onClick={() => onNext?.()} className="btn-primary !py-1 !px-3 text-xs">
               {t('player.overlays.playNow')}
             </button>
             <button type="button" onClick={() => setUpNextDismissed(true)} className="btn-secondary !py-1 !px-3 text-xs">
