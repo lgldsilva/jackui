@@ -2,6 +2,7 @@ package downloads
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -23,6 +24,11 @@ import (
 // NOT a failure: the row stays `moving` and boot rescue re-dispatches it.
 const moveMaxAttempts = 3
 
+// errMoveShutdown reports that the retry loop was cut short by app shutdown
+// rather than giving up: the caller must leave the row `moving` (boot rescue
+// skips `failed` rows, so marking it failed would strand the move).
+var errMoveShutdown = errors.New("completion move interrupted by shutdown")
+
 // partialCopySuffix is the scratch extension the cross-filesystem copy writes
 // before the atomic rename onto the final name (".partial" — distinct from the
 // anacrolix storage's partSuffix ".part", which marks an unfinished DOWNLOAD).
@@ -41,6 +47,12 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 	// stuck-moving sweep can tell an owned row from a wedged one.
 	defer w.clearMovingState(d.ID)
 	dst, err := w.attemptCompletionMove(d, name, relPaths, whole, job)
+	if errors.Is(err, errMoveShutdown) {
+		// Not a failure: keep the row `moving` AND its eviction protection (the
+		// data is still in the cache) so the boot-time rescue finishes the move.
+		log.Printf("downloads: completion move #%d %q interrupted by shutdown; left moving for boot rescue", d.ID, name)
+		return
+	}
 	if err != nil {
 		// The move gave up: release the eviction protection this move was
 		// holding (checkCompletion dropped the tracked entry WITHOUT
@@ -137,7 +149,7 @@ func (w *Worker) reseedAfterCompletion(d Download, renamed bool) {
 // attemptCompletionMove runs the move with bounded retries, reporting progress to
 // job. It returns the destination path on success, or the last error after
 // moveMaxAttempts. A shutdown signal (w.stop) aborts the retry loop early with
-// the pending error so the caller leaves the row `moving` for boot rescue.
+// errMoveShutdown so the caller leaves the row `moving` for boot rescue.
 func (w *Worker) attemptCompletionMove(d Download, name string, relPaths []string, whole bool, job *transfer.Job) (string, error) {
 	// Download-to-bulk: when the data was written STRAIGHT to its final
 	// destination, there's nothing to move — finalize in place. Covers the
@@ -168,7 +180,7 @@ func (w *Worker) attemptCompletionMove(d Download, name string, relPaths []strin
 		}
 		select {
 		case <-w.stop:
-			return "", err // shutting down: leave the row `moving` for boot rescue
+			return "", errMoveShutdown
 		case <-time.After(time.Duration(attempt) * w.moveBackoff):
 		}
 	}

@@ -23,51 +23,63 @@ import (
 // used to drop the torrent even when nothing was tracked yet (delete of a
 // queued/initializing row). A safe no-op when the worker never tracked the ID.
 func (w *Worker) Remove(id int, infoHash string) {
-	hash, haveHash, removed, siblingKeepsTorrent := w.removeState(id, infoHash)
-	// Removing ONE file of a multi-file torrent: just stop fetching that file
-	// (PiecePriorityNone) and keep the torrent leeching the rest. A sibling still
-	// in init has no live *torrent.File for us yet, but initGroup will reconcile
-	// priorities; cancel ours if we have it.
-	if siblingKeepsTorrent {
-		if removed != nil && removed.file != nil {
-			removed.file.SetPriority(torrent.PiecePriorityNone)
-		}
+	rm := w.removeState(id, infoHash)
+	// Removing ONE file of a multi-file torrent: keep the torrent leeching the
+	// rest and stop fetching this file — unless another row (any user) still
+	// wants it, which only the union of rows can tell.
+	if rm.siblingKeepsTorrent {
+		w.reconcileFilePriorities(rm.hash, rm.files)
 		return
 	}
 
-	if haveHash {
+	if rm.haveHash {
 		// Last member gone → drop the torrent. Drop runs OUTSIDE w.mu (streamer
 		// lock + I/O) and is a safe no-op if a player still holds a viewer lease.
 		// dropTorrentSeed (not the plain drop) because Remove is an explicit user
 		// removal: the persisted auto-seed must go too, or resumeSeeding brings
 		// the torrent back as a live "Seeding" card on the next boot.
-		w.dropTorrentSeed(hash)
+		w.dropTorrentSeed(rm.hash)
 	}
 }
 
-func (w *Worker) removeState(id int, infoHash string) (metainfo.Hash, bool, *trackedDL, bool) {
-	var hash metainfo.Hash
-	haveHash := false
+// removal is what Remove learned while tearing down a row's in-memory state.
+type removal struct {
+	hash     metainfo.Hash
+	haveHash bool
+	// files are the torrent files the row had marked wanted (tracked target
+	// and/or an in-flight init's claim).
+	files               []*torrent.File
+	siblingKeepsTorrent bool
+}
+
+func (w *Worker) removeState(id int, infoHash string) removal {
+	var rm removal
 
 	// Resolve the hash up front: prefer the persisted infoHash (the handler
 	// already has it from the deleted row) so we can detect siblings even when
 	// THIS row was never tracked (a queued/initializing member).
 	if infoHash != "" {
-		if err := hash.FromHexString(infoHash); err == nil {
-			haveHash = true
+		if err := rm.hash.FromHexString(infoHash); err == nil {
+			rm.haveHash = true
 		}
 	}
 
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.removed[id] = struct{}{}
 	if cancel := w.pending[id]; cancel != nil {
 		cancel()
+		if f := w.pendingWant[id]; f != nil {
+			rm.files = append(rm.files, f)
+		}
 		w.clearPendingLocked(id)
 	}
-	removed := w.tracked[id]
-	if removed != nil {
+	if removed := w.tracked[id]; removed != nil {
 		if removed.hash != (metainfo.Hash{}) {
-			hash, haveHash = removed.hash, true
+			rm.hash, rm.haveHash = removed.hash, true
+		}
+		if removed.file != nil {
+			rm.files = append(rm.files, removed.file)
 		}
 		delete(w.tracked, id)
 		w.unregisterLocked(removed) // drops streamer protection unless a sibling shares the name
@@ -77,10 +89,9 @@ func (w *Worker) removeState(id int, infoHash string) (metainfo.Hash, bool, *tra
 	// torrent still needs it — one already tracked OR one still resolving in a
 	// shared init (pendingHash). Both checks run AFTER deleting our own entries so
 	// we never count ourselves.
-	siblingKeepsTorrent := haveHash &&
-		(w.hashTrackedLocked(hash) || w.pendingSiblingLocked(hash, id))
-	w.mu.Unlock()
-	return hash, haveHash, removed, siblingKeepsTorrent
+	rm.siblingKeepsTorrent = rm.haveHash &&
+		(w.hashTrackedLocked(rm.hash) || w.pendingSiblingLocked(rm.hash, id))
+	return rm
 }
 
 // hashTrackedLocked reports whether ANY tracked download still maps to hash —

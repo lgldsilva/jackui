@@ -56,27 +56,11 @@ func (w *Worker) tick() {
 	// inits too so a cancelled download stops resolving metadata immediately. A
 	// torrent is dropped ONLY when NO active row still shares its hash — a sibling
 	// file of the same torrent (aggregate-by-torrent) must keep it leeching.
-	stillWantedHashes := w.hashesStillWanted(active)
-	w.mu.Lock()
-	var toDrop []metainfo.Hash
-	for id, td := range w.tracked {
-		if !wantIDs[id] {
-			w.unregisterLocked(td)
-			delete(w.tracked, id)
-			delete(w.retries, id)
-			if td.hash != (metainfo.Hash{}) && !stillWantedHashes[td.hash] {
-				toDrop = append(toDrop, td.hash)
-			}
-		}
-	}
-	for id, cancel := range w.pending {
-		if !wantIDs[id] {
-			cancel()
-			w.clearPendingLocked(id)
-			delete(w.retries, id)
-		}
-	}
-	w.mu.Unlock()
+	toDrop, released := w.untrackVanished(wantIDs, w.hashesStillWanted(active))
+
+	// A torrent that stays alive for its siblings must still stop fetching the
+	// files whose rows were just paused/cancelled (unless another row wants them).
+	w.reconcileReleased(released)
 
 	// Stop the torrent in anacrolix too. Pause/cancel/delete only flip the DB
 	// status; without an explicit Drop the torrent kept leeching in the
@@ -101,6 +85,41 @@ func (w *Worker) tick() {
 	w.applySchedule(qs)
 
 	w.maybeSweepStuckMoving()
+}
+
+// untrackVanished drops the in-memory state of every row that left the active
+// set. It returns the torrents no active row maps to any more (to drop) and,
+// for the torrents that live on, the files those rows had marked wanted.
+func (w *Worker) untrackVanished(wantIDs map[int]bool, stillWanted map[metainfo.Hash]bool) ([]metainfo.Hash, releasedFiles) {
+	var toDrop []metainfo.Hash
+	released := releasedFiles{}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for id, td := range w.tracked {
+		if wantIDs[id] {
+			continue
+		}
+		w.unregisterLocked(td)
+		delete(w.tracked, id)
+		delete(w.retries, id)
+		if stillWanted[td.hash] {
+			released.add(td.hash, td.file)
+		} else if td.hash != (metainfo.Hash{}) {
+			toDrop = append(toDrop, td.hash)
+		}
+	}
+	for id, cancel := range w.pending {
+		if wantIDs[id] {
+			continue
+		}
+		cancel()
+		if h := w.pendingHash[id]; stillWanted[h] {
+			released.add(h, w.pendingWant[id])
+		}
+		w.clearPendingLocked(id)
+		delete(w.retries, id)
+	}
+	return toDrop, released
 }
 
 // maybeSweepStuckMoving runs the stuck-moving sweep every movingSweepTicks

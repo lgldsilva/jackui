@@ -23,7 +23,6 @@ package downloads
 // group of one covering N files.
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"time"
@@ -225,9 +224,11 @@ func (w *Worker) reconcileGroup(g Group) {
 	state := w.groupState(g)
 	switch {
 	case state.hasTracked:
-		// The torrent is live: adopt any not-yet-tracked siblings onto it (cheap —
-		// no re-EnsureActive / re-Verify), then sample + check completion as a unit.
-		w.adoptSiblings(context.Background(), g, state)
+		// The torrent is live: adopt any not-yet-tracked siblings onto it (no
+		// re-EnsureActive) off this goroutine, then sample + check completion as a
+		// unit. Completion waits by itself: an unadopted member keeps the group
+		// incomplete (groupAllComplete).
+		w.adoptGroupSiblings(g, state)
 		w.sampleGroup(g, state)
 		w.checkGroupCompletion(g, state)
 	case state.anyPending:
