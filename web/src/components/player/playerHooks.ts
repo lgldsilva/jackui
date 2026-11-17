@@ -1,5 +1,6 @@
 import { Dispatch, MutableRefObject, RefObject, SetStateAction, useEffect, useMemo, useRef, useState } from 'react'
 import { interpretPlayerKey, nextSpeed } from '../../lib/playerShortcuts'
+import { shouldIgnorePlayerShortcut } from '../../lib/keyboardLayering'
 import { SPEED_OPTIONS } from './playerFormat'
 import { findIntroSkip, shouldShowSkipIntro } from '../../lib/skipIntro'
 import type { MediaChapter } from '../../api/stream-types'
@@ -44,8 +45,8 @@ type KeyboardShortcutsOpts = {
 }
 
 // useKeyboardShortcuts wires space/arrows/M/F plus YouTube-style J/K/L, N/P,
-// digits, I (skip intro) and W (PiP). Skipped while minimized, while typing,
-// and when the media element itself has focus (native handler already acts).
+// digits, I (skip intro) and W (PiP). Skipped while minimized and whenever
+// shouldIgnorePlayerShortcut says another layer or control owns the key.
 export function useKeyboardShortcuts({
   videoRef, minimized, requestFullscreen, onNext, onPrev, chapters, setPlaybackSpeed, playbackSpeed = 1,
 }: KeyboardShortcutsOpts) {
@@ -54,8 +55,7 @@ export function useKeyboardShortcuts({
     const handleKeyDown = (e: KeyboardEvent) => {
       const v = videoRef.current
       if (!v) return
-      const tgt = e.target as HTMLElement | null
-      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt === v)) return
+      if (shouldIgnorePlayerShortcut(e, v)) return
       const action = interpretPlayerKey(e.key)
       if (!action) return
       const dur = Number.isFinite(v.duration) ? v.duration : Infinity
