@@ -2,6 +2,8 @@ import { afterEach, describe, it, expect, vi } from 'vitest'
 import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { useKeyboardShortcuts } from './playerHooks'
 import { shellProps } from './PlayerHeader'
+import { FileRow } from './FileRow'
+import type { useHoverThumb } from '../FileThumbHover'
 
 afterEach(cleanup)
 
@@ -136,5 +138,57 @@ describe('useKeyboardShortcuts — guards', () => {
     expect(press(screen.getByTestId('own'), { key: 'j' })).toBe(false)
     expect(media.muted).toBe(false)
     expect(media.currentTime).toBe(50)
+  })
+})
+
+// Regression (review of #248): file rows are <button>s that keep focus after a
+// mouse click. Treating them as owning Space re-ran playFile() — which restarts
+// the file from 0 — instead of pausing ("click an episode, press Space").
+describe('useKeyboardShortcuts — file rows', () => {
+  const hoverThumb = { show: vi.fn(), move: vi.fn(), hide: vi.fn() } as unknown as ReturnType<typeof useHoverThumb>
+  const file = { index: 3, path: 'Show/S01E01.mkv', size: 1, isVideo: true } as Parameters<typeof FileRow>[0]['file']
+
+  function renderRows(playFile: (i: number) => void) {
+    const row = (treeItemProps?: React.HTMLAttributes<HTMLButtonElement>) => (
+      <FileRow
+        file={file} infoHash="abc" selected hoverThumb={hoverThumb} parseEpisode={() => null}
+        playFile={playFile} setPreviewFileIdx={vi.fn()} displayName="S01E01.mkv" treeItemProps={treeItemProps}
+      />
+    )
+    render(
+      <div {...shellProps({ minimized: false, audioMode: false, fullViewport: false, onClose: vi.fn(), setMinimized: vi.fn(), ariaLabel: 'Movie' })}>
+        <div data-testid="flat">{row()}</div>
+        <div role="tree" data-testid="tree">
+          {row({ role: 'treeitem', 'aria-selected': true })}
+          {/* Folder row: FileTree.onKeyDown consumes Space to expand/collapse. */}
+          <button role="treeitem" aria-selected={false} aria-expanded data-testid="folder" onKeyDown={e => { if (e.key === ' ') e.preventDefault() }}>Show</button>
+        </div>
+      </div>,
+    )
+  }
+
+  it.each(['flat', 'tree'])('Space on a %s file row toggles playback and does not re-activate the row', (view) => {
+    const { media } = setup()
+    const playFile = vi.fn()
+    renderRows(playFile)
+    const rowEl = screen.getByTestId(view).querySelector('button')!
+    expect(press(rowEl, { key: ' ' })).toBe(true)
+    expect(media.play).toHaveBeenCalledTimes(1)
+    expect(playFile).not.toHaveBeenCalled()
+  })
+
+  it('leaves Enter on a file row to the native button click', () => {
+    const { media } = setup()
+    renderRows(vi.fn())
+    const rowEl = screen.getByTestId('tree').querySelector('button')!
+    expect(press(rowEl, { key: 'Enter' })).toBe(false)
+    expect(media.play).not.toHaveBeenCalled()
+  })
+
+  it('leaves Space on a folder row to the tree (expand/collapse)', () => {
+    const { media } = setup()
+    renderRows(vi.fn())
+    fireEvent.keyDown(screen.getByTestId('folder'), { key: ' ' })
+    expect(media.play).not.toHaveBeenCalled()
   })
 })

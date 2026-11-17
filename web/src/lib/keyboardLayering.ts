@@ -1,6 +1,13 @@
 // Keyboard layering rules for the player: which layer owns a key press when
 // overlays (sheets, menus, dialogs) sit on top of it. DOM-only, no React.
 
+/**
+ * Opt-out for an activatable control inside the player whose Space must keep
+ * toggling playback. File rows keep focus after a mouse click, and re-activating
+ * one restarts the file from 0 instead of pausing.
+ */
+export const SPACE_TOGGLES_PLAYBACK_ATTR = 'data-space-toggles-playback'
+
 /** Marks the player shell so it can be told apart from dialogs layered over it. */
 export const PLAYER_SHELL_ATTR = 'data-player-shell'
 
@@ -28,7 +35,8 @@ function isBrowserOrImeKey(e: KeyboardEvent): boolean {
 function ownsKey(target: Element, key: string, media: Element | null): boolean {
   if (target === media || TYPING_TAGS.has(target.tagName)) return true
   if (target.closest(EDITABLE) || target.closest(KEY_OWNING_WIDGET)) return true
-  return ACTIVATION_KEYS.has(key) && target.matches(ACTIVATABLE)
+  if (!ACTIVATION_KEYS.has(key) || !target.matches(ACTIVATABLE)) return false
+  return !(key === ' ' && target.hasAttribute(SPACE_TOGGLES_PLAYBACK_ATTR))
 }
 
 function isLayeredOverPlayer(target: Element): boolean {
