@@ -1,13 +1,19 @@
 package transcode
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -101,5 +107,77 @@ func TestTailBuffer(t *testing.T) {
 	}
 	if got := b.String(); got != "89ABCDEF" {
 		t.Errorf("tail after oversized write = %q, want %q", got, "89ABCDEF")
+	}
+}
+
+func TestExpectedPumpEnd(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{nil, true},
+		{fmt.Errorf("write |1: %w", syscall.EPIPE), true},
+		{&os.PathError{Op: "write", Path: "|1", Err: os.ErrClosed}, true},
+		{fmt.Errorf("read: %w", context.Canceled), true},
+		{errors.New("piece hash mismatch"), false},
+		{io.ErrUnexpectedEOF, false},
+	} {
+		if got := expectedPumpEnd(tc.err); got != tc.want {
+			t.Errorf("expectedPumpEnd(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+}
+
+type failAfterReader struct {
+	head int
+	err  error
+}
+
+func (r *failAfterReader) Read(p []byte) (int, error) {
+	if r.head <= 0 {
+		return 0, r.err
+	}
+	n := min(len(p), r.head)
+	r.head -= n
+	return n, nil
+}
+
+// syncBuffer lets the test read log output the pump goroutine writes.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// TestRun_LogsMidStreamSourceFailure: ffmpeg gets a clean EOF and exits 0 on
+// a source that broke mid-stream, so the pump's log line is the only trace.
+func TestRun_LogsMidStreamSourceFailure(t *testing.T) {
+	transSwapCache(t, &Capabilities{FFmpegPath: stubFFmpeg(t, "exec cat >/dev/null")})
+	logs := &syncBuffer{}
+	prev := log.Writer()
+	log.SetOutput(logs)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	in := &failAfterReader{head: 512 * 1024, err: errors.New("piece hash mismatch")}
+	if err := Run(context.Background(), in, httptest.NewRecorder(), Options{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(logs.String(), "source read failed mid-stream: piece hash mismatch") {
+		if time.Now().After(deadline) {
+			t.Fatalf("source failure was not logged; log output:\n%s", logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
