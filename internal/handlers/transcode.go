@@ -107,10 +107,7 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 		httpshared.RespondError(c, http.StatusNotFound, err)
 		return
 	}
-	defer reader.Close()
-	bindReaderContext(c.Request.Context(), reader)
-
-	if err := transcode.Run(c.Request.Context(), reader, c.Writer, opts); err != nil {
+	if err := runTorrentTranscode(c.Request.Context(), reader, c.Writer, opts); err != nil {
 		c.Abort()
 		// Run's last line of defense can still surface the libass sentinel
 		// (probe completing after the handler's Cached() check): client-input
