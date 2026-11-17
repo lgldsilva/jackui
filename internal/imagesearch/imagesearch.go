@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/lgldsilva/jackui/internal/httpretry"
 )
@@ -52,7 +51,7 @@ func NewChain(sources ...Source) *Chain {
 // Default returns the standard keyless chain. Separate from NewChain so tests
 // can inject mock sources.
 func Default() *Chain {
-	hc := &http.Client{Timeout: 12 * time.Second}
+	hc := newHTTPClient("")
 	return &Chain{
 		http:    hc,
 		sources: []Source{NewDuckDuckGo(hc), NewBing(hc)},

@@ -8,17 +8,12 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/netguard"
 )
 
-// isBlockedFetchIP reports whether an IP is off-limits for server-side fetches
-// (SSRF protection): loopback, private RFC1918/ULA, link-local, and the
-// unspecified address. .torrent URLs from indexers are public, so blocking
-// these doesn't hurt legitimate use but stops a caller from making the server
-// probe the internal homelab network or metadata endpoints.
-func isBlockedFetchIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
-}
+// isBlockedFetchIP is the shared SSRF address policy (see internal/netguard).
+func isBlockedFetchIP(ip net.IP) bool { return netguard.IsBlockedIP(ip) }
 
 // JackettAddrFromURL returns the normalised host:port the SSRF guard trusts
 // for a Jackett base URL, defaulting the port from the scheme.
@@ -49,13 +44,6 @@ func jackettAddrFromParsed(u *url.URL) (string, bool) {
 	return net.JoinHostPort(strings.ToLower(host), port), true
 }
 
-// sameAddr compares two host:port strings case-insensitively on the host.
-func sameAddr(a, b string) bool {
-	ah, ap, err1 := net.SplitHostPort(a)
-	bh, bp, err2 := net.SplitHostPort(b)
-	return err1 == nil && err2 == nil && ap == bp && strings.EqualFold(ah, bh)
-}
-
 func newSSRFGuardedClient(jackettAddr string, capturedMagnet *string) *http.Client {
 	return &http.Client{
 		Timeout:   30 * time.Second,
@@ -67,32 +55,11 @@ func newSSRFGuardedClient(jackettAddr string, capturedMagnet *string) *http.Clie
 }
 
 func newSSRFTransport(jackettAddr string) *http.Transport {
-	return &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return ssrfDialContext(ctx, network, addr, jackettAddr)
-		},
-	}
+	return netguard.NewTransport(jackettAddr)
 }
 
 func ssrfDialContext(ctx context.Context, network, addr, jackettAddr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil, err
-	}
-	trusted := jackettAddr != "" && sameAddr(addr, jackettAddr)
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	if !trusted {
-		for _, ip := range ips {
-			if isBlockedFetchIP(ip.IP) {
-				return nil, fmt.Errorf("refusing to fetch from non-public address %s", ip.IP)
-			}
-		}
-	}
-	d := net.Dialer{}
-	return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+	return netguard.DialContext(ctx, network, addr, jackettAddr)
 }
 
 func checkRedirect(req *http.Request, via []*http.Request, capturedMagnet *string) error {
