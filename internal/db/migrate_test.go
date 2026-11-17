@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,5 +69,16 @@ func TestOpenAndMigrate(t *testing.T) {
 	}
 	if !present {
 		t.Fatal("unaccent extension not installed by migration")
+	}
+
+	// 0009: any-owner lookups by info_hash need an index leading with it.
+	var indexDef string
+	if err := pool.QueryRowContext(ctx,
+		"SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND indexname = 'idx_dl_hash_file'", schema).
+		Scan(&indexDef); err != nil {
+		t.Fatalf("idx_dl_hash_file not created by migration: %v", err)
+	}
+	if !strings.Contains(indexDef, "(info_hash, file_index)") {
+		t.Fatalf("idx_dl_hash_file = %q, want (info_hash, file_index)", indexDef)
 	}
 }
