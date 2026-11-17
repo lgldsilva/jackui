@@ -529,6 +529,7 @@
       "dropOverlayTitle": "Drop your .torrent files here!",
       "dropOverlaySubtitle": "or dragged magnet links to start loading",
       "dropOnlyTorrentOrMagnet": "Please drag only .torrent files or magnet links",
+      "loadErrorTitle": "Could not refresh downloads. Retrying automatically…",
       "statDownload": "Download",
       "statUpload": "Upload",
       "statPeers": "Peers",
@@ -1890,6 +1891,7 @@
     "close": "Close"
   },
   "misc": {
+    "repeatCount": "×{{n}}",
     "user_role": "User",
     "admin_role": "Admin",
     "logout": "Sign out",
