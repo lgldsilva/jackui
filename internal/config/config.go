@@ -33,6 +33,11 @@ type Config struct {
 	// used to build links in emails (reset/verify/invite). Falls back to the
 	// request's Origin when empty.
 	BaseURL string `yaml:"base_url"`
+	// TrustedProxies lists the reverse proxies (IPs or CIDRs) whose
+	// X-Forwarded-For / X-Real-IP headers are honoured when resolving the
+	// client IP. Empty (default) trusts none: the client IP is the socket peer.
+	// Env: JACKUI_TRUSTED_PROXIES (comma-separated).
+	TrustedProxies []string `yaml:"trusted_proxies,omitempty"`
 }
 
 // SMTPConfig configures outbound email (password reset, email verification,
