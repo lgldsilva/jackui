@@ -108,7 +108,13 @@ type Worker struct {
 	// for the same id must not clear, promote over or retry-count the newer one.
 	pendingGen map[int]uint64
 	pendingSeq uint64
-	retries    map[int]int // transient init failures per download.ID
+	// pendingWant is the file an in-flight init already marked wanted, by
+	// download.ID (see file_priorities.go). Cleared with the pending entry.
+	pendingWant map[int]*torrent.File
+	// prioMu serializes file-priority changes derived from tracked/pendingWant.
+	// Lock order: prioMu before mu; never take prioMu while holding mu.
+	prioMu  sync.Mutex
+	retries map[int]int // transient init failures per download.ID
 	// removed is a tombstone set of download IDs deleted via Remove(). An init
 	// goroutine that was already resolving metadata when the delete landed must
 	// NOT promote the row back into `tracked` (or re-register streamer
@@ -241,6 +247,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		pending:         make(map[int]context.CancelFunc),
 		pendingHash:     make(map[int]metainfo.Hash),
 		pendingGen:      make(map[int]uint64),
+		pendingWant:     make(map[int]*torrent.File),
 		retries:         make(map[int]int),
 		removed:         make(map[int]struct{}),
 		stop:            make(chan struct{}),
@@ -513,6 +520,7 @@ func (w *Worker) clearPendingLocked(id int) {
 	delete(w.pending, id)
 	delete(w.pendingHash, id)
 	delete(w.pendingGen, id)
+	delete(w.pendingWant, id)
 }
 
 // pendingSiblingLocked reports whether ANY in-flight init (other than excludeID)

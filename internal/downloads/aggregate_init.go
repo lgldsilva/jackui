@@ -78,14 +78,13 @@ func (w *Worker) initGroup(ctx context.Context, g Group) {
 }
 
 // applyFilePriorities marks the group's SELECTED files wanted (Download) and the
-// rest unwanted (Cancel), verifying only the selected files' pieces once each
+// files no row wants unwanted (Cancel), verifying only the selected files' pieces once each
 // (the streamer dedups per (hash,file)), then persists metadata + tracks each
 // selected member. ONE EnsureActive (already done) + selected-only verifies —
 // never an N-file whole-torrent re-hash.
 func (w *Worker) applyFilePriorities(ctx context.Context, g Group, hash metainfo.Hash, t *torrent.Torrent) {
 	files := t.Files()
 	name := t.Name()
-	selected := make(map[int]bool, len(g.Members))
 	for _, m := range g.Members {
 		// A member removed while this shared init was resolving metadata must NOT be
 		// marked wanted / tracked — that would resurrect a deleted row and fetch a
@@ -100,21 +99,18 @@ func (w *Worker) applyFilePriorities(ctx context.Context, g Group, hash metainfo
 		if !ok {
 			continue
 		}
-		selected[idx] = true
 		if err := w.streamer.VerifyFile(ctx, hash, idx); err != nil {
 			log.Printf("downloads: verify selected file #%d: %v", m.ID, err)
 		}
-		files[idx].Download()
+		w.claimAndWant(ctx, m.ID, hash, files[idx])
 		w.persistMemberMetadata(m, t, files[idx], name)
 		w.trackMember(m, t, files[idx], nil, name, hash)
 	}
-	// Everything NOT selected stays unwanted (PiecePriorityNone) so anacrolix never
+	// Everything no row wants stays unwanted (PiecePriorityNone) so anacrolix never
 	// fetches it — the whole point of per-file selection on a multi-file torrent.
-	for i, f := range files {
-		if !selected[i] {
-			f.SetPriority(torrent.PiecePriorityNone)
-		}
-	}
+	// "No row" spans every user: the handle is shared, so a file another user's
+	// row is downloading must survive this group's init.
+	w.reconcileFilePriorities(hash, files)
 }
 
 // persistMemberMetadata writes a member row's resolved name/path/size and freezes
