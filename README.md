@@ -64,7 +64,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 
 ## Requirements
 
-- **Go 1.25+** and **Node 18+** (for development/building).
+- **Go 1.26+** and **Node 20.19+** (for development/building).
 - **ffmpeg** with the hardware encoders you intend to use (NVENC needs an NVIDIA GPU + the NVIDIA container toolkit; VAAPI/QSV need `/dev/dri`).
 - **Docker** (for deployment) and a [Jackett](https://github.com/Jackett/Jackett) instance for search.
 
@@ -99,16 +99,17 @@ All variables below accept empty/unset as "use default". Application defaults ar
 | | `JACKUI_CONTROL_TOKEN` | — | Static token for RPC control endpoint (port refresh) |
 | **PostgreSQL** | `JACKUI_DATABASE_URL` | — | **Required.** DSN (`postgres://...`). Overrides `PG_*` below |
 | | `DATABASE_URL` | — | Same as above (alternative name) |
-| | `JACKUI_PG_HOST` | `localhost` | Host |
+| | `JACKUI_PG_HOST` | — | Host. Setting it assembles the DSN from the `JACKUI_PG_*` parts below (used only when neither DSN variable is set) |
 | | `JACKUI_PG_PORT` | `5432` | Port |
 | | `JACKUI_PG_USER` | `jackui` | User |
 | | `JACKUI_PG_PASSWORD` | — | Password |
 | | `JACKUI_PG_DB` | `jackui` | Database name |
 | | `JACKUI_PG_SSLMODE` | `disable` | SSL mode |
-| **Directories** | `JACKUI_STREAM_DIR` | `./data/stream` | Piece cache + transcode/HLS temp (reconstructable) |
-| | `JACKUI_DOWNLOAD_DIR` | `./data/downloads` | Completed download target (empty = stay in cache) |
-| | `JACKUI_SHARED_DIR` | `./data/shared` | Shared library: browsable mounts + promote target |
-| | `JACKUI_EXTERNAL_MOUNTS` | — | Extra mount paths (rclone/NFS, comma-separated) |
+| | `JACKUI_PG_MAX_CONNS` | `20` | Max open connections in the PostgreSQL pool |
+| **Directories** | `JACKUI_STREAM_DIR` | `/data/streams` | Piece cache + transcode/HLS temp (reconstructable) |
+| | `JACKUI_DOWNLOAD_DIR` | — (Compose: `/mnt/storage/downloads`) | Completed download target (empty = stay in cache) |
+| | `JACKUI_SHARED_DIR` | — (Compose: `/mnt/storage/library`) | Shared library: the "Promote" destination (empty = that destination is off) |
+| | `JACKUI_EXTERNAL_MOUNTS` | — | Browsable mounts, comma-separated `Name:/path[:usersubpath]` specs (merged with `external.mounts` from `config.yaml`) |
 | **Runtime/resources** | `JACKUI_MEM_LIMIT` | `2g` | Hard Docker cgroup memory limit; bounds the whole container |
 | | `JACKUI_CPU_LIMIT` | `2.0` | Docker CPU limit |
 | | `JACKUI_GOMEMLIMIT` | `1600MiB` | Soft Go GC target via `runtime/debug.SetMemoryLimit`; not a hard RSS/container cap |
@@ -118,8 +119,8 @@ All variables below accept empty/unset as "use default". Application defaults ar
 | **Streamer perf** | `JACKUI_STREAM_MAX_GB` | `50` | Piece-cache size cap (LRU eviction) |
 | | `JACKUI_STREAM_DOWN_MBPS` | — | Download rate limit (MB/s) |
 | | `JACKUI_STREAM_UP_MBPS` | — | Upload rate limit (MB/s) |
-| | `JACKUI_READAHEAD_MB` | — | Read-ahead for sequential file serving (MiB) |
-| | `JACKUI_STORAGE_BACKEND` | — | Storage backend driver (`mmap` etc.) |
+| | `JACKUI_READAHEAD_MB` | `32` | Read-ahead buffer per streaming session (MiB) |
+| | `JACKUI_STORAGE_BACKEND` | `file` | Piece storage backend: `file` or `mmap` (any other value falls back to `file`) |
 | | `JACKUI_HALF_OPEN` | — | Max half-open TCP connections |
 | | `JACKUI_PIECE_HASHERS` | — | Piece hash checker workers |
 | | `JACKUI_SEED_TRACKERS` | — | Extra announce trackers for seeding |
@@ -129,21 +130,20 @@ All variables below accept empty/unset as "use default". Application defaults ar
 | | `JACKUI_HLS_MEDIA_RENDITIONS` | `0` | HLS master `EXT-X-MEDIA` **subtitle** renditions (Phase 2 M2b). Audio renditions (`TYPE=AUDIO`) are always on when the source has ≥2 tracks. Enable (`1`) only after Safari `X-TIMESTAMP-MAP` validation for WebVTT. |
 | **Peer/Torrent** | `JACKUI_MAX_CONNS` | `40` | Peer connections per torrent |
 | | `JACKUI_PEERS_HIGH` | `200` | Swarm high-water mark |
-| | `JACKUI_PEER_PORT` | — | Fixed listen port (overrides forwarded port) |
+| | `JACKUI_PEER_PORT` | — | Fixed peer listen port. Ignored while gluetun's forwarded port is available (`JACKUI_GLUETUN_CONTROL_URL`, set by the gluetun overlay) |
 | | `JACKUI_MAX_GPU_TRANSCODES` | `3` | Cap on concurrent HW decoders (`0` = unlimited) |
 | | `JACKUI_HLS_MAX_SESSIONS` | `24` | Cap on concurrent HLS ffmpeg sessions; over it → `429` (`0` = unlimited) |
 | | `JACKUI_HLS_MAX_SESSIONS_PER_USER` | `8` | Per-user HLS session cap; at the cap the user's least-recently-used session is replaced (`0` = unlimited) |
-| | `JACKUI_MAX_UPLOAD_MB` | — | Max upload per torrent (MiB) |
-| | `JACKUI_IDLE_MINUTES` | `30` | Drop torrent after N min idle (files stay) |
-| | `JACKUI_METADATA_SECONDS` | `60` | Metadata fetch timeout |
+| | `JACKUI_MAX_UPLOAD_MB` | `65536` | Size cap for a single file uploaded through the local-files browser (MiB) |
 | | `JACKUI_TRANSMISSION_RPC_ENABLED` | `0` | Expose Transmission-RPC `*arr` provider (opt-in) |
-| **Downloads** | `JACKUI_DL_MAX_ACTIVE` | — | Max active downloads per user |
-| | `JACKUI_DL_PER_USER_MAX` | — | Max concurrent downloads per user |
+| **Downloads** | `JACKUI_DL_MAX_ACTIVE` | `3` | Global ceiling of concurrent downloads across all users (streaming excluded) |
+| | `JACKUI_DL_PER_USER_MAX` | `0` | Max concurrent downloads per user (`0` = no per-user limit) |
+| | `JACKUI_DL_MAX_CONCURRENT_VERIFY` | `1` | Max disk-bound piece rechecks running at once (independent of `JACKUI_DL_MAX_ACTIVE`) |
 | | `JACKUI_DL_STALL_MIN` | — | Stall timeout (minutes) |
 | | `JACKUI_DL_MAX_STALLS` | — | Max stalls before abort |
 | | `JACKUI_DL_AGING_STEP_MIN` | — | Aging step interval (minutes) |
 | | `JACKUI_DL_AGING_CAP` | — | Aging cap |
-| | `JACKUI_DL_ROTATION` | — | Download rotation strategy |
+| | `JACKUI_DL_ROTATION` | `0` | Automatic source rotation: on a no-seed stall, try alternative sources via Jackett before demoting (`1`/`true`) |
 | | `JACKUI_DL_AUTO_PROMOTE_ARR` | `0` | Promote `*arr` (Transmission-RPC) completed downloads into `SharedDir/<category>/` (`1`/`true`; needs `JACKUI_SHARED_DIR`) |
 | **Auth** | `JACKUI_AUTH_ENABLED` | `1` | JWT auth on by default; set `0` only with `JACKUI_ALLOW_INSECURE_AUTH=1` (dev/LAN) |
 | | `JACKUI_ADMIN_USERNAME` | `admin` | Admin username |
@@ -173,6 +173,8 @@ All variables below accept empty/unset as "use default". Application defaults ar
 | | `JACKUI_SMTP_FROM` | — | Sender address |
 | **Observability** | `JACKUI_LOG_FORMAT` | — | Structured logs: `json` = one JSON object per line (level, msg, request_id/route/status/latency_ms on HTTP lines, panic stack); empty = text. Every response carries `X-Request-ID` |
 
+The idle-drop window and the metadata fetch timeout have no environment variable: set `stream.idle_minutes` (default `30`) and `stream.metadata_seconds` (default `60`) in `config.yaml`.
+
 State lives in **PostgreSQL** (`JACKUI_DATABASE_URL`). The piece cache (`JACKUI_STREAM_DIR`) is deliberately separate to reduce I/O contention on torrent pieces.
 
 The resource settings are supplied by Docker Compose from `.env`, not `config.yaml`. `JACKUI_MEM_LIMIT` is the hard cgroup boundary; `JACKUI_GOMEMLIMIT` is only a soft Go GC target, so leave headroom for non-heap memory and child processes. See [Performance](docs/PERFORMANCE.md#container-memory-budget) for tuning and profiling. Production uses a hand-maintained compose file, which must be updated separately from this repository.
@@ -198,7 +200,7 @@ make deploy-auto-vpn    # same, but routes through a gluetun VPN overlay (opt-in
 `deploy-auto` is the standard `make` target (auto-detects the GPU, no VPN); `-vpn` adds a gluetun overlay (`network_mode: container:gluetun`).
 
 > [!NOTE]
-> The author's own production instance currently runs **behind gluetun** (`network_mode: container:gluetun`, on the VPN's forwarded port — `watchForwardedPort` in `cmd/server/main.go` triggers a graceful restart to rebind when the port rotates), even though the no-VPN path is the documented default. Pick the mode that keeps your swarm healthy.
+> The author's own production instance currently runs **behind gluetun** (`network_mode: container:gluetun`, on the VPN's forwarded port — `watchForwardedPort` in `cmd/server/wiring.go` triggers a graceful restart to rebind when the port rotates), even though the no-VPN path is the documented default. Pick the mode that keeps your swarm healthy.
 
 CI/CD runs on **GitHub Actions** (PR + `main` gates, CodeQL, release → GHCR + Trivy pre-push + SBOM), documented in [docs/CICD.md](docs/CICD.md). Images publish to `ghcr.io/lgldsilva/jackui`. Homelab deploy is still a **hand-maintained** compose on the server (`docker compose up -d --force-recreate`) — the release job only publishes the image. **New env vars added to the repo's compose do not reach production by themselves**; edit the server-side compose too.
 
@@ -225,7 +227,7 @@ internal/
 - **Auth is on by default** — JWT with rotated refresh tokens; `AdminOnly` guards sensitive routes. Running public is opt-in and explicit (`JACKUI_AUTH_ENABLED=0` + `JACKUI_ALLOW_INSECURE_AUTH=1`, dev/LAN only) — the boot fails closed otherwise. Media elements (`<video>`/`<track>`) can't send headers, so media routes accept a scoped `?token=`.
 - **SSRF guard** — torrent `.torrent`/metadata fetches are restricted to the configured Jackett host.
 - **The `*arr` RPC surface is opt-in** (`JACKUI_TRANSMISSION_RPC_ENABLED`, default off) and, when auth is enabled, requires Basic Auth.
-- **Local-file browser is confined** to explicitly configured, read-only mounts.
+- **Local-file browser is confined** to explicitly configured mounts.
 
 What JackUI does **not** do: it is not hardened for public-internet exposure without a reverse proxy + auth. Run it behind your proxy on a trusted network.
 
