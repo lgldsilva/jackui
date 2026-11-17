@@ -98,7 +98,7 @@ func LocalList(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 		username := scopeUser(c)
 		scopedPath := b.UserScopedPath(mount, path, username)
 
-		entries, err := b.List(mount, scopedPath)
+		entries, err := b.ListContext(c.Request.Context(), mount, scopedPath)
 		if err != nil {
 			listHandleError(b, c, err)
 			return
