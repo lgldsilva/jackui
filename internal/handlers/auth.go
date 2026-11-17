@@ -217,7 +217,12 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "user not found")
 			return
 		}
-		token, exp, err := tm.SignMedia(user)
+		// A paired device must not shed amr=device by re-minting here.
+		sign := tm.SignMedia
+		if claims.AMR == auth.AMRDevice {
+			sign = tm.SignDeviceMedia
+		}
+		token, exp, err := sign(user)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
