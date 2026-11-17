@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
-import { ArrowUpCircle, Folder, Loader2, X, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
+import { ArrowUpCircle, Folder, Loader2, ChevronRight, Plus, FolderOpen, Home, HardDrive, Sparkles, ArrowRight } from 'lucide-react'
 import { DownloadEntry, downloadPromoteBrowse, downloadPromoteBatch, fetchPromoteDestinations, PromoteDestination, downloadPromotePreview, PromotePreviewEntry } from '../api/client'
-import { useScrollLock } from '../lib/useScrollLock'
+import { Sheet } from './Sheet'
 import { useToast } from './Toast'
 
 type Props = {
@@ -18,7 +18,6 @@ type Props = {
  */
 export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   const { t } = useTranslation()
-  useScrollLock(!!items)
   const { notifyError } = useToast()
   const [dests, setDests] = useState<PromoteDestination[]>([])
   // selectedBase is the selected destination's path; "" = sharedDir (default).
@@ -86,7 +85,8 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
     }
   }, [items])
 
-  if (!items) return null
+  // The Sheet stays mounted while closed so it can hand focus back to the opener.
+  const list = items ?? []
 
   const currentDest = dests.find(d => d.path === selectedBase) || dests[0]
   const destLabel = currentDest?.name || t('local.promote.libraryDefault')
@@ -97,7 +97,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
     // batch without waiting for the copy (which may be large/slow). The result —
     // accepted + validation errors — is processed by onPromoted when the
     // response returns (fast: validation + enqueueing only, no copying).
-    const ids = items.map(i => i.id)
+    const ids = list.map(i => i.id)
     const opts = { keepSeeding, targetSubdir: finalTarget, targetBase: selectedBase || undefined, renameIA }
     onClose()
     downloadPromoteBatch(ids, opts)
@@ -108,30 +108,35 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
   const breadcrumb = path.split('/').filter(Boolean)
 
   return (
-    <dialog
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 sm:p-4 open:flex"
-      onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
+    <Sheet
+      open={items != null}
       onClose={onClose}
-      onFocus={() => {}} tabIndex={-1}
-      open
-    >
-      {/* On mobile it becomes a bottom-sheet (items-end) with dvh height — vh doesn't
-          discount the browser bar and the centered modal overflowed the screen. */}
-      <div className="bg-surface-secondary rounded-t-2xl sm:rounded-2xl border border-default w-full max-w-lg shadow-2xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col">
-        <header className="flex items-center justify-between p-4 border-b border-default">
-          <h2 className="text-base font-semibold text-text-primary flex items-center gap-2">
-            <ArrowUpCircle className="w-5 h-5 text-cyan-400" />
-            {items.length > 1 ? t('local.promote.headerMulti', { count: items.length }) : t('local.promote.headerSingle')}
-          </h2>
-          <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
-            <X className="w-5 h-5" />
+      size="lg"
+      title={list.length > 1 ? t('local.promote.headerMulti', { count: list.length }) : t('local.promote.headerSingle')}
+      icon={<ArrowUpCircle className="w-5 h-5 text-cyan-400 flex-shrink-0" />}
+      footer={
+        <div className="flex items-center gap-2 justify-end">
+          <button
+            onClick={onClose}
+            className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded"
+          >
+            {t('local.cancel')}
           </button>
-        </header>
-
+          <button
+            onClick={handlePromote}
+            disabled={previewLoading}
+            className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
+          >
+            <ArrowUpCircle className="w-3.5 h-3.5" />
+            {t('local.promote.promoteBtn')}{list.length > 1 ? ` (${list.length})` : ''}
+          </button>
+        </div>
+      }
+    >
+      <>
         {/* List of items being promoted */}
-        <div className="px-4 py-2 border-b border-default bg-surface/40 max-h-32 overflow-y-auto">
-          {items.map(d => (
+        <div className="-mx-4 -mt-4 px-4 py-2 border-b border-default bg-surface/40 max-h-32 overflow-y-auto">
+          {list.map(d => (
             <p key={d.id} className="text-xs text-text-secondary truncate" title={d.name || d.filePath}>
               • {d.name || d.filePath}
             </p>
@@ -140,7 +145,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
 
         {/* Seletor de destino */}
         {dests.length > 1 && (
-          <div className="px-4 py-2 border-b border-default flex items-center gap-2 flex-wrap text-sm">
+          <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-2 flex-wrap text-sm">
             <HardDrive className="w-4 h-4 text-text-muted flex-shrink-0" />
             {dests.map(d => (
               <button
@@ -159,7 +164,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
         )}
 
         {/* Breadcrumb navegador */}
-        <div className="px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
+        <div className="-mx-4 px-4 py-2 border-b border-default flex items-center gap-1 flex-wrap text-sm text-text-primary">
           <button
             onClick={() => setPath('')}
             className={`flex items-center gap-1 px-2 py-0.5 rounded ${path === '' ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300' : 'hover:bg-surface-tertiary'}`}
@@ -180,7 +185,7 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
         </div>
 
         {/* Subpastas */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="py-4 min-h-[150px]">
           {(() => {
             if (loading) return <div className="flex items-center justify-center py-8 text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>
             if (dirs.length === 0) return <p className="text-sm text-text-muted text-center py-4">{t('local.promote.noSubfolders')}</p>
@@ -197,8 +202,8 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
           })()}
         </div>
 
-        {/* New folder + options + actions */}
-        <div className="border-t border-default p-4 safe-bottom flex flex-col gap-3 bg-surface/40">
+        {/* New folder + options */}
+        <div className="-mx-4 -mb-4 mt-2 border-t border-default p-4 flex flex-col gap-3 bg-surface/40">
           <label className="flex items-center gap-2 text-sm text-text-primary">
             <Plus className="w-4 h-4 text-text-muted flex-shrink-0" />
             <input
@@ -275,25 +280,8 @@ export default function PromoteModal({ items, onClose, onPromoted }: Props) {
           {error && (
             <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-2 py-1.5">{error}</p>
           )}
-
-          <div className="flex items-center gap-2 justify-end">
-            <button
-              onClick={onClose}
-              className="text-sm text-text-secondary hover:text-text-primary px-3 py-1.5 rounded"
-            >
-              {t('local.cancel')}
-            </button>
-            <button
-              onClick={handlePromote}
-              disabled={previewLoading}
-              className="flex items-center gap-2 text-sm bg-cyan-500/20 hover:bg-cyan-500/30 disabled:opacity-50 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30 px-4 py-1.5 rounded transition-colors"
-            >
-              <ArrowUpCircle className="w-3.5 h-3.5" />
-              {t('local.promote.promoteBtn')}{items.length > 1 ? ` (${items.length})` : ''}
-            </button>
-          </div>
         </div>
-      </div>
-    </dialog>
+      </>
+    </Sheet>
   )
 }
