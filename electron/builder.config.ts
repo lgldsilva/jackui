@@ -10,6 +10,7 @@ const config: Configuration = {
   files: [
     'electron/dist/main.js',
     'electron/dist/preload.js',
+    'electron/dist/downloadName.js',
   ],
   asar: true,
   extraResources: [

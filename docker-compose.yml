@@ -159,6 +159,10 @@ services:
       - JACKUI_SMTP_PASS=${JACKUI_SMTP_PASS:-}
       - JACKUI_SMTP_FROM=${JACKUI_SMTP_FROM:-}
       - JACKUI_BASE_URL=${JACKUI_BASE_URL:-https://jackui.example.com}
+      # Reverse proxies (IPs/CIDRs, comma-separated) trusted to set the client
+      # IP via X-Forwarded-For. Empty = trust none (client IP = direct peer);
+      # behind NPM/nginx/Caddy set it to the proxy's address or subnet.
+      - JACKUI_TRUSTED_PROXIES=${JACKUI_TRUSTED_PROXIES:-}
     networks:
       - vpn-gateway_vpn-net
       - npm-network

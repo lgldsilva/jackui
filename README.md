@@ -95,6 +95,7 @@ All variables below accept empty/unset as "use default". Application defaults ar
 | | `JACKETT_URL` | `http://localhost:9117` | Jackett search backend |
 | | `JACKETT_API_KEY` | — | Jackett API key |
 | | `JACKUI_BASE_URL` | — | Public app URL (e-mail links, optional) |
+| | `JACKUI_TRUSTED_PROXIES` | — | Comma-separated IPs/CIDRs of the reverse proxies allowed to set the client IP via `X-Forwarded-For`/`X-Real-IP`. Empty = trust none (client IP is the direct peer). **Behind a reverse proxy, set it to the proxy's address/subnet**, otherwise every session/pairing shows the proxy IP |
 | | `JACKUI_CONTROL_TOKEN` | — | Static token for RPC control endpoint (port refresh) |
 | **PostgreSQL** | `JACKUI_DATABASE_URL` | — | **Required.** DSN (`postgres://...`). Overrides `PG_*` below |
 | | `DATABASE_URL` | — | Same as above (alternative name) |

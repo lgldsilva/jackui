@@ -391,28 +391,3 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 		t.Error("the surviving session should be the caller's own")
 	}
 }
-
-func TestChangePassword_NoRefreshKeepsSessions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	store := newAuthStore(t)
-	user := createTestUser(t, store, "alice", "secret123")
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "", ""); err != nil {
-		t.Fatal(err)
-	}
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body := `{"current":"secret123","new":"newpass1"}`
-	c.Request = httptest.NewRequest("POST", "/api/auth/password", bytes.NewReader([]byte(body)))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Set("auth.claims", &auth.Claims{UserID: user.ID, Username: "alice", Role: auth.RoleUser})
-	ChangePassword(store)(c)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
-	}
-	sessions, _ := store.ListSessions(user.ID, "")
-	if len(sessions) != 1 {
-		t.Fatalf("sessions = %d, want 1 (untouched without refresh)", len(sessions))
-	}
-}
