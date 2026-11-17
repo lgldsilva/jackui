@@ -139,6 +139,13 @@ func newTestTorrent(t *testing.T) *torrent.Torrent {
 // display name (used to verify on-disk entry stamping).
 func newTestTorrentNamed(t *testing.T, name string) *torrent.Torrent {
 	t.Helper()
+	return newTestTorrentWith(t, name, nil)
+}
+
+// newTestTorrentWith additionally lets a test tweak the throwaway client's
+// config (e.g. swap the storage) before the torrent is added.
+func newTestTorrentWith(t *testing.T, name string, tweak func(*torrent.ClientConfig)) *torrent.Torrent {
+	t.Helper()
 	const piece = 1 << 14
 	data := bytes.Repeat([]byte("z"), piece)
 	pieceHash := metainfo.HashBytes(data)
@@ -163,6 +170,9 @@ func newTestTorrentNamed(t *testing.T, name string) *torrent.Torrent {
 	cfg.DisableTCP = true
 	cfg.DisableUTP = true
 	cfg.ListenPort = 0
+	if tweak != nil {
+		tweak(cfg)
+	}
 	cl, err := torrent.NewClient(cfg)
 	if err != nil {
 		t.Fatalf("torrent.NewClient: %v", err)
