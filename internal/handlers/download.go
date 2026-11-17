@@ -37,20 +37,21 @@ func parseDownloadRequest(c *gin.Context) (*downloadRequest, bool) {
 }
 
 func resolveDownloadClient(cfg *config.Config, clientID string) *config.DownloadClient {
+	clients := cfg.DownloadClientsSnapshot()
 	if clientID == "" {
-		for i := range cfg.DownloadClients {
-			if cfg.DownloadClients[i].Default {
-				return &cfg.DownloadClients[i]
+		for i := range clients {
+			if clients[i].Default {
+				return &clients[i]
 			}
 		}
-		if len(cfg.DownloadClients) > 0 {
-			return &cfg.DownloadClients[0]
+		if len(clients) > 0 {
+			return &clients[0]
 		}
 		return nil
 	}
-	for i := range cfg.DownloadClients {
-		if cfg.DownloadClients[i].ID == clientID {
-			return &cfg.DownloadClients[i]
+	for i := range clients {
+		if clients[i].ID == clientID {
+			return &clients[i]
 		}
 	}
 	return nil
@@ -95,8 +96,9 @@ func Download(cfg *config.Config) gin.HandlerFunc {
 // GetClients handles GET /api/clients
 func GetClients(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clients := make([]clientResponse, 0, len(cfg.DownloadClients))
-		for _, dc := range cfg.DownloadClients {
+		saved := cfg.DownloadClientsSnapshot()
+		clients := make([]clientResponse, 0, len(saved))
+		for _, dc := range saved {
 			clients = append(clients, clientResponse{
 				ID:      dc.ID,
 				Name:    dc.Name,

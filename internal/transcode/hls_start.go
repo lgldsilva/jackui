@@ -152,15 +152,15 @@ func startSourceServer(opts HLSStartOpts) (*http.Server, string, error) {
 		return nil, "", fmt.Errorf("loopback listen: %w", err)
 	}
 	srcSize := opts.SourceSize
-	sourceReader := &readSeekerContent{ReadSeeker: opts.Source}
-	// If the caller didn't pass a size we discover it once at startup. This
-	// path is exercised mainly by tests; production always supplies SourceSize
-	// from torrent.File.Length().
+	// If the caller didn't pass a size we discover it once at startup, before
+	// any request can touch the cursor. This path is exercised mainly by
+	// tests; production always supplies SourceSize from torrent.File.Length().
 	if srcSize <= 0 {
-		if sz, err := sourceReader.size(); err == nil {
+		if sz, err := (&readSeekerContent{ReadSeeker: opts.Source}).size(); err == nil {
 			srcSize = sz
 		}
 	}
+	sourceReader := newRangeSource(opts.Source)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/source", func(w http.ResponseWriter, r *http.Request) {
 		// Custom Range handler — see serveSource for the race condition that

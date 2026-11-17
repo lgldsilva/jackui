@@ -55,7 +55,7 @@ type streamSettingsResponse struct {
 }
 
 func currentStreamSettings(cfg *config.Config, s *streamer.Streamer) streamSettingsBody {
-	st := cfg.Stream
+	st := cfg.StreamSnapshot()
 	down, up := st.MaxDownloadRate, st.MaxUploadRate
 	// Live rate limits are the source of truth (they may have been changed via the
 	// legacy /stream/limits endpoint without going through the config).
@@ -138,6 +138,20 @@ func streamRestartRequired(old config.StreamConfig, b *streamSettingsBody) bool 
 		b.MaxCacheGB != old.MaxCacheGB
 }
 
+func applyStreamSettings(st *config.StreamConfig, b *streamSettingsBody) {
+	st.MaxDownloadRate = b.MaxDownloadRate
+	st.MaxUploadRate = b.MaxUploadRate
+	st.ReadaheadMB = b.ReadaheadMB
+	st.StorageBackend = b.StorageBackend
+	st.MaxConnsPerTorrent = b.MaxConnsPerTorrent
+	st.HalfOpenConns = b.HalfOpenConns
+	st.PeersHighWater = b.PeersHighWater
+	st.PieceHashers = b.PieceHashers
+	st.MaxCacheGB = b.MaxCacheGB
+	st.SeedTrackers = b.SeedTrackers
+	st.HLSMediaRenditions = b.HLSMediaRenditions
+}
+
 // StreamUpdateSettings handles PUT /api/stream/settings (AdminOnly). Validates,
 // persists to config.yaml, applies live whatever it can (rate limits + readahead) and
 // returns {restartRequired} for what only takes effect after a restart.
@@ -153,19 +167,12 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 			return
 		}
 
-		restart := streamRestartRequired(cfg.Stream, &b)
-
-		cfg.Stream.MaxDownloadRate = b.MaxDownloadRate
-		cfg.Stream.MaxUploadRate = b.MaxUploadRate
-		cfg.Stream.ReadaheadMB = b.ReadaheadMB
-		cfg.Stream.StorageBackend = b.StorageBackend
-		cfg.Stream.MaxConnsPerTorrent = b.MaxConnsPerTorrent
-		cfg.Stream.HalfOpenConns = b.HalfOpenConns
-		cfg.Stream.PeersHighWater = b.PeersHighWater
-		cfg.Stream.PieceHashers = b.PieceHashers
-		cfg.Stream.MaxCacheGB = b.MaxCacheGB
-		cfg.Stream.SeedTrackers = cleanSeedTrackers(b.SeedTrackers)
-		cfg.Stream.HLSMediaRenditions = b.HLSMediaRenditions
+		b.SeedTrackers = cleanSeedTrackers(b.SeedTrackers)
+		var restart bool
+		cfg.Update(func(c *config.Config) {
+			restart = streamRestartRequired(c.Stream, &b)
+			applyStreamSettings(&c.Stream, &b)
+		})
 
 		if err := cfg.Save(configPath); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "failed to save config: "+err.Error())
@@ -176,7 +183,7 @@ func StreamUpdateSettings(cfg *config.Config, configPath string, s *streamer.Str
 		if s != nil {
 			s.SetRateLimits(b.MaxDownloadRate, b.MaxUploadRate)
 			s.SetStreamReadahead(b.ReadaheadMB)
-			s.SetSeedTrackers(cfg.Stream.SeedTrackers)
+			s.SetSeedTrackers(b.SeedTrackers)
 		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "settings saved", "restartRequired": restart})

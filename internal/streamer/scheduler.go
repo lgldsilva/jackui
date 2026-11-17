@@ -91,10 +91,12 @@ func applyBandwidthSchedule(s *Streamer, cfg *config.Config, now time.Time, last
 }
 
 func resolveBandwidthTargets(cfg *config.Config, now time.Time) (down, up int64) {
-	for _, sched := range cfg.Stream.BandwidthSchedules {
+	// Snapshot: PUT /api/stream/settings rewrites cfg.Stream concurrently.
+	st := cfg.StreamSnapshot()
+	for _, sched := range st.BandwidthSchedules {
 		if InTimeRange(now, sched.TimeRange) {
 			return sched.MaxDownloadRate, sched.MaxUploadRate
 		}
 	}
-	return cfg.Stream.MaxDownloadRate, cfg.Stream.MaxUploadRate
+	return st.MaxDownloadRate, st.MaxUploadRate
 }
