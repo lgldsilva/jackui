@@ -149,9 +149,9 @@ func TestAdoptSiblings_ClaimsNewFileOnLiveTorrent(t *testing.T) {
 	w.tracked[d0.ID] = &trackedDL{id: d0.ID, userID: 1, hash: hash, torrent: tor, file: files[0], name: "Pack"}
 	w.mu.Unlock()
 
-	state := groupState{tracked: map[int]*trackedDL{d0.ID: w.tracked[d0.ID]}, hasTracked: true, torrent: tor}
-	g := Group{Key: grpKeyOf(*d0), UserID: 1, Members: []Download{*d0, *d1}}
-	w.adoptSiblings(context.Background(), g, state)
+	// Production registers the untracked members as pending before adopting.
+	g := Group{Key: grpKeyOf(*d0), UserID: 1, Members: []Download{*d1}}
+	w.adoptSiblings(withInitGen(context.Background(), w.registerGroupPending(g, func() {})), g, tor)
 
 	w.mu.Lock()
 	_, adopted := w.tracked[d1.ID]
