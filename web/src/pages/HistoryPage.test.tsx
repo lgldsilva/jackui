@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, act, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { deferred, type Deferred } from '../lib/deferred.testutil'
 
@@ -42,6 +42,7 @@ const result = (title: string) => ({
   title, tracker: 'tr', categoryId: 0, category: '', size: 1, seeders: 5, leechers: 0,
   publishDate: '', link: title, magnetUri: '', infoHash: title, source: '', cached: true,
 })
+const boom = { response: { status: 500, data: { error: 'db down' } } }
 const titles = () => screen.queryAllByTestId('result').map(el => el.textContent)
 
 const renderPage = () => render(<MemoryRouter><HistoryPage /></MemoryRouter>)
@@ -111,6 +112,47 @@ describe('HistoryPage', () => {
       await act(async () => { pending.get('a')?.resolve([result('A hit')]) })
 
       expect(titles()).toEqual([])
+    })
+  })
+
+  describe('load and mutation failures (#223)', () => {
+    it('shows a loading state, not the empty state, before the first response', async () => {
+      const d = deferred<unknown[]>()
+      m.history.mockReturnValue(d.promise)
+      renderPage()
+      expect(screen.queryByText('No saved searches')).not.toBeInTheDocument()
+      expect(screen.getByRole('status')).toBeInTheDocument()
+      await act(async () => { d.resolve([]) })
+      expect(screen.getByText('No saved searches')).toBeInTheDocument()
+    })
+
+    it('shows an error with retry, not the empty state, when the load fails', async () => {
+      m.history.mockRejectedValueOnce(boom)
+      renderPage()
+      expect(await screen.findByRole('alert')).toHaveTextContent('db down')
+      expect(screen.queryByText('No saved searches')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+      expect(await screen.findByText('alpha')).toBeInTheDocument()
+    })
+
+    it('toasts a failed delete and keeps the entry', async () => {
+      m.del.mockRejectedValue(boom)
+      renderPage()
+      await screen.findByText('alpha')
+      fireEvent.click(screen.getAllByRole('button', { name: 'Remove from cache' })[0])
+      await waitFor(() => expect(m.notifyError).toHaveBeenCalledWith(boom))
+      expect(screen.getByText('alpha')).toBeInTheDocument()
+    })
+
+    it('toasts a failed clear and keeps the entries', async () => {
+      m.clear.mockRejectedValue(boom)
+      renderPage()
+      await screen.findByText('alpha')
+      fireEvent.click(screen.getByRole('button', { name: 'Clear cache' }))
+      await waitFor(() => expect(m.notifyError).toHaveBeenCalledWith(boom))
+      expect(screen.getByText('alpha')).toBeInTheDocument()
+      expect(screen.getByText('beta')).toBeInTheDocument()
     })
   })
 })

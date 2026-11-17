@@ -12,6 +12,9 @@ import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { useLatestRequest } from '../lib/useLatestRequest'
+import { errMessage } from '../lib/errMessage'
+import { notifyError } from '../components/Toast'
+import { AsyncState } from '../components/AsyncState'
 import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useFilteredResults } from '../lib/useFilteredResults'
@@ -75,9 +78,26 @@ export default function HistoryPage() {
   const [refreshingIDs, setRefreshingIDs] = useState<Set<number>>(new Set())
   const [refreshedLabels, setRefreshedLabels] = useState<Map<number, string>>(new Map())
 
+  // loading/loadError keep "not loaded yet" and "failed to load" apart from a
+  // genuinely empty history.
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const loadHistory = async () => {
-    try { setEntries(await getHistory()) }
-    catch { setEntries([]) }
+    try {
+      setEntries((await getHistory()) || [])
+      setLoadError(null)
+    } catch (err) {
+      setLoadError(errMessage(err))
+      // A failed refresh keeps the list on screen, so the error needs a toast.
+      if (entries.length > 0) notifyError(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+  const retryLoad = () => {
+    setLoading(true)
+    setLoadError(null)
+    void loadHistory()
   }
 
   useEffect(() => { loadHistory() }, [])
@@ -149,8 +169,9 @@ export default function HistoryPage() {
         setEntries(prev => prev.map(en =>
           en.query === query ? { ...en, resultCount: fresh.length, lastSaved: new Date().toISOString() } : en))
       }
-    } catch {
-      /* keep the cached results on failure */
+    } catch (err) {
+      // Keep the cached results on failure.
+      notifyError(err)
     } finally {
       refreshingRef.current.delete(query)
       setRefreshingQueries(new Set(refreshingRef.current))
@@ -178,7 +199,12 @@ export default function HistoryPage() {
   const handleClear = async () => {
     const ok = await confirm({ title: t('history.clearCache'), message: t('history.clearCacheMessage', { count: entries.length }), confirmLabel: t('history.clearCacheConfirm'), destructive: true })
     if (!ok) return
-    await clearHistory()
+    try {
+      await clearHistory()
+    } catch (err) {
+      notifyError(err)
+      return
+    }
     setEntries([])
     closeSelected()
   }
@@ -213,7 +239,12 @@ export default function HistoryPage() {
   }, [globalQuery, mode, globalReq])
 
   const deleteEntry = async (q: string) => {
-    await deleteHistoryEntry(q)
+    try {
+      await deleteHistoryEntry(q)
+    } catch (err) {
+      notifyError(err)
+      return
+    }
     setEntries(prev => prev.filter(en => en.query !== q))
     if (selected === q) closeSelected()
   }
@@ -254,8 +285,8 @@ export default function HistoryPage() {
           return next
         })
       }, 30_000)
-    } catch {
-      /* swallow — the spinner will simply stop without changes */
+    } catch (err) {
+      notifyError(err)
     } finally {
       setRefreshingIDs(prev => {
         const next = new Set(prev)
@@ -403,7 +434,13 @@ export default function HistoryPage() {
   )
 
   const renderBrowseContent = () => {
-    if (entries.length === 0) return <BrowseEmptyState />
+    if (entries.length === 0) {
+      return (
+        <AsyncState loading={loading} error={loadError} onRetry={retryLoad}>
+          <BrowseEmptyState />
+        </AsyncState>
+      )
+    }
     return (
       <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 flex-1">
         {/* Master-detail on mobile: once a query is selected the list hides and
