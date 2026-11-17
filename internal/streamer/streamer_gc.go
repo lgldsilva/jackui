@@ -17,7 +17,7 @@ import (
 
 func (s *Streamer) buildInfo(e *entry, withFiles bool) *TorrentInfo {
 	t := e.t
-	// Rate sample requires mutating entry counters — must hold s.mu so concurrent
+	// The rate sample is shared state on the entry — must hold s.mu so concurrent
 	// GlobalStats / Get callers see a consistent snapshot.
 	s.mu.Lock()
 	dn, up := sampleRateLocked(e, time.Now())
