@@ -46,7 +46,7 @@ export function shellProps(opts: {
   // exit is the Home button). Escape goes Home.
   if (fullViewport) {
     return {
-      className: 'fixed inset-0 bg-black flex items-stretch justify-center z-50',
+      className: 'fixed inset-0 bg-black flex items-stretch justify-center z-50 outline-none',
       onKeyDown: (e) => { if (e.key === 'Escape') (onHome ?? onClose)() },
       role: 'dialog',
       'aria-modal': 'true',
@@ -55,7 +55,7 @@ export function shellProps(opts: {
     }
   }
   return {
-    className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4',
+    className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4 outline-none',
     onClick: (e) => { if (e.target === e.currentTarget) setMinimized(true) },
     onKeyDown: (e) => { if (e.key === 'Escape') setMinimized(true) },
     role: 'dialog',
