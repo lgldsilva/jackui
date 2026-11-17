@@ -337,7 +337,10 @@ build-electron:
 GO_TEST_PKGS := ./cmd/... ./internal/...
 # Race detector scope: the packages that own goroutines and shared state. Keep
 # in sync with RACE_PKGS in scripts/ci-container.sh (ci-container_test.sh checks).
-GO_RACE_PKGS := ./internal/streamer/... ./internal/downloads/... ./internal/transcode/... ./internal/transfer/... ./internal/localcache/... ./internal/watchlist/...
+GO_RACE_PKGS := ./internal/streamer/... ./internal/downloads/... ./internal/transcode/... ./internal/transfer/... ./internal/localcache/... ./internal/watchlist/... ./internal/config/...
+# internal/handlers is too slow to run whole under -race: only the tests that
+# exist to catch a race (same list as HANDLERS_RACE_RUN in ci-container.sh).
+GO_RACE_HANDLERS_RUN := ^(TestConfigHandlers_ConcurrentWritesAndReadsAreRaceFree)$$
 
 _ui-dist-stub:
 	@mkdir -p ui/dist
@@ -358,6 +361,7 @@ test-verbose: _ui-dist-stub
 test-race:
 	$(call step,Running Go race detector on concurrency-heavy packages...)
 	@go test -race -count=1 $(GO_RACE_PKGS)
+	@go test -race -count=1 -run '$(GO_RACE_HANDLERS_RUN)' ./internal/handlers/
 	$(call ok,No data races detected)
 
 test-coverage:

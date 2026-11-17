@@ -15,7 +15,12 @@ readonly RACE_PKGS=(
 	./internal/transfer/...
 	./internal/localcache/...
 	./internal/watchlist/...
+	./internal/config/...
 )
+# internal/handlers under the race detector does not fit the gate's budget, so
+# only the tests that exist to catch a race run there. Names are checked by
+# scripts/ci-container_test.sh: a -run filter matching nothing would pass.
+readonly HANDLERS_RACE_RUN='^(TestConfigHandlers_ConcurrentWritesAndReadsAreRaceFree)$'
 server_pid=""
 
 stop_server() {
@@ -65,6 +70,7 @@ run_go_gates() {
 	go vet ./cmd/... ./internal/...
 	go test -p 4 -timeout 20m -coverprofile="${ARTIFACT_DIR}/coverage.out" ./cmd/... ./internal/...
 	go test -race -timeout 20m "${RACE_PKGS[@]}"
+	go test -race -timeout 5m -run "${HANDLERS_RACE_RUN}" ./internal/handlers/
 }
 
 main() {
