@@ -4,7 +4,10 @@ import { MemoryRouter } from 'react-router-dom'
 import { deferred, type Deferred } from '../lib/deferred.testutil'
 import { setRevealHidden } from '../lib/reveal'
 
-const m = vi.hoisted(() => ({ favorites: vi.fn(), folders: vi.fn(), remove: vi.fn() }))
+const m = vi.hoisted(() => ({
+  favorites: vi.fn(), folders: vi.fn(), remove: vi.fn(),
+  folderDelete: vi.fn(), folderCreate: vi.fn(), setFolder: vi.fn(),
+}))
 
 vi.mock('../api/client', async () => {
   const actual = await vi.importActual<typeof import('../api/client')>('../api/client')
@@ -13,6 +16,9 @@ vi.mock('../api/client', async () => {
     favoritesList: (...a: unknown[]) => m.favorites(...a),
     folderList: (...a: unknown[]) => m.folders(...a),
     favoriteRemove: (...a: unknown[]) => m.remove(...a),
+    folderDelete: (...a: unknown[]) => m.folderDelete(...a),
+    folderCreate: (...a: unknown[]) => m.folderCreate(...a),
+    favoriteSetFolder: (...a: unknown[]) => m.setFolder(...a),
     downloadsList: vi.fn().mockResolvedValue([]),
   }
 })
@@ -27,11 +33,34 @@ vi.mock('../components/TorrentContentsModal', () => ({ default: () => null }))
 vi.mock('../components/ConfirmDialog', () => ({ useConfirm: () => vi.fn(async () => true) }))
 vi.mock('../components/Toast', () => ({ useToast: () => ({ notify: vi.fn(), notifyError: vi.fn() }) }))
 vi.mock('../components/favorites/FavoriteCard', () => ({
-  default: ({ fav, onRemove }: { fav: { name: string }; onRemove: () => void }) => (
+  default: ({ fav, onRemove, onMoveToFolder }: {
+    fav: { name: string }; onRemove: () => void; onMoveToFolder: (id: number | null) => void
+  }) => (
     <div>
       <span data-testid="fav">{fav.name}</span>
       <button onClick={onRemove}>remove {fav.name}</button>
+      <button onClick={() => onMoveToFolder(9)}>hide {fav.name}</button>
     </div>
+  ),
+}))
+// Minimal sidebar: root-level folder names (orphans render at root) plus the
+// two folder actions the tests drive.
+vi.mock('../components/favorites/MobileFolderSheet', () => ({ default: () => null }))
+vi.mock('../components/favorites/FolderSidebar', () => ({
+  default: ({ tree, onDeleteFolder, onCreateSub }: {
+    tree: { folder: { id: number; name: string } }[]
+    onDeleteFolder: (id: number) => void
+    onCreateSub: (id: number) => void
+  }) => (
+    <ul>
+      {tree.map(({ folder }) => (
+        <li key={folder.id}>
+          <span>{folder.name}</span>
+          <button onClick={() => onDeleteFolder(folder.id)}>delete {folder.name}</button>
+          <button onClick={() => onCreateSub(folder.id)}>new sub of {folder.name}</button>
+        </li>
+      ))}
+    </ul>
   ),
 }))
 
@@ -153,5 +182,59 @@ describe('FavoritesPage — hidden curtain stays closed (#223)', () => {
     await act(async () => { removing.resolve() })
 
     expect(names()).toEqual([])
+  })
+
+  describe('mutations in flight when the curtain closes', () => {
+    const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve() })
+    const last = () => calls[calls.length - 1]
+
+    it('drops the revealed refetch that follows a folder delete', async () => {
+      m.folderDelete.mockResolvedValue(undefined)
+      await settle(calls[0], WITH_HIDDEN)
+      fireEvent.click(screen.getByText('delete Secret folder'))
+      await flush()
+      expect(calls).toHaveLength(2)
+      const refetch = calls[1]
+
+      await closeCurtain()
+      await settle(last(), VISIBLE)
+      await settle(refetch, WITH_HIDDEN)
+
+      expect(names()).toEqual(['Public movie'])
+    })
+
+    it('does not append a subfolder created under a hidden folder', async () => {
+      const creating = deferred<unknown>()
+      m.folderCreate.mockReturnValue(creating.promise)
+      vi.stubGlobal('prompt', () => 'Secret sub')
+      await settle(calls[0], WITH_HIDDEN)
+      fireEvent.click(screen.getByText('new sub of Secret folder'))
+
+      await closeCurtain()
+      await settle(last(), VISIBLE)
+      await act(async () => { creating.resolve({ ...SECRET_FOLDER, id: 10, name: 'Secret sub', parentId: 9 }) })
+
+      expect(screen.queryByText('Secret sub')).not.toBeInTheDocument()
+      vi.unstubAllGlobals()
+    })
+
+    it('reloads instead of patching when a move into a hidden folder finishes late', async () => {
+      const moving = deferred<void>()
+      m.setFolder.mockReturnValue(moving.promise)
+      await settle(calls[0], WITH_HIDDEN)
+      fireEvent.click(screen.getByText('hide Public movie'))
+
+      await closeCurtain()
+      await settle(last(), VISIBLE)
+      const before = calls.length
+      await act(async () => { moving.resolve() })
+
+      // The closed-curtain list was fetched before the move landed, so only a
+      // fresh fetch can tell whether the favorite is still visible.
+      expect(calls.length).toBe(before + 1)
+      expect(last().includeHidden).toBe(false)
+      await settle(last(), [])
+      expect(names()).toEqual([])
+    })
   })
 })

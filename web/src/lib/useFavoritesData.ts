@@ -14,7 +14,8 @@ const QUIET_RELOAD_DELAY_MS = 11_000
  * by an older render or timer) and its response is dropped when the flag
  * changed or a newer load started while it was in flight. Closing the curtain
  * also empties the lists right away, so nothing revealed stays on screen while
- * (or if) the non-revealed reload fails.
+ * (or if) the non-revealed reload fails. Handlers that patch the lists after
+ * an awaited mutation go through `mutate` for the same reason.
  */
 export function useFavoritesData(revealHidden: boolean) {
   const [favs, setFavs] = useState<StreamFavorite[]>([])
@@ -54,6 +55,19 @@ export function useFavoritesData(revealHidden: boolean) {
     } catch { /* keep the current list on a transient failure */ }
   }, [quietReq])
 
+  // Runs a mutation, then its local patch of favs/folders. The response was
+  // produced for the reveal state the request was sent under, so if the curtain
+  // flipped meanwhile the patch is skipped (it could put a hidden item back, or
+  // keep one that the mutation just moved under the curtain) and the lists are
+  // re-fetched for the current state instead.
+  const mutate = useCallback(async <T,>(run: () => Promise<T>, patch: (result: T) => void): Promise<T> => {
+    const reveal = isRevealHidden()
+    const result = await run()
+    if (isRevealHidden() === reveal) patch(result)
+    else void load()
+    return result
+  }, [load])
+
   const cancelQuietReload = useCallback(() => {
     if (quietTimer.current !== null) clearTimeout(quietTimer.current)
     quietTimer.current = null
@@ -79,5 +93,5 @@ export function useFavoritesData(revealHidden: boolean) {
     return cancelQuietReload
   }, [revealHidden, load, cancelQuietReload])
 
-  return { favs, setFavs, folders, setFolders, loading, error, load, scheduleQuietReload }
+  return { favs, setFavs, folders, setFolders, loading, error, load, reloadFavsQuiet, scheduleQuietReload, mutate }
 }

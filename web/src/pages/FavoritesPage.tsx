@@ -4,7 +4,7 @@ import { clientLog } from '../lib/diag'
 import { usePersistedState } from '../lib/storage'
 import { Heart, Loader2, Folder, ChevronDown, Download, X, Search, CheckSquare, Square, RefreshCw } from 'lucide-react'
 import {
-  favoritesList, favoriteRemove, favoriteRemoveBatch, StreamFavorite,
+  favoriteRemove, favoriteRemoveBatch, StreamFavorite,
   FavoriteFolder, folderCreate, folderRename, folderDelete, folderSetHidden,
   favoriteSetFolder, favoriteSetFolderBatch,
   streamImport, SearchResult, ImportResult,
@@ -42,7 +42,7 @@ export default function FavoritesPage() {
   // Watching, downloads and local. Session-only — see lib/reveal.
   const [revealHidden] = useRevealHidden()
   // Loads (and reloads on a curtain flip) with stale-response guards — see the hook.
-  const { favs, setFavs, folders, setFolders, loading, error, load, scheduleQuietReload } = useFavoritesData(revealHidden)
+  const { favs, setFavs, folders, setFolders, loading, error, load, reloadFavsQuiet, scheduleQuietReload, mutate } = useFavoritesData(revealHidden)
   useScrollRestoration(!loading)
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
@@ -143,8 +143,7 @@ export default function FavoritesPage() {
     if (!newFolderInput.current) return
     const name = newFolderInput.current.value.trim()
     if (!name) { setCreatingRoot(false); return }
-    const f = await folderCreate(name, null)
-    setFolders(prev => [...prev, f])
+    await mutate(() => folderCreate(name, null), f => setFolders(prev => [...prev, f]))
     setCreatingRoot(false)
     if (newFolderInput.current) newFolderInput.current.value = ''
   }
@@ -277,8 +276,7 @@ export default function FavoritesPage() {
   const handleRemove = async (name: string) => {
     const ok = await confirm({ title: t('favorites.removeTitle'), message: t('favorites.removeMessage', { name }), confirmLabel: t('favorites.removeConfirm'), destructive: true })
     if (!ok) return
-    await favoriteRemove(name)
-    setFavs(prev => prev.filter(f => f.name !== name))
+    await mutate(() => favoriteRemove(name), () => setFavs(prev => prev.filter(f => f.name !== name)))
   }
 
   // favToResult builds the SearchResult shape the player/contents modal expect.
@@ -330,8 +328,7 @@ export default function FavoritesPage() {
   const handleCreateSub = async (parentId: number) => {
     const name = prompt(t('favorites.promptSubfolderName'))
     if (!name) return
-    const f = await folderCreate(name, parentId)
-    setFolders(prev => [...prev, f])
+    await mutate(() => folderCreate(name, parentId), f => setFolders(prev => [...prev, f]))
     setExpanded(new Set(expanded).add(parentId))
   }
 
@@ -339,26 +336,22 @@ export default function FavoritesPage() {
     setEditingId(null)
     const trimmed = name.trim()
     if (!trimmed) return
-    await folderRename(id, trimmed)
-    setFolders(prev => prev.map(f => f.id === id ? { ...f, name: trimmed } : f))
+    await mutate(() => folderRename(id, trimmed), () => setFolders(prev => prev.map(f => f.id === id ? { ...f, name: trimmed } : f)))
   }
 
   const handleDeleteFolder = async (id: number) => {
     const target = folders.find(f => f.id === id)
     const ok = await confirm({ title: t('favorites.deleteFolderTitle'), message: t('favorites.deleteFolderMessage', { name: target?.name }), confirmLabel: t('favorites.delete'), destructive: true })
     if (!ok) return
-    await folderDelete(id)
-    setFolders(prev => prev.filter(f => f.id !== id))
+    await mutate(() => folderDelete(id), () => setFolders(prev => prev.filter(f => f.id !== id)))
     // Favorites: the server did SET NULL, re-fetch to reflect it
-    const fresh = await favoritesList()
-    setFavs(fresh || [])
+    await reloadFavsQuiet()
     if (selectedFolderId === id) setViewMode(ALL_VIEW)
   }
 
   const handleDropOnFolder = async (folderId: number | null, favoriteName: string) => {
     setDropOnRoot(false)
-    await favoriteSetFolder(favoriteName, folderId)
-    setFavs(prev => prev.map(f => f.name === favoriteName ? { ...f, folderId } : f))
+    await mutate(() => favoriteSetFolder(favoriteName, folderId), () => setFavs(prev => prev.map(f => f.name === favoriteName ? { ...f, folderId } : f)))
   }
 
   // Prompt-based versions for the mobile sheet (without the desktop's sidebar/inline
@@ -366,8 +359,7 @@ export default function FavoritesPage() {
   const handleCreateRootPrompt = async () => {
     const name = prompt(t('favorites.promptNewFolderName'))?.trim()
     if (!name) return
-    const f = await folderCreate(name, null)
-    setFolders(prev => [...prev, f])
+    await mutate(() => folderCreate(name, null), f => setFolders(prev => [...prev, f]))
   }
   const handleRenamePrompt = (folder: FavoriteFolder) => {
     const name = prompt(t('favorites.promptRenameFolder'), folder.name)
@@ -394,9 +386,10 @@ export default function FavoritesPage() {
     // optimistic update with the result: a rejection means all failed, a
     // `failed` list means some did — only reflect the ones that actually moved
     // and surface the rest instead of silently reporting success.
-    const res = await favoriteSetFolderBatch(names, folderId).catch(() => null)
-    const failed = new Set<string>(res ? res.failed : names)
-    setFavs(prev => prev.map(f => (selected.has(f.name) && !failed.has(f.name)) ? { ...f, folderId } : f))
+    const failed = await mutate(
+      async () => new Set<string>((await favoriteSetFolderBatch(names, folderId).catch(() => null))?.failed ?? names),
+      bad => setFavs(prev => prev.map(f => (selected.has(f.name) && !bad.has(f.name)) ? { ...f, folderId } : f)),
+    )
     if (failed.size > 0) notify(t('favorites.batchPartialFailed', { count: failed.size }), 'error')
     clearSelection()
   }
@@ -404,9 +397,10 @@ export default function FavoritesPage() {
     const names = [...selected]
     const ok = await confirm({ title: t('favorites.deleteSelectedTitle'), message: t('favorites.deleteSelectedMessage', { count: names.length }), confirmLabel: t('favorites.delete'), destructive: true })
     if (!ok) return
-    const res = await favoriteRemoveBatch(names).catch(() => null)
-    const failed = new Set<string>(res ? res.failed : names)
-    setFavs(prev => prev.filter(f => !(selected.has(f.name) && !failed.has(f.name))))
+    const failed = await mutate(
+      async () => new Set<string>((await favoriteRemoveBatch(names).catch(() => null))?.failed ?? names),
+      bad => setFavs(prev => prev.filter(f => !(selected.has(f.name) && !bad.has(f.name)))),
+    )
     if (failed.size > 0) notify(t('favorites.batchPartialFailed', { count: failed.size }), 'error')
     clearSelection()
   }
