@@ -29,6 +29,10 @@ import (
 //
 // Fix: expose readAt(p, off) that holds the mutex across Seek+Read so the
 // pair is atomic per handler. The source server calls readAt per Range.
+//
+// The lock is held across a read that can block on a missing piece, so this
+// is the fallback for sources with nothing better to offer: a source that can
+// fork cursors or read positionally is served without it (newRangeSource).
 type readSeekerContent struct {
 	mu sync.Mutex
 	io.ReadSeeker
@@ -63,14 +67,16 @@ func (r *readSeekerContent) size() (int64, error) {
 
 // serveSource is the loopback HTTP handler ffmpeg fetches via. We do NOT use
 // http.ServeContent because it calls Seek and Read separately on the reader
-// — those separate calls open a race window where concurrent handlers swap
-// the cursor between each other. We handle Range parsing ourselves and pass
-// the (offset, length) pair to readAt which holds the lock end-to-end.
+// — on a shared single-cursor source those separate calls open a race window
+// where concurrent handlers swap the cursor between each other. We handle
+// Range parsing ourselves and read through an offsetReader, which is either
+// private to this request or atomic per (offset, length) pair (see
+// newRangeSource).
 //
 // We only implement the byte-range syntax ffmpeg actually emits: a single
 // `bytes=start-end` or `bytes=start-`. Multipart ranges and suffix-length
 // (`bytes=-N`) aren't used here so we keep the code path tight.
-func serveSource(w http.ResponseWriter, r *http.Request, src *readSeekerContent, totalSize int64) {
+func serveSource(w http.ResponseWriter, r *http.Request, src rangeSource, totalSize int64) {
 	w.Header().Set("Accept-Ranges", "bytes")
 
 	rangeHeader := r.Header.Get("Range")
@@ -88,51 +94,57 @@ func serveSource(w http.ResponseWriter, r *http.Request, src *readSeekerContent,
 	serveRangeFile(w, r, src, totalSize, start, end)
 }
 
-func serveWholeFile(w http.ResponseWriter, r *http.Request, src *readSeekerContent, totalSize int64) {
-	w.Header().Set("Content-Length", strconv.FormatInt(totalSize, 10))
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.WriteHeader(http.StatusOK)
-	if r.Method == http.MethodHead {
-		return
-	}
-	buf := make([]byte, 256<<10)
-	var off int64
-	for off < totalSize {
-		toRead := int64(len(buf))
-		if remaining := totalSize - off; remaining < toRead {
-			toRead = remaining
-		}
-		n, err := src.readAt(buf[:toRead], off)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return
-			}
-			off += int64(n)
-		}
+func serveWholeFile(w http.ResponseWriter, r *http.Request, src rangeSource, totalSize int64) {
+	serveSpan(w, r, src, byteSpan{start: 0, end: totalSize - 1, total: totalSize})
+}
+
+func serveRangeFile(w http.ResponseWriter, r *http.Request, src rangeSource, totalSize, start, end int64) {
+	serveSpan(w, r, src, byteSpan{start: start, end: end, total: totalSize, partial: true})
+}
+
+// byteSpan is the inclusive [start,end] slice of a total-byte source one
+// response carries; partial marks a 206 (Range) answer.
+type byteSpan struct {
+	start, end, total int64
+	partial           bool
+}
+
+func serveSpan(w http.ResponseWriter, r *http.Request, src rangeSource, sp byteSpan) {
+	var rd offsetReader
+	if r.Method != http.MethodHead {
+		// Acquired before the status line goes out, so a source that can no
+		// longer be opened (torrent dropped) is a clean 503, not a truncated 206.
+		got, release, err := src.acquire(r.Context())
 		if err != nil {
+			http.Error(w, "source unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		defer release()
+		rd = got
+	}
+	status := http.StatusOK
+	if sp.partial {
+		status = http.StatusPartialContent
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", sp.start, sp.end, sp.total))
+	}
+	w.Header().Set("Content-Length", strconv.FormatInt(sp.end-sp.start+1, 10))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(status)
+	if rd != nil {
+		copySpan(w, rd, sp.start, sp.end)
 	}
 }
 
-func serveRangeFile(w http.ResponseWriter, r *http.Request, src *readSeekerContent, totalSize, start, end int64) {
-	length := end - start + 1
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, totalSize))
-	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.WriteHeader(http.StatusPartialContent)
-	if r.Method == http.MethodHead {
-		return
-	}
-
+// copySpan streams [start,end] in 256 KiB reads, stopping at the first read or
+// write error (the client sees a short body and retries the Range).
+func copySpan(w io.Writer, rd offsetReader, start, end int64) {
 	buf := make([]byte, 256<<10)
-	off := start
-	for off <= end {
+	for off := start; off <= end; {
 		toRead := int64(len(buf))
 		if remaining := end - off + 1; remaining < toRead {
 			toRead = remaining
 		}
-		n, err := src.readAt(buf[:toRead], off)
+		n, err := rd.readAt(buf[:toRead], off)
 		if n > 0 {
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return

@@ -27,7 +27,8 @@ import (
 // verified and seeded from disk but never written. Files that fall back to
 // DataDir stay writable.
 func (s *Streamer) relocatedStorage(info *metainfo.Info, hash metainfo.Hash) storage.ClientImpl {
-	if !s.needsRelocatedStorage(info, hash) {
+	layout := s.relocatedLayout(info, hash)
+	if !s.outsideDataDir(layout[0]) {
 		return nil
 	}
 	relocated := newFileIndexSet()
@@ -46,11 +47,10 @@ func (s *Streamer) relocatedStorage(info *metainfo.Info, hash metainfo.Hash) sto
 		// Root the torrent at "/" so each file's absolute real path is used
 		// verbatim (joined under "/", it stays a valid sub-path).
 		TorrentDirMaker: func(string, *metainfo.Info, metainfo.Hash) string { return string(os.PathSeparator) },
-		FilePathMaker:   s.relocatedFilePathMaker(hash, relocated.add),
+		FilePathMaker:   s.layoutFilePathMaker(info, layout, relocated.add),
 	})}
 }
 
-// needsRelocatedStorage is true only when file 0 is a real file outside DataDir.
 // relocatedPieceCompletion is the shared persistent DB when available, else an
 // in-memory map (re-verified on each activation).
 func (s *Streamer) relocatedPieceCompletion() storage.PieceCompletion {
@@ -60,12 +60,10 @@ func (s *Streamer) relocatedPieceCompletion() storage.PieceCompletion {
 	return storage.NewMapPieceCompletion()
 }
 
-func (s *Streamer) needsRelocatedStorage(info *metainfo.Info, hash metainfo.Hash) bool {
-	if s.filePathResolver == nil || info == nil || len(info.UpvertedFiles()) == 0 {
-		return false
-	}
-	p0, ok := s.filePathResolver(hash, 0)
-	if !ok || p0 == "" {
+// outsideDataDir is true only when p0 (file 0's resolved path) is a real file
+// outside DataDir.
+func (s *Streamer) outsideDataDir(p0 string) bool {
+	if p0 == "" {
 		return false
 	}
 	if st, err := os.Stat(p0); err != nil || st.IsDir() {
@@ -74,28 +72,7 @@ func (s *Streamer) needsRelocatedStorage(info *metainfo.Info, hash metainfo.Hash
 	absData, _ := filepath.Abs(s.cfg.DataDir)
 	abs0, _ := filepath.Abs(p0)
 	// Still under the cache — default storage already handles it.
-	if abs0 == absData || strings.HasPrefix(abs0, absData+string(os.PathSeparator)) {
-		return false
-	}
-	return true
-}
-
-// relocatedFilePathMaker resolves each file to its real path; onResolved (may be
-// nil) is told which file indices were relocated so their pieces can be locked.
-func (s *Streamer) relocatedFilePathMaker(hash metainfo.Hash, onResolved func(int)) storage.FilePathMaker {
-	return func(o storage.FilePathMakerOpts) string {
-		if idx := fileIndexInInfo(o.Info, o.File); idx >= 0 {
-			if p, ok := s.filePathResolver(hash, idx); ok && p != "" {
-				if onResolved != nil {
-					onResolved(idx)
-				}
-				return strings.TrimPrefix(p, string(os.PathSeparator))
-			}
-		}
-		// Unresolved file (shouldn't happen — file 0 resolved): fall back to the
-		// default layout under DataDir so we never write outside a known root.
-		return defaultDataDirFilePath(s.cfg.DataDir, o)
-	}
+	return abs0 != absData && !strings.HasPrefix(abs0, absData+string(os.PathSeparator))
 }
 
 func defaultDataDirFilePath(dataDir string, o storage.FilePathMakerOpts) string {
@@ -125,19 +102,4 @@ func (s *Streamer) MatchesSeedTrackerCached(hash metainfo.Hash) bool {
 	trackers := s.seedTrackers
 	s.mu.Unlock()
 	return matchesSeedTracker(anns, trackers)
-}
-
-// fileIndexInInfo returns the index of file within info.UpvertedFiles(), matched
-// by in-torrent path; -1 if not found.
-func fileIndexInInfo(info *metainfo.Info, file *metainfo.FileInfo) int {
-	if info == nil || file == nil {
-		return -1
-	}
-	target := filepath.Join(file.BestPath()...)
-	for i, f := range info.UpvertedFiles() {
-		if filepath.Join(f.BestPath()...) == target {
-			return i
-		}
-	}
-	return -1
 }

@@ -136,6 +136,8 @@ type Streamer struct {
 	lifetimeCtx      context.Context
 	lifetimeCancel   context.CancelFunc
 	filePathResolver FilePathResolver
+	// fileLayoutResolver resolves a whole torrent at once (see seedlayout.go).
+	fileLayoutResolver FileLayoutResolver
 	// dlPieceCompletion is a shared, persistent (Bolt) piece-completion DB used by
 	// the download-to-bulk storage (downloadStorage). Persistent so a restart
 	// doesn't re-hash huge files sitting on the slow bulk disk. Shared across all
