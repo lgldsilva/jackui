@@ -268,7 +268,7 @@ func TestSessionSetGet_ConcurrentNoRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 500; i++ {
-			if resp := h.methodSessionGet(); resp.Result != "success" {
+			if resp := h.methodSessionGet(""); resp.Result != "success" {
 				t.Errorf("session-get: %q", resp.Result)
 			}
 		}

@@ -217,7 +217,12 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "user not found")
 			return
 		}
-		token, exp, err := tm.SignMedia(user)
+		// A paired device must not shed amr=device by re-minting here.
+		sign := tm.SignMedia
+		if claims.AMR == auth.AMRDevice {
+			sign = tm.SignDeviceMedia
+		}
+		token, exp, err := sign(user)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
@@ -421,9 +426,10 @@ func Me(store *auth.Store) gin.HandlerFunc {
 }
 
 // ChangePassword handles POST /api/auth/password — the logged-in user changes
-// their own password (must supply the current one). When the optional refresh
-// token rides along, every OTHER session is revoked (a password change usually
-// means "someone may know the old one"), keeping this device logged in.
+// their own password (must supply the current one). Every OTHER session and
+// every paired device is revoked (a password change usually means "someone may
+// know the old one"); the session of the optional refresh token is kept so
+// this device stays logged in. Without it all sessions are revoked.
 func ChangePassword(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		claims, ok := auth.ClaimsFromCtx(c)
@@ -448,9 +454,10 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		revoked := 0
-		if req.Refresh != "" {
-			revoked, _ = store.RevokeOtherSessions(claims.UserID, req.Refresh)
+		revoked, err := revokeAccessAfterPasswordChange(store, claims.UserID, req.Refresh)
+		if err != nil {
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "password changed", "revoked": revoked})
 	}

@@ -190,6 +190,14 @@ func (s *Store) RevokeDeviceKey(id int64, ownerID int) error {
 	return expectOneRow(s.db.Exec(q, args...))
 }
 
+// RevokeAllDeviceKeys revokes every paired device of a user. A device key
+// never expires and mints fresh tokens on its own, so it has to die together
+// with the refresh sessions whenever the password is (re)set.
+func (s *Store) RevokeAllDeviceKeys(userID int) error {
+	_, err := s.db.Exec("UPDATE device_keys SET revoked_at = now() WHERE user_id = ? AND revoked_at IS NULL", userID)
+	return err
+}
+
 // SetDevicePIN sets (or with pin == "" clears) the profile PIN of the owner's key.
 func (s *Store) SetDevicePIN(id int64, ownerID int, pin string) error {
 	hash := ""
@@ -210,33 +218,51 @@ func (s *Store) SetDevicePIN(id int64, ownerID int, pin string) error {
 }
 
 // CheckDevicePIN enforces the profile PIN of k (no-op when none is set),
-// counting failures and locking after devicePINMaxFailures.
+// counting failures and locking after devicePINMaxFailures. The attempt is
+// charged in the database BEFORE the PIN is compared, so parallel guesses
+// cannot all read the same counter and slip past the limit.
 func (s *Store) CheckDevicePIN(k *DeviceKey, pin string, now time.Time) error {
 	if !k.HasPIN {
 		return nil
 	}
-	if k.pinLocked != nil && now.Before(*k.pinLocked) {
-		return ErrDevicePINLocked
-	}
 	if pin == "" {
+		if k.pinLocked != nil && now.Before(*k.pinLocked) {
+			return ErrDevicePINLocked
+		}
 		return ErrDevicePINRequired
+	}
+	locked, err := s.chargeDevicePINAttempt(k.ID, now)
+	if err != nil {
+		return err
 	}
 	if bcrypt.CompareHashAndPassword([]byte(k.pinHash), []byte(pin)) == nil {
 		_, err := s.db.Exec("UPDATE device_keys SET pin_failures = 0, pin_locked_until = NULL WHERE id = ?", k.ID)
 		return err
 	}
-	fails := k.pinFails + 1
-	var lock any
-	if fails >= devicePINMaxFailures {
-		lock, fails = now.Add(devicePINLockWindow).UTC(), 0
-	}
-	if _, err := s.db.Exec("UPDATE device_keys SET pin_failures = ?, pin_locked_until = ? WHERE id = ?", fails, lock, k.ID); err != nil {
-		return err
-	}
-	if lock != nil {
+	if locked {
 		return ErrDevicePINLocked
 	}
 	return ErrDevicePINInvalid
+}
+
+// chargeDevicePINAttempt atomically counts one attempt against key id and
+// reports whether it was the one that tripped the lock. A key that is already
+// locked matches no row and yields ErrDevicePINLocked without being charged;
+// the row lock serialises concurrent callers, each re-checking the predicate.
+func (s *Store) chargeDevicePINAttempt(id int64, now time.Time) (bool, error) {
+	var locked bool
+	err := s.db.QueryRow(
+		`UPDATE device_keys SET
+			pin_failures = CASE WHEN pin_failures + 1 >= ? THEN 0 ELSE pin_failures + 1 END,
+			pin_locked_until = CASE WHEN pin_failures + 1 >= ? THEN CAST(? AS TIMESTAMPTZ) END
+		WHERE id = ? AND (pin_locked_until IS NULL OR pin_locked_until <= ?)
+		RETURNING pin_locked_until IS NOT NULL`,
+		devicePINMaxFailures, devicePINMaxFailures, now.Add(devicePINLockWindow).UTC(), id, now.UTC(),
+	).Scan(&locked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrDevicePINLocked
+	}
+	return locked, err
 }
 
 func validPIN(pin string) bool {

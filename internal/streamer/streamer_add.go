@@ -141,30 +141,41 @@ func (s *Streamer) resolveMagnet(src string, ds *DownloadStorageSpec) (*torrent.
 	return s.addMagnet(src, ds)
 }
 
-// addMagnet adds a magnet URI. With ds set (download-to-bulk), it builds a spec
-// so the per-torrent bulk storage can be attached; otherwise it uses the plain
-// AddMagnet path (default cache storage), unchanged.
+// addMagnet adds a magnet URI. With ds set (download-to-bulk) the per-torrent
+// bulk storage is attached to the spec; otherwise the default cache storage.
 func (s *Streamer) addMagnet(src string, ds *DownloadStorageSpec) (*torrent.Torrent, error) {
 	if s.client == nil {
 		return nil, errors.New("torrent client unavailable")
 	}
-	if ds == nil {
-		t, err := s.client.AddMagnet(src)
-		if err != nil {
-			return nil, fmt.Errorf("add magnet: %w", err)
-		}
-		return t, nil
-	}
 	spec, err := torrent.TorrentSpecFromMagnetUri(src)
 	if err != nil {
-		return nil, fmt.Errorf("parse magnet: %w", err)
+		return nil, fmt.Errorf("add magnet: %w", err)
 	}
-	spec.Storage = s.downloadStorage(*ds)
-	t, _, err := s.client.AddTorrentSpec(spec)
+	if ds != nil {
+		spec.Storage = s.downloadStorage(*ds)
+	}
+	t, err := s.addSpec(spec)
 	if err != nil {
 		return nil, fmt.Errorf("add magnet: %w", err)
 	}
 	return t, nil
+}
+
+// errZeroInfoHash rejects a spec that identifies no torrent at all.
+var errZeroInfoHash = errors.New("invalid torrent: zero info hash")
+
+// addSpec is the single door into the client's AddTorrentSpec. anacrolix
+// PANICS (panicif in AddTorrentOpt) on a spec with an all-zero v1 info hash and
+// no v2 hash, and that spec is reachable from user input — a magnet such as
+// magnet:?xt=urn:btih:000…0, which the bare-magnet auto-add of the playlist/HLS
+// routes builds straight from the URL. gin.Recovery() turned the panic into a
+// 500 with an empty body; as an error the callers answer their normal 404.
+func (s *Streamer) addSpec(spec *torrent.TorrentSpec) (*torrent.Torrent, error) {
+	if spec.InfoHash.IsZero() && !spec.InfoHashV2.Ok {
+		return nil, errZeroInfoHash
+	}
+	t, _, err := s.client.AddTorrentSpec(spec)
+	return t, err
 }
 
 // addCachedMetainfo adds a torrent from its cached .torrent file. When the
@@ -185,7 +196,7 @@ func (s *Streamer) addCachedMetainfo(cached *metainfo.MetaInfo, hash metainfo.Ha
 			}
 		}
 	}
-	t, _, err := s.client.AddTorrentSpec(spec)
+	t, err := s.addSpec(spec)
 	if err != nil {
 		return nil, fmt.Errorf("add cached metainfo: %w", err)
 	}
@@ -292,8 +303,7 @@ func (s *Streamer) addFromTorrentResponse(resp *http.Response, ds *DownloadStora
 	if ds != nil {
 		spec.Storage = s.downloadStorage(*ds)
 	}
-	t, _, err := s.client.AddTorrentSpec(spec)
-	return t, err
+	return s.addSpec(spec)
 }
 
 // addFromTorrentURL handles a HTTP(S) URL that may either:

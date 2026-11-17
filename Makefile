@@ -1,8 +1,8 @@
 .PHONY: setup help deploy deploy-auto deploy-cpu deploy-nvidia deploy-vaapi \
         deploy-vpn deploy-auto-vpn deploy-nvidia-vpn deploy-vaapi-vpn \
         detect-gpu \
-        restart logs down build test test-verbose test-coverage clean \
-        dev-frontend dev-backend probe-gpu sonar-scan
+        restart logs down build test test-verbose test-race test-coverage clean \
+        dev-frontend dev-backend probe-gpu sonar-scan _ui-dist-stub
 
 # ─────────────────────────────────────────
 # Deploy variants — combine GPU vendor × VPN
@@ -330,16 +330,35 @@ build-electron:
 # Deliberately no web/node_modules prerequisite: that target depends on the
 # always-out-of-date _check-npm pseudo-target, so the dependency would run
 # npm install on every invocation.
-test:
+#
+# cmd/server embeds ui/dist (//go:embed all:dist), so ./cmd/... does not compile
+# on a checkout that never built the frontend. _ui-dist-stub seeds a
+# git-ignored placeholder; a real `make build` (vite emptyOutDir) replaces it.
+GO_TEST_PKGS := ./cmd/... ./internal/...
+# Race detector scope: the packages that own goroutines and shared state. Keep
+# in sync with RACE_PKGS in scripts/ci-container.sh (ci-container_test.sh checks).
+GO_RACE_PKGS := ./internal/streamer/... ./internal/downloads/... ./internal/transcode/... ./internal/transfer/... ./internal/localcache/... ./internal/watchlist/...
+
+_ui-dist-stub:
+	@mkdir -p ui/dist
+	@[ -n "$$(ls -A ui/dist)" ] || : > ui/dist/.placeholder
+
+test: _ui-dist-stub
 	$(call step,Running Go tests...)
-	@go test ./internal/...
+	@go test $(GO_TEST_PKGS)
 	$(call step,Running web tests (vitest)...)
 	@cd web && npm test
 	$(call ok,All tests passed)
 
-test-verbose:
-	@go test -v ./internal/...
+test-verbose: _ui-dist-stub
+	@go test -v $(GO_TEST_PKGS)
 	@cd web && npm test -- --reporter=verbose
+
+# Same race gate as CI. Slow (several minutes): not part of `make test`.
+test-race:
+	$(call step,Running Go race detector on concurrency-heavy packages...)
+	@go test -race -count=1 $(GO_RACE_PKGS)
+	$(call ok,No data races detected)
 
 test-coverage:
 	$(call step,Running web tests with coverage...)
@@ -364,9 +383,9 @@ SONAR_TOKEN     ?= $(shell grep SONAR_TOKEN .env 2>/dev/null | head -1 | cut -d=
 # source, incl. sonar.qualitygate.wait=true) — if the quality gate fails, make
 # FAILS. This target used to swallow the test failure (`|| echo`) and the
 # scanner exit (`-@`), giving a false green vs. the CI gate (audit finding #413).
-sonar-scan:
+sonar-scan: _ui-dist-stub
 	$(call step,Generating test coverage...)
-	@go test -coverprofile=coverage.out ./internal/... || { echo "  ✗ tests failed — fix them before scanning"; exit 1; }
+	@go test -coverprofile=coverage.out $(GO_TEST_PKGS) || { echo "  ✗ tests failed — fix them before scanning"; exit 1; }
 	$(call ok,Coverage saved to coverage.out)
 
 	$(call step,Checking sonar-scanner...)
