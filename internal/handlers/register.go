@@ -215,7 +215,8 @@ func Forgot(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 }
 
 // Reset handles POST /api/auth/reset (public). Consumes a reset token + sets the
-// new password.
+// new password, then revokes every session and paired device: this is how a
+// victim recovers a compromised account, so it must cut the attacker off.
 func Reset(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
@@ -232,6 +233,10 @@ func Reset(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		if err := store.SetPassword(ti.UserID, req.Password); err != nil {
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			return
+		}
+		if err := revokeAllAccess(store, ti.UserID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

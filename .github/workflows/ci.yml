@@ -44,6 +44,7 @@ jobs:
       - name: Run the canonical disposable CI stack
         run: |
           scripts/ci-arm_test.sh
+          scripts/ci-container_test.sh
           mkdir -p -- "$CI_ARTIFACT_DIR"
           scripts/ci-arm.sh all
         env:

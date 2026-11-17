@@ -36,6 +36,8 @@ func userFromIDParam(c *gin.Context, store *auth.Store) *auth.User {
 // single-use reset link (1h TTL, Invite-style: always returned, emailed when
 // the account has an address). Either way every session of the target user is
 // revoked — the whole point of a reset is locking out whoever held the account.
+// Paired devices are revoked once the new password is actually set (here in
+// password mode, in Reset when the link is consumed).
 func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		user := userFromIDParam(c, store)
@@ -55,7 +57,10 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
-			_ = store.RevokeAllSessions(user.ID)
+			if err := revokeAllAccess(store, user.ID); err != nil {
+				httpshared.RespondError(c, http.StatusInternalServerError, err)
+				return
+			}
 			c.JSON(http.StatusOK, gin.H{"message": "password reset"})
 			return
 		}
