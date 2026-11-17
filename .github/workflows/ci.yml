@@ -165,7 +165,8 @@ jobs:
 
       - name: Install Chromium
         working-directory: web
-        run: npx playwright install --with-deps chromium
+        # The lockfile-pinned binary, not npx: nothing is resolved on demand.
+        run: ./node_modules/.bin/playwright install --with-deps chromium
 
       - name: Run the page smoke
         run: scripts/e2e-smoke.sh

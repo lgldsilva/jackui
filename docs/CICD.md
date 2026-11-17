@@ -127,7 +127,7 @@ name does not contain `test`, runs the server on port 18989 from an empty
 directory with a scrubbed environment, and never reads `config.yaml` or `.env`):
 
 ```bash
-cd web && npx playwright install chromium && cd ..
+(cd web && ./node_modules/.bin/playwright install chromium)
 E2E_DATABASE_URL='postgres://user:pass@127.0.0.1:55432/jackui_test?sslmode=disable' \
   make e2e-smoke
 ```

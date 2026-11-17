@@ -23,9 +23,10 @@ readonly PROJECT_ROOT="${SCRIPT_DIR}/.."
 readonly PORT="${E2E_PORT:-18989}"
 readonly BASE_URL="http://127.0.0.1:${PORT}"
 readonly ADMIN_USER=admin
-# Throwaway credentials for a throwaway database; never reused anywhere.
-readonly ADMIN_PASSWORD='e2e-smoke-admin-only'
-readonly JWT_SECRET='e2e-smoke-jwt-secret-not-a-real-secret-0123456789'
+# Per-run credentials for a throwaway database: nothing reusable in the repo.
+ADMIN_PASSWORD="$(openssl rand -hex 16)"
+JWT_SECRET="$(openssl rand -hex 32)"
+readonly ADMIN_PASSWORD JWT_SECRET
 readonly SERVER_BIN="${PROJECT_ROOT}/web/test-results/jackui-e2e-server"
 server_pid=""
 work_dir=""
