@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { UploadCloud } from 'lucide-react'
 import NavHeader from '../components/NavHeader'
-import { useToast } from '../components/Toast'
 import { usePersistedState } from '../lib/storage'
 import { useEnumQueryParam, useQueryParam, useQuerySetter } from '../lib/useQueryState'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
@@ -22,12 +21,13 @@ import DownloadModal from '../components/DownloadModal'
 import AddTorrentModal from '../components/AddTorrentModal'
 import { useAuth } from '../auth/AuthContext'
 import { type CompletedFilterKey } from '../components/downloads/CompletedFilterChips'
-import { errMessage } from '../lib/errMessage'
 import { type Tab, DOWNLOAD_TABS } from '../components/downloads/tabs'
 import { useDownloadDragDrop } from '../components/downloads/useDownloadDragDrop'
 import { usePlayRouting } from '../components/downloads/usePlayRouting'
 import { useDownloadsView } from '../components/downloads/useDownloadsView'
 import { useDownloadActions } from '../components/downloads/useDownloadActions'
+import { useDownloadsPoll } from '../components/downloads/useDownloadsPoll'
+import { DownloadsLoadErrorBanner } from '../components/downloads/DownloadsLoadErrorBanner'
 import { DownloadsSummary } from '../components/downloads/DownloadsSummary'
 import { GlobalActionToolbar } from '../components/downloads/GlobalActionToolbar'
 import { DownloadsFiltersBar } from '../components/downloads/DownloadsFiltersBar'
@@ -92,7 +92,6 @@ export default function DownloadsPage() {
   const [busyHash, setBusyHash] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [bulkSheetOpen, setBulkSheetOpen] = useState(false)
-  const { notifyError } = useToast()
   const { t } = useTranslation()
 
   const [limitDownKB, setLimitDownKB] = useState<string>('')
@@ -150,8 +149,6 @@ export default function DownloadsPage() {
         : await downloadsList()
       // Drop stale/out-of-order responses: only the latest load reconciles.
       if (mountedRef.current && seq === loadSeqRef.current) setItems(reconcile(pendingDeletesRef.current, list))
-    } catch (err) {
-      notifyError(errMessage(err))
     } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -173,8 +170,6 @@ export default function DownloadsPage() {
         ? await downloadsListAll(params)
         : await downloadsListFiltered(params)
       if (mountedRef.current && seq === loadSeqRef.current) setItems(reconcile(pendingDeletesRef.current, list))
-    } catch (err) {
-      notifyError(errMessage(err))
     } finally {
       if (mountedRef.current) setLoading(false)
     }
@@ -182,8 +177,7 @@ export default function DownloadsPage() {
 
   // Poll + mutations must respect active filters — the mount-only interval used
   // to always call load() and overwrote a filtered view every ~2s.
-  const reloadDownloadsRef = useRef<() => Promise<void>>(async () => {})
-  reloadDownloadsRef.current = async () => {
+  const reloadDownloads = async () => {
     const hasFilters = !!(filterStatus || filterTracker || filterCategory || filterSearch
       || sortCol !== 'created_at' || sortDir !== 'desc')
     if (hasFilters) await loadFiltered()
@@ -218,19 +212,16 @@ export default function DownloadsPage() {
     }
   }
 
+  // load()/loadFiltered() reject on failure; the hook turns that into one
+  // inline banner (no toast per cycle) and runs the 2s visible-tab poll.
+  const { loadError, reloadDownloadsRef } = useDownloadsPoll(reloadDownloads, loadTorrents)
+
   useEffect(() => {
     mountedRef.current = true
     reloadDownloadsRef.current().catch(() => {}); loadTorrents(); loadLimits(); loadFilterOptions()
     localMounts().then(setMounts).catch(() => {})
     getDownloadsQueueSettings().then(s => setMaxActive(s.maxActive)).catch(() => {})
-    // Skip the poll while the tab is hidden — each cycle redoes streamActive→buildInfo
-    // for every active torrent (expensive on a multi-file pack). Resumes on focus.
-    const t = setInterval(() => {
-      if (document.hidden) return
-      reloadDownloadsRef.current().catch(() => {})
-      loadTorrents()
-    }, 2000)
-    return () => { mountedRef.current = false; clearInterval(t) }
+    return () => { mountedRef.current = false }
   }, [])
 
   // Reload when filters/sort change (debounced for search)
@@ -294,6 +285,7 @@ export default function DownloadsPage() {
 
       <NavHeader />
       <main id="main-content" tabIndex={-1} className="max-w-5xl mx-auto px-4 py-6 flex flex-col gap-6">
+        <DownloadsLoadErrorBanner message={loadError} />
         {/* ═══════════════ Summary Dashboard ═══════════════ */}
         <DownloadsSummary
           totalDown={totalDown}
