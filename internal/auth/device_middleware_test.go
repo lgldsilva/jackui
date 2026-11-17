@@ -91,6 +91,23 @@ func TestSignDeviceAccess_CarriesAMR(t *testing.T) {
 	}
 }
 
+func TestSignDeviceMedia_CarriesAMR(t *testing.T) {
+	tm := NewTokenManager([]byte("0123456789abcdef0123456789abcdef"), 0)
+	u := &User{ID: 3, Username: "tv", Role: RoleAdmin}
+	raw, _, err := tm.SignDeviceMedia(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := tm.ParseAccess(raw)
+	if err != nil || c.AMR != AMRDevice || c.Scope != ScopeMedia || c.UserID != 3 {
+		t.Fatalf("claims = %+v, %v", c, err)
+	}
+	raw, _, _ = tm.SignMedia(u)
+	if c, _ := tm.ParseAccess(raw); c.AMR != "" || c.Scope != ScopeMedia {
+		t.Fatalf("interactive media token claims = %+v", c)
+	}
+}
+
 func TestDeviceKeyFromHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for hdr, want := range map[string]string{"Device jkd_abc": "jkd_abc", "Bearer jkd_abc": "", "": ""} {
