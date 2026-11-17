@@ -49,6 +49,13 @@ type CacheStats struct {
 // Stats walks the DataDir and returns disk usage stats.
 // "Active" entries are torrents currently loaded in memory (likely being read).
 func (s *Streamer) Stats() (*CacheStats, error) {
+	return s.cacheStats(false)
+}
+
+// cacheStats builds the snapshot. reuseSizes lets the once-a-minute cap check
+// take idle entries' sizes from the size cache instead of re-walking them;
+// Stats() (the cache UI) always measures.
+func (s *Streamer) cacheStats(reuseSizes bool) (*CacheStats, error) {
 	st := &CacheStats{
 		DataDir: s.cfg.DataDir,
 		MaxSize: s.cfg.MaxCacheSize,
@@ -67,30 +74,35 @@ func (s *Streamer) Stats() (*CacheStats, error) {
 		return nil, err
 	}
 
+	isFavorite := s.favoriteLookup()
+	present := make(map[string]struct{}, len(entries))
 	for _, ent := range entries {
 		// Skip internal bookkeeping (dot-prefixed): .metainfo (serialized
 		// .torrent cache), .piece-completion-dl (open Bolt piece DB), art/thumbs
 		// dirs. Walking them let LRU eviction delete live bookkeeping, and their
 		// bytes never belonged in the user-facing cache total anyway. Mirrors
 		// ClearAll's dot-prefix skip.
-		if strings.HasPrefix(ent.Name(), ".") {
+		name := ent.Name()
+		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		full := filepath.Join(s.cfg.DataDir, ent.Name())
-		size, mtime, err := dirSizeAndMTime(full)
+		present[name] = struct{}{}
+		volatile := activeNames[name] || activeNames[strings.TrimSuffix(name, ".part")] || s.IsDownloadProtected(name)
+		size, mtime, err := s.entrySize(name, volatile, reuseSizes)
 		if err != nil {
 			continue
 		}
 		st.Entries = append(st.Entries, CacheEntry{
-			Path:       ent.Name(),
+			Path:       name,
 			Size:       size,
 			ModTime:    mtime,
-			IsActive:   activeNames[ent.Name()],
-			IsFavorite: s.favs != nil && s.favs.IsFavorite(ent.Name()),
-			InfoHash:   nameToHash[ent.Name()],
+			IsActive:   activeNames[name],
+			IsFavorite: isFavorite(name),
+			InfoHash:   nameToHash[name],
 		})
 		st.TotalSize += size
 	}
+	s.sizes.retain(present)
 
 	sort.Slice(st.Entries, func(i, j int) bool {
 		return st.Entries[i].ModTime.After(st.Entries[j].ModTime)
@@ -213,7 +225,7 @@ func (s *Streamer) enforceCacheLimit() {
 	if s.cfg.MaxCacheSize <= 0 {
 		return
 	}
-	stats, err := s.Stats()
+	stats, err := s.cacheStats(true)
 	if err != nil {
 		return
 	}
@@ -290,40 +302,6 @@ func (s *Streamer) recordEviction(bytes int64) {
 	s.evictedBytes += bytes
 	s.lastEvictionAt = time.Now()
 	s.evictMu.Unlock()
-}
-
-// dirSizeAndMTime returns the *physical* bytes allocated on disk under a path
-// (file or dir), plus the newest mtime.
-//
-// Why physical (not logical): anacrolix writes sparse files — it opens the
-// target file and writes only the bytes for completed pieces. The file's
-// logical size (info.Size()) is the **final torrent size**, but the actual
-// blocks consumed on disk grow progressively as pieces arrive.
-//
-// For cache eviction and the UI "X / Y used" indicator, what the user cares
-// about is the *real* footprint, not the logical placeholder. Reporting
-// logical size makes a 10 GB torrent look "fully cached" the moment metadata
-// is received, which is why the cache UI looked pre-allocated.
-//
-// We use the platform-specific allocated-block count when available (POSIX
-// stat.Blocks * 512) and fall back to logical size on platforms where the
-// syscall data isn't accessible.
-func dirSizeAndMTime(path string) (int64, time.Time, error) {
-	var size int64
-	var mtime time.Time
-	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			size += physicalBytes(info)
-		}
-		if info.ModTime().After(mtime) {
-			mtime = info.ModTime()
-		}
-		return nil
-	})
-	return size, mtime, err
 }
 
 func fmtBytes(n int64) string {
