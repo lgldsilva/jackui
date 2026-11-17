@@ -46,6 +46,7 @@ func (s *Streamer) buildInfo(e *entry, withFiles bool) *TorrentInfo {
 	}
 
 	if withFiles {
+		s.fileListBuilds.Add(1)
 		files := t.Files()
 		info.Files = make([]FileInfo, 0, len(files))
 		for i, f := range files {

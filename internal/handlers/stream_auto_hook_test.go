@@ -229,3 +229,47 @@ func TestStreamFile_HookDisabledByDefault(t *testing.T) {
 		t.Errorf("StartTorrent calls = %v, want none (Meta missing)", fetcher.started)
 	}
 }
+
+// TestStreamFile_RangeRequestsDoNotBuildFileList: a player sends many Range
+// requests per seek. Serving one must not build the torrent's full per-file
+// snapshot (completion + priority of every file under the client lock) just
+// to bounds-check the index for the auto-subtitle kick.
+func TestStreamFile_RangeRequestsDoNotBuildFileList(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	s := streamer.NewForTesting()
+	h, cleanup := s.SeedActiveForTesting("stream-open-hook", time.Now())
+	t.Cleanup(cleanup)
+	fetcher := &fakeAutoFetcher{}
+	r := gin.New()
+	r.HEAD("/api/stream/:hash/:file", StreamFile(s, nil, StreamAutoHook{Meta: &fakeTorrentMeta{}, Fetcher: fetcher}))
+
+	const requests = 20
+	for i := 0; i < requests; i++ {
+		req := httptest.NewRequest(http.MethodHead, "/api/stream/"+h.HexString()+"/0", nil)
+		req.Header.Set("Range", "bytes=0-1")
+		r.ServeHTTP(httptest.NewRecorder(), req)
+	}
+
+	if n := s.FileListBuildsForTesting(); n != 0 {
+		t.Errorf("%d Range requests built the full file list %d time(s), want 0", requests, n)
+	}
+	if len(fetcher.started) != requests {
+		t.Errorf("StartTorrent calls = %d, want %d (the kick itself is unchanged)", len(fetcher.started), requests)
+	}
+}
+
+func TestNumFiles(t *testing.T) {
+	s := streamer.NewForTesting()
+	h, cleanup := s.SeedActiveForTesting("numfiles", time.Now())
+	t.Cleanup(cleanup)
+
+	if n, ok := s.NumFiles(h); !ok || n != 1 {
+		t.Errorf("NumFiles(active) = %d, %v; want 1, true", n, ok)
+	}
+	if n, ok := s.NumFiles(metainfo.Hash{1}); ok || n != 0 {
+		t.Errorf("NumFiles(unknown) = %d, %v; want 0, false", n, ok)
+	}
+	if n := s.FileListBuildsForTesting(); n != 0 {
+		t.Errorf("NumFiles built the file list %d time(s)", n)
+	}
+}

@@ -44,7 +44,9 @@ func StreamFile(s *streamer.Streamer, store *downloads.Store, auto ...StreamAuto
 		// self-gates on the auto-fetch setting + per-item dedup, so this adds zero
 		// latency and zero OpenSubtitles traffic when off/already running.
 		if len(auto) > 0 && auto[0].Meta != nil && auto[0].Fetcher != nil {
-			if info, err := s.Get(h); err == nil && fileIdx >= 0 && fileIdx < len(info.Files) {
+			// NumFiles, not Get: this runs on EVERY Range request and Get builds
+			// the whole per-file snapshot under the anacrolix client lock.
+			if n, ok := s.NumFiles(h); ok && fileIdx >= 0 && fileIdx < n {
 				auto[0].Fetcher.StartTorrent(auto[0].Meta, h, fileIdx)
 			}
 		}
@@ -61,7 +63,8 @@ func serveFromCompletedStore(c *gin.Context, store *downloads.Store, s *streamer
 		return false
 	}
 	userID, _, _ := auth.UserIDFromCtx(c)
-	path, err := store.GetCompletedPathRel(h.HexString(), fileIdx, s.FileRelPath(h, fileIdx), userID)
+	relPath := func() string { return s.FileRelPath(h, fileIdx) }
+	path, err := store.GetCompletedPathRelFunc(h.HexString(), fileIdx, relPath, userID)
 	if err != nil || path == "" {
 		return false
 	}

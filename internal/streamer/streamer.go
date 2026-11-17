@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	alog "github.com/anacrolix/log"
@@ -186,6 +187,9 @@ type Streamer struct {
 	evictedCount   int64
 	evictedBytes   int64
 	lastEvictionAt time.Time
+	// fileListBuilds counts full per-file snapshots (buildInfo with files), the
+	// O(files) operation hot paths must stay away from; tests pin that.
+	fileListBuilds atomic.Int64
 	// sizes memoizes idle entries' disk usage between cache-limit passes.
 	sizes entrySizeCache
 	// Test seams for the cache snapshot; nil = dirSizeAndMTime / favs.Names.
