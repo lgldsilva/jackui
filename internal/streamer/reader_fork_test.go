@@ -100,8 +100,8 @@ func TestForkSource_AbandonsBlockedReadWhenContextEnds(t *testing.T) {
 	cancel()
 	select {
 	case rerr := <-done:
-		if rerr == nil {
-			t.Fatal("read of missing data returned without error")
+		if !errors.Is(rerr, context.Canceled) {
+			t.Fatalf("blocked read ended with %v, want context.Canceled", rerr)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("blocked read survived its context")

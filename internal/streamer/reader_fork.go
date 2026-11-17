@@ -44,7 +44,7 @@ func (r *trackingReader) ForkSource(ctx context.Context) (io.ReadSeekCloser, err
 // keep the head of the file prioritised (readahead + Now window at offset 0)
 // for the whole session, however far playback has moved.
 func (r *trackingReader) park() {
-	r.Reader.SetReadahead(0)
+	r.SetReadahead(0)
 	r.releaseWindow()
 }
 
