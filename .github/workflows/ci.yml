@@ -46,6 +46,7 @@ jobs:
           scripts/ci-arm_test.sh
           scripts/ci-container_test.sh
           scripts/release-guard_test.sh
+          scripts/dockerfile-lint_test.sh
           mkdir -p -- "$CI_ARTIFACT_DIR"
           scripts/ci-arm.sh all
         env:
