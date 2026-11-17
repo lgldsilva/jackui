@@ -14,7 +14,12 @@ permissions:
 
 jobs:
   semver:
+    # A manual dispatch can target any branch; only main and v* tags release.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     outputs:
       version: ${{ steps.semver.outputs.version }}
     steps:
@@ -25,8 +30,32 @@ jobs:
       - id: semver
         run: echo "version=$(bash scripts/semver.sh)" >> $GITHUB_OUTPUT
 
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Runs here, before CI and the ~30 min build, so a run that would
+      # overwrite a published version fails fast. The workflow-level
+      # concurrency group keeps another run from publishing in between.
+      - name: Refuse to overwrite a published version
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          VERSION: ${{ steps.semver.outputs.version }}
+        run: bash scripts/release-guard.sh "$IMAGE" "$VERSION"
+
+  # Same gate as a PR. No `secrets: inherit`: the only secret ci.yml reads is
+  # SONAR_TOKEN and its sonar job skips cleanly without it — main is already
+  # analysed on push, and a tag ref would add a throwaway SonarCloud branch.
+  ci:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   build-and-push:
-    needs: [semver]
+    needs: [semver, ci]
     runs-on: ubuntu-latest
     permissions:
       contents: read

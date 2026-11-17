@@ -8,9 +8,10 @@
 #   only chore/ci/docs/test/build/style/refactor (or nothing conventional) → NO bump
 #
 # When there is nothing releasable (or HEAD is exactly on a tag), prints the
-# unchanged LAST tag. The caller (release.yml) treats "computed == existing tag"
-# as "do not create a new tag/Release" — build+deploy still run, without inflating
-# the version on every trivial merge (it used to be 1 tag per merge → 173 tags).
+# unchanged LAST tag. The caller (release.yml) then runs scripts/release-guard.sh:
+# an already-published version is rebuilt only when HEAD is that tag's commit,
+# otherwise the run fails — no version inflation on every trivial merge (it used
+# to be 1 tag per merge → 173 tags) and no overwrite of a published image.
 #
 # Robust to merge commits (GitHub/Gitea): the merge subject carries the PR title
 # ("Merge pull request 'fix(x): ...'" / "Merge pull request #N …"), so the type is
