@@ -5,7 +5,7 @@ import { usePersistedState } from '../lib/storage'
 import { Heart, Loader2, Folder, ChevronDown, Download, X, Search, CheckSquare, Square, RefreshCw } from 'lucide-react'
 import {
   favoritesList, favoriteRemove, favoriteRemoveBatch, StreamFavorite,
-  FavoriteFolder, folderList, folderCreate, folderRename, folderDelete, folderSetHidden,
+  FavoriteFolder, folderCreate, folderRename, folderDelete, folderSetHidden,
   favoriteSetFolder, favoriteSetFolderBatch,
   streamImport, SearchResult, ImportResult,
   downloadsList, downloadCreate, createParamsWhenFilesUnknown, DownloadEntry,
@@ -23,6 +23,7 @@ import { usePullToRefresh } from '../lib/usePullToRefresh'
 import { usePlayer } from '../components/PlayerProvider'
 import { useMountedRef } from '../lib/useMountedRef'
 import { useRevealHidden } from '../lib/reveal'
+import { useFavoritesData } from '../lib/useFavoritesData'
 import { SortKey, SortDir, sortFavorites } from '../lib/favSort'
 import { errMessage } from '../lib/errMessage'
 import { buildTree, importTorrentB64, buildImportMsg } from '../lib/favoritesTree'
@@ -36,15 +37,13 @@ import { pageTitle, renderFavsContent } from '../components/favorites/favoritesH
 export default function FavoritesPage() {
   const { t } = useTranslation()
   const { isAdmin } = useAuth()
-  const [favs, setFavs] = useState<StreamFavorite[]>([])
-  const [folders, setFolders] = useState<FavoriteFolder[]>([])
-  const [loading, setLoading] = useState(true)
-  useScrollRestoration(!loading)
-  const [error, setError] = useState('')
   // The hidden curtain is now GLOBAL: the easter egg lives on the header logo
   // (7 taps) and reveals hidden folders/favourites here as well as Continue
   // Watching, downloads and local. Session-only — see lib/reveal.
   const [revealHidden] = useRevealHidden()
+  // Loads (and reloads on a curtain flip) with stale-response guards — see the hook.
+  const { favs, setFavs, folders, setFolders, loading, error, load, scheduleQuietReload } = useFavoritesData(revealHidden)
+  useScrollRestoration(!loading)
   const { playSingle } = usePlayer()
   const confirm = useConfirm()
   const { notify } = useToast()
@@ -76,15 +75,6 @@ export default function FavoritesPage() {
   const [sortBy, setSortBy] = useState<SortKey>('date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
-  // Silent re-fetch (no loading spinner) — keeps scroll/selection. Used after a
-  // bulk seed refresh so sorting by seeds picks up the freshly probed numbers.
-  const reloadFavsQuiet = async () => {
-    try {
-      const favsList = await favoritesList(revealHidden)
-      setFavs(favsList || [])
-    } catch { /* keep the current list on a transient failure */ }
-  }
-
   // "Atualizar seeds": bump this counter to make every SeedBadge in the current
   // view re-probe the swarm at once. The backend dedupes + caps to 3 concurrent
   // probes, so firing one per visible card is safe.
@@ -97,7 +87,7 @@ export default function FavoritesPage() {
     setTimeout(() => setSeedRefreshing(false), 1500)
     // Probes persist the snapshot to the metadata cache; re-pull a bit later so
     // a "sort by seeds" reflects the new counts without a manual refresh.
-    setTimeout(() => { void reloadFavsQuiet() }, 11000)
+    scheduleQuietReload()
   }
 
   // Filter favorites by current view AND search query, then sort.
@@ -113,20 +103,6 @@ export default function FavoritesPage() {
     }
     return sortFavorites(list, sortBy, sortDir)
   }, [favs, viewMode, searchQuery, sortBy, sortDir])
-
-  const load = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [favsList, foldersList] = await Promise.all([favoritesList(revealHidden), folderList(revealHidden)])
-      setFavs(favsList || [])
-      setFolders(foldersList || [])
-    } catch (e: unknown) {
-      setError(errMessage(e))
-    } finally {
-      setLoading(false)
-    }
-  }
 
   // Infinite scroll
   const PAGE_SIZE = 40
@@ -146,11 +122,11 @@ export default function FavoritesPage() {
     return () => observer.disconnect()
   }, [filteredFavs.length])
 
-  // Load on mount and whenever the hidden curtain is toggled (re-fetch with/without
-  // the hidden folders + their favourites). Also refresh the download map so the
-  // favorite badges stay in sync with the queue.
+  // On mount and whenever the hidden curtain is toggled, refresh the download
+  // map so the favorite badges stay in sync with the queue (the favourites
+  // themselves are re-fetched by useFavoritesData).
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); void loadDownloadsForFavs() }, [revealHidden])
+  useEffect(() => { void loadDownloadsForFavs() }, [revealHidden])
 
   const handleToggleHidden = async (id: number, hidden: boolean) => {
     await folderSetHidden(id, hidden)
@@ -168,7 +144,7 @@ export default function FavoritesPage() {
     const name = newFolderInput.current.value.trim()
     if (!name) { setCreatingRoot(false); return }
     const f = await folderCreate(name, null)
-    setFolders([...folders, f])
+    setFolders(prev => [...prev, f])
     setCreatingRoot(false)
     if (newFolderInput.current) newFolderInput.current.value = ''
   }
@@ -302,7 +278,7 @@ export default function FavoritesPage() {
     const ok = await confirm({ title: t('favorites.removeTitle'), message: t('favorites.removeMessage', { name }), confirmLabel: t('favorites.removeConfirm'), destructive: true })
     if (!ok) return
     await favoriteRemove(name)
-    setFavs(favs.filter(f => f.name !== name))
+    setFavs(prev => prev.filter(f => f.name !== name))
   }
 
   // favToResult builds the SearchResult shape the player/contents modal expect.
@@ -355,7 +331,7 @@ export default function FavoritesPage() {
     const name = prompt(t('favorites.promptSubfolderName'))
     if (!name) return
     const f = await folderCreate(name, parentId)
-    setFolders([...folders, f])
+    setFolders(prev => [...prev, f])
     setExpanded(new Set(expanded).add(parentId))
   }
 
@@ -364,7 +340,7 @@ export default function FavoritesPage() {
     const trimmed = name.trim()
     if (!trimmed) return
     await folderRename(id, trimmed)
-    setFolders(folders.map(f => f.id === id ? { ...f, name: trimmed } : f))
+    setFolders(prev => prev.map(f => f.id === id ? { ...f, name: trimmed } : f))
   }
 
   const handleDeleteFolder = async (id: number) => {
@@ -372,7 +348,7 @@ export default function FavoritesPage() {
     const ok = await confirm({ title: t('favorites.deleteFolderTitle'), message: t('favorites.deleteFolderMessage', { name: target?.name }), confirmLabel: t('favorites.delete'), destructive: true })
     if (!ok) return
     await folderDelete(id)
-    setFolders(folders.filter(f => f.id !== id))
+    setFolders(prev => prev.filter(f => f.id !== id))
     // Favorites: the server did SET NULL, re-fetch to reflect it
     const fresh = await favoritesList()
     setFavs(fresh || [])
@@ -382,7 +358,7 @@ export default function FavoritesPage() {
   const handleDropOnFolder = async (folderId: number | null, favoriteName: string) => {
     setDropOnRoot(false)
     await favoriteSetFolder(favoriteName, folderId)
-    setFavs(favs.map(f => f.name === favoriteName ? { ...f, folderId } : f))
+    setFavs(prev => prev.map(f => f.name === favoriteName ? { ...f, folderId } : f))
   }
 
   // Prompt-based versions for the mobile sheet (without the desktop's sidebar/inline
@@ -391,7 +367,7 @@ export default function FavoritesPage() {
     const name = prompt(t('favorites.promptNewFolderName'))?.trim()
     if (!name) return
     const f = await folderCreate(name, null)
-    setFolders([...folders, f])
+    setFolders(prev => [...prev, f])
   }
   const handleRenamePrompt = (folder: FavoriteFolder) => {
     const name = prompt(t('favorites.promptRenameFolder'), folder.name)
@@ -420,7 +396,7 @@ export default function FavoritesPage() {
     // and surface the rest instead of silently reporting success.
     const res = await favoriteSetFolderBatch(names, folderId).catch(() => null)
     const failed = new Set<string>(res ? res.failed : names)
-    setFavs(favs.map(f => (selected.has(f.name) && !failed.has(f.name)) ? { ...f, folderId } : f))
+    setFavs(prev => prev.map(f => (selected.has(f.name) && !failed.has(f.name)) ? { ...f, folderId } : f))
     if (failed.size > 0) notify(t('favorites.batchPartialFailed', { count: failed.size }), 'error')
     clearSelection()
   }
@@ -430,7 +406,7 @@ export default function FavoritesPage() {
     if (!ok) return
     const res = await favoriteRemoveBatch(names).catch(() => null)
     const failed = new Set<string>(res ? res.failed : names)
-    setFavs(favs.filter(f => !(selected.has(f.name) && !failed.has(f.name))))
+    setFavs(prev => prev.filter(f => !(selected.has(f.name) && !failed.has(f.name))))
     if (failed.size > 0) notify(t('favorites.batchPartialFailed', { count: failed.size }), 'error')
     clearSelection()
   }
