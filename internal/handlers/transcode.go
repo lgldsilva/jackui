@@ -108,6 +108,7 @@ func transcodeStreamHandler(c *gin.Context, s *streamer.Streamer, store *downloa
 		return
 	}
 	defer reader.Close()
+	bindReaderContext(c.Request.Context(), reader)
 
 	if err := transcode.Run(c.Request.Context(), reader, c.Writer, opts); err != nil {
 		c.Abort()
