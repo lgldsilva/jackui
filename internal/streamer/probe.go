@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/anacrolix/torrent/metainfo"
 )
@@ -98,59 +97,6 @@ func classifyTranscode(container, vcodec, acodec string) (bool, string) {
 		return true, "acodec=" + acodec
 	}
 	return false, ""
-}
-
-var (
-	probeCacheMu sync.Mutex
-	probeCache   = make(map[hashKey]ProbeResult)
-)
-
-// Probe runs ffprobe on the torrent file and lists audio + subtitle tracks.
-// Reads at most 16 MB from the start of the file (enough for MKV/MP4 headers).
-// Results are cached per (torrent, file).
-func (s *Streamer) Probe(ctx context.Context, hash metainfo.Hash, fileIdx int) (ProbeResult, error) {
-	key := hashKey{hash, fileIdx}
-	probeCacheMu.Lock()
-	if r, ok := probeCache[key]; ok {
-		probeCacheMu.Unlock()
-		return r, nil
-	}
-	probeCacheMu.Unlock()
-
-	pi, ierr := s.resolveProbeInput(hash, fileIdx, 2*1024*1024)
-	if ierr != nil {
-		return ProbeResult{}, ierr
-	}
-
-	// Probe uses "pipe:" (not pipe0/pipe:0) and a limited reader
-	input := pi.input
-	stdin := pi.stdin
-	if pi.input == pipe0 {
-		input = "pipe:"
-		stdin = io.LimitReader(pi.stdin, 16*1024*1024)
-	}
-
-	if pi.closeFn != nil {
-		defer pi.closeFn()
-	}
-
-	out, err := runFFprobe(ctx, input, stdin)
-	if err != nil {
-		return ProbeResult{}, err
-	}
-
-	result, perr := parseProbeOutput(out)
-	if perr != nil {
-		return ProbeResult{}, fmt.Errorf("decode ffprobe: %w", perr)
-	}
-
-	probeCacheMu.Lock()
-	if len(probeCache) >= 2000 {
-		probeCache = make(map[hashKey]ProbeResult)
-	}
-	probeCache[key] = *result
-	probeCacheMu.Unlock()
-	return *result, nil
 }
 
 // ProbeLocal runs ffprobe on a local file path and returns the parsed tracks,
