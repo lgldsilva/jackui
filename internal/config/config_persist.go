@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -138,57 +136,4 @@ func sameNode(a, b *yaml.Node) bool {
 		}
 	}
 	return true
-}
-
-// writeFileAtomic replaces path with data through a synced temp file in the
-// same directory plus a rename, so a reader or a crash never observes a
-// truncated config. A failure while WRITING the temp file (disk full, I/O
-// error) is returned with the original file untouched.
-//
-// When the swap itself is impossible — the directory is not writable, or path
-// is a single-file bind mount, which cannot be renamed over (EBUSY; the stock
-// docker-compose mounts config.yaml that way) — it falls back to writing in
-// place, which is not atomic.
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	if target, err := filepath.EvalSymlinks(path); err == nil {
-		path = target // keep a symlinked config a symlink
-	}
-	// A rename only needs a writable DIRECTORY; honour a read-only (or
-	// foreign-owned) config.yaml the way the in-place write always did.
-	if err := CheckWritable(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.tmp")
-	if err != nil {
-		return os.WriteFile(path, data, perm)
-	}
-	if err := fillTempFile(tmp, data, perm); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	if err := renameFile(tmp.Name(), path); err != nil {
-		_ = os.Remove(tmp.Name())
-		return os.WriteFile(path, data, perm)
-	}
-	return nil
-}
-
-// Variables so tests can simulate a full disk and a single-file bind mount.
-var (
-	fillTempFile = fillTemp
-	renameFile   = os.Rename
-)
-
-func fillTemp(f *os.File, data []byte, perm os.FileMode) error {
-	_, err := f.Write(data)
-	if err == nil {
-		err = f.Chmod(perm)
-	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
 }
