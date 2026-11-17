@@ -62,3 +62,21 @@ func TestApplyNotificationsEnv_NtfyToken(t *testing.T) {
 		t.Errorf("NtfyToken = %q, want tk_secret", cfg.Notifications.NtfyToken)
 	}
 }
+
+func TestTrustedProxiesEnv(t *testing.T) {
+	cfg := &Config{}
+	applyEnvOverrides(cfg)
+	if len(cfg.TrustedProxies) != 0 {
+		t.Fatalf("default TrustedProxies = %v, want none", cfg.TrustedProxies)
+	}
+
+	t.Setenv("JACKUI_TRUSTED_PROXIES", " 172.18.0.0/16, 10.0.0.5 ,,")
+	applyEnvOverrides(cfg)
+	want := []string{"172.18.0.0/16", "10.0.0.5"}
+	if len(cfg.TrustedProxies) != len(want) || cfg.TrustedProxies[0] != want[0] || cfg.TrustedProxies[1] != want[1] {
+		t.Fatalf("TrustedProxies = %v, want %v", cfg.TrustedProxies, want)
+	}
+	if got := ActiveEnvOverrides()["JACKUI_TRUSTED_PROXIES"]; got == "" {
+		t.Error("JACKUI_TRUSTED_PROXIES missing from ActiveEnvOverrides")
+	}
+}

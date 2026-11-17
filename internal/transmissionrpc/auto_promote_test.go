@@ -28,11 +28,11 @@ func TestReportDir_AutoPromote(t *testing.T) {
 	}
 
 	// session-get reports the shared base as download-dir when auto-promote is on.
-	resp := hOn.methodSessionGet()
+	resp := hOn.methodSessionGet("")
 	if dir, _ := resp.Arguments["download-dir"].(string); dir != "/shared" {
 		t.Errorf("session-get download-dir = %q, want /shared", dir)
 	}
-	resp = hOff.methodSessionGet()
+	resp = hOff.methodSessionGet("")
 	if dir, _ := resp.Arguments["download-dir"].(string); dir != "/dl" {
 		t.Errorf("session-get (off) download-dir = %q, want /dl", dir)
 	}
