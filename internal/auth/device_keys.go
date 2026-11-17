@@ -190,6 +190,14 @@ func (s *Store) RevokeDeviceKey(id int64, ownerID int) error {
 	return expectOneRow(s.db.Exec(q, args...))
 }
 
+// RevokeAllDeviceKeys revokes every paired device of a user. A device key
+// never expires and mints fresh tokens on its own, so it has to die together
+// with the refresh sessions whenever the password is (re)set.
+func (s *Store) RevokeAllDeviceKeys(userID int) error {
+	_, err := s.db.Exec("UPDATE device_keys SET revoked_at = now() WHERE user_id = ? AND revoked_at IS NULL", userID)
+	return err
+}
+
 // SetDevicePIN sets (or with pin == "" clears) the profile PIN of the owner's key.
 func (s *Store) SetDevicePIN(id int64, ownerID int, pin string) error {
 	hash := ""
