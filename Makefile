@@ -372,7 +372,8 @@ test-coverage:
 # Playwright SPA page smoke against a freshly built server (same script as the
 # CI `e2e-smoke` job). Needs a DISPOSABLE database and a local Chromium:
 #   cd web && npx playwright install chromium
-#   E2E_DATABASE_URL=postgres://…/jackui_test?sslmode=disable make e2e-smoke
+#   E2E_ALLOW_HOST_NETWORK=1 E2E_DATABASE_URL=postgres://…/jackui_test?sslmode=disable make e2e-smoke
+# (the opt-in is required outside CI: the server starts its torrent client).
 e2e-smoke:
 	@./scripts/e2e-smoke.sh
 

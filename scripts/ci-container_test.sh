@@ -10,6 +10,7 @@ readonly SCRIPT_DIR
 readonly PROJECT_ROOT="${SCRIPT_DIR}/.."
 readonly CONTAINER_SCRIPT="${SCRIPT_DIR}/ci-container.sh"
 readonly MAKEFILE="${PROJECT_ROOT}/Makefile"
+readonly E2E_SMOKE_SCRIPT="${SCRIPT_DIR}/e2e-smoke.sh"
 readonly RACE_PKGS=(streamer downloads transcode transfer localcache watchlist config)
 # internal/handlers is too slow to run whole under the race detector; the gate
 # runs these tests by name instead.
@@ -86,10 +87,81 @@ test_e2e_smoke_is_wired() {
 	assert_lines_contain "${web}/tsconfig.json" '"include":' '"e2e"'
 }
 
+# Runs ONLY require_disposable_database from the sourced script, in a child
+# shell: nothing is built, connected to or started.
+e2e_guard_accepts() {
+	E2E_DATABASE_URL=$1 bash -c 'source "$1"; require_disposable_database' _ "${E2E_SMOKE_SCRIPT}" 2>/dev/null
+}
+
+# The smoke server migrates and boots every worker against this database, so
+# the guard must parse the database name instead of spotting "test" anywhere.
+test_e2e_guard_accepts_disposable_databases() {
+	local url
+	for url in \
+		'postgres://jackui:jackui_ci_test_only@127.0.0.1:5432/jackui_test?sslmode=disable' \
+		'postgresql://user:pw@127.0.0.1:55432/jackui_test' \
+		'postgres://user:pw@localhost/test' \
+		'postgres://user:pw@localhost/test_jackui?sslmode=disable' \
+		'postgres://user:pw@localhost/jackui_test_e2e'; do
+		e2e_guard_accepts "${url}" || fail "e2e guard rejects a disposable database: ${url}"
+	done
+	grep -Fq 'E2E_DATABASE_URL: postgres://jackui:jackui_ci_test_only@127.0.0.1:5432/jackui_test?sslmode=disable' "${PROJECT_ROOT}/.github/workflows/ci.yml" ||
+		fail 'workflow E2E_DATABASE_URL differs from the URL the guard test accepts'
+}
+
+test_e2e_guard_rejects_production_shaped_values() {
+	local url
+	for url in \
+		'' \
+		'postgres://jackui:pw@testhost:5432' \
+		'postgres://jackui:test123@127.0.0.1:5432' \
+		'postgres://test:pw@127.0.0.1:5432' \
+		'postgres://test:test@testhost:5432/jackui' \
+		'host=127.0.0.1 user=jackui password=test123 dbname=jackui' \
+		'host=127.0.0.1 dbname=jackui application_name=test' \
+		'host=127.0.0.1 dbname=jackui_test' \
+		'postgres://jackui:pw@host/jackui#test' \
+		'postgres://jackui:pw@host/jackui_test#frag' \
+		'postgres://jackui:pw@host/jackui?application_name=test' \
+		'postgres://jackui:pw@host/contest_prod' \
+		'postgres://jackui:pw@host/latest' \
+		'postgres://jackui:pw@host/jackui/test' \
+		'postgres://jackui:pw@host/' \
+		'mysql://jackui:pw@host/jackui_test'; do
+		! e2e_guard_accepts "${url}" || fail "e2e guard accepts a non-disposable value: ${url}"
+	done
+}
+
+# The job is not a required check and must never run inside a reusable call:
+# release.yml calls ci.yml, and a flaky smoke would then block a release.
+test_e2e_smoke_skips_reusable_calls() {
+	local job
+	job="$(awk '/^  e2e-smoke:$/ {on = 1; next} on && /^  [a-z][a-z0-9-]*:$/ {exit} on' "${PROJECT_ROOT}/.github/workflows/ci.yml")"
+	[[ -n "${job}" ]] || fail 'workflow has no e2e-smoke job'
+	grep -Fqx "    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')" <<<"${job}" ||
+		fail 'e2e-smoke job lost the condition that skips it on release (workflow_call) runs'
+}
+
+# A local run puts a torrent client with DHT on the host network; the script
+# must demand an explicit opt-in outside CI and never reuse a busy port.
+test_e2e_smoke_local_run_is_opt_in() {
+	local out
+	out="$(env -u CI -u E2E_ALLOW_HOST_NETWORK bash -c 'source "$1"; require_network_opt_in' _ "${E2E_SMOKE_SCRIPT}" 2>&1)" &&
+		fail 'e2e smoke starts outside CI without E2E_ALLOW_HOST_NETWORK=1'
+	grep -Fq 'E2E_ALLOW_HOST_NETWORK=1' <<<"${out}" || fail 'e2e smoke opt-in refusal does not name the variable'
+	env -u CI E2E_ALLOW_HOST_NETWORK=1 bash -c 'source "$1"; require_network_opt_in' _ "${E2E_SMOKE_SCRIPT}" || fail 'e2e smoke ignores E2E_ALLOW_HOST_NETWORK=1'
+	env -u E2E_ALLOW_HOST_NETWORK CI=true bash -c 'source "$1"; require_network_opt_in' _ "${E2E_SMOKE_SCRIPT}" || fail 'e2e smoke refuses to run in CI'
+	grep -Eq '^[[:space:]]*require_free_port$' "${E2E_SMOKE_SCRIPT}" || fail 'e2e smoke does not check that its port is free'
+}
+
 test_go_gates_cover_cmd
 test_ui_dist_is_seeded_before_go_gates
 test_race_detector_gate
 test_handlers_race_gate
 test_workflow_runs_this_suite
 test_e2e_smoke_is_wired
+test_e2e_guard_accepts_disposable_databases
+test_e2e_guard_rejects_production_shaped_values
+test_e2e_smoke_skips_reusable_calls
+test_e2e_smoke_local_run_is_opt_in
 printf 'ci-container contract tests passed\n'

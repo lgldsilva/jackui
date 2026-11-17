@@ -122,12 +122,24 @@ It is **not a required check** yet and is skipped when `ci.yml` is called from
 the release workflow, so it cannot block a merge or a release until it has
 proven stable.
 
-Locally, against a **disposable** database (the script refuses a database whose
-name does not contain `test`, runs the server on port 18989 from an empty
-directory with a scrubbed environment, and never reads `config.yaml` or `.env`):
+Locally, against a **disposable** database. The script runs the server on port
+18989 (it refuses a port that is already in use) from an empty directory with a
+scrubbed environment, and never reads `config.yaml` or `.env`. Two guards run
+before anything is built or started:
+
+- `E2E_DATABASE_URL` must be the URL form with an explicit database
+  (`postgres://user:pass@host[:port]/<database>[?params]`) whose name is `test`
+  or carries it as an underscore-separated token (`jackui_test`, `test_jackui`).
+  Keyword DSNs, URLs without a database path and fragments are rejected: the
+  server migrates the schema and starts every worker against that database.
+- Outside CI, `E2E_ALLOW_HOST_NETWORK=1` is required. The server has no switch
+  to disable its BitTorrent client, so the smoke process opens the default peer
+  port and joins the DHT on the host's network — not something to do by
+  accident on a machine that keeps torrent traffic behind a VPN.
 
 ```bash
 (cd web && ./node_modules/.bin/playwright install chromium)
+E2E_ALLOW_HOST_NETWORK=1 \
 E2E_DATABASE_URL='postgres://user:pass@127.0.0.1:55432/jackui_test?sslmode=disable' \
   make e2e-smoke
 ```
