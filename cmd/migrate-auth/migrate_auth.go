@@ -17,7 +17,7 @@ import (
 // preserved in the SQLite -> PostgreSQL migration) from the legacy auth.db into
 // the unified Postgres schema. Everything else is recreated empty.
 //
-//	jackui migrate-auth --from /data/auth.db --to postgres://…
+//	migrate-auth --from /data/auth.db --to postgres://…
 //
 // Idempotent (ON CONFLICT DO NOTHING). Preserves original user ids and resyncs
 // the identity sequence so newly created users don't collide.
