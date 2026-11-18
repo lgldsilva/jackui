@@ -21,12 +21,17 @@ import (
 // stallAfterReader serves `head` bytes and then blocks forever, ignoring any
 // context — the worst-case source (a reader that cannot be interrupted).
 type stallAfterReader struct {
-	head  int
-	block chan struct{}
+	head   int
+	block  chan struct{}
+	parked chan struct{} // closed when Read first parks; nil = not observed
+	once   sync.Once
 }
 
 func (r *stallAfterReader) Read(p []byte) (int, error) {
 	if r.head <= 0 {
+		if r.parked != nil {
+			r.once.Do(func() { close(r.parked) })
+		}
 		<-r.block
 		return 0, io.EOF
 	}
@@ -49,14 +54,20 @@ func stubFFmpeg(t *testing.T, body string) string {
 // is parked in a source Read which never returns.
 func TestRun_ReturnsAfterCancelDespiteStalledStdin(t *testing.T) {
 	transSwapCache(t, &Capabilities{FFmpegPath: stubFFmpeg(t, "exec cat >/dev/null")})
-	in := &stallAfterReader{head: 512 * 1024, block: make(chan struct{})}
+	in := &stallAfterReader{head: 512 * 1024, block: make(chan struct{}), parked: make(chan struct{})}
 	t.Cleanup(func() { close(in.block) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, in, httptest.NewRecorder(), Options{}) }()
 
-	time.Sleep(300 * time.Millisecond)
+	// Cancel only once the stdin pump is provably parked in the stalled Read
+	// (the scenario under test), not after a guessed 300ms.
+	select {
+	case <-in.parked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stdin pump never reached the stalled Read")
+	}
 	cancel()
 
 	select {
