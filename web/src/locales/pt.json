@@ -529,6 +529,7 @@
       "dropOverlayTitle": "Solte seus arquivos .torrent aqui!",
       "dropOverlaySubtitle": "ou links magnet arrastados para iniciar o carregamento",
       "dropOnlyTorrentOrMagnet": "Por favor, arraste apenas arquivos com a extensão .torrent ou links magnet",
+      "loadErrorTitle": "Não foi possível atualizar os downloads. Tentando novamente automaticamente…",
       "statDownload": "Download",
       "statUpload": "Upload",
       "statPeers": "Peers",
@@ -1890,6 +1891,7 @@
     "close": "Fechar"
   },
   "misc": {
+    "repeatCount": "×{{n}}",
     "user_role": "Usuário",
     "admin_role": "Admin",
     "logout": "Sair",

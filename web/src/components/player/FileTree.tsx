@@ -101,8 +101,10 @@ export function FileTree({
   const onKeyDown = useCallback((e: React.KeyboardEvent, i: number) => {
     const action = keyNavAction(rows, i, e.key)
     if (action.type === 'none') return
-    // Enter/Space on a FILE row resolves to 'none' above, so it falls through to
-    // the native <button> click. Everything else we own → stop page scroll.
+    // Enter/Space on a FILE row resolves to 'none' above. Enter falls through to
+    // the native <button> click; so does Space when the row was focused by
+    // keyboard — on a click-focused row the player's shortcut handler takes
+    // Space (play/pause). Everything else we own → stop page scroll.
     if (NAV_KEYS.has(e.key)) e.preventDefault()
     if (action.type === 'focus') focusRowAt(action.index)
     else toggle(action.path)

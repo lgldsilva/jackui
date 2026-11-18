@@ -48,6 +48,14 @@ export default tseslint.config(
       'react-hooks/exhaustive-deps': 'off',
     },
   },
+  // Playwright page smoke (run by `npm run e2e`): same parser and complexity
+  // budget as src, without the React/a11y rules that do not apply to specs.
+  {
+    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { sonarjs },
+    rules: { 'sonarjs/cognitive-complexity': ['error', 15] },
+  },
   {
     files: legacyComplexity,
     rules: { 'sonarjs/cognitive-complexity': ['warn', 15] },

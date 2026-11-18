@@ -2,6 +2,8 @@
 web/node_modules/
 web/dist/
 web/coverage/
+web/test-results/
+web/playwright-report/
 
 # Built frontend assets (populated by npm run build)
 ui/dist/*

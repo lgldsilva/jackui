@@ -121,6 +121,70 @@ jobs:
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set — skipping SonarCloud analysis."
 
+  # Playwright page smoke: every SPA route renders against the real binary
+  # (blank screens, uncaught JS errors, the login form, the anonymous → /login
+  # redirect). Kept out of the ARM stack so the pinned CI image does not carry
+  # a browser. Not a required check yet, and skipped on reusable calls so it
+  # cannot block a release until it has proven stable.
+  e2e-smoke:
+    name: E2E smoke (Playwright)
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+        env:
+          POSTGRES_DB: jackui_test
+          POSTGRES_USER: jackui
+          POSTGRES_PASSWORD: jackui_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jackui -d jackui_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci --ignore-scripts
+
+      - name: Install Chromium
+        working-directory: web
+        # The lockfile-pinned binary, not npx: nothing is resolved on demand.
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run the page smoke
+        run: scripts/e2e-smoke.sh
+        env:
+          E2E_DATABASE_URL: postgres://jackui:jackui_ci_test_only@127.0.0.1:5432/jackui_test?sslmode=disable
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: jackui-e2e-smoke
+          path: |
+            web/playwright-report
+            web/test-results
+            !web/test-results/jackui-e2e-server
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Go microbenchmarks. INFORMATIONAL: shared runners are too noisy for a
   # perf gate, so the job never fails on a regression — it fails only when a
   # benchmark stops compiling or panics. On a PR it also runs the merge base
