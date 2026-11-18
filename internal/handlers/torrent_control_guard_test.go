@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ func (f fakeOwners) HashOwnerIDs(string) (map[int]bool, error) { return f.ids, f
 
 type fakeLib map[int]bool
 
-func (f fakeLib) GetByHash(uid int, _ string) (*library.Entry, error) {
+func (f fakeLib) GetByHash(_ context.Context, uid int, _ string) (*library.Entry, error) {
 	if f[uid] {
 		return &library.Entry{UserID: uid}, nil
 	}

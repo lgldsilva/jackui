@@ -1,12 +1,14 @@
 package httpshared
 
 import (
+	"context"
 	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -245,5 +247,23 @@ func TestSanitizeForLog(t *testing.T) {
 	}
 	if got := SanitizeForLog("plain"); got != "plain" {
 		t.Fatalf("plain passthrough broken: %q", got)
+	}
+}
+
+func TestDetachedCtxSurvivesParentCancelAndIsBounded(t *testing.T) {
+	type key struct{}
+	parent, cancelParent := context.WithCancel(context.WithValue(context.Background(), key{}, "v"))
+	cancelParent()
+	ctx, cancel := DetachedCtx(parent)
+	defer cancel()
+	if ctx.Err() != nil {
+		t.Fatalf("detached ctx dead with parent: %v", ctx.Err())
+	}
+	if ctx.Value(key{}) != "v" {
+		t.Fatal("values must carry over")
+	}
+	dl, ok := ctx.Deadline()
+	if !ok || time.Until(dl) > DetachedWriteTimeout {
+		t.Fatalf("deadline = %v ok=%v, want <= %v", dl, ok, DetachedWriteTimeout)
 	}
 }

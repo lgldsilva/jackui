@@ -129,7 +129,7 @@ func historyRefreshHandler(c *gin.Context, store *history.Store, jck *jackett.Cl
 	}
 
 	userID, isAdmin, _ := auth.UserIDFromCtx(c)
-	row, err := store.GetResult(id, userID, isAdmin)
+	row, err := store.GetResult(c.Request.Context(), id, userID, isAdmin)
 	if err != nil {
 		httpshared.RespondErrorMessage(c, http.StatusNotFound, "history row not found")
 		return
@@ -159,7 +159,7 @@ func historyRefreshHandler(c *gin.Context, store *history.Store, jck *jackett.Cl
 	seeders, leechers := seedersFromMatch(match)
 
 	now := time.Now()
-	_ = store.UpdateSeedersLeechers(id, seeders, leechers)
+	_ = store.UpdateSeedersLeechers(c.Request.Context(), id, seeders, leechers)
 	cache.set(id, refreshCacheEntry{
 		Seeders:   seeders,
 		Leechers:  leechers,

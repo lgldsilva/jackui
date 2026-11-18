@@ -13,6 +13,7 @@ package handlers
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -127,7 +128,7 @@ func TestSearchSSE_SaveHappensBeforeDone(t *testing.T) {
 	var rowsAtDone []history.CachedResult
 	events := readSSE(t, scanner, func(ev sseEvent) {
 		if ev.name == "done" {
-			rowsAtDone, _ = store.Search("savebeforedone", 0, false)
+			rowsAtDone, _ = store.Search(context.Background(), "savebeforedone", 0, false)
 		}
 	})
 
@@ -145,7 +146,7 @@ func TestSearchSSE_SaveHappensBeforeDone(t *testing.T) {
 func TestSearchSSE_SavedSetWasEmitted(t *testing.T) {
 	store := newTestHistoryStore(t)
 	// Pre-seed the cache with hashB so the session has a cache phase too.
-	if err := store.Save("invariant", []jackett.Result{{Title: "Cached B", Tracker: "Trk", InfoHash: hashB, Size: 1}}, 0, false); err != nil {
+	if err := store.Save(context.Background(), "invariant", []jackett.Result{{Title: "Cached B", Tracker: "Trk", InfoHash: hashB, Size: 1}}, 0, false); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	client := sseJackettServer(t, fmt.Sprintf(
@@ -165,7 +166,7 @@ func TestSearchSSE_SavedSetWasEmitted(t *testing.T) {
 		}
 	})
 
-	rows, err := store.Search("invariant", 0, false)
+	rows, err := store.Search(context.Background(), "invariant", 0, false)
 	if err != nil {
 		t.Fatalf("store.Search: %v", err)
 	}
@@ -203,7 +204,7 @@ func TestSearchSSE_IncognitoLeavesNoVisibleHistory(t *testing.T) {
 		t.Fatal("incognito session must still SEE live results")
 	}
 
-	rows, err := store.Search("secretquery", 0, false)
+	rows, err := store.Search(context.Background(), "secretquery", 0, false)
 	if err != nil {
 		t.Fatalf("store.Search: %v", err)
 	}
@@ -217,7 +218,7 @@ func TestSearchSSE_IncognitoLeavesNoVisibleHistory(t *testing.T) {
 // rows from other providers, the same reason the cache phase is skipped).
 func TestSearchSSE_ScopedSearchSkipsConvergence(t *testing.T) {
 	store := newTestHistoryStore(t)
-	if err := store.Save("scoped", []jackett.Result{{Title: "Other Provider", Tracker: "OtherTrk", InfoHash: hashB, Size: 9}}, 0, false); err != nil {
+	if err := store.Save(context.Background(), "scoped", []jackett.Result{{Title: "Other Provider", Tracker: "OtherTrk", InfoHash: hashB, Size: 9}}, 0, false); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	client := sseJackettServer(t, fmt.Sprintf(
@@ -253,7 +254,7 @@ func TestEmitConverged_OnlyUnseen(t *testing.T) {
 		{Title: "Seen Live", Tracker: "Trk", InfoHash: hashB, Size: 2},
 		{Title: "Tail Missed", Tracker: "Trk", InfoHash: hashC, Size: 3},
 	}
-	if err := store.Save("conv", seed, 0, false); err != nil {
+	if err := store.Save(context.Background(), "conv", seed, 0, false); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -267,7 +268,7 @@ func TestEmitConverged_OnlyUnseen(t *testing.T) {
 		liveSeen:   map[string]bool{hashB: true},
 	}
 
-	if got := state.emitConverged(store, "conv", 0, false); got != 1 {
+	if got := state.emitConverged(context.Background(), store, "conv", 0, false); got != 1 {
 		t.Fatalf("emitConverged = %d, want 1 (only the unseen tail)", got)
 	}
 	body := w.Body.String()
@@ -281,7 +282,7 @@ func TestEmitConverged_OnlyUnseen(t *testing.T) {
 		t.Error("converged row must be marked seen")
 	}
 	// Idempotent: a second pass finds nothing new.
-	if got := state.emitConverged(store, "conv", 0, false); got != 0 {
+	if got := state.emitConverged(context.Background(), store, "conv", 0, false); got != 0 {
 		t.Errorf("second emitConverged = %d, want 0", got)
 	}
 }
@@ -291,7 +292,7 @@ func TestEmitConverged_NilStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/", nil)
 	state := &liveSearchState{c: c, enricher: &resultEnricher{}, cachedSeen: map[string]bool{}, liveSeen: map[string]bool{}}
-	if got := state.emitConverged(nil, "q", 0, false); got != 0 {
+	if got := state.emitConverged(context.Background(), nil, "q", 0, false); got != 0 {
 		t.Errorf("emitConverged(nil store) = %d, want 0", got)
 	}
 	if w.Body.Len() != 0 {
@@ -337,7 +338,7 @@ func TestPersistEmitted_NilStoreAndEmpty(t *testing.T) {
 	persistEmitted(c, nil, "q", []jackett.Result{{Title: "x"}}, 0)
 	store := newTestHistoryStore(t)
 	persistEmitted(c, store, "q", nil, 0)
-	rows, _ := store.Search("q", 0, false)
+	rows, _ := store.Search(context.Background(), "q", 0, false)
 	if len(rows) != 0 {
 		t.Errorf("empty save must persist nothing, got %d row(s)", len(rows))
 	}

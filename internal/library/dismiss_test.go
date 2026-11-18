@@ -1,6 +1,9 @@
 package library
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestDismissKey(t *testing.T) {
 	if got := DismissKey("movie", 603); got != "movie:603" {
@@ -14,10 +17,10 @@ func TestDismissKey(t *testing.T) {
 func TestDismissRecommendation_PersistAndScope(t *testing.T) {
 	s := newTestStore(t)
 
-	if err := s.DismissRecommendation(1, "movie", 603); err != nil {
+	if err := s.DismissRecommendation(context.Background(), 1, "movie", 603); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
-	set1, err := s.DismissedRecommendations(1)
+	set1, err := s.DismissedRecommendations(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("DismissedRecommendations(1): %v", err)
 	}
@@ -25,7 +28,7 @@ func TestDismissRecommendation_PersistAndScope(t *testing.T) {
 		t.Errorf("user 1 dismissal missing: %v", set1)
 	}
 	// Scope: user 2 must not see user 1's dismissal.
-	set2, err := s.DismissedRecommendations(2)
+	set2, err := s.DismissedRecommendations(context.Background(), 2)
 	if err != nil {
 		t.Fatalf("DismissedRecommendations(2): %v", err)
 	}
@@ -37,11 +40,11 @@ func TestDismissRecommendation_PersistAndScope(t *testing.T) {
 func TestDismissRecommendation_Idempotent(t *testing.T) {
 	s := newTestStore(t)
 	for i := 0; i < 3; i++ {
-		if err := s.DismissRecommendation(7, "tv", 1399); err != nil {
+		if err := s.DismissRecommendation(context.Background(), 7, "tv", 1399); err != nil {
 			t.Fatalf("dismiss #%d: %v", i, err)
 		}
 	}
-	set, err := s.DismissedRecommendations(7)
+	set, err := s.DismissedRecommendations(context.Background(), 7)
 	if err != nil {
 		t.Fatalf("DismissedRecommendations: %v", err)
 	}
@@ -52,20 +55,20 @@ func TestDismissRecommendation_Idempotent(t *testing.T) {
 
 func TestDismissRecommendation_Validation(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.DismissRecommendation(1, "", 5); err == nil {
+	if err := s.DismissRecommendation(context.Background(), 1, "", 5); err == nil {
 		t.Error("empty kind must error")
 	}
-	if err := s.DismissRecommendation(1, "movie", 0); err == nil {
+	if err := s.DismissRecommendation(context.Background(), 1, "movie", 0); err == nil {
 		t.Error("non-positive tmdbId must error")
 	}
 }
 
 func TestDismiss_NilStore(t *testing.T) {
 	var s *Store
-	if err := s.DismissRecommendation(1, "movie", 1); err != nil {
+	if err := s.DismissRecommendation(context.Background(), 1, "movie", 1); err != nil {
 		t.Errorf("nil store dismiss should be a no-op, got %v", err)
 	}
-	set, err := s.DismissedRecommendations(1)
+	set, err := s.DismissedRecommendations(context.Background(), 1)
 	if err != nil || len(set) != 0 {
 		t.Errorf("nil store → empty set no error; got %v err=%v", set, err)
 	}

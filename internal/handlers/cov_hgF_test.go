@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -32,10 +33,10 @@ func hgFHistory(t *testing.T) *history.Store {
 // reading it back via Search (admin scope, anonymous user).
 func hgFSeedRow(t *testing.T, store *history.Store, query string, r jackett.Result) int64 {
 	t.Helper()
-	if err := store.Save(query, []jackett.Result{r}, 0, false); err != nil {
+	if err := store.Save(context.Background(), query, []jackett.Result{r}, 0, false); err != nil {
 		t.Fatalf("store.Save: %v", err)
 	}
-	rows, err := store.Search(query, 0, true)
+	rows, err := store.Search(context.Background(), query, 0, true)
 	if err != nil {
 		t.Fatalf("store.Search: %v", err)
 	}

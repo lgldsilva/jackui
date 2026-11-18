@@ -25,7 +25,10 @@ func LibraryList(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 				limit = n
 			}
 		}
-		list, err := lib.List(userID, includeAll, limit)
+		list, err := lib.List(c.Request.Context(), userID, includeAll, limit)
+		if httpshared.AbortIfClientGone(c, err) {
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -51,7 +54,7 @@ func LibraryGetByHash(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc 
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		entry, err := lib.GetByHashPublic(userID, hash)
+		entry, err := lib.GetByHashPublic(c.Request.Context(), userID, hash)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -96,7 +99,7 @@ func LibraryGet(lib *library.Store, s *streamer.Streamer) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin
-		entry, err := lib.GetByID(id, userID, includeAll)
+		entry, err := lib.GetByID(c.Request.Context(), id, userID, includeAll)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -137,7 +140,11 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 		// flagged incognito=1 and excluded from normal listings; saving position
 		// allows the user to resume within their incognito session.
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := lib.UpdateResume(id, userID, req.ResumeSeconds, req.DurationSeconds, fileIndex, isAdmin); err != nil {
+		// Detached: the player PATCHes on unmount, so a hard tab close must not
+		// drop the last position.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := lib.UpdateResume(ctx, id, userID, req.ResumeSeconds, req.DurationSeconds, fileIndex, isAdmin); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -151,7 +158,7 @@ func LibraryDeleteAll(lib *library.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		n, err := lib.DeleteAll(userID, includeAll)
+		n, err := lib.DeleteAll(c.Request.Context(), userID, includeAll)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -169,7 +176,7 @@ func LibraryDelete(lib *library.Store) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := lib.Delete(id, userID, isAdmin); err != nil {
+		if err := lib.Delete(c.Request.Context(), id, userID, isAdmin); err != nil {
 			RespondStoreError(c, err, library.ErrNotFound)
 			return
 		}

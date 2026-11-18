@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -234,8 +235,8 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 // Logout handles POST /api/auth/logout — body: {refresh}
 // incognitoCleanable is satisfied by history.Store and library.Store.
 type incognitoCleanable interface {
-	DeleteIncognito(userID int) error
-	DeleteAllIncognito() error
+	DeleteIncognito(ctx context.Context, userID int) error
+	DeleteAllIncognito(ctx context.Context) error
 }
 
 // incognitoHeartbeats tracks the last heartbeat time per userID.
@@ -252,7 +253,7 @@ var (
 // their data after incognitoTTL. Call once at startup.
 func StartIncognitoReaper(cleaners ...incognitoCleanable) {
 	for _, cl := range cleaners {
-		_ = cl.DeleteAllIncognito()
+		_ = cl.DeleteAllIncognito(context.Background())
 	}
 	go reaperLoop(cleaners)
 }
@@ -284,7 +285,7 @@ func collectExpiredIncognito() []int {
 func purgeIncognito(cleaners []incognitoCleanable, uids []int) {
 	for _, uid := range uids {
 		for _, cl := range cleaners {
-			_ = cl.DeleteIncognito(uid)
+			_ = cl.DeleteIncognito(context.Background(), uid)
 		}
 	}
 }
@@ -316,8 +317,11 @@ func Logout(store *auth.Store, cleaners ...incognitoCleanable) gin.HandlerFunc {
 		}
 		// Clean up any incognito history/library entries for this user.
 		if claims, ok := auth.ClaimsFromCtx(c); ok {
+			// Detached: privacy cleanup must finish even if the client drops now.
+			ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+			defer cancel()
 			for _, cl := range cleaners {
-				_ = cl.DeleteIncognito(claims.UserID)
+				_ = cl.DeleteIncognito(ctx, claims.UserID)
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
@@ -334,8 +338,10 @@ func ClearIncognito(cleaners ...incognitoCleanable) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		for _, cl := range cleaners {
-			if err := cl.DeleteIncognito(claims.UserID); err != nil {
+			if err := cl.DeleteIncognito(ctx, claims.UserID); err != nil {
 				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}

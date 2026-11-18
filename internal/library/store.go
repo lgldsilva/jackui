@@ -4,6 +4,7 @@
 package library
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strconv"
@@ -64,14 +65,14 @@ func New(pool *sql.DB) (*Store, error) {
 // DismissRecommendation records that the user wants to never see this recommended
 // title again. Idempotent: re-dismissing the same (kind, tmdb_id) is a no-op
 // (PRIMARY KEY conflict is ignored). Scoped per user. kind is "movie" | "tv".
-func (s *Store) DismissRecommendation(userID int, kind string, tmdbID int) error {
+func (s *Store) DismissRecommendation(ctx context.Context, userID int, kind string, tmdbID int) error {
 	if s == nil {
 		return nil
 	}
 	if kind == "" || tmdbID <= 0 {
 		return errors.New("kind and tmdbId are required")
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO rec_dismissed(user_id, kind, tmdb_id)
 		VALUES(?, ?, ?)
 		ON CONFLICT(user_id, kind, tmdb_id) DO NOTHING
@@ -82,12 +83,12 @@ func (s *Store) DismissRecommendation(userID int, kind string, tmdbID int) error
 // DismissedRecommendations returns the user's dismissed recommendations as a set
 // keyed by "kind:tmdbID" (e.g. "movie:603"). Used by the generator to exclude
 // them from both the seed and the result list. Empty map when none / nil store.
-func (s *Store) DismissedRecommendations(userID int) (map[string]bool, error) {
+func (s *Store) DismissedRecommendations(ctx context.Context, userID int) (map[string]bool, error) {
 	set := map[string]bool{}
 	if s == nil {
 		return set, nil
 	}
-	rows, err := s.db.Query(`SELECT kind, tmdb_id FROM rec_dismissed WHERE user_id = ?`, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT kind, tmdb_id FROM rec_dismissed WHERE user_id = ?`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +113,7 @@ func DismissKey(kind string, tmdbID int) string {
 // refreshing last_played_at to now. Used on every /stream/add call.
 // When incognito=true the row is written with incognito=1 so it is excluded from
 // normal queries and deleted when the user ends their incognito session.
-func (s *Store) Upsert(in UpsertInput) (*Entry, error) {
+func (s *Store) Upsert(ctx context.Context, in UpsertInput) (*Entry, error) {
 	if in.InfoHash == "" || in.Magnet == "" {
 		return nil, errors.New("info_hash and magnet are required")
 	}
@@ -120,7 +121,7 @@ func (s *Store) Upsert(in UpsertInput) (*Entry, error) {
 	if in.Incognito {
 		incognitoVal = 1
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO library(user_id, info_hash, magnet, name, primary_file_index, total_size, kind, incognito, last_played_at)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(user_id, info_hash) DO UPDATE SET
@@ -135,16 +136,16 @@ func (s *Store) Upsert(in UpsertInput) (*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.GetByHash(in.UserID, in.InfoHash)
+	return s.GetByHash(ctx, in.UserID, in.InfoHash)
 }
 
 // DeleteIncognito removes all incognito-flagged entries for a user.
 // Called when the user ends their incognito session (logout or toggle-off).
-func (s *Store) DeleteIncognito(userID int) error {
+func (s *Store) DeleteIncognito(ctx context.Context, userID int) error {
 	if s == nil {
 		return nil
 	}
-	_, err := s.db.Exec(`DELETE FROM library WHERE user_id = ? AND incognito = 1`, userID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM library WHERE user_id = ? AND incognito = 1`, userID)
 	return err
 }
 
@@ -152,18 +153,18 @@ func (s *Store) DeleteIncognito(userID int) error {
 // Called once at startup: after a restart the in-memory heartbeat map (which
 // the reaper relies on) is empty, so any incognito row left in the DB is
 // orphaned and would persist forever — defeating the purpose of incognito.
-func (s *Store) DeleteAllIncognito() error {
+func (s *Store) DeleteAllIncognito(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
-	_, err := s.db.Exec(`DELETE FROM library WHERE incognito = 1`)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM library WHERE incognito = 1`)
 	return err
 }
 
 // GetByHash returns the user's library entry for a given info_hash (if any).
 // Incognito entries are returned regardless — callers need the entry ID for resume updates.
-func (s *Store) GetByHash(userID int, infoHash string) (*Entry, error) {
-	row := s.db.QueryRow(`
+func (s *Store) GetByHash(ctx context.Context, userID int, infoHash string) (*Entry, error) {
+	row := s.db.QueryRowContext(ctx, `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
 		FROM library WHERE user_id = ? AND info_hash = ?
@@ -173,8 +174,8 @@ func (s *Store) GetByHash(userID int, infoHash string) (*Entry, error) {
 
 // GetByHashPublic is like GetByHash but filters out incognito entries.
 // Used by endpoints that expose data to the user's UI.
-func (s *Store) GetByHashPublic(userID int, infoHash string) (*Entry, error) {
-	row := s.db.QueryRow(`
+func (s *Store) GetByHashPublic(ctx context.Context, userID int, infoHash string) (*Entry, error) {
+	row := s.db.QueryRowContext(ctx, `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
 		FROM library WHERE user_id = ? AND info_hash = ? AND incognito = 0
@@ -183,7 +184,7 @@ func (s *Store) GetByHashPublic(userID int, infoHash string) (*Entry, error) {
 }
 
 // GetByID returns one entry, optionally bypassing user check (admin).
-func (s *Store) GetByID(id int, userID int, includeAll bool) (*Entry, error) {
+func (s *Store) GetByID(ctx context.Context, id int, userID int, includeAll bool) (*Entry, error) {
 	q := `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
@@ -193,12 +194,12 @@ func (s *Store) GetByID(id int, userID int, includeAll bool) (*Entry, error) {
 		q += sqlAndUserID
 		args = append(args, userID)
 	}
-	return scanEntry(s.db.QueryRow(q, args...))
+	return scanEntry(s.db.QueryRowContext(ctx, q, args...))
 }
 
 // List returns the user's library, ordered by most recently played first.
 // includeAll lets admin see everyone.
-func (s *Store) List(userID int, includeAll bool, limit int) ([]Entry, error) {
+func (s *Store) List(ctx context.Context, userID int, includeAll bool, limit int) ([]Entry, error) {
 	q := `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
 		       resume_seconds, duration_seconds, kind, last_played_at, added_at
@@ -214,7 +215,7 @@ func (s *Store) List(userID int, includeAll bool, limit int) ([]Entry, error) {
 		q += " LIMIT ?"
 		args = append(args, limit)
 	}
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,8 +251,8 @@ type PrimaryFileLookup func(infoHash string) (primaryFile int, ok bool)
 // Only positive lookups (primaryFile > 0) update anything — keeps audio-only
 // torrents where pickPrimaryFile returns -1 untouched, since 0 may be the
 // correct "first track" choice for those.
-func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
-	rows, err := s.db.Query(`SELECT id, info_hash FROM library WHERE primary_file_index = 0`)
+func (s *Store) RefreshStalePrimary(ctx context.Context, lookup PrimaryFileLookup) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, info_hash FROM library WHERE primary_file_index = 0`)
 	if err != nil {
 		return 0, err
 	}
@@ -278,7 +279,7 @@ func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
 		if !ok || pf <= 0 {
 			continue
 		}
-		if _, err := s.db.Exec(`UPDATE library SET primary_file_index = ? WHERE id = ?`, pf, st.id); err != nil {
+		if _, err := s.db.ExecContext(ctx, `UPDATE library SET primary_file_index = ? WHERE id = ?`, pf, st.id); err != nil {
 			return updated, err
 		}
 		updated++
@@ -288,7 +289,7 @@ func (s *Store) RefreshStalePrimary(lookup PrimaryFileLookup) (int, error) {
 
 // UpdateResume saves the current playback position. Called periodically by the player.
 // Optionally updates duration if not yet known.
-func (s *Store) UpdateResume(id, userID int, resumeSeconds, durationSeconds float64, fileIndex int, includeAll bool) error {
+func (s *Store) UpdateResume(ctx context.Context, id, userID int, resumeSeconds, durationSeconds float64, fileIndex int, includeAll bool) error {
 	q := `UPDATE library SET resume_seconds = ?, last_played_at = CURRENT_TIMESTAMP`
 	args := []any{resumeSeconds}
 	if durationSeconds > 0 {
@@ -310,21 +311,21 @@ func (s *Store) UpdateResume(id, userID int, resumeSeconds, durationSeconds floa
 	// Deliberately tolerant: this endpoint is the player's resume heartbeat.
 	// A 0-row UPDATE (entry deleted mid-playback, or an incognito-only session)
 	// must stay a silent 200, not an error the player has to handle.
-	if _, err := s.db.Exec(q, args...); err != nil {
+	if _, err := s.db.ExecContext(ctx, q, args...); err != nil {
 		return err
 	}
 	return nil
 }
 
 // Delete removes an entry. Returns an error if the entry isn't owned by user (unless admin).
-func (s *Store) Delete(id, userID int, includeAll bool) error {
+func (s *Store) Delete(ctx context.Context, id, userID int, includeAll bool) error {
 	q := `DELETE FROM library WHERE id = ?`
 	args := []any{id}
 	if !includeAll {
 		q += sqlAndUserID
 		args = append(args, userID)
 	}
-	res, err := s.db.Exec(q, args...)
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -337,14 +338,14 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 // DeleteAll removes every library entry owned by the user. Admins can pass
 // includeAll=true to wipe the entire history across users (rarely useful — meant
 // mostly for support / DB resets).
-func (s *Store) DeleteAll(userID int, includeAll bool) (int64, error) {
+func (s *Store) DeleteAll(ctx context.Context, userID int, includeAll bool) (int64, error) {
 	q := `DELETE FROM library`
 	args := []any{}
 	if !includeAll {
 		q += " WHERE user_id = ?"
 		args = append(args, userID)
 	}
-	res, err := s.db.Exec(q, args...)
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return 0, err
 	}

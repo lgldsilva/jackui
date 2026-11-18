@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strings"
@@ -106,7 +107,7 @@ func Search(client *jackett.Client, store *history.Store, favs *streamer.Favorit
 
 		liveResults, liveErr := client.Search(query, c.Query("category"), indexers)
 		saveHistory(store, query, liveResults, userID, liveErr, c)
-		merged := searchMerged(store, query, userID, includeAll, liveResults, enricher)
+		merged := searchMerged(c.Request.Context(), store, query, userID, includeAll, liveResults, enricher)
 
 		if liveErr != nil && len(merged) == 0 {
 			httpshared.RespondError(c, http.StatusBadGateway, liveErr)
@@ -143,13 +144,20 @@ func saveHistory(store *history.Store, query string, liveResults []jackett.Resul
 		return
 	}
 	incognito := middleware.IsIncognito(c)
-	go func() { _ = store.Save(query, liveResults, userID, incognito) }()
+	// Detached from the request: the save outlives the handler, so only the
+	// request's values are kept, not its cancellation; bounded so a hung
+	// Postgres cannot leak the goroutine.
+	ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	go func() {
+		defer cancel()
+		_ = store.Save(ctx, query, liveResults, userID, incognito)
+	}()
 }
 
-func searchMerged(store *history.Store, query string, userID int, includeAll bool, liveResults []jackett.Result, enricher *resultEnricher) []searchResult {
+func searchMerged(ctx context.Context, store *history.Store, query string, userID int, includeAll bool, liveResults []jackett.Result, enricher *resultEnricher) []searchResult {
 	var cached []history.CachedResult
 	if store != nil {
-		cached, _ = store.Search(query, userID, includeAll)
+		cached, _ = store.Search(ctx, query, userID, includeAll)
 	}
 	return mergeResults(liveResults, cached, enricher)
 }

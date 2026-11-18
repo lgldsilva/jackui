@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,7 @@ func newRecLib(t *testing.T) *library.Store {
 // watch records a played title for the user (so it would normally seed recs).
 func watch(t *testing.T, lib *library.Store, userID int, hash, name string) {
 	t.Helper()
-	if _, err := lib.Upsert(library.UpsertInput{
+	if _, err := lib.Upsert(context.Background(), library.UpsertInput{
 		UserID: userID, InfoHash: hash, Magnet: "magnet:?xt=urn:btih:" + hash, Name: name,
 	}); err != nil {
 		t.Fatalf("Upsert: %v", err)
@@ -130,17 +131,17 @@ func TestDismissRecommendation_PersistsAndScopesPerUser(t *testing.T) {
 	lib := newRecLib(t)
 
 	// User 1 dismisses movie:603; user 2 dismisses nothing.
-	if err := lib.DismissRecommendation(1, "movie", 603); err != nil {
+	if err := lib.DismissRecommendation(context.Background(), 1, "movie", 603); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
-	set1, err := lib.DismissedRecommendations(1)
+	set1, err := lib.DismissedRecommendations(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("DismissedRecommendations(1): %v", err)
 	}
 	if !set1[library.DismissKey("movie", 603)] {
 		t.Errorf("user 1 dismissal missing: %v", set1)
 	}
-	set2, err := lib.DismissedRecommendations(2)
+	set2, err := lib.DismissedRecommendations(context.Background(), 2)
 	if err != nil {
 		t.Fatalf("DismissedRecommendations(2): %v", err)
 	}
@@ -152,11 +153,11 @@ func TestDismissRecommendation_PersistsAndScopesPerUser(t *testing.T) {
 func TestDismissRecommendation_Idempotent(t *testing.T) {
 	lib := newRecLib(t)
 	for i := 0; i < 3; i++ {
-		if err := lib.DismissRecommendation(1, "tv", 1399); err != nil {
+		if err := lib.DismissRecommendation(context.Background(), 1, "tv", 1399); err != nil {
 			t.Fatalf("dismiss #%d: %v", i, err)
 		}
 	}
-	set, err := lib.DismissedRecommendations(1)
+	set, err := lib.DismissedRecommendations(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("DismissedRecommendations: %v", err)
 	}
@@ -167,10 +168,10 @@ func TestDismissRecommendation_Idempotent(t *testing.T) {
 
 func TestDismissRecommendation_Validation(t *testing.T) {
 	lib := newRecLib(t)
-	if err := lib.DismissRecommendation(1, "", 1); err == nil {
+	if err := lib.DismissRecommendation(context.Background(), 1, "", 1); err == nil {
 		t.Error("empty kind must error")
 	}
-	if err := lib.DismissRecommendation(1, "movie", 0); err == nil {
+	if err := lib.DismissRecommendation(context.Background(), 1, "movie", 0); err == nil {
 		t.Error("non-positive tmdbId must error")
 	}
 }
@@ -213,7 +214,7 @@ func TestDismissHandler_OK(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	set, _ := lib.DismissedRecommendations(0) // anonymous → userID 0
+	set, _ := lib.DismissedRecommendations(context.Background(), 0) // anonymous → userID 0
 	if !set[library.DismissKey("movie", 603)] {
 		t.Errorf("handler did not persist dismissal: %v", set)
 	}
@@ -237,10 +238,10 @@ func TestDismissHandler_NilStore(t *testing.T) {
 // rankRecs (the same set the handler loads from the store).
 func TestRankRecs_DropsDismissedFromStore(t *testing.T) {
 	lib := newRecLib(t)
-	if err := lib.DismissRecommendation(0, "movie", 10); err != nil {
+	if err := lib.DismissRecommendation(context.Background(), 0, "movie", 10); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
-	dismissed, err := dismissedSet(lib, 0)
+	dismissed, err := dismissedSet(context.Background(), lib, 0)
 	if err != nil {
 		t.Fatalf("dismissedSet: %v", err)
 	}
@@ -253,7 +254,7 @@ func TestRankRecs_DropsDismissedFromStore(t *testing.T) {
 
 // dismissedSet tolerates a nil store (empty set, no error).
 func TestDismissedSet_NilStore(t *testing.T) {
-	set, err := dismissedSet(nil, 0)
+	set, err := dismissedSet(context.Background(), nil, 0)
 	if err != nil || len(set) != 0 {
 		t.Errorf("nil store → empty set, no error; got %v err=%v", set, err)
 	}

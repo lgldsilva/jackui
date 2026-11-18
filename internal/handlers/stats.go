@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -43,7 +44,7 @@ type userStats struct {
 func Stats(lib *library.Store, dl *downloads.Store, hist *history.Store, wl *watchlist.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
-		out, err := buildUserStats(userID, lib, dl, hist, wl)
+		out, err := buildUserStats(c.Request.Context(), userID, lib, dl, hist, wl)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -54,23 +55,23 @@ func Stats(lib *library.Store, dl *downloads.Store, hist *history.Store, wl *wat
 
 // buildUserStats assembles the response from whichever stores exist — split
 // out of the handler per section to keep each unit's cognitive load low.
-func buildUserStats(userID int, lib *library.Store, dl *downloads.Store, hist *history.Store, wl *watchlist.Store) (userStats, error) {
+func buildUserStats(ctx context.Context, userID int, lib *library.Store, dl *downloads.Store, hist *history.Store, wl *watchlist.Store) (userStats, error) {
 	out := userStats{Library: stats.Aggregate(nil, time.Now(), time.Local)}
-	if err := fillLibraryStats(&out, lib, userID); err != nil {
+	if err := fillLibraryStats(ctx, &out, lib, userID); err != nil {
 		return out, err
 	}
 	if err := fillDownloadStats(&out, dl, userID); err != nil {
 		return out, err
 	}
-	fillActivityStats(&out, hist, wl, userID)
+	fillActivityStats(ctx, &out, hist, wl, userID)
 	return out, nil
 }
 
-func fillLibraryStats(out *userStats, lib *library.Store, userID int) error {
+func fillLibraryStats(ctx context.Context, out *userStats, lib *library.Store, userID int) error {
 	if lib == nil {
 		return nil
 	}
-	entries, err := lib.List(userID, false, statsLibraryLimit)
+	entries, err := lib.List(ctx, userID, false, statsLibraryLimit)
 	if err != nil {
 		return err
 	}
@@ -92,9 +93,9 @@ func fillDownloadStats(out *userStats, dl *downloads.Store, userID int) error {
 
 // fillActivityStats adds the best-effort blocks (search history + watchlists):
 // failures here zero the field instead of failing the whole response.
-func fillActivityStats(out *userStats, hist *history.Store, wl *watchlist.Store, userID int) {
+func fillActivityStats(ctx context.Context, out *userStats, hist *history.Store, wl *watchlist.Store, userID int) {
 	if hist != nil {
-		if n, err := hist.DistinctQueryCount(userID); err == nil {
+		if n, err := hist.DistinctQueryCount(ctx, userID); err == nil {
 			out.SearchQueries = n
 		}
 	}

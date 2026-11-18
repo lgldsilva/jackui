@@ -59,7 +59,10 @@ func GetHistory(store *history.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		entries, err := store.RecentEntries(100, userID, includeAll)
+		entries, err := store.RecentEntries(c.Request.Context(), 100, userID, includeAll)
+		if httpshared.AbortIfClientGone(c, err) {
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -82,7 +85,7 @@ func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls 
 
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		results, err := store.Search(query, userID, includeAll)
+		results, err := store.Search(c.Request.Context(), query, userID, includeAll)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -103,7 +106,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 		limit := 200
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		results, err := store.SearchAll(query, limit, userID, includeAll)
+		results, err := store.SearchAll(c.Request.Context(), query, limit, userID, includeAll)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -120,14 +123,14 @@ func DeleteHistory(store *history.Store) gin.HandlerFunc {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
 		if q := c.Query("q"); q != "" {
-			if err := store.DeleteQuery(q, userID, includeAll); err != nil {
+			if err := store.DeleteQuery(c.Request.Context(), q, userID, includeAll); err != nil {
 				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
 			c.JSON(http.StatusOK, gin.H{"message": "query cleared"})
 			return
 		}
-		if err := store.DeleteAll(userID, includeAll); err != nil {
+		if err := store.DeleteAll(c.Request.Context(), userID, includeAll); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

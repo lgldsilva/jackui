@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -58,7 +59,7 @@ func hiddenIdentityEnv(t *testing.T, favHash, libHash string) (*library.Store, *
 		{UserID: uid, InfoHash: libHash, Magnet: "magnet:?xt=urn:btih:" + libHash, Name: favName},
 		{UserID: uid, InfoHash: "1111111111111111111111111111111111111111", Magnet: "magnet:x", Name: "Control Row"},
 	} {
-		if _, err := lib.Upsert(e); err != nil {
+		if _, err := lib.Upsert(context.Background(), e); err != nil {
 			t.Fatalf("lib.Upsert: %v", err)
 		}
 	}
@@ -156,7 +157,7 @@ func TestLibraryGetByID_HonoursCurtain(t *testing.T) {
 	lib, s := hiddenIdentityEnv(t, "", "dddddddddddddddddddddddddddddddddddddddd")
 
 	// Find the hidden row's numeric id.
-	list, err := lib.List(7, false, 0)
+	list, err := lib.List(context.Background(), 7, false, 0)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

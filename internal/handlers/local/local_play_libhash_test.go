@@ -1,7 +1,10 @@
 package local
 
 import (
+	"context"
 	"encoding/base64"
+	"github.com/gin-gonic/gin"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -39,5 +42,20 @@ func TestUpsertLocalLibrary(t *testing.T) {
 	}
 	if got := upsertLocalLibrary(c, nil, "M", "song.flac", true); got != 0 {
 		t.Errorf("nil store must return 0, got %d", got)
+	}
+}
+
+func TestUpsertLocalLibrary_SurvivesClientAbort(t *testing.T) {
+	lib, err := library.New(seededPool(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.Request = httptest.NewRequest("GET", "/", nil).WithContext(ctx)
+	if id := upsertLocalLibrary(c, lib, "M", "song.flac", true); id == 0 {
+		t.Fatal("upsert skipped because the client left; want the row written")
 	}
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -76,11 +77,11 @@ type mockCleanable2 struct {
 	deleteAllCalls int
 }
 
-func (m *mockCleanable2) DeleteIncognito(userID int) error {
+func (m *mockCleanable2) DeleteIncognito(_ context.Context, userID int) error {
 	m.deletedUserID = userID
 	return nil
 }
-func (m *mockCleanable2) DeleteAllIncognito() error {
+func (m *mockCleanable2) DeleteAllIncognito(_ context.Context) error {
 	m.deleteAllCalls++
 	return nil
 }
