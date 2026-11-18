@@ -88,7 +88,7 @@ internal/
 
 ## CI/CD & quality gates
 
-- **Source of truth: GitHub** (`github.com/lgldsilva/jackui`). Active workflows: `.github/workflows/{ci,codeql,mutation,release}.yml`. Former Gitea pipelines live under `docs/archive/`.
+- **Source of truth: GitHub** (`github.com/lgldsilva/jackui`). Active workflows: `.github/workflows/{ci,codeql,dependabot-automerge,mutation,release}.yml`. Former Gitea pipelines live under `docs/archive/`.
 - **CI (GitHub Actions)**: `.github/workflows/ci.yml` on every PR **and** push to `main` — one ARM job runs `scripts/ci-arm.sh all`: backend (gofmt/vet/test + Postgres, then a `-race` gate on the concurrency-heavy packages), frontend (tsc/eslint/i18n/vitest/build), Electron typecheck, golangci-lint `--new-from-patch` (diff against the base) and a `/healthz` smoke; plus a Trivy fs dependency scan (HIGH/CRITICAL), SonarCloud (skipped without `SONAR_TOKEN`) and informational benchmarks. A separate, not-yet-required `E2E smoke (Playwright)` job runs `scripts/e2e-smoke.sh` (`make e2e-smoke` locally): real binary + Postgres, auth on, Chromium over every SPA route.
 - **CodeQL**: security-extended + security-and-quality on push/PR/weekly.
 - **Release**: tag `v*` or `workflow_dispatch` (only on `main` or a `v*` tag) → full CI (`ci.yml` via `workflow_call`) + `scripts/release-guard.sh` (a published `:vX.Y.Z` is never overwritten from another commit) → build multi-arch + nvidia, pushed to `ghcr.io/lgldsilva/jackui` **by digest only** → **Trivy CRITICAL gate on those digests** (amd64, arm64, nvidia; `scripts/release-images.sh`) → tags (`:vX.Y.Z`/`:latest`/`:nvidia`) move only after every scan passes → one SBOM per image → GitHub Release. See [docs/CICD.md](docs/CICD.md).
