@@ -243,12 +243,18 @@ func persistBenchmarkRun(parent context.Context, store *ai.BenchmarkStore, score
 	}
 	merged := scores
 	if provider != "" || model != "" {
-		merged = mergeBenchmarkScores(store.Results(ctx), scores)
+		// A failed read must abort: merging over "nothing" would make SaveResults
+		// wipe every other provider's stored row.
+		prev, err := store.ResultsErr(ctx)
+		if err != nil {
+			return nil, err
+		}
+		merged = mergeBenchmarkScores(prev, scores)
 	}
 	if err := store.SaveResults(ctx, merged); err != nil {
 		return nil, err
 	}
-	return store.Results(ctx), nil
+	return store.ResultsErr(ctx)
 }
 
 // discoveryTimeout bounds only the model-listing calls (filterSlotsForBenchmark)
@@ -307,9 +313,15 @@ func RunAIBenchmark(client *ai.Client, store *ai.BenchmarkStore, tracker *Benchm
 		provider := c.Query("provider")
 		model := c.Query("model")
 
+		// The case set decides what gets measured AND persisted as authoritative:
+		// a failed read must abort the run (never fall back to the defaults).
 		var cases []ai.BenchmarkCase
 		if store != nil {
-			cases = store.Cases(c.Request.Context())
+			var err error
+			if cases, err = store.CasesErr(c.Request.Context()); err != nil {
+				respondBenchmarkReadError(c, err)
+				return
+			}
 		}
 		discoverCtx, discoverCancel := context.WithTimeout(context.Background(), discoveryTimeout)
 		slots := filterSlotsForBenchmark(discoverCtx, client, provider, model)
@@ -365,7 +377,26 @@ func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore, track
 			defer tracker.finish()
 		}
 
-		merged, fresh := client.RerunIncomplete(ctx, store.Results(c.Request.Context()), store.Cases(c.Request.Context()))
+		// Inputs are read BEFORE the long run, on the request ctx: if the client
+		// is already gone (or the DB fails) abort instead of re-running against
+		// an empty "previous" set, which the detached SaveResults below would
+		// otherwise commit over every stored row.
+		prev, err := store.ResultsErr(c.Request.Context())
+		if err != nil {
+			respondBenchmarkReadError(c, err)
+			return
+		}
+		cases, err := store.CasesErr(c.Request.Context())
+		if err != nil {
+			respondBenchmarkReadError(c, err)
+			return
+		}
+		merged, fresh := client.RerunIncomplete(ctx, prev, cases)
+		if len(prev) > 0 && len(merged) == 0 {
+			// Never replace stored results with an empty set.
+			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "benchmark re-run produced no results; stored results kept")
+			return
+		}
 		// The re-run is already paid for: persist detached from the client.
 		pctx, pcancel := httpshared.DetachedCtx(c.Request.Context())
 		defer pcancel()
@@ -379,7 +410,10 @@ func RunAIBenchmarkIncomplete(client *ai.Client, store *ai.BenchmarkStore, track
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		merged = store.Results(pctx) // re-read with the joined history
+		if merged, err = store.ResultsErr(pctx); err != nil { // re-read with the joined history
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			return
+		}
 		client.AdoptBenchmark(merged)
 
 		c.JSON(http.StatusOK, gin.H{"results": merged})
@@ -449,4 +483,13 @@ func dedupeSlots(slots []ai.Slot) []ai.Slot {
 		}
 	}
 	return out
+}
+
+// respondBenchmarkReadError answers a failed benchmark input read: 499 when the
+// client is gone, 500 otherwise.
+func respondBenchmarkReadError(c *gin.Context, err error) {
+	if httpshared.AbortIfClientGone(c, err) {
+		return
+	}
+	httpshared.RespondError(c, http.StatusInternalServerError, err)
 }

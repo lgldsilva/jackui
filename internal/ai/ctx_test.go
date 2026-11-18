@@ -42,3 +42,23 @@ func TestBenchmarkStoreCallsHonourCancelledContext(t *testing.T) {
 		t.Fatalf("results after cancelled calls = %+v; want only the original row", got)
 	}
 }
+
+// The Err variants must surface a failed read instead of looking empty/default.
+func TestBenchmarkStoreErrVariantsSurfaceFailure(t *testing.T) {
+	s := newTestStore(t)
+	live := context.Background()
+	if err := s.SaveResults(live, []SlotScore{{SlotID: "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.ResultsErr(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("ResultsErr err = %v, want context.Canceled", err)
+	}
+	if _, err := s.CasesErr(ctx); !errors.Is(err, context.Canceled) {
+		t.Errorf("CasesErr err = %v, want context.Canceled", err)
+	}
+	if got, err := s.ResultsErr(live); err != nil || len(got) != 1 {
+		t.Errorf("ResultsErr live = %v, %v", got, err)
+	}
+}

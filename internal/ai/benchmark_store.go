@@ -224,8 +224,17 @@ func tsRFC3339(ns sql.NullTime) string {
 // row's durable run history (outcome, success/run timestamps, failure streak)
 // joined in. Legacy rows with no history row leave those fields empty/zero.
 func (s *BenchmarkStore) Results(ctx context.Context) []SlotScore {
+	out, _ := s.ResultsErr(ctx)
+	return out
+}
+
+// ResultsErr is Results with the failure surfaced: a read that fails (dead ctx,
+// DB error, truncated rows) returns an error instead of looking like "no
+// results". Callers that feed a WRITE (re-run, merge) must use this one, or a
+// failed read becomes an empty set that the write then commits over the table.
+func (s *BenchmarkStore) ResultsErr(ctx context.Context) ([]SlotScore, error) {
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.slot_id, r.provider, r.model, r.accuracy, r.avg_latency_ms, r.composite, r.samples, r.failure_reason, r.incomplete, r.cost_per_1m, r.tasks,
@@ -234,7 +243,7 @@ func (s *BenchmarkStore) Results(ctx context.Context) []SlotScore {
 		LEFT JOIN benchmark_history h ON h.slot_id = r.slot_id
 		ORDER BY r.chain_order`)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []SlotScore
@@ -258,10 +267,10 @@ func (s *BenchmarkStore) Results(ctx context.Context) []SlotScore {
 			out = append(out, sc)
 		}
 	}
-	if rows.Err() != nil {
-		return nil // a truncated read must not look like the full result set
+	if err := rows.Err(); err != nil {
+		return nil, err // a truncated read must not look like the full result set
 	}
-	return out
+	return out, nil
 }
 
 // Order returns the persisted chain order (slot ids, best-first), or nil if no
@@ -292,12 +301,23 @@ func (s *BenchmarkStore) Order(ctx context.Context) []string {
 // The seed is the FULL multi-task set (rename + schedule + identify), so a fresh
 // install benchmarks every AI task out of the box.
 func (s *BenchmarkStore) Cases(ctx context.Context) []BenchmarkCase {
+	out, err := s.CasesErr(ctx)
+	if err != nil {
+		return AllDefaultBenchmarkCases() // display/boot only: defaults in memory, never persisted
+	}
+	return out
+}
+
+// CasesErr is Cases with the failure surfaced. A run that persists its outcome
+// must use this one: silently falling back to the defaults would measure, and
+// store as authoritative, a case set the user did not choose.
+func (s *BenchmarkStore) CasesErr(ctx context.Context) ([]BenchmarkCase, error) {
 	if s == nil {
-		return AllDefaultBenchmarkCases()
+		return AllDefaultBenchmarkCases(), nil
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT raw, expect, task, origin FROM benchmark_case ORDER BY id`)
 	if err != nil {
-		return AllDefaultBenchmarkCases()
+		return nil, err
 	}
 	defer rows.Close()
 	var out []BenchmarkCase
@@ -307,15 +327,15 @@ func (s *BenchmarkStore) Cases(ctx context.Context) []BenchmarkCase {
 			out = append(out, bc)
 		}
 	}
-	if rows.Err() != nil {
+	if err := rows.Err(); err != nil {
 		// A failed read is NOT an empty table: never re-seed (that would overwrite
-		// the user's edited set) — serve the defaults in memory only.
-		return AllDefaultBenchmarkCases()
+		// the user's edited set).
+		return nil, err
 	}
 	if len(out) == 0 {
 		def := AllDefaultBenchmarkCases()
 		_ = s.SetCases(ctx, def)
-		return def
+		return def, nil
 	}
 	// Upgrade path: a store still holding the original 7-case seed untouched, OR the
 	// rename-only broad set with no schedule/identify task yet, gets the new full
@@ -323,9 +343,9 @@ func (s *BenchmarkStore) Cases(ctx context.Context) []BenchmarkCase {
 	if isLegacySeed(out) || isRenameOnlySeed(out) {
 		def := AllDefaultBenchmarkCases()
 		_ = s.SetCases(ctx, def)
-		return def
+		return def, nil
 	}
-	return out
+	return out, nil
 }
 
 // SetCases replaces the entire case set (the UI sends the full edited list).

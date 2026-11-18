@@ -153,7 +153,10 @@ func (s *Sender) sendOne(ctx context.Context, sub Subscription, msg []byte) {
 	defer func() { _ = resp.Body.Close() }()
 	// The push service says this endpoint no longer exists — stop trying.
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
-		_ = s.store.DeleteEndpoint(ctx, sub.Endpoint)
+		// Pruning a proven-dead endpoint should not be lost to a cancelled send ctx.
+		dctx, dcancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer dcancel()
+		_ = s.store.DeleteEndpoint(dctx, sub.Endpoint)
 		return
 	}
 	if resp.StatusCode >= 300 {
