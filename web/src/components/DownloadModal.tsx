@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -58,7 +59,7 @@ function internalDestLabel(dest: DownloadDest, t: TFn): string {
 
 // Minimal translate-fn signature so the module-level helper can format the
 // user-facing partial/validation messages with the component's `t`.
-type TFn = (key: string, opts?: Record<string, unknown>) => string
+type TFn = TFunction
 
 async function downloadInternal(
   result: SearchResult,

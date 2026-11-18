@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import {
   Check, FileVideo, FileAudio, FileText, Loader2, Download,
 } from 'lucide-react'
@@ -6,7 +7,7 @@ import { formatBytes } from '../../lib/format'
 
 // Minimal translate-fn signature so the module-level render helpers can receive
 // the component's `t` without pulling the full i18next type surface.
-type TFn = (key: string, opts?: Record<string, unknown>) => string
+type TFn = TFunction
 
 // Distinguishes the file the download represents (green highlight) from the other
 // torrent files (listed in gray). On single-file torrents the two

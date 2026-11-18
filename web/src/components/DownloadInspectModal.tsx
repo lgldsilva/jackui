@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -36,7 +37,7 @@ type Tab = 'overview' | 'files' | 'trackers' | 'peers' | 'sources' | 'actions'
 
 // Minimal translate-fn signature so the module-level render helpers can receive
 // the component's `t` without pulling the full i18next type surface.
-type TFn = (key: string, opts?: Record<string, unknown>) => string
+type TFn = TFunction
 
 // sourceStatusBadge maps a source's lifecycle to a label + color for the list.
 function sourceStatusBadge(status: DownloadSource['status'], t: TFn): { label: string; cls: string } {

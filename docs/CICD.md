@@ -219,6 +219,14 @@ enables **squash auto-merge** on qualifying Dependabot PRs. The decision lives i
 | GitHub Actions | auto | auto | human |
 | Docker base images | auto | human | human |
 | No semver type (e.g. digest-only bump), unknown ecosystem | human | human | human |
+| Critical dependency on the denylist (`github.com/anacrolix/*`, including `torrent`), alone or inside a group | human | human | human |
+| Package names missing from the metadata (fail closed) | human | human | human |
+
+The **denylist** is the `DENYLIST` array at the top of
+`scripts/dependabot-automerge.sh` (`name` = exact, `prefix/` = whole subtree).
+Dependabot still opens those PRs; they are simply never auto-armed. A grouped
+PR is denied if any member matches. Add an entry there to protect another
+dependency.
 
 Grouped PRs are judged by their **highest** update type. A PR labelled
 `do-not-auto-merge` is skipped on Dependabot's next push; to stop one already
