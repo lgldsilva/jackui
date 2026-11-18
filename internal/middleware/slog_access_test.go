@@ -180,3 +180,25 @@ func TestSlogRecoveryAbortHandlerIsBrokenPipe(t *testing.T) {
 		t.Error("bare EPIPE syscall error should count as broken pipe")
 	}
 }
+
+func TestSlogLogsStripLineBreaksFromRequestValues(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	r := gin.New()
+	r.Use(SlogAccessLog(logger, nil), SlogRecovery(logger))
+	r.NoRoute(func(*gin.Context) { panic("boom") })
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.URL.Path = "/a\r\nb"
+	req.RequestURI = "/a\r\nb"
+	r.ServeHTTP(httptest.NewRecorder(), req)
+	recs := jsonRecords(t, &buf)
+	if len(recs) != 2 {
+		t.Fatalf("want recovery + access records, got %v", recs)
+	}
+	for _, rec := range recs {
+		if p, _ := rec["path"].(string); strings.ContainsAny(p, "\r\n") {
+			t.Errorf("CR/LF must not reach logged request values: path=%q", p)
+		}
+	}
+}
