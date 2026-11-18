@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import axios from 'axios'
@@ -21,7 +22,7 @@ export const DEFAULT_SCHEDULE: ScheduleValue = {
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
 // Translate function shape (kept local so we don't depend on i18next types).
-type Tr = (key: string, opts?: Record<string, unknown>) => string
+type Tr = TFunction
 
 // schedSummary renders a schedule as a short human-readable phrase — shared by
 // the watchlist cards AND the AI confirmation line in the ScheduleEditor.

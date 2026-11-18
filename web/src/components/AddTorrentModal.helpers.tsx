@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import {
   downloadCreate, downloadBatchCreate, buildBatchFiles, isWholeTorrentSelection, WHOLE_TORRENT_FILE_INDEX,
@@ -28,7 +29,7 @@ export const INTERNAL_ID = '__internal__'
 
 // Minimal translate-fn signature so the module-level status renderer can format
 // with the component's `t`.
-export type TFn = (key: string, opts?: Record<string, unknown>) => string
+export type TFn = TFunction
 
 export function renderItemStatus(item: TorrentItem, t: TFn) {
   if (item.loading) {

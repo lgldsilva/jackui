@@ -84,7 +84,7 @@ describe('importTorrentB64', () => {
 })
 
 describe('buildImportMsg', () => {
-  const t = ((key: string, opts?: Record<string, unknown>) => `${key}:${JSON.stringify(opts || {})}`) as Parameters<typeof buildImportMsg>[4]
+  const t = ((key: string, opts?: Record<string, unknown>) => `${key}:${JSON.stringify(opts || {})}`) as unknown as Parameters<typeof buildImportMsg>[4]
 
   it('monta mensagem de sucesso', () => {
     const msg = buildImportMsg(3, 0, undefined, ' · 3 enfileirados', t)

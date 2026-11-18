@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -29,7 +30,7 @@ function downloadBarGradient(completed: boolean, failed: boolean, paused: boolea
   return 'from-cyan-500 to-blue-400'
 }
 
-function computeETA(d: DownloadEntry, t: (key: string, opts?: Record<string, unknown>) => string): string {
+function computeETA(d: DownloadEntry, t: TFunction): string {
   // Prefer backend-computed ETA (more accurate — uses live swarm rate)
   if (d.eta && d.eta > 0) {
     return t('downloads.page.etaRemaining', { time: formatDurationShort(d.eta) })
