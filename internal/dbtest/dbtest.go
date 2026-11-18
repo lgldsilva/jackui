@@ -8,7 +8,8 @@
 // processes each gets its own schema (keyed by pid).
 //
 //   - JACKUI_TEST_DATABASE_URL set → use that Postgres (the CI path).
-//   - otherwise → t.Skip.
+//   - otherwise → t.Skip locally, but t.Fatal when CI=true (a CI run without a
+//     database would otherwise silently skip every PG-backed test).
 package dbtest
 
 import (
@@ -45,6 +46,29 @@ var (
 	isoSeq atomic.Int64 // unique suffix for NewIsolatedDB schemas
 )
 
+// tb is the subset of testing.TB that requireURL needs (a seam for tests).
+type tb interface {
+	Helper()
+	Skipf(format string, args ...any)
+	Fatalf(format string, args ...any)
+}
+
+// requireURL returns the configured test database URL. When it is unset the test
+// is skipped locally, or failed when ci is true so a misconfigured CI job cannot
+// pass with the whole PG-backed suite silently skipped.
+func requireURL(t tb, base string, ci bool) string {
+	t.Helper()
+	if base != "" {
+		return base
+	}
+	if ci {
+		t.Fatalf("%s not set while CI=true; PG-backed tests must not be skipped in CI", envURL)
+		return ""
+	}
+	t.Skipf("%s not set; skipping (needs a PostgreSQL test database)", envURL)
+	return ""
+}
+
 // NewDB returns a *sql.DB scoped to this process's migrated schema. On the first
 // call within a test it TRUNCATEs all tables (re-seeding the anonymous user), so
 // each test starts clean. Returns a fresh handle each call (safe to Close in the
@@ -52,10 +76,7 @@ var (
 // test database is configured.
 func NewDB(t *testing.T) *sql.DB {
 	t.Helper()
-	base := os.Getenv(envURL)
-	if base == "" {
-		t.Skipf("%s not set; skipping (needs a PostgreSQL test database)", envURL)
-	}
+	base := requireURL(t, os.Getenv(envURL), os.Getenv("CI") == "true")
 
 	ensureProcessSchema(base)
 	if procErr != nil {
@@ -106,10 +127,7 @@ func NewDB(t *testing.T) *sql.DB {
 // store error), which can't share NewDB's process-wide schema.
 func NewIsolatedDB(t *testing.T) *sql.DB {
 	t.Helper()
-	base := os.Getenv(envURL)
-	if base == "" {
-		t.Skipf("%s not set; skipping (needs a PostgreSQL test database)", envURL)
-	}
+	base := requireURL(t, os.Getenv(envURL), os.Getenv("CI") == "true")
 	schema := fmt.Sprintf("dbtest_iso_p%d_%d", os.Getpid(), isoSeq.Add(1))
 	pool, err := createIsolatedSchema(base, schema)
 	if err != nil {
