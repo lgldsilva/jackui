@@ -5,6 +5,7 @@
 package playlists
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -61,23 +62,23 @@ func New(pool *sql.DB) (*Store, error) {
 // ─── Playlists ─────────────────────────────────────────────────────────────
 
 // Create makes a new empty playlist owned by userID.
-func (s *Store) Create(userID int, name, description string) (*Playlist, error) {
+func (s *Store) Create(ctx context.Context, userID int, name, description string) (*Playlist, error) {
 	if name == "" {
 		return nil, errors.New("name is required")
 	}
 	var id int64
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`INSERT INTO playlists(user_id, name, description) VALUES(?, ?, ?) RETURNING id`,
 		userID, name, description,
 	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	return s.Get(int(id), userID, false)
+	return s.Get(ctx, int(id), userID, false)
 }
 
 // List returns the user's playlists (or all when includeAll=true), with item counts.
-func (s *Store) List(userID int, includeAll bool) ([]Playlist, error) {
+func (s *Store) List(ctx context.Context, userID int, includeAll bool) ([]Playlist, error) {
 	q := `
 		SELECT p.id, p.user_id, p.name, p.description, p.created_at, p.updated_at,
 		       COALESCE((SELECT COUNT(*) FROM playlist_items WHERE playlist_id = p.id), 0)
@@ -88,7 +89,7 @@ func (s *Store) List(userID int, includeAll bool) ([]Playlist, error) {
 		args = append(args, userID)
 	}
 	q += " ORDER BY p.updated_at DESC"
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +106,7 @@ func (s *Store) List(userID int, includeAll bool) ([]Playlist, error) {
 }
 
 // Get returns one playlist (without items). Returns nil if not found / not owned.
-func (s *Store) Get(id, userID int, includeAll bool) (*Playlist, error) {
+func (s *Store) Get(ctx context.Context, id, userID int, includeAll bool) (*Playlist, error) {
 	q := `
 		SELECT id, user_id, name, description, created_at, updated_at
 		FROM playlists WHERE id = ?`
@@ -115,7 +116,7 @@ func (s *Store) Get(id, userID int, includeAll bool) (*Playlist, error) {
 		args = append(args, userID)
 	}
 	var p Playlist
-	err := s.db.QueryRow(q, args...).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
+	err := s.db.QueryRowContext(ctx, q, args...).Scan(&p.ID, &p.UserID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -126,14 +127,14 @@ func (s *Store) Get(id, userID int, includeAll bool) (*Playlist, error) {
 }
 
 // Update renames / re-describes a playlist.
-func (s *Store) Update(id, userID int, name, description string, includeAll bool) error {
+func (s *Store) Update(ctx context.Context, id, userID int, name, description string, includeAll bool) error {
 	q := `UPDATE playlists SET name = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
 	args := []any{name, description, id}
 	if !includeAll {
 		q += sqlAndUserID
 		args = append(args, userID)
 	}
-	res, err := s.db.Exec(q, args...)
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -144,14 +145,14 @@ func (s *Store) Update(id, userID int, name, description string, includeAll bool
 }
 
 // Delete drops a playlist (and cascades to items).
-func (s *Store) Delete(id, userID int, includeAll bool) error {
+func (s *Store) Delete(ctx context.Context, id, userID int, includeAll bool) error {
 	q := `DELETE FROM playlists WHERE id = ?`
 	args := []any{id}
 	if !includeAll {
 		q += sqlAndUserID
 		args = append(args, userID)
 	}
-	res, err := s.db.Exec(q, args...)
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return err
 	}
@@ -164,8 +165,8 @@ func (s *Store) Delete(id, userID int, includeAll bool) error {
 // ─── Items ─────────────────────────────────────────────────────────────────
 
 // AddItem appends an item to the end of the playlist.
-func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*Item, error) {
-	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+func (s *Store) AddItem(ctx context.Context, playlistID, userID int, item Item, includeAll bool) (*Item, error) {
+	owned, err := s.ownsPlaylist(ctx, playlistID, userID, includeAll)
 	if err != nil {
 		return nil, err
 	}
@@ -175,18 +176,18 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 	if item.Magnet == "" || item.Title == "" {
 		return nil, errors.New("magnet and title required")
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	// Lock the playlist row so concurrent adds serialize on MAX(position)
 	// (read outside the tx, two adds used to get the same position).
-	if err := lockPlaylist(tx, playlistID); err != nil {
+	if err := lockPlaylist(ctx, tx, playlistID); err != nil {
 		return nil, err
 	}
 	var maxPos sql.NullInt64
-	if err := tx.QueryRow(`SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(position) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&maxPos); err != nil {
 		return nil, err
 	}
 	nextPos := 0
@@ -200,7 +201,7 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 	}
 
 	var id int64
-	err = tx.QueryRow(
+	err = tx.QueryRowContext(ctx,
 		`INSERT INTO playlist_items(playlist_id, position, library_id, title, magnet, info_hash, file_index)
 		 VALUES(?, ?, ?, ?, ?, ?, ?) RETURNING id`,
 		playlistID, nextPos, libraryIDArg, item.Title, item.Magnet, item.InfoHash, item.FileIndex,
@@ -208,26 +209,26 @@ func (s *Store) AddItem(playlistID, userID int, item Item, includeAll bool) (*It
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.Exec(`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID)
+	_, err = tx.ExecContext(ctx, `UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID)
 	if err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return s.getItem(int(id))
+	return s.getItem(ctx, int(id))
 }
 
 // Items returns all items in a playlist, ordered by position.
-func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
-	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+func (s *Store) Items(ctx context.Context, playlistID, userID int, includeAll bool) ([]Item, error) {
+	owned, err := s.ownsPlaylist(ctx, playlistID, userID, includeAll)
 	if err != nil {
 		return nil, err
 	}
 	if !owned {
 		return nil, ErrNotFound
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, playlist_id, position, library_id, title, magnet, info_hash, file_index, added_at
 		FROM playlist_items WHERE playlist_id = ? ORDER BY position`, playlistID)
 	if err != nil {
@@ -252,63 +253,63 @@ func (s *Store) Items(playlistID, userID int, includeAll bool) ([]Item, error) {
 }
 
 // RemoveItem deletes an item and compacts positions.
-func (s *Store) RemoveItem(playlistID, itemID, userID int, includeAll bool) error {
-	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+func (s *Store) RemoveItem(ctx context.Context, playlistID, itemID, userID int, includeAll bool) error {
+	owned, err := s.ownsPlaylist(ctx, playlistID, userID, includeAll)
 	if err != nil {
 		return err
 	}
 	if !owned {
 		return ErrNotFound
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	var pos int
-	if err := tx.QueryRow(`SELECT position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
+	if err := tx.QueryRowContext(ctx, `SELECT position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
 		itemID, playlistID).Scan(&pos); err != nil {
 		return fmt.Errorf("item not found")
 	}
-	if _, err := tx.Exec(`DELETE FROM playlist_items WHERE id = ?`, itemID); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM playlist_items WHERE id = ?`, itemID); err != nil {
 		return err
 	}
 	// Compact positions after the gap
-	if _, err := tx.Exec(`UPDATE playlist_items SET position = position - 1 WHERE playlist_id = ? AND position > ?`,
+	if _, err := tx.ExecContext(ctx, `UPDATE playlist_items SET position = position - 1 WHERE playlist_id = ? AND position > ?`,
 		playlistID, pos); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE playlists SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, playlistID); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 // Reorder moves an item to a new position, shifting siblings as needed.
-func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool) error {
-	owned, err := s.ownsPlaylist(playlistID, userID, includeAll)
+func (s *Store) Reorder(ctx context.Context, playlistID, itemID, userID, newPos int, includeAll bool) error {
+	owned, err := s.ownsPlaylist(ctx, playlistID, userID, includeAll)
 	if err != nil {
 		return err
 	}
 	if !owned {
 		return ErrNotFound
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := lockPlaylist(tx, playlistID); err != nil {
+	if err := lockPlaylist(ctx, tx, playlistID); err != nil {
 		return err
 	}
 
 	var curPos, count int
-	if err := tx.QueryRow(`SELECT position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
+	if err := tx.QueryRowContext(ctx, `SELECT position FROM playlist_items WHERE id = ? AND playlist_id = ?`,
 		itemID, playlistID).Scan(&curPos); err != nil {
 		return fmt.Errorf("item not found")
 	}
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM playlist_items WHERE playlist_id = ?`, playlistID).Scan(&count); err != nil {
 		return err
 	}
 	newPos = max(0, min(newPos, count-1)) // out-of-range moves go to the ends, never leave a gap
@@ -316,7 +317,7 @@ func (s *Store) Reorder(playlistID, itemID, userID, newPos int, includeAll bool)
 		return nil
 	}
 	for _, st := range reorderStatements(playlistID, itemID, curPos, newPos) {
-		if _, err := tx.Exec(st.q, st.args...); err != nil {
+		if _, err := tx.ExecContext(ctx, st.q, st.args...); err != nil {
 			return err
 		}
 	}
@@ -346,9 +347,9 @@ func reorderStatements(playlistID, itemID, curPos, newPos int) []sqlStmt {
 
 // lockPlaylist takes a row lock on the playlist for the rest of tx, serializing
 // position changes (add/reorder) on the same playlist.
-func lockPlaylist(tx *dbutil.Tx, playlistID int) error {
+func lockPlaylist(ctx context.Context, tx *dbutil.Tx, playlistID int) error {
 	var id int
-	return tx.QueryRow(`SELECT id FROM playlists WHERE id = ? FOR UPDATE`, playlistID).Scan(&id)
+	return tx.QueryRowContext(ctx, `SELECT id FROM playlists WHERE id = ? FOR UPDATE`, playlistID).Scan(&id)
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
@@ -357,26 +358,26 @@ func lockPlaylist(tx *dbutil.Tx, playlistID int) error {
 // caller is an admin). Infrastructure failures are returned as an error so the
 // handlers can answer 500 instead of mistaking a dead database for a missing
 // playlist (sonar_error_coverage pool-close contract).
-func (s *Store) ownsPlaylist(playlistID, userID int, includeAll bool) (bool, error) {
+func (s *Store) ownsPlaylist(ctx context.Context, playlistID, userID int, includeAll bool) (bool, error) {
 	var n int
 	if includeAll {
-		err := s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ?`, playlistID).Scan(&n)
+		err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM playlists WHERE id = ?`, playlistID).Scan(&n)
 		if err != nil {
 			return false, err
 		}
 		return n > 0, nil
 	}
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM playlists WHERE id = ? AND user_id = ?`, playlistID, userID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM playlists WHERE id = ? AND user_id = ?`, playlistID, userID).Scan(&n)
 	if err != nil {
 		return false, err
 	}
 	return n > 0, nil
 }
 
-func (s *Store) getItem(id int) (*Item, error) {
+func (s *Store) getItem(ctx context.Context, id int) (*Item, error) {
 	var it Item
 	var libID sql.NullInt64
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT id, playlist_id, position, library_id, title, magnet, info_hash, file_index, added_at
 		FROM playlist_items WHERE id = ?`, id).Scan(
 		&it.ID, &it.PlaylistID, &it.Position, &libID, &it.Title, &it.Magnet, &it.InfoHash, &it.FileIndex, &it.AddedAt,

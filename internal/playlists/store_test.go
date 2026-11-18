@@ -1,6 +1,7 @@
 package playlists
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -20,14 +21,14 @@ func newTestStore(t *testing.T) *Store {
 
 func TestCreateAndList(t *testing.T) {
 	s := newTestStore(t)
-	p, err := s.Create(1, "My Movies", "watchlist")
+	p, err := s.Create(context.Background(), 1, "My Movies", "watchlist")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if p.ID == 0 {
 		t.Fatal("expected positive ID")
 	}
-	list, _ := s.List(1, false)
+	list, _ := s.List(context.Background(), 1, false)
 	if len(list) != 1 || list[0].Name != "My Movies" {
 		t.Fatalf("List user 1: %v", list)
 	}
@@ -35,18 +36,18 @@ func TestCreateAndList(t *testing.T) {
 
 func TestPerUserIsolation(t *testing.T) {
 	s := newTestStore(t)
-	s.Create(1, "A's list", "")
-	s.Create(2, "B's list", "")
+	s.Create(context.Background(), 1, "A's list", "")
+	s.Create(context.Background(), 2, "B's list", "")
 
-	listA, _ := s.List(1, false)
+	listA, _ := s.List(context.Background(), 1, false)
 	if len(listA) != 1 || listA[0].Name != "A's list" {
 		t.Errorf("user A: got %v", listA)
 	}
-	listB, _ := s.List(2, false)
+	listB, _ := s.List(context.Background(), 2, false)
 	if len(listB) != 1 || listB[0].Name != "B's list" {
 		t.Errorf("user B: got %v", listB)
 	}
-	listAll, _ := s.List(0, true)
+	listAll, _ := s.List(context.Background(), 0, true)
 	if len(listAll) != 2 {
 		t.Errorf("admin: got %d", len(listAll))
 	}
@@ -54,25 +55,25 @@ func TestPerUserIsolation(t *testing.T) {
 
 func TestAddItemsAndPositions(t *testing.T) {
 	s := newTestStore(t)
-	p, _ := s.Create(1, "Test", "")
+	p, _ := s.Create(context.Background(), 1, "Test", "")
 
-	it1, err := s.AddItem(p.ID, 1, Item{Title: "Item 1", Magnet: "magnet:1", InfoHash: "h1"}, false)
+	it1, err := s.AddItem(context.Background(), p.ID, 1, Item{Title: "Item 1", Magnet: "magnet:1", InfoHash: "h1"}, false)
 	if err != nil {
 		t.Fatalf("AddItem 1: %v", err)
 	}
 	if it1.Position != 0 {
 		t.Errorf("first item position: got %d want 0", it1.Position)
 	}
-	it2, _ := s.AddItem(p.ID, 1, Item{Title: "Item 2", Magnet: "magnet:2", InfoHash: "h2"}, false)
+	it2, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "Item 2", Magnet: "magnet:2", InfoHash: "h2"}, false)
 	if it2.Position != 1 {
 		t.Errorf("second item position: got %d want 1", it2.Position)
 	}
-	it3, _ := s.AddItem(p.ID, 1, Item{Title: "Item 3", Magnet: "magnet:3", InfoHash: "h3"}, false)
+	it3, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "Item 3", Magnet: "magnet:3", InfoHash: "h3"}, false)
 	if it3.Position != 2 {
 		t.Errorf("third item position: got %d want 2", it3.Position)
 	}
 
-	items, _ := s.Items(p.ID, 1, false)
+	items, _ := s.Items(context.Background(), p.ID, 1, false)
 	if len(items) != 3 {
 		t.Fatalf("expected 3 items, got %d", len(items))
 	}
@@ -83,17 +84,17 @@ func TestAddItemsAndPositions(t *testing.T) {
 
 func TestReorderForward(t *testing.T) {
 	s := newTestStore(t)
-	p, _ := s.Create(1, "T", "")
-	a, _ := s.AddItem(p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
-	b, _ := s.AddItem(p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
-	c, _ := s.AddItem(p.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
+	p, _ := s.Create(context.Background(), 1, "T", "")
+	a, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
+	b, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
+	c, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
 	_ = b
 
 	// Move A (pos 0) to pos 2 — order should become B, C, A
-	if err := s.Reorder(p.ID, a.ID, 1, 2, false); err != nil {
+	if err := s.Reorder(context.Background(), p.ID, a.ID, 1, 2, false); err != nil {
 		t.Fatalf("Reorder: %v", err)
 	}
-	items, _ := s.Items(p.ID, 1, false)
+	items, _ := s.Items(context.Background(), p.ID, 1, false)
 	titles := []string{items[0].Title, items[1].Title, items[2].Title}
 	want := []string{"B", "C", "A"}
 	for i, x := range titles {
@@ -106,16 +107,16 @@ func TestReorderForward(t *testing.T) {
 
 func TestReorderBackward(t *testing.T) {
 	s := newTestStore(t)
-	p, _ := s.Create(1, "T", "")
-	s.AddItem(p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
-	s.AddItem(p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
-	c, _ := s.AddItem(p.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
+	p, _ := s.Create(context.Background(), 1, "T", "")
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
+	c, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
 
 	// Move C (pos 2) to pos 0 — order should become C, A, B
-	if err := s.Reorder(p.ID, c.ID, 1, 0, false); err != nil {
+	if err := s.Reorder(context.Background(), p.ID, c.ID, 1, 0, false); err != nil {
 		t.Fatalf("Reorder: %v", err)
 	}
-	items, _ := s.Items(p.ID, 1, false)
+	items, _ := s.Items(context.Background(), p.ID, 1, false)
 	want := []string{"C", "A", "B"}
 	for i, w := range want {
 		if items[i].Title != w {
@@ -126,15 +127,15 @@ func TestReorderBackward(t *testing.T) {
 
 func TestRemoveItemCompactsPositions(t *testing.T) {
 	s := newTestStore(t)
-	p, _ := s.Create(1, "T", "")
-	s.AddItem(p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
-	b, _ := s.AddItem(p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
-	s.AddItem(p.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
+	p, _ := s.Create(context.Background(), 1, "T", "")
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
+	b, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
 
-	if err := s.RemoveItem(p.ID, b.ID, 1, false); err != nil {
+	if err := s.RemoveItem(context.Background(), p.ID, b.ID, 1, false); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	items, _ := s.Items(p.ID, 1, false)
+	items, _ := s.Items(context.Background(), p.ID, 1, false)
 	if len(items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(items))
 	}
@@ -148,11 +149,11 @@ func TestRemoveItemCompactsPositions(t *testing.T) {
 
 func TestDeletePlaylistCascadesItems(t *testing.T) {
 	s := newTestStore(t)
-	p, _ := s.Create(1, "T", "")
-	s.AddItem(p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
-	s.AddItem(p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
+	p, _ := s.Create(context.Background(), 1, "T", "")
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
 
-	if err := s.Delete(p.ID, 1, false); err != nil {
+	if err := s.Delete(context.Background(), p.ID, 1, false); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 
@@ -170,34 +171,34 @@ func TestDeletePlaylistCascadesItems(t *testing.T) {
 
 func TestOtherUserCantTouch(t *testing.T) {
 	s := newTestStore(t)
-	p, _ := s.Create(1, "A's", "")
-	s.AddItem(p.ID, 1, Item{Title: "X", Magnet: "m:x"}, false)
+	p, _ := s.Create(context.Background(), 1, "A's", "")
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "X", Magnet: "m:x"}, false)
 
-	if _, err := s.AddItem(p.ID, 2, Item{Title: "Y", Magnet: "m:y"}, false); err == nil {
+	if _, err := s.AddItem(context.Background(), p.ID, 2, Item{Title: "Y", Magnet: "m:y"}, false); err == nil {
 		t.Error("user 2 should not be able to add items to user 1's playlist")
 	}
-	if err := s.Delete(p.ID, 2, false); err == nil {
+	if err := s.Delete(context.Background(), p.ID, 2, false); err == nil {
 		t.Error("user 2 should not be able to delete user 1's playlist")
 	}
-	if err := s.Update(p.ID, 2, "hijacked", "", false); err == nil {
+	if err := s.Update(context.Background(), p.ID, 2, "hijacked", "", false); err == nil {
 		t.Error("user 2 should not be able to rename user 1's playlist")
 	}
 
 	// Admin (includeAll=true) can
-	if err := s.Update(p.ID, 0, "admin-set", "", true); err != nil {
+	if err := s.Update(context.Background(), p.ID, 0, "admin-set", "", true); err != nil {
 		t.Errorf("admin should update: %v", err)
 	}
 }
 
 func TestItemCount(t *testing.T) {
 	s := newTestStore(t)
-	p1, _ := s.Create(1, "P1", "")
-	p2, _ := s.Create(1, "P2", "")
-	s.AddItem(p1.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
-	s.AddItem(p1.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
-	s.AddItem(p2.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
+	p1, _ := s.Create(context.Background(), 1, "P1", "")
+	p2, _ := s.Create(context.Background(), 1, "P2", "")
+	s.AddItem(context.Background(), p1.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
+	s.AddItem(context.Background(), p1.ID, 1, Item{Title: "B", Magnet: "m:b"}, false)
+	s.AddItem(context.Background(), p2.ID, 1, Item{Title: "C", Magnet: "m:c"}, false)
 
-	list, _ := s.List(1, false)
+	list, _ := s.List(context.Background(), 1, false)
 	counts := map[string]int{}
 	for _, p := range list {
 		counts[p.Name] = p.ItemCount

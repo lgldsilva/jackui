@@ -57,7 +57,7 @@ func (h *hangingSearcher) SearchContext(ctx context.Context, query, category str
 func TestStopAbortsInFlightPass(t *testing.T) {
 	s := newTestStore(t)
 	for _, q := range []string{"one", "two", "three"} {
-		if _, err := s.Create(1, params(q, "", 0, "")); err != nil {
+		if _, err := s.Create(context.Background(), 1, params(q, "", 0, "")); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 	}
@@ -89,7 +89,7 @@ func TestStopAbortsInFlightPass(t *testing.T) {
 	if n := srch.count(); n != 1 {
 		t.Errorf("searches = %d, want 1 (remaining lists must be skipped)", n)
 	}
-	due, err := s.ListDue(time.Now())
+	due, err := s.ListDue(context.Background(), time.Now())
 	if err != nil {
 		t.Fatalf("ListDue: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestStopAbortsInFlightPass(t *testing.T) {
 // A pass that starts after Stop must not search or re-arm anything.
 func TestProcessListsSkipsEverythingOnceStopped(t *testing.T) {
 	s := newTestStore(t)
-	wl, err := s.Create(1, params("q", "", 0, ""))
+	wl, err := s.Create(context.Background(), 1, params("q", "", 0, ""))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestProcessListsSkipsEverythingOnceStopped(t *testing.T) {
 	if got := srch.seen(); len(got) != 0 {
 		t.Errorf("searches after Stop = %v, want none", got)
 	}
-	got, err := s.Get(1, wl.ID)
+	got, err := s.Get(context.Background(), 1, wl.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

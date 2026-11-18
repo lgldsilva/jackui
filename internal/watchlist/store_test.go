@@ -31,14 +31,14 @@ func newTestStore(t *testing.T) *Store {
 // first pass only records "seen" and never notifies.
 func primeChecked(t *testing.T, s *Store, id int) {
 	t.Helper()
-	if err := s.MarkChecked(id, time.Now()); err != nil {
+	if err := s.MarkChecked(context.Background(), id, time.Now()); err != nil {
 		t.Fatalf("primeChecked: %v", err)
 	}
 }
 
 func TestCreateAndGet(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, params("test query", "2000", 5, "mytopic"))
+	w, err := s.Create(context.Background(), 1, params("test query", "2000", 5, "mytopic"))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestCreateAndGet(t *testing.T) {
 	if w.ID == 0 {
 		t.Fatal("expected non-zero ID")
 	}
-	got, err := s.Get(1, w.ID)
+	got, err := s.Get(context.Background(), 1, w.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestCreateAndGet(t *testing.T) {
 
 func TestCreate_EmptyQuery(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.Create(1, params("", "", 0, ""))
+	_, err := s.Create(context.Background(), 1, params("", "", 0, ""))
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
@@ -67,7 +67,7 @@ func TestCreate_EmptyQuery(t *testing.T) {
 
 func TestCreate_NegativeMinSeeders(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, params("query", "", -5, ""))
+	w, err := s.Create(context.Background(), 1, params("query", "", -5, ""))
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -78,12 +78,12 @@ func TestCreate_NegativeMinSeeders(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("old", "2000", 1, ""))
-	err := s.Update(1, w.ID, params("new", "5000", 10, "newtopic"))
+	w, _ := s.Create(context.Background(), 1, params("old", "2000", 1, ""))
+	err := s.Update(context.Background(), 1, w.ID, params("new", "5000", 10, "newtopic"))
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	got, _ := s.Get(1, w.ID)
+	got, _ := s.Get(context.Background(), 1, w.ID)
 	if got.Query != "new" || got.Category != "5000" || got.MinSeeders != 10 || got.NtfyTopic != "newtopic" {
 		t.Fatalf("update not applied: %+v", got)
 	}
@@ -91,8 +91,8 @@ func TestUpdate(t *testing.T) {
 
 func TestUpdate_EmptyQuery(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	err := s.Update(1, w.ID, params("", "", 0, ""))
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	err := s.Update(context.Background(), 1, w.ID, params("", "", 0, ""))
 	if err == nil {
 		t.Fatal("expected error for empty query")
 	}
@@ -100,8 +100,8 @@ func TestUpdate_EmptyQuery(t *testing.T) {
 
 func TestUpdate_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	err := s.Update(2, w.ID, params("new", "", 1, ""))
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	err := s.Update(context.Background(), 2, w.ID, params("new", "", 1, ""))
 	if err == nil || err.Error() != "watchlist not found" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
 	}
@@ -109,19 +109,19 @@ func TestUpdate_WrongUser(t *testing.T) {
 
 func TestDelete(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	if err := s.Delete(1, w.ID); err != nil {
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	if err := s.Delete(context.Background(), 1, w.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if _, err := s.Get(1, w.ID); err == nil {
+	if _, err := s.Get(context.Background(), 1, w.ID); err == nil {
 		t.Fatal("expected error after delete")
 	}
 }
 
 func TestDelete_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	err := s.Delete(2, w.ID)
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	err := s.Delete(context.Background(), 2, w.ID)
 	if err == nil || err.Error() != "watchlist not found" {
 		t.Fatalf("expected watchlist not found, got: %v", err)
 	}
@@ -129,10 +129,10 @@ func TestDelete_WrongUser(t *testing.T) {
 
 func TestList(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("q1", "", 1, ""))
-	_, _ = s.Create(1, params("q2", "", 1, ""))
-	_, _ = s.Create(2, params("q3", "", 1, ""))
-	items, err := s.List(1)
+	_, _ = s.Create(context.Background(), 1, params("q1", "", 1, ""))
+	_, _ = s.Create(context.Background(), 1, params("q2", "", 1, ""))
+	_, _ = s.Create(context.Background(), 2, params("q3", "", 1, ""))
+	items, err := s.List(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -143,9 +143,9 @@ func TestList(t *testing.T) {
 
 func TestListAll(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("q1", "", 1, ""))
-	_, _ = s.Create(2, params("q2", "", 1, ""))
-	all, err := s.ListAll()
+	_, _ = s.Create(context.Background(), 1, params("q1", "", 1, ""))
+	_, _ = s.Create(context.Background(), 2, params("q2", "", 1, ""))
+	all, err := s.ListAll(context.Background())
 	if err != nil {
 		t.Fatalf("ListAll: %v", err)
 	}
@@ -156,15 +156,15 @@ func TestListAll(t *testing.T) {
 
 func TestMarkSeen_NewHit(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	isNew, err := s.MarkSeen(w.ID, "hash1", "Test Movie", "magnet:abc", 10, 1000)
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	isNew, err := s.MarkSeen(context.Background(), w.ID, "hash1", "Test Movie", "magnet:abc", 10, 1000)
 	if err != nil {
 		t.Fatalf("MarkSeen: %v", err)
 	}
 	if !isNew {
 		t.Fatal("expected isNew=true for first sighting")
 	}
-	isNew, err = s.MarkSeen(w.ID, "hash1", "Test Movie", "magnet:abc", 10, 1000)
+	isNew, err = s.MarkSeen(context.Background(), w.ID, "hash1", "Test Movie", "magnet:abc", 10, 1000)
 	if err != nil {
 		t.Fatalf("MarkSeen duplicate: %v", err)
 	}
@@ -175,11 +175,11 @@ func TestMarkSeen_NewHit(t *testing.T) {
 
 func TestMarkChecked(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	if err := s.MarkChecked(w.ID, time.Now().Add(time.Minute)); err != nil {
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	if err := s.MarkChecked(context.Background(), w.ID, time.Now().Add(time.Minute)); err != nil {
 		t.Fatalf("MarkChecked: %v", err)
 	}
-	got, _ := s.Get(1, w.ID)
+	got, _ := s.Get(context.Background(), 1, w.ID)
 	if got.LastChecked.IsZero() {
 		t.Fatal("expected LastChecked to be set")
 	}
@@ -187,10 +187,10 @@ func TestMarkChecked(t *testing.T) {
 
 func TestHits(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	_, _ = s.MarkSeen(w.ID, "h1", "T1", "m:1", 10, 100)
-	_, _ = s.MarkSeen(w.ID, "h2", "T2", "m:2", 5, 200)
-	hits, err := s.Hits(1, w.ID, 10)
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	_, _ = s.MarkSeen(context.Background(), w.ID, "h1", "T1", "m:1", 10, 100)
+	_, _ = s.MarkSeen(context.Background(), w.ID, "h2", "T2", "m:2", 5, 200)
+	hits, err := s.Hits(context.Background(), 1, w.ID, 10)
 	if err != nil {
 		t.Fatalf("Hits: %v", err)
 	}
@@ -201,8 +201,8 @@ func TestHits(t *testing.T) {
 
 func TestHits_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	_, err := s.Hits(2, w.ID, 10)
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	_, err := s.Hits(context.Background(), 2, w.ID, 10)
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
@@ -210,8 +210,8 @@ func TestHits_WrongUser(t *testing.T) {
 
 func TestHits_DefaultLimit(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	_, err := s.Hits(1, w.ID, 0)
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	_, err := s.Hits(context.Background(), 1, w.ID, 0)
 	if err != nil {
 		t.Fatalf("Hits with zero limit: %v", err)
 	}
@@ -219,8 +219,8 @@ func TestHits_DefaultLimit(t *testing.T) {
 
 func TestGet_WrongUser(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	_, err := s.Get(2, w.ID)
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	_, err := s.Get(context.Background(), 2, w.ID)
 	if err == nil {
 		t.Fatal("expected error for wrong user")
 	}
@@ -250,7 +250,7 @@ func (n *recorderNotifier) Notify(ctx context.Context, topic, title, body, magne
 
 func TestWorker_RunOnce(t *testing.T) {
 	s := newTestStore(t)
-	wl, _ := s.Create(1, params("test", "", 1, "mytopic"))
+	wl, _ := s.Create(context.Background(), 1, params("test", "", 1, "mytopic"))
 	primeChecked(t, s, wl.ID) // past the silent baseline: this pass must notify
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
@@ -271,7 +271,7 @@ func TestWorker_RunOnce(t *testing.T) {
 
 func TestWorker_RunOnce_NoResults(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("test", "", 1, ""))
+	_, _ = s.Create(context.Background(), 1, params("test", "", 1, ""))
 	searcher := &fakeSearcher{results: []jackett.Result{}}
 	notifier := &recorderNotifier{}
 	w := NewWorker(s, searcher, notifier, "topic", 15*time.Minute)
@@ -291,7 +291,7 @@ func TestWorker_RunOnce_NoWatchlists(t *testing.T) {
 
 func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 	s := newTestStore(t)
-	wl, _ := s.Create(1, params("test", "", 5, ""))
+	wl, _ := s.Create(context.Background(), 1, params("test", "", 5, ""))
 	primeChecked(t, s, wl.ID) // real pass: the filter, not the baseline, must drop it
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
@@ -308,7 +308,7 @@ func TestWorker_RunOnce_BelowMinSeeders(t *testing.T) {
 
 func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 	s := newTestStore(t)
-	wl, _ := s.Create(1, params("test", "", 1, ""))
+	wl, _ := s.Create(context.Background(), 1, params("test", "", 1, ""))
 	primeChecked(t, s, wl.ID) // real pass: the missing info-hash, not the baseline, drops it
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
@@ -325,7 +325,7 @@ func TestWorker_RunOnce_NoInfoHash(t *testing.T) {
 
 func TestWorker_RunOnce_ResolveTopic_Fallback(t *testing.T) {
 	s := newTestStore(t)
-	wl, _ := s.Create(1, params("test", "", 1, ""))
+	wl, _ := s.Create(context.Background(), 1, params("test", "", 1, ""))
 	primeChecked(t, s, wl.ID) // past the silent baseline: this pass must notify
 	searcher := &fakeSearcher{
 		results: []jackett.Result{
@@ -390,7 +390,7 @@ func TestNewWorker_PositiveInterval(t *testing.T) {
 
 func TestWorker_StartAndStop(t *testing.T) {
 	s := newTestStore(t)
-	_, _ = s.Create(1, params("test", "", 1, ""))
+	_, _ = s.Create(context.Background(), 1, params("test", "", 1, ""))
 	w := NewWorker(s, &fakeSearcher{}, &recorderNotifier{}, "topic", 100*time.Millisecond)
 	w.Start()
 	w.Stop()
