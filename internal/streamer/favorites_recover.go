@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -23,11 +24,11 @@ import (
 //     torrent was activated at least once (metadata is written post-activation).
 //
 // Returns the number of rows repaired. Idempotent.
-func (f *FavoritesStore) ReconcileMagnets() (int, error) {
+func (f *FavoritesStore) ReconcileMagnets(ctx context.Context) (int, error) {
 	if f == nil {
 		return 0, nil
 	}
-	r1, err := f.db.Exec(`
+	r1, err := f.db.ExecContext(ctx, `
 		UPDATE favorites
 		SET magnet = 'magnet:?xt=urn:btih:' || info_hash
 		WHERE (magnet IS NULL OR magnet = '')
@@ -37,7 +38,7 @@ func (f *FavoritesStore) ReconcileMagnets() (int, error) {
 	}
 	n1, _ := r1.RowsAffected()
 
-	r2, err := f.db.Exec(`
+	r2, err := f.db.ExecContext(ctx, `
 		UPDATE favorites AS f
 		SET info_hash = m.info_hash,
 		    magnet = 'magnet:?xt=urn:btih:' || m.info_hash
@@ -75,13 +76,13 @@ type MagnetSearcher interface {
 // hidden title must never reach Jackett unprompted, curtain state aside. Such
 // favourites simply stay unrecovered until the user reveals them (or adds a
 // magnet manually).
-func (f *FavoritesStore) magnetlessFavorites() ([]string, error) {
+func (f *FavoritesStore) magnetlessFavorites(ctx context.Context) ([]string, error) {
 	subq, _ := hiddenFolderIDsSubq(0, true) // no user scope: spans every user's hidden tree
-	rows, err := f.db.Query(`
+	rows, err := f.db.QueryContext(ctx, `
 		SELECT DISTINCT name FROM favorites
 		WHERE (magnet IS NULL OR magnet = '')
 		  AND (info_hash IS NULL OR info_hash = '')
-		  AND (folder_id IS NULL OR folder_id NOT IN (` + subq + `))`)
+		  AND (folder_id IS NULL OR folder_id NOT IN (`+subq+`))`)
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +100,8 @@ func (f *FavoritesStore) magnetlessFavorites() ([]string, error) {
 // fillMagnet links a magnet/info_hash onto an existing favorite WITHOUT touching
 // its user_id, folder, or timestamp — unlike Add (which upserts by name and would
 // overwrite the owner). Only fills rows that are still magnet-less.
-func (f *FavoritesStore) fillMagnet(name, infoHash, magnet string) error {
-	_, err := f.db.Exec(`
+func (f *FavoritesStore) fillMagnet(ctx context.Context, name, infoHash, magnet string) error {
+	_, err := f.db.ExecContext(ctx, `
 		UPDATE favorites SET info_hash = ?, magnet = ?
 		WHERE name = ? AND (magnet IS NULL OR magnet = '')`, infoHash, magnet, name)
 	return err
@@ -110,11 +111,11 @@ func (f *FavoritesStore) fillMagnet(name, infoHash, magnet string) error {
 // best confident match (see bestMagnetMatch). Bounded by limit (re-links per
 // boot) and conservative on purpose: a wrong match is worse than none. Returns
 // the number repaired. A nil searcher or limit<=0 is a no-op.
-func (f *FavoritesStore) RecoverViaSearch(searcher MagnetSearcher, limit int) (int, error) {
+func (f *FavoritesStore) RecoverViaSearch(ctx context.Context, searcher MagnetSearcher, limit int) (int, error) {
 	if f == nil || searcher == nil || limit <= 0 {
 		return 0, nil
 	}
-	names, err := f.magnetlessFavorites()
+	names, err := f.magnetlessFavorites(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -135,7 +136,7 @@ func (f *FavoritesStore) RecoverViaSearch(searcher MagnetSearcher, limit int) (i
 		if !ok {
 			continue
 		}
-		if err := f.fillMagnet(name, infoHash, magnet); err == nil {
+		if err := f.fillMagnet(ctx, name, infoHash, magnet); err == nil {
 			fixed++
 		}
 	}

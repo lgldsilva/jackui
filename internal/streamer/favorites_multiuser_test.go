@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -13,28 +14,28 @@ import (
 // lost the favorite. With PK (user_id, name) each user owns an independent row.
 func TestFavoritesSameNameTwoUsers(t *testing.T) {
 	f := newTestFavorites(t)
-	if err := f.Add("shared movie", "hS", "magnet:S", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "shared movie", "hS", "magnet:S", "manual", 1); err != nil {
 		t.Fatalf("user 1 Add: %v", err)
 	}
-	if err := f.Add("shared movie", "hS", "magnet:S", "manual", 2); err != nil {
+	if err := f.Add(context.Background(), "shared movie", "hS", "magnet:S", "manual", 2); err != nil {
 		t.Fatalf("user 2 Add: %v", err)
 	}
 
-	listA, err := f.List(1, false, false)
+	listA, err := f.List(context.Background(), 1, false, false)
 	if err != nil {
 		t.Fatalf("List user 1: %v", err)
 	}
 	if len(listA) != 1 || listA[0].UserID != 1 {
 		t.Fatalf("user 1 lost the favorite when user 2 added the same name: %+v", listA)
 	}
-	listB, err := f.List(2, false, false)
+	listB, err := f.List(context.Background(), 2, false, false)
 	if err != nil {
 		t.Fatalf("List user 2: %v", err)
 	}
 	if len(listB) != 1 || listB[0].UserID != 2 {
 		t.Fatalf("user 2 favorite missing: %+v", listB)
 	}
-	all, err := f.List(0, true, false)
+	all, err := f.List(context.Background(), 0, true, false)
 	if err != nil {
 		t.Fatalf("List all: %v", err)
 	}
@@ -47,19 +48,19 @@ func TestFavoritesSameNameTwoUsers(t *testing.T) {
 // must delete only B's row — user A's favorite has to survive.
 func TestFavoritesUnfavoriteByOneKeepsOther(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("shared movie", "hS", "magnet:S", "manual", 1)
-	f.Add("shared movie", "hS", "magnet:S", "manual", 2)
+	f.Add(context.Background(), "shared movie", "hS", "magnet:S", "manual", 1)
+	f.Add(context.Background(), "shared movie", "hS", "magnet:S", "manual", 2)
 
-	if err := f.Remove("shared movie", 2, false); err != nil {
+	if err := f.Remove(context.Background(), "shared movie", 2, false); err != nil {
 		t.Fatalf("Remove user 2: %v", err)
 	}
-	if !f.IsFavoriteOf("shared movie", 1) {
+	if !f.IsFavoriteOf(context.Background(), "shared movie", 1) {
 		t.Fatal("user 1 favorite must survive user 2's unfavorite")
 	}
-	if f.IsFavoriteOf("shared movie", 2) {
+	if f.IsFavoriteOf(context.Background(), "shared movie", 2) {
 		t.Fatal("user 2 favorite should be gone after Remove")
 	}
-	listA, err := f.List(1, false, false)
+	listA, err := f.List(context.Background(), 1, false, false)
 	if err != nil {
 		t.Fatalf("List user 1: %v", err)
 	}

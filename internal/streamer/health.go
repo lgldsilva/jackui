@@ -33,7 +33,7 @@ func (s *Streamer) activeEntry(hash metainfo.Hash) *entry {
 // HealthSnapshot returns the cheapest available swarm health: live stats when the
 // torrent is active (also refreshing the persisted copy), else the last probe
 // (nil if never probed). Never touches the swarm.
-func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, active bool) {
+func (s *Streamer) HealthSnapshot(ctx context.Context, hash metainfo.Hash) (health *CachedHealth, active bool) {
 	// Read Stats() while STILL holding s.mu. Releasing the lock first (the old
 	// code did) opened a TOCTOU: gcLoop/Drop could t.Drop() the torrent between
 	// the unlock and e.t.Stats(), racing/​panicking on a torn-down torrent.
@@ -44,10 +44,10 @@ func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, act
 		st := e.t.Stats()
 		mi := e.t.Metainfo()
 		s.mu.Unlock()
-		return s.activeHealth(hash, st.ConnectedSeeders, st.TotalPeers, trackersFromMetainfo(&mi)), true
+		return s.activeHealth(ctx, hash, st.ConnectedSeeders, st.TotalPeers, trackersFromMetainfo(&mi)), true
 	}
 	s.mu.Unlock()
-	return s.cache.GetHealth(hash.HexString()), false
+	return s.cache.GetHealth(ctx, hash.HexString()), false
 }
 
 // activeHealth builds the health for an ACTIVE torrent from its live stats.
@@ -58,8 +58,8 @@ func (s *Streamer) HealthSnapshot(hash metainfo.Hash) (health *CachedHealth, act
 // misleading 0. We do NOT persist the live count here (it would bury the scrape's
 // CheckedAt); the cache is written only by scrapes. Split out of HealthSnapshot
 // so it's testable without a live torrent.
-func (s *Streamer) activeHealth(hash metainfo.Hash, liveSeeders, livePeers int, trackers []string) *CachedHealth {
-	cached := s.cache.GetHealth(hash.HexString())
+func (s *Streamer) activeHealth(ctx context.Context, hash metainfo.Hash, liveSeeders, livePeers int, trackers []string) *CachedHealth {
+	cached := s.cache.GetHealth(ctx, hash.HexString())
 	seeders := liveSeeders
 	if cached != nil && cached.Seeders > seeders {
 		seeders = cached.Seeders
@@ -94,7 +94,7 @@ func (s *Streamer) maybeScrapeActive(hash metainfo.Hash, trackers []string, cach
 		ctx, cancel := context.WithTimeout(context.Background(), scrapeBudget)
 		defer cancel()
 		if seeders, leechers, ok := scrapeSwarm(ctx, hash, trackers); ok {
-			_ = s.cache.SetHealth(hash.HexString(), seeders, leechers)
+			s.saveHealth(hash, seeders, leechers)
 		}
 	}()
 }
@@ -102,8 +102,8 @@ func (s *Streamer) maybeScrapeActive(hash metainfo.Hash, trackers []string, cach
 // seedersNotBelowScrape clamps a live ConnectedSeeders count up to the last
 // persisted tracker scrape, if larger — the scrape is the real swarm size, the
 // live count is just who we've connected to.
-func (s *Streamer) seedersNotBelowScrape(hash metainfo.Hash, live int) int {
-	if cached := s.cache.GetHealth(hash.HexString()); cached != nil && cached.Seeders > live {
+func (s *Streamer) seedersNotBelowScrape(ctx context.Context, hash metainfo.Hash, live int) int {
+	if cached := s.cache.GetHealth(ctx, hash.HexString()); cached != nil && cached.Seeders > live {
 		return cached.Seeders
 	}
 	return live
@@ -153,7 +153,10 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 	}
 	s.mu.Unlock()
 	if ok {
-		_ = s.cache.SetHealth(hash.HexString(), s.seedersNotBelowScrape(hash, connectedSeeders), totalPeers)
+		dbc, cancel := dbCtx()
+		seeders := s.seedersNotBelowScrape(dbc, hash, connectedSeeders)
+		cancel()
+		s.saveHealth(hash, seeders, totalPeers)
 		return
 	}
 
@@ -168,7 +171,7 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 	seeders, leechers, ok := scrapeSwarm(sctx, hash, trackers)
 	scancel()
 	if ok {
-		_ = s.cache.SetHealth(hash.HexString(), seeders, leechers)
+		s.saveHealth(hash, seeders, leechers)
 		return
 	}
 
@@ -212,7 +215,7 @@ func (s *Streamer) probeHealth(hash metainfo.Hash, magnet string) {
 	}
 	st := e2.t.Stats()
 	s.mu.Unlock()
-	_ = s.cache.SetHealth(hash.HexString(), st.ConnectedSeeders, st.TotalPeers)
+	s.saveHealth(hash, st.ConnectedSeeders, st.TotalPeers)
 	s.dropProbeEntry(hash, probeEntry, la0)
 }
 
@@ -242,4 +245,13 @@ func (s *Streamer) dropProbeEntry(hash metainfo.Hash, probeEntry *entry, la0 tim
 	s.mu.Unlock()
 	e.t.Drop()
 	s.purgeVerifiedFiles(hash)
+}
+
+// saveHealth persists a probe result from a background goroutine. The probe's
+// own ctx (scrape/peer-wait budget) is usually spent by now and no request is
+// waiting, so the write gets a fresh bounded ctx instead of inheriting either.
+func (s *Streamer) saveHealth(hash metainfo.Hash, seeders, peers int) {
+	ctx, cancel := dbCtx()
+	defer cancel()
+	_ = s.cache.SetHealth(ctx, hash.HexString(), seeders, peers)
 }

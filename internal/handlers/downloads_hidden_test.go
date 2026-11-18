@@ -174,14 +174,14 @@ func (f *dlHiddenFixture) createDL(t *testing.T, userID int, hash, name, path st
 // folder must not surface, but does when the curtain opens.
 func TestDownloadsList_FavouriteHiddenByHash(t *testing.T) {
 	f := newDLHiddenFixture(t)
-	folder, err := f.fav.CreateFolder(f.alice, "Private", nil, true) // hidden=true
+	folder, err := f.fav.CreateFolder(context.Background(), f.alice, "Private", nil, true) // hidden=true
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
-	if err := f.fav.Add("Secret Movie", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "magnet:x", "manual", f.alice); err != nil {
+	if err := f.fav.Add(context.Background(), "Secret Movie", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "magnet:x", "manual", f.alice); err != nil {
 		t.Fatalf("Add favourite: %v", err)
 	}
-	if err := f.fav.MoveFavoriteToFolder(f.alice, "Secret Movie", &folder.ID); err != nil {
+	if err := f.fav.MoveFavoriteToFolder(context.Background(), f.alice, "Secret Movie", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 	f.createDL(t, f.alice, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Secret Movie", "/dl/secret.mkv")
@@ -208,7 +208,7 @@ func TestDownloadsList_FavouriteHiddenByHash(t *testing.T) {
 func TestDownloadsList_LocalHiddenByPath(t *testing.T) {
 	f := newDLHiddenFixture(t)
 	// alice hides Movies/secret in the local browser.
-	if err := f.fav.SetLocalPathHidden(f.alice, "Movies", "secret", true); err != nil {
+	if err := f.fav.SetLocalPathHidden(context.Background(), f.alice, "Movies", "secret", true); err != nil {
 		t.Fatalf("SetLocalPathHidden: %v", err)
 	}
 	// A completed download lives under that hidden folder (no favourite at all).
@@ -236,7 +236,7 @@ func TestDownloadsList_LocalHiddenByPath(t *testing.T) {
 // must NOT be dropped — the separator guard prevents the false positive.
 func TestDownloadsList_LocalHiddenPrefixGuard(t *testing.T) {
 	f := newDLHiddenFixture(t)
-	if err := f.fav.SetLocalPathHidden(f.alice, "Movies", "secret", true); err != nil {
+	if err := f.fav.SetLocalPathHidden(context.Background(), f.alice, "Movies", "secret", true); err != nil {
 		t.Fatalf("SetLocalPathHidden: %v", err)
 	}
 	siblingPath := filepath.Join(f.mount, "secret-extra", "movie.mkv")
@@ -252,7 +252,7 @@ func TestDownloadsList_LocalHiddenPrefixGuard(t *testing.T) {
 // and bob's curtain state must not affect alice.
 func TestDownloadsList_HiddenScopedPerUser(t *testing.T) {
 	f := newDLHiddenFixture(t)
-	if err := f.fav.SetLocalPathHidden(f.alice, "Movies", "secret", true); err != nil {
+	if err := f.fav.SetLocalPathHidden(context.Background(), f.alice, "Movies", "secret", true); err != nil {
 		t.Fatalf("SetLocalPathHidden: %v", err)
 	}
 	hiddenPath := filepath.Join(f.mount, "secret", "movie.mkv")
@@ -279,7 +279,7 @@ func TestDownloadsListAll_HonoursPerUserHidden(t *testing.T) {
 	f := newDLHiddenFixture(t)
 	// bob hides his per-user Home/private. Resolution must use bob's scope:
 	// {perUser}/bob/private.
-	if err := f.fav.SetLocalPathHidden(f.bob, "Home", "private", true); err != nil {
+	if err := f.fav.SetLocalPathHidden(context.Background(), f.bob, "Home", "private", true); err != nil {
 		t.Fatalf("SetLocalPathHidden: %v", err)
 	}
 	bobHidden := filepath.Join(f.perUser, "bob", "private", "movie.mkv")
@@ -304,9 +304,9 @@ func TestDownloadsListAll_HonoursPerUserHidden(t *testing.T) {
 // hiding still works; no panic from path resolution.
 func TestDownloadsList_NilBrowserStillFiltersByHash(t *testing.T) {
 	f := newDLHiddenFixture(t)
-	folder, _ := f.fav.CreateFolder(f.alice, "Private", nil, true)
-	_ = f.fav.Add("Hidden", "5555555555555555555555555555555555555555", "magnet:x", "manual", f.alice)
-	_ = f.fav.MoveFavoriteToFolder(f.alice, "Hidden", &folder.ID)
+	folder, _ := f.fav.CreateFolder(context.Background(), f.alice, "Private", nil, true)
+	_ = f.fav.Add(context.Background(), "Hidden", "5555555555555555555555555555555555555555", "magnet:x", "manual", f.alice)
+	_ = f.fav.MoveFavoriteToFolder(context.Background(), f.alice, "Hidden", &folder.ID)
 	f.createDL(t, f.alice, "5555555555555555555555555555555555555555", "Hidden", "/dl/h.mkv")
 
 	router := gin.New()
@@ -335,14 +335,14 @@ func TestDownloadsList_NilBrowserStillFiltersByHash(t *testing.T) {
 // can never join on the favourite's empty hash).
 func TestDownloadsList_FavouriteHiddenByName(t *testing.T) {
 	f := newDLHiddenFixture(t)
-	folder, err := f.fav.CreateFolder(f.alice, "Private", nil, true)
+	folder, err := f.fav.CreateFolder(context.Background(), f.alice, "Private", nil, true)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
-	if err := f.fav.Add("Secret Movie", "", "", "manual", f.alice); err != nil {
+	if err := f.fav.Add(context.Background(), "Secret Movie", "", "", "manual", f.alice); err != nil {
 		t.Fatalf("Add hash-less favourite: %v", err)
 	}
-	if err := f.fav.MoveFavoriteToFolder(f.alice, "Secret Movie", &folder.ID); err != nil {
+	if err := f.fav.MoveFavoriteToFolder(context.Background(), f.alice, "Secret Movie", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 	f.createDL(t, f.alice, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Secret Movie", "/dl/secret.mkv")

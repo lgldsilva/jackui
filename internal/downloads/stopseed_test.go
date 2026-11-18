@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -45,7 +46,7 @@ func TestWorkerRemove_ClearsPersistedSeed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSeeds: %v", err)
 	}
-	if err := seeds.Add(testHashHex, "magnet:?xt=urn:btih:"+testHashHex, "Movie"); err != nil {
+	if err := seeds.Add(context.Background(), testHashHex, "magnet:?xt=urn:btih:"+testHashHex, "Movie"); err != nil {
 		t.Fatalf("seeds.Add: %v", err)
 	}
 	s := streamer.NewForTesting()
@@ -54,7 +55,7 @@ func TestWorkerRemove_ClearsPersistedSeed(t *testing.T) {
 
 	w.Remove(42, testHashHex)
 
-	if seeds.Has(testHashHex) {
+	if seeds.Has(context.Background(), testHashHex) {
 		t.Error("persisted seed must be cleared on Remove so the torrent does not resurrect on next boot")
 	}
 }

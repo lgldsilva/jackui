@@ -9,8 +9,3 @@ downloads/store_delete.go 2
 downloads/store_groups.go 13
 downloads/store_list.go 11
 downloads/store_setters.go 20
-streamer/favorites.go 22
-streamer/favorites_names.go 1
-streamer/favorites_recover.go 4
-streamer/metadata_cache.go 9
-streamer/seeds.go 4

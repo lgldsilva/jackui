@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -179,7 +180,7 @@ func TestApplyFolderPatch_InvalidID(t *testing.T) {
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
 
-	err := applyFolderPatch(fs, 999, 123, &folderPatchBody{Name: strPtr("Renamed")})
+	err := applyFolderPatch(context.Background(), fs, folderKey{999, 123}, &folderPatchBody{Name: strPtr("Renamed")})
 	// This should not panic — either returns nil (no-op for missing folder) or error
 	_ = err
 }

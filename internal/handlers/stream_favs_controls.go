@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -244,7 +245,11 @@ func StreamFavorite(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if err := favs.Add(req.Name, req.InfoHash, req.Magnet, req.Reason, userID); err != nil {
+		// Detached: a favourite is the LRU-eviction shield, so the row must land
+		// even if the client hangs up (a dropped Add leaves the pieces evictable).
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := favs.Add(wctx, req.Name, req.InfoHash, req.Magnet, req.Reason, userID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -263,7 +268,9 @@ func StreamUnfavorite(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		if err := favs.Remove(name, userID, includeAll); err != nil {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := favs.Remove(wctx, name, userID, includeAll); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -284,15 +291,18 @@ func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
 		includeAll := isAdmin && queryBool(c, "all")
 		// The global reveal curtain (X-JackUI-Reveal-Hidden, the easter egg) or the
 		// legacy ?includeHidden=1 reveal favourites inside hidden folders.
-		list, err := favs.List(userID, includeAll, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
+		list, err := favs.List(c.Request.Context(), userID, includeAll, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		if list == nil {
 			list = []streamer.Favorite{}
 		}
-		enrichFavoritesSortMeta(s, list)
+		enrichFavoritesSortMeta(c.Request.Context(), s, list)
 		c.JSON(http.StatusOK, list)
 	}
 }
@@ -300,7 +310,7 @@ func StreamFavorites(s *streamer.Streamer) gin.HandlerFunc {
 // enrichFavoritesSortMeta fills each favourite's TotalSize/Seeders from the
 // metadata cache (a separate DB) in one batch query, so the UI can sort by size
 // or seeds. Unknown values stay zero/nil and sort last on the client.
-func enrichFavoritesSortMeta(s *streamer.Streamer, list []streamer.Favorite) {
+func enrichFavoritesSortMeta(ctx context.Context, s *streamer.Streamer, list []streamer.Favorite) {
 	cache := s.MetadataCache()
 	if cache == nil || len(list) == 0 {
 		return
@@ -311,7 +321,7 @@ func enrichFavoritesSortMeta(s *streamer.Streamer, list []streamer.Favorite) {
 			hashes = append(hashes, f.InfoHash)
 		}
 	}
-	meta := cache.GetSortMeta(hashes)
+	meta := cache.GetSortMeta(ctx, hashes)
 	for i := range list {
 		m, ok := meta[list[i].InfoHash]
 		if !ok {

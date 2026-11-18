@@ -175,8 +175,11 @@ func StreamMetadata(s *streamer.Streamer) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, "metadata cache disabled")
 			return
 		}
-		meta := cache.Get(h.HexString())
+		meta := cache.Get(c.Request.Context(), h.HexString())
 		if meta == nil {
+			if httpshared.AbortIfClientGone(c, c.Request.Context().Err()) {
+				return // a cancelled read is not "never cached"
+			}
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, "no cached metadata")
 			return
 		}
@@ -240,7 +243,7 @@ func StreamMetadataBatch(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		normalized, keyForRaw := metadataBatchNormalize(req.Hashes)
-		results := metadataBatchResults(cache.GetBatch(normalized), keyForRaw)
+		results := metadataBatchResults(cache.GetBatch(c.Request.Context(), normalized), keyForRaw)
 		c.Header(httpshared.CacheControl, httpshared.CachePublicDay)
 		c.JSON(http.StatusOK, gin.H{"results": results})
 	}
@@ -289,7 +292,10 @@ func StreamHealth(s *streamer.Streamer) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		snapshot, active := s.HealthSnapshot(h)
+		snapshot, active := s.HealthSnapshot(c.Request.Context(), h)
+		if httpshared.AbortIfClientGone(c, c.Request.Context().Err()) {
+			return
+		}
 		magnet := c.Query("magnet")
 		stale := snapshot == nil || time.Since(snapshot.CheckedAt) > streamer.HealthFreshFor
 		// Only probe when explicitly requested AND it'd add value (not active,
@@ -336,7 +342,7 @@ func StreamHealthBatch(s *streamer.Streamer) gin.HandlerFunc {
 			if err != nil {
 				continue
 			}
-			snapshot, active := s.HealthSnapshot(h)
+			snapshot, active := s.HealthSnapshot(c.Request.Context(), h)
 			r := gin.H{"active": active, "refreshing": false, "known": snapshot != nil}
 			if snapshot != nil {
 				r["seeders"] = snapshot.Seeders

@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
@@ -100,7 +101,7 @@ func recoverEnv(t *testing.T) (*FavoritesStore, *MetadataCache, *sql.DB) {
 
 func magnetOf(t *testing.T, f *FavoritesStore, name string) string {
 	t.Helper()
-	favs, err := f.List(0, true, true)
+	favs, err := f.List(context.Background(), 0, true, true)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -115,10 +116,10 @@ func magnetOf(t *testing.T, f *FavoritesStore, name string) string {
 
 func TestReconcileMagnets_Layer1_FromInfoHash(t *testing.T) {
 	f, _, _ := recoverEnv(t)
-	if err := f.Add("Layer1", recHash, "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Layer1", recHash, "", "manual", 1); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	n, err := f.ReconcileMagnets()
+	n, err := f.ReconcileMagnets(context.Background())
 	if err != nil {
 		t.Fatalf("ReconcileMagnets: %v", err)
 	}
@@ -132,13 +133,13 @@ func TestReconcileMagnets_Layer1_FromInfoHash(t *testing.T) {
 
 func TestReconcileMagnets_Layer2_FromMetadataByName(t *testing.T) {
 	f, mc, _ := recoverEnv(t)
-	if err := f.Add("Layer2", "", "", "manual", 1); err != nil { // both empty (inert)
+	if err := f.Add(context.Background(), "Layer2", "", "", "manual", 1); err != nil { // both empty (inert)
 		t.Fatalf("Add: %v", err)
 	}
-	if err := mc.Set(&TorrentInfo{InfoHash: recHash, Name: "Layer2", TotalSize: 1}); err != nil {
+	if err := mc.Set(context.Background(), &TorrentInfo{InfoHash: recHash, Name: "Layer2", TotalSize: 1}); err != nil {
 		t.Fatalf("metadata Set: %v", err)
 	}
-	n, err := f.ReconcileMagnets()
+	n, err := f.ReconcileMagnets(context.Background())
 	if err != nil {
 		t.Fatalf("ReconcileMagnets: %v", err)
 	}
@@ -159,10 +160,10 @@ func (s fakeSearcher) SearchByName(name string) ([]MagnetMatch, error) {
 
 func TestRecoverViaSearch_ConfidentFillsAmbiguousSkips(t *testing.T) {
 	f, _, _ := recoverEnv(t)
-	if err := f.Add("Good Title", "", "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Good Title", "", "", "manual", 1); err != nil {
 		t.Fatalf("Add good: %v", err)
 	}
-	if err := f.Add("Ambiguous One", "", "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Ambiguous One", "", "", "manual", 1); err != nil {
 		t.Fatalf("Add ambiguous: %v", err)
 	}
 	searcher := fakeSearcher{byName: map[string][]MagnetMatch{
@@ -172,7 +173,7 @@ func TestRecoverViaSearch_ConfidentFillsAmbiguousSkips(t *testing.T) {
 			{Title: "Different B", InfoHash: recHash},
 		},
 	}}
-	n, err := f.RecoverViaSearch(searcher, 25)
+	n, err := f.RecoverViaSearch(context.Background(), searcher, 25)
 	if err != nil {
 		t.Fatalf("RecoverViaSearch: %v", err)
 	}
@@ -189,7 +190,7 @@ func TestRecoverViaSearch_ConfidentFillsAmbiguousSkips(t *testing.T) {
 
 func TestRecoverViaSearch_NilSearcherNoop(t *testing.T) {
 	f, _, _ := recoverEnv(t)
-	if n, err := f.RecoverViaSearch(nil, 25); err != nil || n != 0 {
+	if n, err := f.RecoverViaSearch(context.Background(), nil, 25); err != nil || n != 0 {
 		t.Errorf("nil searcher: n=%d err=%v, want 0/nil", n, err)
 	}
 }
@@ -200,17 +201,17 @@ func TestRecoverViaSearch_NilSearcherNoop(t *testing.T) {
 // state. Visible magnet-less favourites are still recovered.
 func TestRecoverViaSearch_SkipsHiddenFolderFavourites(t *testing.T) {
 	f, _, _ := recoverEnv(t)
-	if err := f.Add("Hidden Release", "", "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Hidden Release", "", "", "manual", 1); err != nil {
 		t.Fatalf("Add hidden: %v", err)
 	}
-	if err := f.Add("Public Release", "", "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Public Release", "", "", "manual", 1); err != nil {
 		t.Fatalf("Add public: %v", err)
 	}
-	folder, err := f.CreateFolder(1, "Vault", nil, true)
+	folder, err := f.CreateFolder(context.Background(), 1, "Vault", nil, true)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "Hidden Release", &folder.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "Hidden Release", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 
@@ -218,7 +219,7 @@ func TestRecoverViaSearch_SkipsHiddenFolderFavourites(t *testing.T) {
 		"Hidden Release": {{Title: "Hidden Release", Magnet: "magnet:?xt=urn:btih:" + recHash, Seeders: 10}},
 		"Public Release": {{Title: "Public Release", Magnet: "magnet:?xt=urn:btih:" + recHash, Seeders: 10}},
 	}}
-	n, err := f.RecoverViaSearch(searcher, 25)
+	n, err := f.RecoverViaSearch(context.Background(), searcher, 25)
 	if err != nil {
 		t.Fatalf("RecoverViaSearch: %v", err)
 	}

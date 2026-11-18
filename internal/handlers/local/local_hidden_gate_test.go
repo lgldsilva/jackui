@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,7 +54,7 @@ func TestLocalHiddenGate(t *testing.T) {
 	s.SetFavorites(fav)
 
 	const uid = 7
-	if err := fav.SetLocalPathHidden(uid, "Movies", "secret", true); err != nil {
+	if err := fav.SetLocalPathHidden(context.Background(), uid, "Movies", "secret", true); err != nil {
 		t.Fatalf("SetLocalPathHidden: %v", err)
 	}
 
@@ -99,7 +100,7 @@ func TestFilterHiddenLocalTree(t *testing.T) {
 	t.Cleanup(func() { fav.Close() })
 	s.SetFavorites(fav)
 	const uid = 9
-	if err := fav.SetLocalPathHidden(uid, "M", "secret", true); err != nil {
+	if err := fav.SetLocalPathHidden(context.Background(), uid, "M", "secret", true); err != nil {
 		t.Fatalf("hide: %v", err)
 	}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -127,7 +128,7 @@ func TestAbortIfLocalPathHidden(t *testing.T) {
 	t.Cleanup(func() { fav.Close() })
 	s.SetFavorites(fav)
 	const uid = 3
-	if err := fav.SetLocalPathHidden(uid, "M", "secret", true); err != nil {
+	if err := fav.SetLocalPathHidden(context.Background(), uid, "M", "secret", true); err != nil {
 		t.Fatalf("hide: %v", err)
 	}
 

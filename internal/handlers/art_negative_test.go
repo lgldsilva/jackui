@@ -50,10 +50,10 @@ func TestRunArtResolve_DeadlineNoNegativeMarker(t *testing.T) {
 	if cap.Code != 204 {
 		t.Errorf("status = %d, want 204", cap.Code)
 	}
-	if art := cache.GetArt("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); art != nil {
+	if art := cache.GetArt(context.Background(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); art != nil {
 		t.Errorf("negative marker persisted on cancelled context: %+v", art)
 	}
-	if cache.ArtNegativeFresh("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", time.Hour) {
+	if cache.ArtNegativeFresh(context.Background(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", time.Hour) {
 		t.Error("ArtNegativeFresh = true after cancelled resolve; retry would be blocked")
 	}
 }
@@ -70,7 +70,7 @@ func TestRunArtResolve_CompletedMissPersistsNone(t *testing.T) {
 	if cap.Code != 204 {
 		t.Errorf("status = %d, want 204", cap.Code)
 	}
-	art := cache.GetArt("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	art := cache.GetArt(context.Background(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	if art == nil || art.Source != streamer.ArtSourceNone {
 		t.Errorf("GetArt = %+v, want persisted source %q", art, streamer.ArtSourceNone)
 	}

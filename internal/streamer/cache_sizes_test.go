@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -222,7 +223,7 @@ func TestStats_FavoritesFailClosed(t *testing.T) {
 
 func TestFavoritesNames(t *testing.T) {
 	var none *FavoritesStore
-	if names, err := none.Names(); err != nil || len(names) != 0 {
+	if names, err := none.Names(context.Background()); err != nil || len(names) != 0 {
 		t.Fatalf("nil store Names = %v, %v", names, err)
 	}
 
@@ -231,11 +232,11 @@ func TestFavoritesNames(t *testing.T) {
 		name string
 		user int
 	}{{"shared", 1}, {"shared", 2}, {"solo", 3}} {
-		if err := favs.Add(add.name, "", "", "test", add.user); err != nil {
+		if err := favs.Add(context.Background(), add.name, "", "", "test", add.user); err != nil {
 			t.Fatal(err)
 		}
 	}
-	names, err := favs.Names()
+	names, err := favs.Names(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestFavoritesNames(t *testing.T) {
 	}
 
 	_ = favs.db.Close()
-	if _, err := favs.Names(); err == nil {
+	if _, err := favs.Names(context.Background()); err == nil {
 		t.Fatal("Names on a closed pool must fail")
 	}
 }

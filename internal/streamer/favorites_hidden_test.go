@@ -1,16 +1,18 @@
 package streamer
 
+import "context"
+
 import "testing"
 
 // A hidden folder stays out of the default listing (sidebar) but shows when the
 // caller opts in (the UI's easter egg). SetFolderHidden toggles it.
 func TestFavoritesHiddenFolderListing(t *testing.T) {
 	f := newTestFavorites(t)
-	normal, err := f.CreateFolder(1, "Normal", nil, false)
+	normal, err := f.CreateFolder(context.Background(), 1, "Normal", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	hidden, err := f.CreateFolder(1, "Hidden", nil, true)
+	hidden, err := f.CreateFolder(context.Background(), 1, "Hidden", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +21,7 @@ func TestFavoritesHiddenFolderListing(t *testing.T) {
 	}
 
 	// Default listing hides it.
-	vis, err := f.ListFolders(1, false)
+	vis, err := f.ListFolders(context.Background(), 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +29,7 @@ func TestFavoritesHiddenFolderListing(t *testing.T) {
 		t.Fatalf("default listing should show only the normal folder, got %d", len(vis))
 	}
 	// Opt-in reveals both.
-	all, err := f.ListFolders(1, true)
+	all, err := f.ListFolders(context.Background(), 1, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,10 +38,10 @@ func TestFavoritesHiddenFolderListing(t *testing.T) {
 	}
 
 	// Un-hiding brings it back into the default listing.
-	if err := f.SetFolderHidden(1, hidden.ID, false); err != nil {
+	if err := f.SetFolderHidden(context.Background(), 1, hidden.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	vis, _ = f.ListFolders(1, false)
+	vis, _ = f.ListFolders(context.Background(), 1, false)
 	if len(vis) != 2 {
 		t.Fatalf("after un-hide, default listing should show both, got %d", len(vis))
 	}
@@ -49,22 +51,22 @@ func TestFavoritesHiddenFolderListing(t *testing.T) {
 // "all" view) — only when includeHidden is set.
 func TestFavoritesHiddenFolderHidesItems(t *testing.T) {
 	f := newTestFavorites(t)
-	hidden, err := f.CreateFolder(1, "Secret", nil, true)
+	hidden, err := f.CreateFolder(context.Background(), 1, "Secret", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Add("secret movie", "hsecret", "magnet:s", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "secret movie", "hsecret", "magnet:s", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Add("public movie", "hpub", "magnet:p", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "public movie", "hpub", "magnet:p", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "secret movie", &hidden.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "secret movie", &hidden.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	// Default list: the secret one is filtered out.
-	def, err := f.List(1, false, false)
+	def, err := f.List(context.Background(), 1, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +80,7 @@ func TestFavoritesHiddenFolderHidesItems(t *testing.T) {
 	}
 
 	// includeHidden: both show.
-	full, err := f.List(1, false, true)
+	full, err := f.List(context.Background(), 1, false, true)
 	if err != nil {
 		t.Fatal(err)
 	}

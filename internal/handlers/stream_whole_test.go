@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -57,7 +58,7 @@ func wholeTestEnv(t *testing.T) (*downloads.Store, *streamer.Streamer, string) {
 	}
 	t.Cleanup(func() { _ = mc.Close() })
 	s.SetMetadataCache(mc)
-	if err := mc.Set(&streamer.TorrentInfo{
+	if err := mc.Set(context.Background(), &streamer.TorrentInfo{
 		InfoHash: wholeHexHash, Name: "Pack",
 		Files: []streamer.FileInfo{{Index: 0, Path: "Pack/Sub/a.bin", Size: 4}},
 	}); err != nil {

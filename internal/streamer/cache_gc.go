@@ -165,7 +165,7 @@ func (s *Streamer) ClearAll() error {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		if s.favs != nil && s.favs.IsFavorite(name) {
+		if s.favs != nil && s.isFavoriteBG(name) {
 			continue
 		}
 		// Preserve entries protected by an active torrent or the downloads
@@ -188,7 +188,7 @@ func (s *Streamer) ClearEntry(name string) error {
 	if err != nil {
 		return err
 	}
-	if s.favs != nil && s.favs.IsFavorite(clean) {
+	if s.favs != nil && s.isFavoriteBG(clean) {
 		return fmt.Errorf("entry %q is a favorite — unfavorite it before removing", clean)
 	}
 	if err := s.dropEntryTorrent(clean); err != nil {

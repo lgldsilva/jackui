@@ -516,11 +516,11 @@ func TestMetadataCache_SetAndGetMeta(t *testing.T) {
 		},
 		PrimaryFile: 0,
 	}
-	if err := cache.Set(info); err != nil {
+	if err := cache.Set(context.Background(), info); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	got := cache.Get("test-hash")
+	got := cache.Get(context.Background(), "test-hash")
 	if got == nil {
 		t.Fatal("expected non-nil CachedMeta")
 	}
@@ -542,7 +542,7 @@ func TestMetadataCache_GetNonExistent(t *testing.T) {
 	}
 	defer cache.Close()
 
-	got := cache.Get("nonexistent")
+	got := cache.Get(context.Background(), "nonexistent")
 	if got != nil {
 		t.Error("expected nil for non-existent key")
 	}
@@ -560,11 +560,11 @@ func TestMetadataCache_SetAndGetArt(t *testing.T) {
 		PosterURL: "https://example.com/poster.jpg",
 		TmdbID:    123,
 	}
-	if err := cache.SetArt("hash123", art); err != nil {
+	if err := cache.SetArt(context.Background(), "hash123", art); err != nil {
 		t.Fatalf("SetArt: %v", err)
 	}
 
-	got := cache.GetArt("hash123")
+	got := cache.GetArt(context.Background(), "hash123")
 	if got == nil {
 		t.Fatal("expected non-nil CachedArt")
 	}
@@ -583,7 +583,7 @@ func TestMetadataCache_GetArtNonExistent(t *testing.T) {
 	}
 	defer cache.Close()
 
-	got := cache.GetArt("nonexistent")
+	got := cache.GetArt(context.Background(), "nonexistent")
 	if got != nil {
 		t.Error("expected nil for non-existent art")
 	}
@@ -596,11 +596,11 @@ func TestMetadataCache_SetAndGetHealth(t *testing.T) {
 	}
 	defer cache.Close()
 
-	if err := cache.SetHealth("h1", 5, 10); err != nil {
+	if err := cache.SetHealth(context.Background(), "h1", 5, 10); err != nil {
 		t.Fatalf("SetHealth: %v", err)
 	}
 
-	h := cache.GetHealth("h1")
+	h := cache.GetHealth(context.Background(), "h1")
 	if h == nil {
 		t.Fatal("expected non-nil health")
 	}
@@ -622,7 +622,7 @@ func TestMetadataCache_GetHealthFallback(t *testing.T) {
 	}
 	defer cache.Close()
 
-	h := cache.GetHealth("nonexistent")
+	h := cache.GetHealth(context.Background(), "nonexistent")
 	if h != nil {
 		t.Error("expected nil health for non-existent key")
 	}
@@ -648,7 +648,7 @@ func TestHealthSnapshot_UnknownHash(t *testing.T) {
 
 	var h metainfo.Hash
 	h.FromHexString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	health, active := s.HealthSnapshot(h)
+	health, active := s.HealthSnapshot(context.Background(), h)
 	if active {
 		t.Error("expected active=false")
 	}

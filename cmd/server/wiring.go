@@ -206,7 +206,7 @@ func recoverFavorites(s *streamer.Streamer, jc *jackett.Client) {
 	if favs == nil {
 		return
 	}
-	if n, err := favs.ReconcileMagnets(); err != nil {
+	if n, err := favs.ReconcileMagnets(context.Background()); err != nil {
 		log.Printf("favorites recovery (deterministic) failed: %v", err)
 	} else if n > 0 {
 		log.Printf("favorites recovery: re-linked %d magnet(s) from info_hash/metadata", n)
@@ -214,7 +214,7 @@ func recoverFavorites(s *streamer.Streamer, jc *jackett.Client) {
 	if os.Getenv("JACKUI_RECOVER_FAVORITES") == "0" || jc == nil {
 		return
 	}
-	if n, err := favs.RecoverViaSearch(jackettMagnetSearcher{jc}, recoverFavoritesLimit); err != nil {
+	if n, err := favs.RecoverViaSearch(context.Background(), jackettMagnetSearcher{jc}, recoverFavoritesLimit); err != nil {
 		log.Printf("favorites recovery (Jackett re-search) failed: %v", err)
 	} else if n > 0 {
 		log.Printf("favorites recovery: re-linked %d magnet(s) via Jackett re-search", n)
@@ -243,7 +243,7 @@ func (a jackettMagnetSearcher) SearchByName(name string) ([]streamer.MagnetMatch
 // resumes without the user re-opening anything. Bounded concurrency keeps the
 // metadata/hash-check storm in check; failures are logged and skipped.
 func resumeSeeding(s *streamer.Streamer, seeds *streamer.SeedsStore) {
-	entries, err := seeds.List()
+	entries, err := seeds.List(context.Background())
 	if err != nil {
 		log.Printf("Warning: resume seeding list failed: %v", err)
 		return

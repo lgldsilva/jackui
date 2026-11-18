@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -91,7 +92,7 @@ func Test_str5_ClearAll_KeepsFavoritesAndDotfiles(t *testing.T) {
 	s := NewForTesting()
 	s.cfg.DataDir = dir
 	f := str5NewFavorites(t)
-	if err := f.Add("str5-fav", "hash5", "magnet:?xt=urn:btih:hash5", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "str5-fav", "hash5", "magnet:?xt=urn:btih:hash5", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
 	s.SetFavorites(f)
@@ -137,7 +138,7 @@ func Test_str5_ClearEntry_RefusesFavorite(t *testing.T) {
 	s := NewForTesting()
 	s.cfg.DataDir = dir
 	f := str5NewFavorites(t)
-	if err := f.Add("str5-keep", "h", "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "str5-keep", "h", "", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
 	s.SetFavorites(f)
@@ -194,19 +195,19 @@ func Test_str5_SaveArtBytes_RoundTrip(t *testing.T) {
 func Test_str5_Favorites_NilStore_FolderMutators(t *testing.T) {
 	var f *FavoritesStore // nil receiver
 
-	if _, err := f.CreateFolder(1, "x", nil, false); err == nil {
+	if _, err := f.CreateFolder(context.Background(), 1, "x", nil, false); err == nil {
 		t.Error("expected CreateFolder on nil store to error")
 	}
-	if err := f.RenameFolder(1, 1, "x"); err != nil {
+	if err := f.RenameFolder(context.Background(), 1, 1, "x"); err != nil {
 		t.Errorf("RenameFolder nil store should no-op, got %v", err)
 	}
-	if err := f.MoveFolder(1, 1, nil); err != nil {
+	if err := f.MoveFolder(context.Background(), 1, 1, nil); err != nil {
 		t.Errorf("MoveFolder nil store should no-op, got %v", err)
 	}
-	if err := f.DeleteFolder(1, 1); err != nil {
+	if err := f.DeleteFolder(context.Background(), 1, 1); err != nil {
 		t.Errorf("DeleteFolder nil store should no-op, got %v", err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "x", nil); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "x", nil); err != nil {
 		t.Errorf("MoveFavoriteToFolder nil store should no-op, got %v", err)
 	}
 }
@@ -216,11 +217,11 @@ func Test_str5_Favorites_NilStore_FolderMutators(t *testing.T) {
 func Test_str5_Favorites_NestedFolder_AndMoveFavorite(t *testing.T) {
 	f := str5NewFavorites(t)
 
-	root, err := f.CreateFolder(7, "str5-root", nil, false)
+	root, err := f.CreateFolder(context.Background(), 7, "str5-root", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder root: %v", err)
 	}
-	child, err := f.CreateFolder(7, "str5-child", &root.ID, false)
+	child, err := f.CreateFolder(context.Background(), 7, "str5-child", &root.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
@@ -228,14 +229,14 @@ func Test_str5_Favorites_NestedFolder_AndMoveFavorite(t *testing.T) {
 		t.Errorf("child.ParentID = %v, want %d", child.ParentID, root.ID)
 	}
 
-	if err := f.Add("str5-item", "hh", "", "manual", 7); err != nil {
+	if err := f.Add(context.Background(), "str5-item", "hh", "", "manual", 7); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFavoriteToFolder(7, "str5-item", &child.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 7, "str5-item", &child.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 
-	list, err := f.List(7, false, false)
+	list, err := f.List(context.Background(), 7, false, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -256,19 +257,19 @@ func Test_str5_Favorites_NestedFolder_AndMoveFavorite(t *testing.T) {
 func Test_str5_Favorites_MoveFolder_ValidReparent(t *testing.T) {
 	f := str5NewFavorites(t)
 
-	a, err := f.CreateFolder(9, "str5-a", nil, false)
+	a, err := f.CreateFolder(context.Background(), 9, "str5-a", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := f.CreateFolder(9, "str5-b", nil, false)
+	b, err := f.CreateFolder(context.Background(), 9, "str5-b", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Move b under a — a valid, acyclic reparent (walks the parent chain of a).
-	if err := f.MoveFolder(9, b.ID, &a.ID); err != nil {
+	if err := f.MoveFolder(context.Background(), 9, b.ID, &a.ID); err != nil {
 		t.Fatalf("MoveFolder: %v", err)
 	}
-	got, err := f.GetFolder(9, b.ID)
+	got, err := f.GetFolder(context.Background(), 9, b.ID)
 	if err != nil {
 		t.Fatalf("GetFolder: %v", err)
 	}
@@ -292,11 +293,11 @@ func Test_str5_MetadataCache_SetWithFiles_RoundTrip(t *testing.T) {
 			{Index: 1, Path: "movie.mkv", Size: 1948, IsVideo: true},
 		},
 	}
-	if err := mc.Set(info); err != nil {
+	if err := mc.Set(context.Background(), info); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 
-	got := mc.Get("str5hash")
+	got := mc.Get(context.Background(), "str5hash")
 	if got == nil {
 		t.Fatal("Get returned nil after Set")
 	}
@@ -319,13 +320,13 @@ func Test_str5_MetadataCache_SetWithFiles_RoundTrip(t *testing.T) {
 func Test_str5_MetadataCache_Set_Upsert(t *testing.T) {
 	mc := str5NewCache(t)
 
-	if err := mc.Set(&TorrentInfo{InfoHash: "str5up", Name: "old", TotalSize: 1, PrimaryFile: 0}); err != nil {
+	if err := mc.Set(context.Background(), &TorrentInfo{InfoHash: "str5up", Name: "old", TotalSize: 1, PrimaryFile: 0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mc.Set(&TorrentInfo{InfoHash: "str5up", Name: "new", TotalSize: 99, PrimaryFile: -1}); err != nil {
+	if err := mc.Set(context.Background(), &TorrentInfo{InfoHash: "str5up", Name: "new", TotalSize: 99, PrimaryFile: -1}); err != nil {
 		t.Fatal(err)
 	}
-	got := mc.Get("str5up")
+	got := mc.Get(context.Background(), "str5up")
 	if got == nil || got.Name != "new" || got.TotalSize != 99 {
 		t.Errorf("upsert did not overwrite: %+v", got)
 	}
@@ -337,10 +338,10 @@ func Test_str5_MetadataCache_SetArt_TorrentSource(t *testing.T) {
 	mc := str5NewCache(t)
 
 	art := &CachedArt{Source: "torrent", Path: ".art/abc.jpg", TmdbID: 0}
-	if err := mc.SetArt("str5art", art); err != nil {
+	if err := mc.SetArt(context.Background(), "str5art", art); err != nil {
 		t.Fatalf("SetArt: %v", err)
 	}
-	got := mc.GetArt("str5art")
+	got := mc.GetArt(context.Background(), "str5art")
 	if got == nil {
 		t.Fatal("GetArt returned nil")
 	}
@@ -395,7 +396,7 @@ func Test_str5_EnforceCacheLimit_PrefersPlainOverFavorites(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := favs.Add("str5-fav", "", "", "test", 1); err != nil {
+	if err := favs.Add(context.Background(), "str5-fav", "", "", "test", 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -423,7 +424,7 @@ func Test_str5_EnforceCacheLimit_EvictsOldestFavoriteWhenNothingElseLeft(t *test
 		if err := os.WriteFile(filepath.Join(dir, n), payload, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := favs.Add(n, "", "", "test", 1); err != nil {
+		if err := favs.Add(context.Background(), n, "", "", "test", 1); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -447,7 +448,7 @@ func Test_str5_EnforceCacheLimit_EvictsOldestFavoriteWhenNothingElseLeft(t *test
 		t.Errorf("recent favorite should survive: %v", err)
 	}
 	// The FLAG stays in the DB — eviction only drops the cached bytes.
-	if !favs.IsFavorite(old) {
+	if !favs.IsFavorite(context.Background(), old) {
 		t.Error("evicting a favorite's cache must not remove the favorite marking")
 	}
 }

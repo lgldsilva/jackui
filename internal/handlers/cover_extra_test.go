@@ -323,7 +323,7 @@ func TestStreamMetadata_HasCache_Extra(t *testing.T) {
 	s := streamer.NewForTesting()
 	s.SetMetadataCache(mc)
 
-	mc.Set(&streamer.TorrentInfo{
+	mc.Set(context.Background(), &streamer.TorrentInfo{
 		InfoHash:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Name:      "Test Movie",
 		TotalSize: 1000,
@@ -453,16 +453,16 @@ func TestStreamFavorites_SortMetaEnrichment_Extra(t *testing.T) {
 
 	const hashWithMeta = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const hashNoMeta = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	if err := fav.Add("WithMeta", hashWithMeta, "magnet:?xt=a", "manual", 0); err != nil {
+	if err := fav.Add(context.Background(), "WithMeta", hashWithMeta, "magnet:?xt=a", "manual", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := fav.Add("NoMeta", hashNoMeta, "magnet:?xt=b", "manual", 0); err != nil {
+	if err := fav.Add(context.Background(), "NoMeta", hashNoMeta, "magnet:?xt=b", "manual", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := mc.Set(&streamer.TorrentInfo{InfoHash: hashWithMeta, Name: "WithMeta", TotalSize: 4096, PrimaryFile: -1}); err != nil {
+	if err := mc.Set(context.Background(), &streamer.TorrentInfo{InfoHash: hashWithMeta, Name: "WithMeta", TotalSize: 4096, PrimaryFile: -1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mc.SetHealth(hashWithMeta, 12, 4); err != nil {
+	if err := mc.SetHealth(context.Background(), hashWithMeta, 12, 4); err != nil {
 		t.Fatal(err)
 	}
 

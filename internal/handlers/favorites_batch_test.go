@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -70,10 +71,10 @@ func TestFavoritesBatchRemove_SuccessAndPartial(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	if err := fs.Add("Alpha", "hasha", "magnet:?xt=urn:btih:hasha", "manual", 0); err != nil {
+	if err := fs.Add(context.Background(), "Alpha", "hasha", "magnet:?xt=urn:btih:hasha", "manual", 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := fs.Add("Beta", "hashb", "magnet:?xt=urn:btih:hashb", "manual", 0); err != nil {
+	if err := fs.Add(context.Background(), "Beta", "hashb", "magnet:?xt=urn:btih:hashb", "manual", 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -107,7 +108,7 @@ func TestFavoritesBatchRemove_SuccessAndPartial(t *testing.T) {
 	if len(resp.Failed) != 1 || resp.Failed[0] != "" {
 		t.Errorf("failed = %#v, want one empty name", resp.Failed)
 	}
-	if fs.IsFavorite("Alpha") || fs.IsFavorite("Beta") {
+	if fs.IsFavorite(context.Background(), "Alpha") || fs.IsFavorite(context.Background(), "Beta") {
 		t.Error("Alpha/Beta should have been removed")
 	}
 }
@@ -153,12 +154,12 @@ func TestFavoritesBatchSetFolder_SuccessToFolderAndRoot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	folder, err := fs.CreateFolder(0, "Dest", nil, false)
+	folder, err := fs.CreateFolder(context.Background(), 0, "Dest", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"One", "Two", "Three"} {
-		if err := fs.Add(name, strings.ToLower(name), "magnet:?xt=urn:btih:"+strings.ToLower(name), "manual", 0); err != nil {
+		if err := fs.Add(context.Background(), name, strings.ToLower(name), "magnet:?xt=urn:btih:"+strings.ToLower(name), "manual", 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -198,7 +199,7 @@ func TestFavoritesBatchSetFolder_SuccessToFolderAndRoot(t *testing.T) {
 		t.Fatalf("toRoot status = %d; body: %s", w.Code, w.Body.String())
 	}
 
-	list, err := fs.List(0, false, true)
+	list, err := fs.List(context.Background(), 0, false, true)
 	if err != nil {
 		t.Fatal(err)
 	}

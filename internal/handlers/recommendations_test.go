@@ -224,7 +224,7 @@ func TestSeedCandidates_FavoritesFirstSkipAudioCap(t *testing.T) {
 }
 
 func TestFavoriteSeedEntries_NilStreamerIsNil(t *testing.T) {
-	if got := favoriteSeedEntries(nil, 1, false); got != nil {
+	if got := favoriteSeedEntries(context.Background(), nil, 1, false); got != nil {
 		t.Errorf("nil streamer → nil seeds, got %v", got)
 	}
 }
@@ -236,14 +236,14 @@ func TestFavoriteSeedEntries_ListsNamesPerUser(t *testing.T) {
 		t.Fatalf("NewFavorites: %v", err)
 	}
 	s.SetFavorites(fav)
-	if err := fav.Add("Breaking Bad (2008)", "hash1", "magnet:x", "manual", 7); err != nil {
+	if err := fav.Add(context.Background(), "Breaking Bad (2008)", "hash1", "magnet:x", "manual", 7); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	got := favoriteSeedEntries(s, 7, false)
+	got := favoriteSeedEntries(context.Background(), s, 7, false)
 	if len(got) != 1 || got[0].Name != "Breaking Bad (2008)" {
 		t.Errorf("expected the favourite name as a seed entry, got %+v", got)
 	}
-	if other := favoriteSeedEntries(s, 999, false); len(other) != 0 {
+	if other := favoriteSeedEntries(context.Background(), s, 999, false); len(other) != 0 {
 		t.Errorf("favourites are per-user; another user should get none, got %d", len(other))
 	}
 }

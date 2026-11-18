@@ -29,7 +29,7 @@ func hiddenCurtain(c *gin.Context, s *streamer.Streamer, userID int, includeAll 
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil {
 		return streamer.HiddenCurtain{}
 	}
-	curtain, err := s.Favorites().HiddenFavorites(userID, includeAll)
+	curtain, err := s.Favorites().HiddenFavorites(c.Request.Context(), userID, includeAll)
 	if err != nil {
 		log.Printf("hidden curtain: favourites query failed (failing open): %v", err)
 		return streamer.HiddenCurtain{}
@@ -102,7 +102,7 @@ func buildHiddenDownloadFilter(c *gin.Context, s *streamer.Streamer, b *local.Br
 		return hiddenDownloadFilter{}
 	}
 	f := hiddenDownloadFilter{}
-	if curtain, err := s.Favorites().HiddenFavorites(userID, includeAll); err == nil {
+	if curtain, err := s.Favorites().HiddenFavorites(c.Request.Context(), userID, includeAll); err == nil {
 		f.curtain = curtain
 	} else {
 		log.Printf("hidden curtain: favourites query failed (failing open): %v", err)
@@ -119,7 +119,7 @@ func hiddenLocalPrefixes(ctx context.Context, s *streamer.Streamer, b *local.Bro
 	if b == nil {
 		return nil
 	}
-	owned := collectHiddenLocalPaths(s, userID, includeAll)
+	owned := collectHiddenLocalPaths(ctx, s, userID, includeAll)
 	if len(owned) == 0 {
 		return nil
 	}
@@ -138,15 +138,15 @@ func hiddenLocalPrefixes(ctx context.Context, s *streamer.Streamer, b *local.Bro
 
 // collectHiddenLocalPaths fetches the hidden local paths for a single user, or
 // for everyone when includeAll is set (admin view).
-func collectHiddenLocalPaths(s *streamer.Streamer, userID int, includeAll bool) []streamer.HiddenLocalPathOwned {
+func collectHiddenLocalPaths(ctx context.Context, s *streamer.Streamer, userID int, includeAll bool) []streamer.HiddenLocalPathOwned {
 	if includeAll {
-		all, err := s.Favorites().HiddenLocalPathsAll()
+		all, err := s.Favorites().HiddenLocalPathsAll(ctx)
 		if err != nil {
 			return nil
 		}
 		return all
 	}
-	paths, err := s.Favorites().HiddenLocalPaths(userID)
+	paths, err := s.Favorites().HiddenLocalPaths(ctx, userID)
 	if err != nil {
 		return nil
 	}
@@ -202,7 +202,7 @@ func dropHiddenLocalLibrary(c *gin.Context, s *streamer.Streamer, list []library
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil || len(list) == 0 {
 		return list
 	}
-	paths, err := s.Favorites().HiddenLocalPaths(userID)
+	paths, err := s.Favorites().HiddenLocalPaths(c.Request.Context(), userID)
 	if err != nil || len(paths) == 0 {
 		return list
 	}

@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
@@ -91,11 +92,11 @@ func (m *MetadataCache) Close() error { return nil }
 // Get returns a cached snapshot or nil if not present. Never returns error for
 // "not found" — the caller treats nil as "no cache" and falls through to the
 // live torrent client.
-func (m *MetadataCache) Get(infoHash string) *CachedMeta {
+func (m *MetadataCache) Get(ctx context.Context, infoHash string) *CachedMeta {
 	if m == nil {
 		return nil
 	}
-	row := m.db.QueryRow(`SELECT name, total_size, files, primary_file, cached_at FROM metadata WHERE info_hash = ?`, infoHash)
+	row := m.db.QueryRowContext(ctx, `SELECT name, total_size, files, primary_file, cached_at FROM metadata WHERE info_hash = ?`, infoHash)
 	var cm CachedMeta
 	var filesJSON string
 	if err := row.Scan(&cm.Name, &cm.TotalSize, &filesJSON, &cm.PrimaryFile, &cm.CachedAt); err != nil {
@@ -110,7 +111,7 @@ func (m *MetadataCache) Get(infoHash string) *CachedMeta {
 
 // GetBatch returns cached snapshots for many hashes in one query. Hashes with no
 // row are omitted — callers treat absence as a cache miss (same as Get returning nil).
-func (m *MetadataCache) GetBatch(hashes []string) map[string]*CachedMeta {
+func (m *MetadataCache) GetBatch(ctx context.Context, hashes []string) map[string]*CachedMeta {
 	out := make(map[string]*CachedMeta)
 	if m == nil || len(hashes) == 0 {
 		return out
@@ -133,7 +134,7 @@ func (m *MetadataCache) GetBatch(hashes []string) map[string]*CachedMeta {
 		placeholders[i] = "?"
 		args[i] = h
 	}
-	rows, err := m.db.Query(
+	rows, err := m.db.QueryContext(ctx,
 		`SELECT info_hash, name, total_size, files, primary_file, cached_at FROM metadata WHERE info_hash IN (`+strings.Join(placeholders, ",")+`)`,
 		args...)
 	if err != nil {
@@ -157,7 +158,7 @@ func (m *MetadataCache) GetBatch(hashes []string) map[string]*CachedMeta {
 
 // Set saves a snapshot. Called by Streamer.Add() once anacrolix delivers
 // metadata, so subsequent opens of the same hash hit the cache.
-func (m *MetadataCache) Set(info *TorrentInfo) error {
+func (m *MetadataCache) Set(ctx context.Context, info *TorrentInfo) error {
 	if m == nil || info == nil {
 		return nil
 	}
@@ -169,7 +170,7 @@ func (m *MetadataCache) Set(info *TorrentInfo) error {
 	if err != nil {
 		return err
 	}
-	_, err = m.db.Exec(`
+	_, err = m.db.ExecContext(ctx, `
 		INSERT INTO metadata(info_hash, name, total_size, files, primary_file)
 		VALUES(?, ?, ?, ?, ?)
 		ON CONFLICT(info_hash) DO UPDATE SET
@@ -184,11 +185,11 @@ func (m *MetadataCache) Set(info *TorrentInfo) error {
 
 // GetArt returns the persisted thumbnail for an info_hash, or nil when none has
 // been resolved yet. Never errors on "not found" — callers treat nil as "no art".
-func (m *MetadataCache) GetArt(infoHash string) *CachedArt {
+func (m *MetadataCache) GetArt(ctx context.Context, infoHash string) *CachedArt {
 	if m == nil {
 		return nil
 	}
-	row := m.db.QueryRow(`SELECT art_source, art_path, poster_url, tmdb_id, imdb_id FROM metadata WHERE info_hash = ?`, infoHash)
+	row := m.db.QueryRowContext(ctx, `SELECT art_source, art_path, poster_url, tmdb_id, imdb_id FROM metadata WHERE info_hash = ?`, infoHash)
 	var ca CachedArt
 	if err := row.Scan(&ca.Source, &ca.Path, &ca.PosterURL, &ca.TmdbID, &ca.ImdbID); err != nil {
 		return nil
@@ -202,11 +203,11 @@ func (m *MetadataCache) GetArt(infoHash string) *CachedArt {
 // SetArt persists a resolved thumbnail. Uses a column set disjoint from Set()
 // so it neither requires nor clobbers the metadata snapshot — an art-only row
 // (name=”) is created if the torrent's metadata hasn't been cached yet.
-func (m *MetadataCache) SetArt(infoHash string, art *CachedArt) error {
+func (m *MetadataCache) SetArt(ctx context.Context, infoHash string, art *CachedArt) error {
 	if m == nil || art == nil {
 		return nil
 	}
-	_, err := m.db.Exec(`
+	_, err := m.db.ExecContext(ctx, `
 		INSERT INTO metadata(info_hash, name, art_source, art_path, poster_url, tmdb_id, imdb_id, art_checked_at)
 		VALUES(?, '', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(info_hash) DO UPDATE SET
@@ -228,13 +229,13 @@ const ArtSourceNone = "none"
 // ArtNegativeFresh reports whether a recent "no art found" marker exists, so the
 // caller can short-circuit instead of re-running the expensive resolve chain.
 // A real art source (rank > 0) is never treated as a negative marker.
-func (m *MetadataCache) ArtNegativeFresh(infoHash string, ttl time.Duration) bool {
+func (m *MetadataCache) ArtNegativeFresh(ctx context.Context, infoHash string, ttl time.Duration) bool {
 	if m == nil {
 		return false
 	}
 	var source string
 	var checkedAt sql.NullTime
-	row := m.db.QueryRow(`SELECT art_source, art_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
+	row := m.db.QueryRowContext(ctx, `SELECT art_source, art_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
 	if err := row.Scan(&source, &checkedAt); err != nil {
 		return false
 	}
@@ -254,11 +255,11 @@ type CachedHealth struct {
 }
 
 // GetHealth returns the persisted swarm health, or nil if never probed.
-func (m *MetadataCache) GetHealth(infoHash string) *CachedHealth {
+func (m *MetadataCache) GetHealth(ctx context.Context, infoHash string) *CachedHealth {
 	if m == nil {
 		return nil
 	}
-	row := m.db.QueryRow(`SELECT health_seeders, health_peers, health_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
+	row := m.db.QueryRowContext(ctx, `SELECT health_seeders, health_peers, health_checked_at FROM metadata WHERE info_hash = ?`, infoHash)
 	var seeders, peers int
 	var checkedAt sql.NullTime
 	if err := row.Scan(&seeders, &peers, &checkedAt); err != nil {
@@ -277,11 +278,11 @@ func (m *MetadataCache) GetHealth(infoHash string) *CachedHealth {
 
 // SetHealth persists a swarm-health probe result (disjoint columns — creates an
 // health-only row if the torrent's metadata isn't cached yet).
-func (m *MetadataCache) SetHealth(infoHash string, seeders, peers int) error {
+func (m *MetadataCache) SetHealth(ctx context.Context, infoHash string, seeders, peers int) error {
 	if m == nil {
 		return nil
 	}
-	_, err := m.db.Exec(`
+	_, err := m.db.ExecContext(ctx, `
 		INSERT INTO metadata(info_hash, name, health_seeders, health_peers, health_checked_at)
 		VALUES(?, '', ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(info_hash) DO UPDATE SET
@@ -302,7 +303,7 @@ type SortMeta struct {
 // GetSortMeta returns size+seeders for the given hashes in a single query, keyed
 // by info_hash. Hashes with no cached row are simply absent from the map. Used to
 // enrich the favorites list for sorting without a cross-DB JOIN.
-func (m *MetadataCache) GetSortMeta(hashes []string) map[string]SortMeta {
+func (m *MetadataCache) GetSortMeta(ctx context.Context, hashes []string) map[string]SortMeta {
 	out := map[string]SortMeta{}
 	if m == nil || len(hashes) == 0 {
 		return out
@@ -313,7 +314,7 @@ func (m *MetadataCache) GetSortMeta(hashes []string) map[string]SortMeta {
 		placeholders[i] = "?"
 		args[i] = h
 	}
-	rows, err := m.db.Query(
+	rows, err := m.db.QueryContext(ctx,
 		`SELECT info_hash, total_size, health_seeders FROM metadata WHERE info_hash IN (`+strings.Join(placeholders, ",")+`)`,
 		args...)
 	if err != nil {

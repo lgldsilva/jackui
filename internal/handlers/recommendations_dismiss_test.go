@@ -38,14 +38,14 @@ func watch(t *testing.T, lib *library.Store, userID int, hash, name string) {
 // identity lands in HiddenFavorites — the same path the UI's privacy curtain uses.
 func hideFavourite(t *testing.T, fav *streamer.FavoritesStore, userID int, hash, name string) {
 	t.Helper()
-	if err := fav.Add(name, hash, "", "", userID); err != nil {
+	if err := fav.Add(context.Background(), name, hash, "", "", userID); err != nil {
 		t.Fatalf("fav.Add: %v", err)
 	}
-	folder, err := fav.CreateFolder(userID, "Vault", nil, true)
+	folder, err := fav.CreateFolder(context.Background(), userID, "Vault", nil, true)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
-	if err := fav.MoveFavoriteToFolder(userID, name, &folder.ID); err != nil {
+	if err := fav.MoveFavoriteToFolder(context.Background(), userID, name, &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 }
@@ -118,11 +118,11 @@ func TestRecHiddenCurtain_IgnoresReveal(t *testing.T) {
 	s.SetFavorites(fav)
 	hideFavourite(t, fav, 0, "h", "T")
 
-	curtain := recHiddenCurtain(s, 0)
+	curtain := recHiddenCurtain(context.Background(), s, 0)
 	if !curtain.Hashes["h"] || !curtain.Names["t"] {
 		t.Fatalf("expected hidden identity in curtain, got %v", curtain)
 	}
-	if !recHiddenCurtain(nil, 0).Empty() {
+	if !recHiddenCurtain(context.Background(), nil, 0).Empty() {
 		t.Error("nil streamer must yield an empty curtain")
 	}
 }

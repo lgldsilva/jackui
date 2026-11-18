@@ -157,11 +157,11 @@ func TestProbeHealth_NoMagnetKeepsSnapshot(t *testing.T) {
 	t.Cleanup(func() { _ = mc.Close() })
 	s.SetMetadataCache(mc)
 	hash := scrapeTestHash()
-	if err := mc.SetHealth(hash.HexString(), 99, 5); err != nil {
+	if err := mc.SetHealth(context.Background(), hash.HexString(), 99, 5); err != nil {
 		t.Fatal(err)
 	}
 	s.probeHealth(hash, "")
-	if h := mc.GetHealth(hash.HexString()); h == nil || h.Seeders != 99 {
+	if h := mc.GetHealth(context.Background(), hash.HexString()); h == nil || h.Seeders != 99 {
 		t.Fatalf("snapshot should be preserved, got %+v", h)
 	}
 }
@@ -262,7 +262,7 @@ func TestProbeHealth_UsesScrape(t *testing.T) {
 	magnet := "magnet:?xt=urn:btih:" + hash.HexString() + "&tr=" + url.QueryEscape(tr.URL+"/announce")
 	s.probeHealth(hash, magnet)
 
-	h := mc.GetHealth(hash.HexString())
+	h := mc.GetHealth(context.Background(), hash.HexString())
 	if h == nil || h.Seeders != 123 || h.Peers != 9 {
 		t.Fatalf("GetHealth = %+v, want seeders=123 peers=9", h)
 	}

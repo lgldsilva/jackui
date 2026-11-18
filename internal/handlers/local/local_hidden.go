@@ -30,7 +30,7 @@ func hiddenLocalSet(c *gin.Context, s *streamer.Streamer, userID int, mount stri
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil {
 		return nil
 	}
-	paths, err := s.Favorites().HiddenLocalPaths(userID)
+	paths, err := s.Favorites().HiddenLocalPaths(c.Request.Context(), userID)
 	if err != nil || len(paths) == 0 {
 		return nil
 	}
@@ -194,7 +194,11 @@ func LocalSetHidden(b *lb.Browser, s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if err := favs.SetLocalPathHidden(userID, req.Mount, req.Path, req.Hidden); err != nil {
+		// Detached: hiding/unhiding is a privacy toggle, so it must land even if
+		// the client drops the connection right after sending it.
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := favs.SetLocalPathHidden(wctx, userID, req.Mount, req.Path, req.Hidden); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -212,8 +216,11 @@ func LocalListHidden(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		paths, err := favs.HiddenLocalPaths(userID)
+		paths, err := favs.HiddenLocalPaths(c.Request.Context(), userID)
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
@@ -96,7 +97,7 @@ func TestProbeHealth_FallbackAddFailurePreservesSnapshot(t *testing.T) {
 	if err := hash.FromHexString(hashHex); err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	if err := c.SetHealth(hashHex, 5, 7); err != nil {
+	if err := c.SetHealth(context.Background(), hashHex, 5, 7); err != nil {
 		t.Fatalf("SetHealth: %v", err)
 	}
 
@@ -105,7 +106,7 @@ func TestProbeHealth_FallbackAddFailurePreservesSnapshot(t *testing.T) {
 	// Add fails. The old code then zeroed the snapshot.
 	s.probeHealth(hash, "magnet:?xt=urn:btih:"+hashHex)
 
-	h := c.GetHealth(hashHex)
+	h := c.GetHealth(context.Background(), hashHex)
 	if h == nil {
 		t.Fatal("health snapshot vanished after a failed probe")
 	}

@@ -2,6 +2,7 @@ package local
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -1003,7 +1004,7 @@ func Test_hgC_DropTorrentFromStreamer_WithNameAndFavorites(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer favs.Close()
-	if err := favs.Add("My Torrent", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "magnet:?xt=x", "", 1); err != nil {
+	if err := favs.Add(context.Background(), "My Torrent", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "magnet:?xt=x", "", 1); err != nil {
 		t.Fatal(err)
 	}
 	s.SetFavorites(favs)
@@ -1015,7 +1016,7 @@ func Test_hgC_DropTorrentFromStreamer_WithNameAndFavorites(t *testing.T) {
 	}
 	dropTorrentFromStreamer(s, d)
 
-	if favs.IsFavorite("My Torrent") {
+	if favs.IsFavorite(context.Background(), "My Torrent") {
 		t.Error("expected favorite to be removed after drop")
 	}
 }

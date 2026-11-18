@@ -141,7 +141,11 @@ func (s *Streamer) persistMetainfo(t *torrent.Torrent) {
 // (already gone).
 func (s *Streamer) DropSeed(hash metainfo.Hash) error {
 	if s.seeds != nil {
-		if err := s.seeds.Remove(hash.HexString()); err != nil {
+		// Explicit user action: the persisted record must go even if the caller
+		// disconnects (a dropped delete resurrects the seed on the next boot).
+		dbc, cancel := dbCtx()
+		defer cancel()
+		if err := s.seeds.Remove(dbc, hash.HexString()); err != nil {
 			log.Printf("streamer: remove persisted seed %s failed: %v", hash.HexString()[:8], err)
 		}
 	}
@@ -158,7 +162,9 @@ func (s *Streamer) maybePersistSeed(t *torrent.Torrent) {
 	if !keep {
 		return
 	}
-	if err := s.seeds.Add(t.InfoHash().HexString(), magnetFromTorrent(t), t.Name()); err != nil {
+	dbc, cancel := dbCtx()
+	defer cancel()
+	if err := s.seeds.Add(dbc, t.InfoHash().HexString(), magnetFromTorrent(t), t.Name()); err != nil {
 		log.Printf("streamer: persist seed %s failed: %v", t.InfoHash().HexString()[:8], err)
 	}
 }

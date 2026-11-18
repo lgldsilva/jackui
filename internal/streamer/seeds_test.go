@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -21,17 +22,17 @@ func newSeedsForTest(t *testing.T) *SeedsStore {
 func TestSeedsStoreAddListHasRemove(t *testing.T) {
 	s := newSeedsForTest(t)
 
-	if s.Has("abc") {
+	if s.Has(context.Background(), "abc") {
 		t.Fatal("Has should be false on empty store")
 	}
-	if err := s.Add("abc", "magnet:?xt=urn:btih:abc", "Filme X"); err != nil {
+	if err := s.Add(context.Background(), "abc", "magnet:?xt=urn:btih:abc", "Filme X"); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if !s.Has("abc") {
+	if !s.Has(context.Background(), "abc") {
 		t.Fatal("Has should be true after Add")
 	}
 
-	list, err := s.List()
+	list, err := s.List(context.Background())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -40,10 +41,10 @@ func TestSeedsStoreAddListHasRemove(t *testing.T) {
 	}
 
 	// Re-Add is an idempotent upsert (refreshes magnet/name, no duplicate row).
-	if err := s.Add("abc", "magnet:?xt=urn:btih:abc&dn=novo", "Filme X (renomeado)"); err != nil {
+	if err := s.Add(context.Background(), "abc", "magnet:?xt=urn:btih:abc&dn=novo", "Filme X (renomeado)"); err != nil {
 		t.Fatalf("re-Add: %v", err)
 	}
-	list, _ = s.List()
+	list, _ = s.List(context.Background())
 	if len(list) != 1 {
 		t.Fatalf("upsert should not duplicate: %+v", list)
 	}
@@ -51,23 +52,23 @@ func TestSeedsStoreAddListHasRemove(t *testing.T) {
 		t.Fatalf("upsert should refresh name, got %q", list[0].Name)
 	}
 
-	if err := s.Remove("abc"); err != nil {
+	if err := s.Remove(context.Background(), "abc"); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	if s.Has("abc") {
+	if s.Has(context.Background(), "abc") {
 		t.Fatal("Has should be false after Remove")
 	}
 }
 
 func TestSeedsStoreNilSafe(t *testing.T) {
 	var s *SeedsStore
-	if err := s.Add("x", "m", "n"); err != nil {
+	if err := s.Add(context.Background(), "x", "m", "n"); err != nil {
 		t.Fatalf("nil Add should be no-op, got %v", err)
 	}
-	if s.Has("x") {
+	if s.Has(context.Background(), "x") {
 		t.Fatal("nil Has should be false")
 	}
-	if list, err := s.List(); err != nil || list != nil {
+	if list, err := s.List(context.Background()); err != nil || list != nil {
 		t.Fatalf("nil List should be (nil,nil), got (%v,%v)", list, err)
 	}
 	if err := s.Close(); err != nil {
@@ -77,10 +78,10 @@ func TestSeedsStoreNilSafe(t *testing.T) {
 
 func TestSeedsStoreAddEmptyHashNoOp(t *testing.T) {
 	s := newSeedsForTest(t)
-	if err := s.Add("", "m", "n"); err != nil {
+	if err := s.Add(context.Background(), "", "m", "n"); err != nil {
 		t.Fatalf("Add empty hash: %v", err)
 	}
-	list, _ := s.List()
+	list, _ := s.List(context.Background())
 	if len(list) != 0 {
 		t.Fatalf("empty hash should not insert, got %+v", list)
 	}
@@ -157,14 +158,14 @@ func TestDropSeedRemovesPersisted(t *testing.T) {
 	if err := h.FromHexString("aabbccddeeff00112233445566778899aabbccdd"); err != nil {
 		t.Fatal(err)
 	}
-	if err := seeds.Add(h.HexString(), "magnet:?xt=urn:btih:"+h.HexString(), "X"); err != nil {
+	if err := seeds.Add(context.Background(), h.HexString(), "magnet:?xt=urn:btih:"+h.HexString(), "X"); err != nil {
 		t.Fatal(err)
 	}
-	if !seeds.Has(h.HexString()) {
+	if !seeds.Has(context.Background(), h.HexString()) {
 		t.Fatal("seed should exist before DropSeed")
 	}
 	s.DropSeed(h) // not active in the client → Drop is a no-op; what matters is clearing the persisted record
-	if seeds.Has(h.HexString()) {
+	if seeds.Has(context.Background(), h.HexString()) {
 		t.Error("DropSeed should remove the persisted seed (.seeds.db)")
 	}
 }

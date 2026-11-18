@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -79,7 +80,7 @@ func TestFolderCreate_WithParentID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	parent, err := fs.CreateFolder(0, "Parent", nil, false)
+	parent, err := fs.CreateFolder(context.Background(), 0, "Parent", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +121,7 @@ func TestFolderPatch_ValidRename(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, err := fs.CreateFolder(0, "ToRename", nil, false)
+	f, err := fs.CreateFolder(context.Background(), 0, "ToRename", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,8 +144,8 @@ func TestFolderPatch_MoveToRoot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	parent, _ := fs.CreateFolder(0, "Parent", nil, false)
-	child, _ := fs.CreateFolder(0, "Child", &parent.ID, false)
+	parent, _ := fs.CreateFolder(context.Background(), 0, "Parent", nil, false)
+	child, _ := fs.CreateFolder(context.Background(), 0, "Child", &parent.ID, false)
 
 	router := gin.New()
 	router.PATCH("/api/stream/favorites/folders/:id", FolderPatch(s))
@@ -164,9 +165,9 @@ func TestFolderPatch_MoveToParent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	p1, _ := fs.CreateFolder(0, "Parent1", nil, false)
-	p2, _ := fs.CreateFolder(0, "Parent2", nil, false)
-	child, _ := fs.CreateFolder(0, "Child", &p1.ID, false)
+	p1, _ := fs.CreateFolder(context.Background(), 0, "Parent1", nil, false)
+	p2, _ := fs.CreateFolder(context.Background(), 0, "Parent2", nil, false)
+	child, _ := fs.CreateFolder(context.Background(), 0, "Child", &p1.ID, false)
 
 	router := gin.New()
 	router.PATCH("/api/stream/favorites/folders/:id", FolderPatch(s))
@@ -186,7 +187,7 @@ func TestFolderDelete_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, err := fs.CreateFolder(0, "ToDelete", nil, false)
+	f, err := fs.CreateFolder(context.Background(), 0, "ToDelete", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,12 +208,12 @@ func TestFavoriteMoveToFolder_Valid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, err := fs.CreateFolder(0, "Target", nil, false)
+	f, err := fs.CreateFolder(context.Background(), 0, "Target", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = fs.Add("Test", "testhash", "magnet:?xt=urn:btih:testhash", "search", 0)
+	err = fs.Add(context.Background(), "Test", "testhash", "magnet:?xt=urn:btih:testhash", "search", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,9 +236,9 @@ func TestFavoriteMoveToFolder_ToRoot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, _ := fs.CreateFolder(0, "Folder", nil, false)
-	fs.Add("Test2", "testhash2", "magnet:?xt=urn:btih:testhash2", "", 0)
-	fs.MoveFavoriteToFolder(0, "testhash2", &f.ID)
+	f, _ := fs.CreateFolder(context.Background(), 0, "Folder", nil, false)
+	fs.Add(context.Background(), "Test2", "testhash2", "magnet:?xt=urn:btih:testhash2", "", 0)
+	fs.MoveFavoriteToFolder(context.Background(), 0, "testhash2", &f.ID)
 
 	router := gin.New()
 	router.PUT("/api/stream/favorites/:name/move", FavoriteMoveToFolder(s))
@@ -256,11 +257,11 @@ func TestFavoriteMoveToFolder_ToRoot(t *testing.T) {
 func TestApplyFolderPatch_RenameAndMove(t *testing.T) {
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, _ := fs.CreateFolder(0, "Original", nil, false)
-	p, _ := fs.CreateFolder(0, "NewParent", nil, false)
+	f, _ := fs.CreateFolder(context.Background(), 0, "Original", nil, false)
+	p, _ := fs.CreateFolder(context.Background(), 0, "NewParent", nil, false)
 
 	newName := "Renamed"
-	err := applyFolderPatch(fs, 0, f.ID, &folderPatchBody{
+	err := applyFolderPatch(context.Background(), fs, folderKey{0, f.ID}, &folderPatchBody{
 		Name:     &newName,
 		ParentID: &p.ID,
 	})
@@ -272,10 +273,10 @@ func TestApplyFolderPatch_RenameAndMove(t *testing.T) {
 func TestApplyFolderPatch_OnlyMove(t *testing.T) {
 	s := newStreamerWithFavs(t)
 	fs := s.Favorites()
-	f, _ := fs.CreateFolder(0, "Movable", nil, false)
-	p, _ := fs.CreateFolder(0, "Dest", nil, false)
+	f, _ := fs.CreateFolder(context.Background(), 0, "Movable", nil, false)
+	p, _ := fs.CreateFolder(context.Background(), 0, "Dest", nil, false)
 
-	err := applyFolderPatch(fs, 0, f.ID, &folderPatchBody{
+	err := applyFolderPatch(context.Background(), fs, folderKey{0, f.ID}, &folderPatchBody{
 		ParentID: &p.ID,
 	})
 	if err != nil {

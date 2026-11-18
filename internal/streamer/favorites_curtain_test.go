@@ -1,5 +1,7 @@
 package streamer
 
+import "context"
+
 import "testing"
 
 // HiddenFavorites returns the identity set (hashes + names) of favourites
@@ -7,21 +9,21 @@ import "testing"
 // downloads list and search enrichment.
 func TestHiddenFavorites(t *testing.T) {
 	f := newTestFavorites(t)
-	hidden, err := f.CreateFolder(1, "Secret", nil, true)
+	hidden, err := f.CreateFolder(context.Background(), 1, "Secret", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Add("secret", "habc", "magnet:s", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "secret", "habc", "magnet:s", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Add("public", "hpub", "magnet:p", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "public", "hpub", "magnet:p", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "secret", &hidden.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "secret", &hidden.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	set, err := f.HiddenFavorites(1, false)
+	set, err := f.HiddenFavorites(context.Background(), 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,10 +38,10 @@ func TestHiddenFavorites(t *testing.T) {
 	}
 
 	// Un-hiding the folder empties the set.
-	if err := f.SetFolderHidden(1, hidden.ID, false); err != nil {
+	if err := f.SetFolderHidden(context.Background(), 1, hidden.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	set, _ = f.HiddenFavorites(1, false)
+	set, _ = f.HiddenFavorites(context.Background(), 1, false)
 	if !set.Empty() {
 		t.Errorf("after un-hide, set should be empty, got %v", set)
 	}
@@ -51,26 +53,26 @@ func TestHiddenFavorites(t *testing.T) {
 // set, since the library joins on lowercase hex.
 func TestHiddenFavorites_NameOnlyAndCasing(t *testing.T) {
 	f := newTestFavorites(t)
-	hidden, err := f.CreateFolder(1, "Secret", nil, true)
+	hidden, err := f.CreateFolder(context.Background(), 1, "Secret", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Hash-less: hiding is a per-title decision.
-	if err := f.Add("Some.Movie.2023.1080p", "", "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Some.Movie.2023.1080p", "", "", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
 	// Uppercase/padded hash: must land normalized.
-	if err := f.Add("Other Movie", "  ABCDEF0123456789ABCDEF0123456789ABCDEF012  ", "magnet:o", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Other Movie", "  ABCDEF0123456789ABCDEF0123456789ABCDEF012  ", "magnet:o", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "Some.Movie.2023.1080p", &hidden.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "Some.Movie.2023.1080p", &hidden.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "Other Movie", &hidden.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "Other Movie", &hidden.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	set, err := f.HiddenFavorites(1, false)
+	set, err := f.HiddenFavorites(context.Background(), 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,22 +94,22 @@ func TestHiddenFavorites_NameOnlyAndCasing(t *testing.T) {
 // query leaked favourites parked one level down.
 func TestHiddenFavorites_SubfolderRecursion(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, err := f.CreateFolder(1, "Hidden root", nil, true)
+	parent, err := f.CreateFolder(context.Background(), 1, "Hidden root", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := f.CreateFolder(1, "Plain subfolder", &parent.ID, false)
+	child, err := f.CreateFolder(context.Background(), 1, "Plain subfolder", &parent.ID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Add("nested", "nnnn", "magnet:n", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "nested", "nnnn", "magnet:n", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "nested", &child.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "nested", &child.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	set, err := f.HiddenFavorites(1, false)
+	set, err := f.HiddenFavorites(context.Background(), 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,14 +118,14 @@ func TestHiddenFavorites_SubfolderRecursion(t *testing.T) {
 	}
 
 	// Moving the subfolder out of the hidden subtree unhides it again.
-	newRoot, err := f.CreateFolder(1, "Visible root", nil, false)
+	newRoot, err := f.CreateFolder(context.Background(), 1, "Visible root", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFolder(1, child.ID, &newRoot.ID); err != nil {
+	if err := f.MoveFolder(context.Background(), 1, child.ID, &newRoot.ID); err != nil {
 		t.Fatal(err)
 	}
-	set, _ = f.HiddenFavorites(1, false)
+	set, _ = f.HiddenFavorites(context.Background(), 1, false)
 	if set.Hashes["nnnn"] {
 		t.Errorf("favourite stayed hidden after subtree move: %v", set)
 	}
@@ -132,25 +134,25 @@ func TestHiddenFavorites_SubfolderRecursion(t *testing.T) {
 // Per-user scope: one user's hidden folder never feeds another user's curtain.
 func TestHiddenFavorites_PerUserScope(t *testing.T) {
 	f := newTestFavorites(t)
-	hidden, err := f.CreateFolder(1, "Secret", nil, true)
+	hidden, err := f.CreateFolder(context.Background(), 1, "Secret", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Add("alice secret", "ahash", "magnet:a", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "alice secret", "ahash", "magnet:a", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.MoveFavoriteToFolder(1, "alice secret", &hidden.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "alice secret", &hidden.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	other, err := f.HiddenFavorites(2, false)
+	other, err := f.HiddenFavorites(context.Background(), 2, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !other.Empty() {
 		t.Errorf("alice's hidden folder leaked into bob's curtain: %v", other)
 	}
-	all, err := f.HiddenFavorites(0, true)
+	all, err := f.HiddenFavorites(context.Background(), 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +164,7 @@ func TestHiddenFavorites_PerUserScope(t *testing.T) {
 // A nil store returns an empty curtain, never panics (handlers rely on this).
 func TestHiddenFavorites_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	set, err := f.HiddenFavorites(1, false)
+	set, err := f.HiddenFavorites(context.Background(), 1, false)
 	if err != nil || !set.Empty() {
 		t.Errorf("nil store: got set=%v err=%v", set, err)
 	}
@@ -176,14 +178,14 @@ func TestAdd_PreservesExistingLinkage(t *testing.T) {
 	const h1 = "abcdef0123456789abcdef0123456789abcdef012"
 	const h2 = "0123456789012345678901234567890123456789"
 
-	if err := f.Add("Movie", h1, "magnet:one", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Movie", h1, "magnet:one", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
 	// Re-favourite with nothing to link → keep the old hash AND magnet.
-	if err := f.Add("Movie", "", "", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Movie", "", "", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	favs, err := f.List(1, false, true)
+	favs, err := f.List(context.Background(), 1, false, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,10 +194,10 @@ func TestAdd_PreservesExistingLinkage(t *testing.T) {
 	}
 
 	// Re-favourite with a NEW hash → the newer linkage wins.
-	if err := f.Add("Movie", h2, "magnet:two", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "Movie", h2, "magnet:two", "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	favs, _ = f.List(1, false, true)
+	favs, _ = f.List(context.Background(), 1, false, true)
 	if len(favs) != 1 || favs[0].InfoHash != h2 || favs[0].Magnet != "magnet:two" {
 		t.Fatalf("non-empty re-favourite must relink: %+v", favs)
 	}
@@ -205,19 +207,19 @@ func TestAdd_PreservesExistingLinkage(t *testing.T) {
 func TestHiddenLocalPaths(t *testing.T) {
 	f := newTestFavorites(t)
 
-	if err := f.SetLocalPathHidden(1, "GDrive", "secret/dir", true); err != nil {
+	if err := f.SetLocalPathHidden(context.Background(), 1, "GDrive", "secret/dir", true); err != nil {
 		t.Fatal(err)
 	}
 	// Idempotent: hiding again is a no-op.
-	if err := f.SetLocalPathHidden(1, "GDrive", "secret/dir", true); err != nil {
+	if err := f.SetLocalPathHidden(context.Background(), 1, "GDrive", "secret/dir", true); err != nil {
 		t.Fatal(err)
 	}
 	// A different user's path is isolated.
-	if err := f.SetLocalPathHidden(2, "GDrive", "other/dir", true); err != nil {
+	if err := f.SetLocalPathHidden(context.Background(), 2, "GDrive", "other/dir", true); err != nil {
 		t.Fatal(err)
 	}
 
-	paths, err := f.HiddenLocalPaths(1)
+	paths, err := f.HiddenLocalPaths(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,10 +228,10 @@ func TestHiddenLocalPaths(t *testing.T) {
 	}
 
 	// Unhide removes it.
-	if err := f.SetLocalPathHidden(1, "GDrive", "secret/dir", false); err != nil {
+	if err := f.SetLocalPathHidden(context.Background(), 1, "GDrive", "secret/dir", false); err != nil {
 		t.Fatal(err)
 	}
-	paths, _ = f.HiddenLocalPaths(1)
+	paths, _ = f.HiddenLocalPaths(context.Background(), 1)
 	if len(paths) != 0 {
 		t.Errorf("after unhide, expected 0 paths, got %d", len(paths))
 	}
@@ -237,10 +239,10 @@ func TestHiddenLocalPaths(t *testing.T) {
 
 func TestHiddenLocalPaths_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if paths, err := f.HiddenLocalPaths(1); err != nil || paths != nil {
+	if paths, err := f.HiddenLocalPaths(context.Background(), 1); err != nil || paths != nil {
 		t.Errorf("nil store: got paths=%v err=%v", paths, err)
 	}
-	if err := f.SetLocalPathHidden(1, "m", "p", true); err == nil {
+	if err := f.SetLocalPathHidden(context.Background(), 1, "m", "p", true); err == nil {
 		t.Error("nil store SetLocalPathHidden should error")
 	}
 }
