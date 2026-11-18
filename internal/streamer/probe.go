@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 )
 
 const (
@@ -152,6 +153,7 @@ func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, err
 	}
 	out, err := cmd.Output()
 	if err != nil {
+		events.FFprobeExecFailed(ctx, events.ProbeMedia)
 		if len(out) == 0 {
 			return nil, fmt.Errorf("ffprobe: %w", err)
 		}
@@ -264,6 +266,7 @@ func defaultAudioCodec(audio []Track) string {
 func parseProbeOutput(out []byte) (*ProbeResult, error) {
 	var parsed ffprobeOutput
 	if err := json.Unmarshal(out, &parsed); err != nil {
+		events.FFprobeFailed(events.ProbeMedia, events.ProbeReasonParse)
 		return nil, err
 	}
 

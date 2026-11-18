@@ -3,6 +3,8 @@ package downloads
 import (
 	"log"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 )
 
 // detectStalls demotes downloads that have made no progress for >= the stall
@@ -71,7 +73,9 @@ func (w *Worker) demoteStalledGroup(victims []*trackedDL, qs QueueSettings) {
 	stalls := w.maxStallCount(demoted, rep.userID)
 	log.Printf("downloads: torrent %q stalled (no seed for %dm) → %d row(s) requeued (stall #%d)",
 		rep.name, qs.StallThresholdMin, len(demoted), stalls)
-	if qs.MaxStalls > 0 && stalls >= qs.MaxStalls {
+	pause := qs.MaxStalls > 0 && stalls >= qs.MaxStalls
+	events.DownloadStalled(pause)
+	if pause {
 		if _, err := w.store.SetStatusByIDs(rep.userID, demoted, StatusPaused); err != nil {
 			log.Printf("downloads: failed to pause stalled torrent %q: %v", rep.name, err)
 		}

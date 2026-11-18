@@ -139,12 +139,16 @@ func (w *Worker) clearGroupPending(ctx context.Context, g Group) {
 	w.mu.Unlock()
 }
 
-// failOrRetryGroup applies failOrRetry to every member so a transient group-init
-// failure retries on the next tick (or fails the whole group at the cap).
+// failOrRetryGroup applies the init-failure handling to every member so a
+// transient group-init failure retries on the next tick (or fails the whole
+// group at the cap). The metric is recorded ONCE for the torrent (aggregate
+// model: a multi-file torrent is one queue unit), not once per member row.
 func (w *Worker) failOrRetryGroup(ctx context.Context, g Group, msg string) {
+	outcome := initOutcomeNone
 	for _, m := range g.Members {
-		w.failOrRetry(ctx, m, msg)
+		outcome = max(outcome, w.applyInitFailure(ctx, m, msg))
 	}
+	recordInitOutcome(ctx, outcome)
 }
 
 // isRemoved reports whether a download ID carries a deletion tombstone (Remove()

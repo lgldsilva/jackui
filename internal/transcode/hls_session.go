@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 )
 
 // launch starts (or restarts) ffmpeg at segment `startSeg` and wires the exit
@@ -81,6 +83,7 @@ func (s *HLSSession) launch(startSeg int) error {
 		}
 		if err != nil && !errors.Is(ffctx.Err(), context.Canceled) && !superseded {
 			log.Printf("hls: ffmpeg exited for session %q: %v", s.Key, err)
+			events.HLSSessionFailed(events.HLSFailFFmpegExit)
 			s.mu.Lock()
 			s.exitErr = err
 			s.mu.Unlock()
@@ -125,8 +128,10 @@ func (s *HLSSession) tryRecoverFromCUDAOOM(ffctx context.Context, oom *oomWatche
 	// can use the VRAM this one no longer holds.
 	s.releaseGPUSlot()
 	log.Printf("hls: CUDA-OOM on session %q — retrying with software decode (NVENC still encodes)", s.Key)
+	events.HLSSessionFailed(events.HLSFailCUDAOOM)
 	if err := s.launch(startSeg); err != nil {
 		log.Printf("hls: software-decode relaunch of %q failed: %v", s.Key, err)
+		events.HLSSessionFailed(events.HLSFailRelaunchError)
 	}
 	return true
 }

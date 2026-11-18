@@ -9,6 +9,7 @@ import (
 
 	"github.com/lgldsilva/jackui/internal/auth"
 	appdb "github.com/lgldsilva/jackui/internal/db"
+	"github.com/lgldsilva/jackui/internal/metrics"
 )
 
 // initDB opens the shared PostgreSQL pool and applies the unified schema. All
@@ -29,6 +30,9 @@ func initDB(deps *appDeps) {
 		log.Fatalf("PostgreSQL migrate failed: %v", err)
 	}
 	deps.db = pool
+	if err := metrics.RegisterDBStats(pool); err != nil {
+		log.Printf("metrics: DB pool stats not exported: %v", err)
+	}
 	deps.addCleanup(func() { _ = pool.Close() })
 	log.Printf("PostgreSQL pool ready; schema migrated")
 }

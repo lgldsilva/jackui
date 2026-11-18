@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
@@ -173,6 +174,7 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 		}
 		job.Fail(err)
 		log.Printf("downloads: group %s move failed: %v", g.Key, err)
+		events.DownloadMoveFailed(events.DownloadKindGroup)
 		// Mirror the single-row failure path: an errored group no longer needs
 		// eviction protection (it stayed pinned until restart).
 		w.releaseProtection(name, parseHash(g.Members[0].InfoHash), -1)
@@ -188,6 +190,7 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 	w.releaseProtection(name, parseHash(g.Members[0].InfoHash), -1)
 	job.Done()
 	log.Printf("downloads: completed group %s %q (%d files)", g.Key, name, len(movers))
+	events.DownloadCompleted(events.DownloadKindGroup)
 	// Whole-torrent groups skip AI-rename (renamed=false): the rename chain targets
 	// a single media file, not a tree — so there's no moved-file handle to release.
 	go w.reseedAfterCompletion(g.Members[0], false)
