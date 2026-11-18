@@ -1,6 +1,7 @@
 package playlists
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -21,7 +22,7 @@ func plwStore(t *testing.T) *Store {
 // Create with empty name is rejected before touching the db.
 func Test_plwCreateEmptyName(t *testing.T) {
 	s := plwStore(t)
-	if _, err := s.Create(1, "", "desc"); err == nil {
+	if _, err := s.Create(context.Background(), 1, "", "desc"); err == nil {
 		t.Fatal("plw: expected error for empty name")
 	}
 }
@@ -29,10 +30,10 @@ func Test_plwCreateEmptyName(t *testing.T) {
 // Get with includeAll=true ignores ownership; missing id returns nil,nil.
 func Test_plwGetIncludeAllAndMissing(t *testing.T) {
 	s := plwStore(t)
-	p, _ := s.Create(7, "owned", "")
+	p, _ := s.Create(context.Background(), 7, "owned", "")
 
 	// Other user via admin/includeAll can still fetch.
-	got, err := s.Get(p.ID, 999, true)
+	got, err := s.Get(context.Background(), p.ID, 999, true)
 	if err != nil {
 		t.Fatalf("plw Get includeAll: %v", err)
 	}
@@ -41,7 +42,7 @@ func Test_plwGetIncludeAllAndMissing(t *testing.T) {
 	}
 
 	// Missing id => nil, nil (sql.ErrNoRows path).
-	miss, err := s.Get(424242, 7, false)
+	miss, err := s.Get(context.Background(), 424242, 7, false)
 	if err != nil {
 		t.Fatalf("plw Get missing err: %v", err)
 	}
@@ -50,7 +51,7 @@ func Test_plwGetIncludeAllAndMissing(t *testing.T) {
 	}
 
 	// Wrong owner, not admin => nil.
-	wrong, err := s.Get(p.ID, 8, false)
+	wrong, err := s.Get(context.Background(), p.ID, 8, false)
 	if err != nil {
 		t.Fatalf("plw Get wrong owner err: %v", err)
 	}
@@ -62,17 +63,17 @@ func Test_plwGetIncludeAllAndMissing(t *testing.T) {
 // Update / Delete on a non-existent playlist must return errPlaylistNotFound.
 func Test_plwUpdateDeleteNotFound(t *testing.T) {
 	s := plwStore(t)
-	if err := s.Update(555, 1, "x", "y", false); err == nil {
+	if err := s.Update(context.Background(), 555, 1, "x", "y", false); err == nil {
 		t.Fatal("plw: expected error updating missing playlist")
 	}
-	if err := s.Delete(555, 1, false); err == nil {
+	if err := s.Delete(context.Background(), 555, 1, false); err == nil {
 		t.Fatal("plw: expected error deleting missing playlist")
 	}
 	// includeAll path on missing id also errors (RowsAffected==0).
-	if err := s.Update(555, 0, "x", "y", true); err == nil {
+	if err := s.Update(context.Background(), 555, 0, "x", "y", true); err == nil {
 		t.Fatal("plw: expected error updating missing playlist (includeAll)")
 	}
-	if err := s.Delete(555, 0, true); err == nil {
+	if err := s.Delete(context.Background(), 555, 0, true); err == nil {
 		t.Fatal("plw: expected error deleting missing playlist (includeAll)")
 	}
 }
@@ -80,15 +81,15 @@ func Test_plwUpdateDeleteNotFound(t *testing.T) {
 // AddItem validation: missing magnet/title rejected; on a non-owned playlist rejected.
 func Test_plwAddItemValidation(t *testing.T) {
 	s := plwStore(t)
-	p, _ := s.Create(1, "P", "")
+	p, _ := s.Create(context.Background(), 1, "P", "")
 
-	if _, err := s.AddItem(p.ID, 1, Item{Title: "", Magnet: "m:x"}, false); err == nil {
+	if _, err := s.AddItem(context.Background(), p.ID, 1, Item{Title: "", Magnet: "m:x"}, false); err == nil {
 		t.Error("plw: expected error for empty title")
 	}
-	if _, err := s.AddItem(p.ID, 1, Item{Title: "T", Magnet: ""}, false); err == nil {
+	if _, err := s.AddItem(context.Background(), p.ID, 1, Item{Title: "T", Magnet: ""}, false); err == nil {
 		t.Error("plw: expected error for empty magnet")
 	}
-	if _, err := s.AddItem(99999, 1, Item{Title: "T", Magnet: "m:x"}, false); err == nil {
+	if _, err := s.AddItem(context.Background(), 99999, 1, Item{Title: "T", Magnet: "m:x"}, false); err == nil {
 		t.Error("plw: expected error adding to missing playlist")
 	}
 }
@@ -111,8 +112,8 @@ func Test_plwAddItemWithLibraryID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, _ := s.Create(1, "P", "")
-	it, err := s.AddItem(p.ID, 1, Item{Title: "T", Magnet: "m:x", LibraryID: &lib, FileIndex: 3}, false)
+	p, _ := s.Create(context.Background(), 1, "P", "")
+	it, err := s.AddItem(context.Background(), p.ID, 1, Item{Title: "T", Magnet: "m:x", LibraryID: &lib, FileIndex: 3}, false)
 	if err != nil {
 		t.Fatalf("plw AddItem: %v", err)
 	}
@@ -124,7 +125,7 @@ func Test_plwAddItemWithLibraryID(t *testing.T) {
 	}
 
 	// Items read-back also populates LibraryID (Items scan branch).
-	items, _ := s.Items(p.ID, 1, false)
+	items, _ := s.Items(context.Background(), p.ID, 1, false)
 	if len(items) != 1 || items[0].LibraryID == nil || *items[0].LibraryID != lib {
 		t.Fatalf("plw: Items did not return LibraryID, got %v", items)
 	}
@@ -133,12 +134,12 @@ func Test_plwAddItemWithLibraryID(t *testing.T) {
 // Items on a non-owned playlist errors.
 func Test_plwItemsNotOwned(t *testing.T) {
 	s := plwStore(t)
-	p, _ := s.Create(1, "P", "")
-	if _, err := s.Items(p.ID, 2, false); err == nil {
+	p, _ := s.Create(context.Background(), 1, "P", "")
+	if _, err := s.Items(context.Background(), p.ID, 2, false); err == nil {
 		t.Error("plw: expected error listing items of non-owned playlist")
 	}
 	// includeAll lets an admin list (empty but no error).
-	if _, err := s.Items(p.ID, 0, true); err != nil {
+	if _, err := s.Items(context.Background(), p.ID, 0, true); err != nil {
 		t.Errorf("plw: admin Items should not error: %v", err)
 	}
 }
@@ -146,13 +147,13 @@ func Test_plwItemsNotOwned(t *testing.T) {
 // RemoveItem: missing item id, and non-owned playlist.
 func Test_plwRemoveItemErrors(t *testing.T) {
 	s := plwStore(t)
-	p, _ := s.Create(1, "P", "")
-	s.AddItem(p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
+	p, _ := s.Create(context.Background(), 1, "P", "")
+	s.AddItem(context.Background(), p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
 
-	if err := s.RemoveItem(p.ID, 999999, 1, false); err == nil {
+	if err := s.RemoveItem(context.Background(), p.ID, 999999, 1, false); err == nil {
 		t.Error("plw: expected error removing missing item")
 	}
-	if err := s.RemoveItem(p.ID, 1, 2, false); err == nil {
+	if err := s.RemoveItem(context.Background(), p.ID, 1, 2, false); err == nil {
 		t.Error("plw: expected error removing from non-owned playlist")
 	}
 }
@@ -160,17 +161,17 @@ func Test_plwRemoveItemErrors(t *testing.T) {
 // Reorder: not-owned, missing item, and the curPos==newPos early return.
 func Test_plwReorderEdgeCases(t *testing.T) {
 	s := plwStore(t)
-	p, _ := s.Create(1, "P", "")
-	a, _ := s.AddItem(p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
+	p, _ := s.Create(context.Background(), 1, "P", "")
+	a, _ := s.AddItem(context.Background(), p.ID, 1, Item{Title: "A", Magnet: "m:a"}, false)
 
-	if err := s.Reorder(p.ID, a.ID, 2, 0, false); err == nil {
+	if err := s.Reorder(context.Background(), p.ID, a.ID, 2, 0, false); err == nil {
 		t.Error("plw: expected error reordering non-owned playlist")
 	}
-	if err := s.Reorder(p.ID, 999999, 1, 0, false); err == nil {
+	if err := s.Reorder(context.Background(), p.ID, 999999, 1, 0, false); err == nil {
 		t.Error("plw: expected error reordering missing item")
 	}
 	// Same position => no-op, no error.
-	if err := s.Reorder(p.ID, a.ID, 1, a.Position, false); err != nil {
+	if err := s.Reorder(context.Background(), p.ID, a.ID, 1, a.Position, false); err != nil {
 		t.Errorf("plw: same-position reorder should be no-op, got %v", err)
 	}
 }
@@ -178,15 +179,15 @@ func Test_plwReorderEdgeCases(t *testing.T) {
 // ownsPlaylist includeAll branch (admin) returns true for any existing id.
 func Test_plwOwnsPlaylistIncludeAll(t *testing.T) {
 	s := plwStore(t)
-	p, _ := s.Create(1, "P", "")
-	owned, err := s.ownsPlaylist(p.ID, 0, true)
+	p, _ := s.Create(context.Background(), 1, "P", "")
+	owned, err := s.ownsPlaylist(context.Background(), p.ID, 0, true)
 	if err != nil {
 		t.Fatalf("plw: ownsPlaylist infra error = %v", err)
 	}
 	if !owned {
 		t.Error("plw: admin includeAll should own existing playlist")
 	}
-	if owned, _ := s.ownsPlaylist(999999, 0, true); owned {
+	if owned, _ := s.ownsPlaylist(context.Background(), 999999, 0, true); owned {
 		t.Error("plw: admin should not own missing playlist")
 	}
 }
@@ -194,7 +195,7 @@ func Test_plwOwnsPlaylistIncludeAll(t *testing.T) {
 // getItem on a missing id returns an error.
 func Test_plwGetItemMissing(t *testing.T) {
 	s := plwStore(t)
-	if _, err := s.getItem(987654); err == nil {
+	if _, err := s.getItem(context.Background(), 987654); err == nil {
 		t.Error("plw: expected error from getItem on missing id")
 	}
 }

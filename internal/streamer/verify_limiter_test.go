@@ -6,99 +6,109 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
 func TestVerifyLimiter_SerializesWhenLimitOne(t *testing.T) {
-	l := newVerifyLimiter(1)
-	var concurrent atomic.Int32
-	var maxSeen atomic.Int32
-	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			l.Acquire()
-			n := concurrent.Add(1)
-			for {
-				cur := maxSeen.Load()
-				if n <= cur || maxSeen.CompareAndSwap(cur, n) {
-					break
+	synctest.Test(t, func(t *testing.T) {
+		l := newVerifyLimiter(1)
+		var concurrent atomic.Int32
+		var maxSeen atomic.Int32
+		var wg sync.WaitGroup
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				l.Acquire()
+				n := concurrent.Add(1)
+				for {
+					cur := maxSeen.Load()
+					if n <= cur || maxSeen.CompareAndSwap(cur, n) {
+						break
+					}
 				}
-			}
-			time.Sleep(20 * time.Millisecond)
-			concurrent.Add(-1)
-			l.Release()
-		}()
-	}
-	wg.Wait()
-	if maxSeen.Load() != 1 {
-		t.Fatalf("max concurrent = %d, want 1", maxSeen.Load())
-	}
+				time.Sleep(20 * time.Millisecond)
+				concurrent.Add(-1)
+				l.Release()
+			}()
+		}
+		wg.Wait()
+		if maxSeen.Load() != 1 {
+			t.Fatalf("max concurrent = %d, want 1", maxSeen.Load())
+		}
+	})
 }
 
 func TestVerifyLimiter_AllowsParallelUpToLimit(t *testing.T) {
-	l := newVerifyLimiter(2)
-	var concurrent atomic.Int32
-	var maxSeen atomic.Int32
-	entered := make(chan struct{}, 2)
-	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			l.Acquire()
-			n := concurrent.Add(1)
-			for {
-				cur := maxSeen.Load()
-				if n <= cur || maxSeen.CompareAndSwap(cur, n) {
-					break
+	synctest.Test(t, func(t *testing.T) {
+		l := newVerifyLimiter(2)
+		var concurrent atomic.Int32
+		var maxSeen atomic.Int32
+		entered := make(chan struct{}, 2)
+		var wg sync.WaitGroup
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				l.Acquire()
+				n := concurrent.Add(1)
+				for {
+					cur := maxSeen.Load()
+					if n <= cur || maxSeen.CompareAndSwap(cur, n) {
+						break
+					}
 				}
-			}
-			entered <- struct{}{}
-			// Hold until both have entered so max concurrent is observable.
-			time.Sleep(50 * time.Millisecond)
-			concurrent.Add(-1)
-			l.Release()
-		}()
-	}
-	// Wait for both acquisitions without hanging the test forever.
-	deadline := time.After(2 * time.Second)
-	for i := 0; i < 2; i++ {
-		select {
-		case <-entered:
-		case <-deadline:
-			t.Fatal("timed out waiting for both acquires")
+				entered <- struct{}{}
+				// Hold until both have entered so max concurrent is observable.
+				time.Sleep(50 * time.Millisecond)
+				concurrent.Add(-1)
+				l.Release()
+			}()
 		}
-	}
-	wg.Wait()
-	if maxSeen.Load() != 2 {
-		t.Fatalf("max concurrent = %d, want 2", maxSeen.Load())
-	}
+		// Wait for both acquisitions without hanging the test forever.
+		deadline := time.After(2 * time.Second)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-entered:
+			case <-deadline:
+				t.Fatal("timed out waiting for both acquires")
+			}
+		}
+		wg.Wait()
+		if maxSeen.Load() != 2 {
+			t.Fatalf("max concurrent = %d, want 2", maxSeen.Load())
+		}
+	})
 }
 
 func TestVerifyLimiter_SetLimitWakesWaiters(t *testing.T) {
-	l := newVerifyLimiter(1)
-	l.Acquire() // hold the only slot
-	done := make(chan struct{})
-	go func() {
-		l.Acquire()
-		close(done)
+	synctest.Test(t, func(t *testing.T) {
+		l := newVerifyLimiter(1)
+		l.Acquire() // hold the only slot
+		done := make(chan struct{})
+		go func() {
+			l.Acquire()
+			close(done)
+			l.Release()
+		}()
+		// Waiter must be blocked while limit is 1 and slot is held.
+		// Wait returns once every goroutine in the bubble is durably blocked, so
+		// the waiter is provably parked inside Acquire (no wall-clock window).
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("second acquire must block while limit=1 and slot held")
+		default:
+		}
+		l.SetLimit(2) // free a second slot without releasing the first
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("SetLimit(2) should allow the waiter to enter")
+		}
 		l.Release()
-	}()
-	// Waiter must be blocked while limit is 1 and slot is held.
-	select {
-	case <-done:
-		t.Fatal("second acquire must block while limit=1 and slot held")
-	case <-time.After(50 * time.Millisecond):
-	}
-	l.SetLimit(2) // free a second slot without releasing the first
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("SetLimit(2) should allow the waiter to enter")
-	}
-	l.Release()
+	})
 }
 
 func TestNormalizeVerifyLimit(t *testing.T) {
@@ -125,27 +135,30 @@ func TestVerifyLimiter_AcquireContextCanceled(t *testing.T) {
 }
 
 func TestVerifyLimiter_ShutdownUnblocksWaiter(t *testing.T) {
-	l := newVerifyLimiter(1)
-	l.Acquire()
-	done := make(chan error, 1)
-	go func() {
-		done <- l.AcquireContext(context.Background())
-	}()
-	select {
-	case <-done:
-		t.Fatal("waiter should block until Shutdown")
-	case <-time.After(50 * time.Millisecond):
-	}
-	l.Shutdown()
-	select {
-	case err := <-done:
-		if !errors.Is(err, ErrVerifyLimiterClosed) {
-			t.Fatalf("waiter err = %v, want ErrVerifyLimiterClosed", err)
+	synctest.Test(t, func(t *testing.T) {
+		l := newVerifyLimiter(1)
+		l.Acquire()
+		done := make(chan error, 1)
+		go func() {
+			done <- l.AcquireContext(context.Background())
+		}()
+		synctest.Wait() // waiter is durably blocked in AcquireContext
+		select {
+		case <-done:
+			t.Fatal("waiter should block until Shutdown")
+		default:
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Shutdown did not unblock waiter")
-	}
-	l.Release()
+		l.Shutdown()
+		select {
+		case err := <-done:
+			if !errors.Is(err, ErrVerifyLimiterClosed) {
+				t.Fatalf("waiter err = %v, want ErrVerifyLimiterClosed", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Shutdown did not unblock waiter")
+		}
+		l.Release()
+	})
 }
 
 func TestVerifyLimiter_CancelWhileWaiting(t *testing.T) {

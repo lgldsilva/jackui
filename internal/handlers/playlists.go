@@ -15,7 +15,10 @@ func PlaylistsList(store *playlists.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		list, err := store.List(userID, includeAll)
+		list, err := store.List(c.Request.Context(), userID, includeAll)
+		if httpshared.AbortIfClientGone(c, err) {
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -36,7 +39,7 @@ func PlaylistsCreate(store *playlists.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		p, err := store.Create(userID, req.Name, req.Description)
+		p, err := store.Create(c.Request.Context(), userID, req.Name, req.Description)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -54,7 +57,10 @@ func PlaylistsGet(store *playlists.Store) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		p, err := store.Get(id, userID, isAdmin)
+		p, err := store.Get(c.Request.Context(), id, userID, isAdmin)
+		if httpshared.AbortIfClientGone(c, err) {
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -63,7 +69,7 @@ func PlaylistsGet(store *playlists.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
-		items, _ := store.Items(id, userID, isAdmin)
+		items, _ := store.Items(c.Request.Context(), id, userID, isAdmin)
 		c.JSON(http.StatusOK, gin.H{"playlist": p, "items": items})
 	}
 }
@@ -85,7 +91,7 @@ func PlaylistsUpdate(store *playlists.Store) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := store.Update(id, userID, req.Name, req.Description, isAdmin); err != nil {
+		if err := store.Update(c.Request.Context(), id, userID, req.Name, req.Description, isAdmin); err != nil {
 			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
@@ -102,7 +108,7 @@ func PlaylistsDelete(store *playlists.Store) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := store.Delete(id, userID, isAdmin); err != nil {
+		if err := store.Delete(c.Request.Context(), id, userID, isAdmin); err != nil {
 			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
@@ -124,7 +130,7 @@ func PlaylistsAddItem(store *playlists.Store) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		it, err := store.AddItem(id, userID, req, isAdmin)
+		it, err := store.AddItem(c.Request.Context(), id, userID, req, isAdmin)
 		if err != nil {
 			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
@@ -139,7 +145,7 @@ func PlaylistsRemoveItem(store *playlists.Store) gin.HandlerFunc {
 		id, _ := strconv.Atoi(c.Param("id"))
 		itemID, _ := strconv.Atoi(c.Param("itemId"))
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := store.RemoveItem(id, itemID, userID, isAdmin); err != nil {
+		if err := store.RemoveItem(c.Request.Context(), id, itemID, userID, isAdmin); err != nil {
 			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}
@@ -160,7 +166,7 @@ func PlaylistsReorderItem(store *playlists.Store) gin.HandlerFunc {
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := store.Reorder(id, itemID, userID, req.Position, isAdmin); err != nil {
+		if err := store.Reorder(c.Request.Context(), id, itemID, userID, req.Position, isAdmin); err != nil {
 			RespondStoreError(c, err, playlists.ErrNotFound)
 			return
 		}

@@ -61,7 +61,10 @@ type WatchlistKicker interface {
 func WatchlistList(s *watchlist.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
-		list, err := s.List(userID)
+		list, err := s.List(c.Request.Context(), userID)
+		if httpshared.AbortIfClientGone(c, err) {
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -80,7 +83,7 @@ func WatchlistCreate(s *watchlist.Store, k WatchlistKicker) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		w, err := s.Create(userID, in.params())
+		w, err := s.Create(c.Request.Context(), userID, in.params())
 		if err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
@@ -106,7 +109,7 @@ func WatchlistUpdate(s *watchlist.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		if err := s.Update(userID, id, in.params()); err != nil {
+		if err := s.Update(c.Request.Context(), userID, id, in.params()); err != nil {
 			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
@@ -123,7 +126,7 @@ func WatchlistDelete(s *watchlist.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
-		if err := s.Delete(userID, id); err != nil {
+		if err := s.Delete(c.Request.Context(), userID, id); err != nil {
 			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
 		}
@@ -201,7 +204,10 @@ func WatchlistHits(s *watchlist.Store) gin.HandlerFunc {
 				limit = n
 			}
 		}
-		hits, err := s.Hits(userID, id, limit)
+		hits, err := s.Hits(c.Request.Context(), userID, id, limit)
+		if httpshared.AbortIfClientGone(c, err) {
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusNotFound, err)
 			return

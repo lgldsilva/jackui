@@ -23,6 +23,8 @@ import (
 type overlapSource struct {
 	head   int
 	unwind time.Duration
+	parked chan struct{} // closed when Read first parks on ctx; nil = not observed
+	once   sync.Once
 
 	mu  sync.Mutex
 	ctx context.Context
@@ -56,6 +58,9 @@ func (s *overlapSource) Read(p []byte) (int, error) {
 	s.mu.Lock()
 	ctx := s.ctx
 	s.mu.Unlock()
+	if s.parked != nil {
+		s.once.Do(func() { close(s.parked) })
+	}
 	<-ctx.Done()
 	time.Sleep(s.unwind)
 	s.state++
@@ -107,11 +112,15 @@ func runTranscodeAsync(ctx context.Context, src io.ReadCloser) <-chan error {
 // closed once the pump's last Read has returned.
 func TestRunTorrentTranscode_CloseWaitsForPump(t *testing.T) {
 	stubTranscodeFFmpeg(t, "exec cat >/dev/null")
-	src := &overlapSource{head: 512 * 1024, unwind: 200 * time.Millisecond}
+	src := &overlapSource{head: 512 * 1024, unwind: 200 * time.Millisecond, parked: make(chan struct{})}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := runTranscodeAsync(ctx, src)
-	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-src.parked: // pump is inside Read, the state the regression needs
+	case <-time.After(5 * time.Second):
+		t.Fatal("stdin pump never parked in the source Read")
+	}
 	cancel()
 
 	select {

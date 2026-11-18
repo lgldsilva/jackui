@@ -65,7 +65,6 @@ func TestGoogleOptionsReadyAndDomainAllowed(t *testing.T) {
 
 func TestFlowStoreStatesSingleUseAndExpiry(t *testing.T) {
 	oldTTL := stateTTL
-	stateTTL = 20 * time.Millisecond
 	defer func() { stateTTL = oldTTL }()
 
 	f := NewOAuthFlowStore()
@@ -83,9 +82,10 @@ func TestFlowStoreStatesSingleUseAndExpiry(t *testing.T) {
 	if _, _, ok := f.ConsumeState("bogus"); ok {
 		t.Fatal("unknown state must not consume")
 	}
-	// Expired state: issued but consumed after the window.
+	// Expired state: a negative TTL stamps it already past its window, so no
+	// sleep (and no race with the happy-path assertions above) is needed.
+	stateTTL = -time.Second
 	state2, _, _ := f.NewState(false)
-	time.Sleep(25 * time.Millisecond)
 	if _, _, ok := f.ConsumeState(state2); ok {
 		t.Fatal("expired state must not consume")
 	}
@@ -93,7 +93,6 @@ func TestFlowStoreStatesSingleUseAndExpiry(t *testing.T) {
 
 func TestFlowStorePendingSingleUseAndExpiry(t *testing.T) {
 	oldTTL := pendingTTL
-	pendingTTL = 20 * time.Millisecond
 	defer func() { pendingTTL = oldTTL }()
 
 	f := NewOAuthFlowStore()
@@ -113,8 +112,8 @@ func TestFlowStorePendingSingleUseAndExpiry(t *testing.T) {
 	if _, _, ok = f.PeekPending(code); ok {
 		t.Fatal("ConsumePending must consume")
 	}
+	pendingTTL = -time.Second // already expired at creation; no sleep needed
 	code2, _ := f.SavePending(7, true)
-	time.Sleep(25 * time.Millisecond)
 	if _, _, ok = f.PeekPending(code2); ok {
 		t.Fatal("expired pending must not resolve")
 	}
