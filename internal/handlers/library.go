@@ -140,7 +140,11 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 		// flagged incognito=1 and excluded from normal listings; saving position
 		// allows the user to resume within their incognito session.
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		if err := lib.UpdateResume(c.Request.Context(), id, userID, req.ResumeSeconds, req.DurationSeconds, fileIndex, isAdmin); err != nil {
+		// Detached: the player PATCHes on unmount, so a hard tab close must not
+		// drop the last position.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := lib.UpdateResume(ctx, id, userID, req.ResumeSeconds, req.DurationSeconds, fileIndex, isAdmin); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

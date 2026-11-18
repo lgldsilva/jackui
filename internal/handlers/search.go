@@ -145,9 +145,13 @@ func saveHistory(store *history.Store, query string, liveResults []jackett.Resul
 	}
 	incognito := middleware.IsIncognito(c)
 	// Detached from the request: the save outlives the handler, so only the
-	// request's values are kept, not its cancellation.
-	ctx := context.WithoutCancel(c.Request.Context())
-	go func() { _ = store.Save(ctx, query, liveResults, userID, incognito) }()
+	// request's values are kept, not its cancellation; bounded so a hung
+	// Postgres cannot leak the goroutine.
+	ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	go func() {
+		defer cancel()
+		_ = store.Save(ctx, query, liveResults, userID, incognito)
+	}()
 }
 
 func searchMerged(ctx context.Context, store *history.Store, query string, userID int, includeAll bool, liveResults []jackett.Result, enricher *resultEnricher) []searchResult {

@@ -244,7 +244,11 @@ func persistEmitted(c *gin.Context, store *history.Store, query string, results 
 	if store == nil || len(results) == 0 {
 		return
 	}
-	if err := store.Save(c.Request.Context(), query, results, userID, middleware.IsIncognito(c)); err != nil {
+	// Detached: an aborted search (EventSource closed, new query) still caches
+	// what the indexers already returned, as it did before the ctx migration.
+	ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	defer cancel()
+	if err := store.Save(ctx, query, results, userID, middleware.IsIncognito(c)); err != nil {
 		log.Printf("search-sse: saving %d result(s) for %q failed: %v", len(results), httpshared.SanitizeForLog(query), err)
 	}
 }

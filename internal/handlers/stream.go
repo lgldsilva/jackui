@@ -44,6 +44,18 @@ func normalizeKind(k string) string {
 	return ""
 }
 
+// persistStreamLibrary upserts the library row for a torrent StreamAdd just
+// registered. Split out so the write can be exercised on its own.
+func persistStreamLibrary(c *gin.Context, lib *library.Store, req streamAddReq, info *streamer.TorrentInfo) {
+	if lib == nil {
+		return
+	}
+	userID, _, _ := auth.UserIDFromCtx(c)
+	ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	defer cancel()
+	_, _ = lib.Upsert(ctx, library.UpsertInput{UserID: userID, InfoHash: info.InfoHash, Magnet: req.Magnet, Name: info.Name, PrimaryFile: info.PrimaryFile, TotalSize: info.TotalSize, Kind: normalizeKind(req.Kind), Incognito: middleware.IsIncognito(c)})
+}
+
 // StreamAdd handles POST /api/stream/add — registers a magnet, waits for metadata.
 // Side-effect: persists the magnet in the user's library so they can re-play after restart
 // or from /favorites without going through a new search.
@@ -72,10 +84,7 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 		// In incognito mode: still upsert so the entry exists for resume tracking,
 		// but mark it with incognito=1 so it is excluded from normal listings and
 		// deleted when the user ends their incognito session.
-		if lib != nil {
-			userID, _, _ := auth.UserIDFromCtx(c)
-			_, _ = lib.Upsert(c.Request.Context(), library.UpsertInput{UserID: userID, InfoHash: info.InfoHash, Magnet: req.Magnet, Name: info.Name, PrimaryFile: info.PrimaryFile, TotalSize: info.TotalSize, Kind: normalizeKind(req.Kind), Incognito: middleware.IsIncognito(c)})
-		}
+		persistStreamLibrary(c, lib, req, info)
 		c.JSON(http.StatusOK, info)
 	}
 }

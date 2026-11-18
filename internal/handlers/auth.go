@@ -317,8 +317,11 @@ func Logout(store *auth.Store, cleaners ...incognitoCleanable) gin.HandlerFunc {
 		}
 		// Clean up any incognito history/library entries for this user.
 		if claims, ok := auth.ClaimsFromCtx(c); ok {
+			// Detached: privacy cleanup must finish even if the client drops now.
+			ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+			defer cancel()
 			for _, cl := range cleaners {
-				_ = cl.DeleteIncognito(c.Request.Context(), claims.UserID)
+				_ = cl.DeleteIncognito(ctx, claims.UserID)
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
@@ -335,8 +338,10 @@ func ClearIncognito(cleaners ...incognitoCleanable) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "not authenticated")
 			return
 		}
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		for _, cl := range cleaners {
-			if err := cl.DeleteIncognito(c.Request.Context(), claims.UserID); err != nil {
+			if err := cl.DeleteIncognito(ctx, claims.UserID); err != nil {
 				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}

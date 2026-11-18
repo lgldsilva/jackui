@@ -62,7 +62,11 @@ func countNoCtxCalls(t *testing.T, root string) map[string]int {
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 1<<20), 1<<20)
 		for sc.Scan() {
-			line := notDBReceive.ReplaceAllString(sc.Text(), "")
+			line := sc.Text()
+			if i := strings.Index(line, "//"); i >= 0 && !strings.Contains(line[:i], `"`) {
+				line = line[:i] // comment-only lines and trailing // comments
+			}
+			line = notDBReceive.ReplaceAllString(line, "")
 			counts[rel] += len(noCtxCall.FindAllString(line, -1))
 		}
 		return sc.Err()
@@ -132,7 +136,7 @@ func TestNoContextDBCallRatchet(t *testing.T) {
 	base := readBaseline(t)
 	for file, n := range got {
 		if n > base[file] {
-			t.Errorf("%s: %d ctx-less DB calls, baseline %d - use QueryContext/QueryRowContext/ExecContext/BeginTx and take ctx from the caller", file, n, base[file])
+			t.Errorf("%s: %d ctx-less DB calls, baseline %d - use QueryContext/QueryRowContext/ExecContext/BeginTx and take ctx from the caller. Do NOT raise the baseline; UPDATE_NOCTX_BASELINE=1 go test ./internal/dbutil -run TestNoContextDBCallRatchet is only for when a count went DOWN", file, n, base[file])
 		}
 	}
 	for file, n := range base {
@@ -150,9 +154,10 @@ func TestCountNoCtxCallsIgnoresTestsAndLookalikes(t *testing.T) {
 		}
 	}
 	write("a.go", "package a\nfunc f(){ db.Query(q); db.Exec(q); db.QueryContext(ctx,q); tx, _ := db.Begin(); c.Query(\"x\"); u.Query() }\n")
+	write("c.go", "package a\n// db.Exec(q) in a comment\nfunc h(){ db.Exec(q) // db.Query(q)\n}\n")
 	write("a_test.go", "package a\nfunc g(){ db.Exec(q) }\n")
 	got := countNoCtxCalls(t, dir)
-	if got["a.go"] != 3 || len(got) != 1 {
-		t.Fatalf("got %v, want a.go:3 only", got)
+	if got["a.go"] != 3 || got["c.go"] != 1 || len(got) != 2 {
+		t.Fatalf("got %v, want a.go:3 and c.go:1 only", got)
 	}
 }

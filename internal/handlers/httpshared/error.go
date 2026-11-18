@@ -1,6 +1,11 @@
 package httpshared
 
-import "github.com/gin-gonic/gin"
+import (
+	"context"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
 
 // RespondError writes the standard JSON error response used by HTTP handlers.
 func RespondError(c *gin.Context, status int, err error) {
@@ -42,4 +47,16 @@ func AbortIfClientGone(c *gin.Context, err error) bool {
 	}
 	c.AbortWithStatus(StatusClientClosedRequest)
 	return true
+}
+
+// DetachedWriteTimeout bounds a write that must survive its request.
+const DetachedWriteTimeout = 10 * time.Second
+
+// DetachedCtx returns a context for a small DB write that must complete even
+// if the client has gone (search results cached after an aborted SSE, resume
+// position on a hard tab close, incognito cleanup on logout). It keeps the
+// parent's values but not its cancellation, and is bounded by
+// DetachedWriteTimeout so a hung Postgres cannot leak the caller.
+func DetachedCtx(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), DetachedWriteTimeout)
 }
