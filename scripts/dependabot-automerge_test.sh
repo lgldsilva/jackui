@@ -18,20 +18,21 @@ fail() {
 out="$(mktemp)"
 trap 'rm -f "${out}"' EXIT
 
-# decide <ecosystem> <update-type> [labels] → exit status of the policy.
+# decide <ecosystem> <update-type> [labels] [names] → exit status of the policy.
+# names defaults to a harmless package; pass '' explicitly to test the empty case.
 decide() {
-	local ecosystem="$1" update_type="$2" labels="${3:-}"
+	local ecosystem="$1" update_type="$2" labels="${3:-}" names="${4-example.com/harmless}"
 	ECOSYSTEM="${ecosystem}" UPDATE_TYPE="${update_type}" LABELS="${labels}" \
-		bash "${POLICY}" >"${out}" 2>&1
+		DEPENDENCY_NAMES="${names}" bash "${POLICY}" >"${out}" 2>&1
 }
 expect_merge() {
-	local name="$1" ecosystem="$2" update_type="$3" labels="${4:-}"
-	decide "${ecosystem}" "${update_type}" "${labels}" ||
+	local name="$1" ecosystem="$2" update_type="$3" labels="${4:-}" names="${5-example.com/harmless}"
+	decide "${ecosystem}" "${update_type}" "${labels}" "${names}" ||
 		fail "${name}: expected auto-merge, got: $(cat "${out}")"
 }
 expect_skip() {
-	local name="$1" ecosystem="$2" update_type="$3" labels="${4:-}" status=0
-	decide "${ecosystem}" "${update_type}" "${labels}" || status=$?
+	local name="$1" ecosystem="$2" update_type="$3" labels="${4:-}" names="${5-example.com/harmless}" status=0
+	decide "${ecosystem}" "${update_type}" "${labels}" "${names}" || status=$?
 	[[ ${status} -eq 1 ]] ||
 		fail "${name}: expected skip (exit 1), got ${status}: $(cat "${out}")"
 }
@@ -60,6 +61,25 @@ expect_skip 'opt-out label' go_modules "${PATCH}" 'dependencies,do-not-auto-merg
 grep -Fq 'do-not-auto-merge' "${out}" ||
 	fail "opt-out skip must name the label: $(cat "${out}")"
 expect_merge 'unrelated labels' npm_and_yarn "${MINOR}" 'dependencies,javascript'
+
+# ── Critical-dependency denylist: PR is opened, never auto-merged ───────────
+expect_skip 'denylisted torrent (minor)' go_modules "${MINOR}" '' 'github.com/anacrolix/torrent'
+expect_skip 'denylisted torrent (patch)' go_modules "${PATCH}" '' 'github.com/anacrolix/torrent'
+grep -Fq 'github.com/anacrolix/torrent' "${out}" ||
+	fail "denylist skip must name the package: $(cat "${out}")"
+expect_skip 'denylisted anacrolix sibling' go_modules "${PATCH}" '' 'github.com/anacrolix/dht/v2'
+expect_skip 'denylisted member of a group' go_modules "${MINOR}" '' \
+	'github.com/gin-gonic/gin,github.com/anacrolix/missinggo/v2,golang.org/x/net'
+expect_merge 'group without denylisted members' go_modules "${MINOR}" '' \
+	'github.com/gin-gonic/gin,golang.org/x/net'
+# Prefix match must not catch look-alikes.
+expect_merge 'look-alike prefix is not denylisted' go_modules "${MINOR}" '' 'github.com/anacrolixx/torrent'
+expect_merge 'other anacrolix-named npm package' npm_and_yarn "${MINOR}" '' 'anacrolix'
+# Fail closed: without names the policy cannot rule out a denylisted package.
+expect_skip 'empty names' go_modules "${PATCH}" '' ''
+grep -Fq 'DEPENDENCY_NAMES' "${out}" ||
+	fail "empty-names skip must say why: $(cat "${out}")"
+expect_skip 'blank names' go_modules "${PATCH}" '' ' , '
 
 status=0
 ECOSYSTEM='' UPDATE_TYPE="${PATCH}" bash "${POLICY}" >"${out}" 2>&1 || status=$?
@@ -90,6 +110,8 @@ has -E '^permissions: \{\}$' ||
 		fail 'workflow must enable squash auto-merge via gh'
 	has -F 'scripts/dependabot-automerge.sh' ||
 		fail 'workflow must decide through scripts/dependabot-automerge.sh'
+	has -F 'DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}' ||
+		fail 'workflow must pass dependency-names to the policy'
 }
 has -E '^      contents: write$' || fail 'job needs contents: write'
 has -E '^      pull-requests: write$' || fail 'job needs pull-requests: write'
