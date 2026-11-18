@@ -9,6 +9,8 @@ type Toast = {
   readonly id: number
   readonly message: string
   readonly kind: ToastKind
+  // How many times this message was raised while it was on screen.
+  readonly count: number
 }
 
 // Module-level store (pub/sub) so notify()/notifyError() also work
@@ -18,6 +20,9 @@ type Toast = {
 type Listener = (toasts: readonly Toast[]) => void
 
 const AUTO_DISMISS_MS = 4000
+// A failing loop (poll, retry) must not be able to pave the corner of the
+// screen: identical live toasts collapse into one and the stack is bounded.
+const MAX_VISIBLE = 3
 
 let toasts: Toast[] = []
 let nextId = 1
@@ -33,8 +38,14 @@ export function dismissToast(id: number): void {
 }
 
 export function notify(message: string, kind: ToastKind = 'info'): number {
+  const live = toasts.find(t => t.message === message && t.kind === kind)
+  if (live) {
+    toasts = toasts.map(t => (t === live ? { ...t, count: t.count + 1 } : t))
+    emit()
+    return live.id
+  }
   const id = nextId++
-  toasts = [...toasts, { id, message, kind }]
+  toasts = [...toasts, { id, message, kind, count: 1 }].slice(-MAX_VISIBLE)
   emit()
   return id
 }
@@ -70,7 +81,8 @@ function ToastItem({ toast }: { readonly toast: Toast }) {
   useEffect(() => {
     const h = setTimeout(() => dismissToast(toast.id), AUTO_DISMISS_MS)
     return () => clearTimeout(h)
-  }, [toast.id])
+    // count is a dep on purpose: a repeat restarts the auto-dismiss timer.
+  }, [toast.id, toast.count])
 
   const meta = KIND_META[toast.kind]
   return (
@@ -79,6 +91,9 @@ function ToastItem({ toast }: { readonly toast: Toast }) {
     >
       <span className={meta.iconCls}>{meta.icon}</span>
       <span className="flex-1 min-w-0 break-words leading-snug">{toast.message}</span>
+      {toast.count > 1 && (
+        <span className="flex-shrink-0 text-xs tabular-nums text-text-muted">{t('misc.repeatCount', { n: toast.count })}</span>
+      )}
       <button
         onClick={() => dismissToast(toast.id)}
         aria-label={t('misc.close')}
@@ -105,7 +120,8 @@ function ToastViewport({ items }: { readonly items: readonly Toast[] }) {
 
 /**
  * Replaces the native `alert()` with stacked toasts in the corner, accessible
- * (role="status" + aria-live) and with auto-dismiss (~4s). Wraps the app once;
+ * (role="status" + aria-live) and with auto-dismiss (~4s). Identical live toasts
+ * collapse into one (×N) and at most 3 show at once. Wraps the app once;
  * notify()/notifyError() can be called via useToast() or imported directly.
  */
 export function ToastProvider({ children }: { readonly children: ReactNode }) {

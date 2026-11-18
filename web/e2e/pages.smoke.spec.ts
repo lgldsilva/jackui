@@ -25,6 +25,7 @@ const PROTECTED_PAGES = [
   '/library',
   '/discover',
   '/watchlist',
+  '/link',
   '/stats',
   '/local',
   '/downloads',
@@ -36,8 +37,6 @@ const PUBLIC_PAGES = [
   '/verify-email',
   '/forgot-password',
   '/reset-password',
-  // No OAuth params: the callback page must render its error state, not crash.
-  '/auth/google/callback',
 ]
 
 const test = base.extend<{ authedPage: Page }>({
@@ -132,6 +131,19 @@ test.describe('public pages', () => {
       await expect(page).toHaveURL(pageURL(path))
     })
   }
+})
+
+test.describe('oauth callback', () => {
+  // No exchange code: the callback has nothing to trade, so it bounces to the
+  // login page carrying an error slug instead of rendering (or crashing).
+  test('without a code bounces to login with an error slug', async ({ page }) => {
+    const errors = collectPageErrors(page)
+    await page.goto('/auth/google/callback')
+    await expect(page).toHaveURL(pageURL('/login?oauthError=state'))
+    await expect(page.locator('#route-root')).toBeVisible()
+    await expect(page.locator('input[type="password"]')).toBeVisible()
+    expect(errors, 'uncaught JS errors on /auth/google/callback').toEqual([])
+  })
 })
 
 test.describe('login journey', () => {

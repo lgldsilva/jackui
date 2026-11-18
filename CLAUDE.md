@@ -89,7 +89,7 @@ internal/
 ## CI/CD & quality gates
 
 - **Source of truth: GitHub** (`github.com/lgldsilva/jackui`). Active workflows: `.github/workflows/{ci,codeql,release}.yml`. Former Gitea pipelines live under `docs/archive/`.
-- **CI (GitHub Actions)**: `.github/workflows/ci.yml` on every PR **and** push to `main` — backend (gofmt/vet/test + Postgres), frontend (tsc/eslint/i18n/vitest/build), golangci-lint `--new-from-rev=origin/main`.
+- **CI (GitHub Actions)**: `.github/workflows/ci.yml` on every PR **and** push to `main` — backend (gofmt/vet/test + Postgres), frontend (tsc/eslint/i18n/vitest/build), golangci-lint `--new-from-rev=origin/main`. A separate, not-yet-required `E2E smoke (Playwright)` job runs `scripts/e2e-smoke.sh` (`make e2e-smoke` locally): real binary + Postgres, auth on, Chromium over every SPA route.
 - **CodeQL**: security-extended + security-and-quality on push/PR/weekly.
 - **Release**: tag `v*` or `workflow_dispatch` (only on `main` or a `v*` tag) → full CI (`ci.yml` via `workflow_call`) + `scripts/release-guard.sh` (a published `:vX.Y.Z` is never overwritten from another commit) → build amd64 → **Trivy CRITICAL gate (pre-push)** → push multi-arch + nvidia to `ghcr.io/lgldsilva/jackui` → SBOM → GitHub Release. See [docs/CICD.md](docs/CICD.md).
 - **Optional Sonar (homelab)**: `new_coverage ≥ 80%` (Go only — `web/**` and `cmd/**` excluded), `new_violations = 0`, cognitive complexity ≤ 15 (S3776). Validate locally before pushing: `golangci-lint run --new-from-rev=origin/main` (gocognit min 16) + coverage of new functions + `eslint-plugin-sonarjs` on changed `.tsx`.
