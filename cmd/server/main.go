@@ -346,7 +346,7 @@ func newDestinationService(deps *appDeps) *handlers.DestinationService {
 			if deps.authStore == nil {
 				return ""
 			}
-			u, err := deps.authStore.GetUserByID(userID)
+			u, err := deps.authStore.GetUserByID(context.Background(), userID)
 			if err != nil || u == nil {
 				return ""
 			}

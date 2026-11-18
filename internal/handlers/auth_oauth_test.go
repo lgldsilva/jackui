@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base32"
@@ -176,7 +177,7 @@ func TestOAuthCallbackProviderError(t *testing.T) {
 
 func TestOAuthFullFlowLinksExistingAccountByEmail(t *testing.T) {
 	store := newOAuthTestStore(t)
-	if _, err := store.CreateUserFull("luiz", "luiz@example.com", "password1", auth.RoleUser, auth.StatusActive); err != nil {
+	if _, err := store.CreateUserFull(context.Background(), "luiz", "luiz@example.com", "password1", auth.RoleUser, auth.StatusActive); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
 	h := testOAuthHandlers(t, store, nil)
@@ -243,7 +244,7 @@ func TestOAuthCallbackAutoProvisionCreatesActiveUser(t *testing.T) {
 	if w.Code != http.StatusFound || !strings.Contains(w.Header().Get("Location"), "/auth/google/callback?code=") {
 		t.Fatalf("autoprovision callback = %d %s", w.Code, w.Header().Get("Location"))
 	}
-	user, err := store.GetUserByEmail("luiz@example.com")
+	user, err := store.GetUserByEmail(context.Background(), "luiz@example.com")
 	if err != nil || user == nil {
 		t.Fatalf("provisioned user missing: %v", err)
 	}
@@ -285,7 +286,7 @@ func TestOAuthCallbackAccountStatusGates(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			store := newOAuthTestStore(t)
-			if _, err := store.CreateUserFull("luiz", "luiz@example.com", "password1", auth.RoleUser, status); err != nil {
+			if _, err := store.CreateUserFull(context.Background(), "luiz", "luiz@example.com", "password1", auth.RoleUser, status); err != nil {
 				t.Fatalf("seed: %v", err)
 			}
 			h := testOAuthHandlers(t, store, nil)
@@ -305,17 +306,17 @@ func TestOAuthCallbackAccountStatusGates(t *testing.T) {
 
 func TestOAuthExchangeMFARoundTrip(t *testing.T) {
 	store := newOAuthTestStore(t)
-	if _, err := store.CreateUserFull("luiz", "luiz@example.com", "password1", auth.RoleUser, auth.StatusActive); err != nil {
+	if _, err := store.CreateUserFull(context.Background(), "luiz", "luiz@example.com", "password1", auth.RoleUser, auth.StatusActive); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	secret, err := auth.GenerateTOTPSecret()
 	if err != nil {
 		t.Fatalf("totp secret: %v", err)
 	}
-	if err := store.SetTOTPSecret(1, secret); err != nil {
+	if err := store.SetTOTPSecret(context.Background(), 1, secret); err != nil {
 		t.Fatalf("set totp: %v", err)
 	}
-	if err := store.EnableTOTP(1); err != nil {
+	if err := store.EnableTOTP(context.Background(), 1); err != nil {
 		t.Fatalf("enable totp: %v", err)
 	}
 	h := testOAuthHandlers(t, store, nil)
@@ -361,7 +362,7 @@ func TestOAuthExchangeInvalidCode(t *testing.T) {
 func TestOAuthProvisionUsernameCollision(t *testing.T) {
 	store := newOAuthTestStore(t)
 	// "luiz" already exists → auto-provision must derive "luiz-2".
-	if _, err := store.CreateUserFull("luiz", "old@example.com", "password1", auth.RoleUser, auth.StatusActive); err != nil {
+	if _, err := store.CreateUserFull(context.Background(), "luiz", "old@example.com", "password1", auth.RoleUser, auth.StatusActive); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	h := testOAuthHandlers(t, store, func(c *config.AuthOAuth) { c.AutoProvision = true })
@@ -371,7 +372,7 @@ func TestOAuthProvisionUsernameCollision(t *testing.T) {
 	if !strings.Contains(w.Header().Get("Location"), "/auth/google/callback?code=") {
 		t.Fatalf("collision callback = %d %s", w.Code, w.Header().Get("Location"))
 	}
-	user, err := store.GetUserByEmail("luiz@example.com")
+	user, err := store.GetUserByEmail(context.Background(), "luiz@example.com")
 	if err != nil || user == nil {
 		t.Fatalf("provisioned user missing: %v", err)
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -23,7 +24,7 @@ func userFromIDParam(c *gin.Context, store *auth.Store) *auth.User {
 		httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 		return nil
 	}
-	user, err := store.GetUserByID(id)
+	user, err := store.GetUserByID(c.Request.Context(), id)
 	if err != nil || user == nil {
 		httpshared.RespondErrorMessage(c, http.StatusNotFound, errUserNotFound)
 		return nil
@@ -53,11 +54,7 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 				httpshared.RespondErrorMessage(c, http.StatusBadRequest, "the new password must be at least 6 characters")
 				return
 			}
-			if err := store.SetPassword(user.ID, req.Password); err != nil {
-				httpshared.RespondError(c, http.StatusInternalServerError, err)
-				return
-			}
-			if err := revokeAllAccess(store, user.ID); err != nil {
+			if err := adminSetPassword(c.Request.Context(), store, user.ID, req.Password); err != nil {
 				httpshared.RespondError(c, http.StatusInternalServerError, err)
 				return
 			}
@@ -69,7 +66,7 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "public base URL not configured")
 			return
 		}
-		tok, err := store.CreateToken(auth.TokenResetPassword, user.ID, user.Email, resetTTL)
+		tok, err := store.CreateToken(c.Request.Context(), auth.TokenResetPassword, user.ID, user.Email, resetTTL)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -78,7 +75,11 @@ func AdminResetPassword(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string
 		if user.Email != "" {
 			notify(mlr, user.Email, "JackUI — password recovery", "An administrator started a password reset for your account:", link)
 		}
-		_ = store.RevokeAllSessions(user.ID)
+		// Revocation is the security half of the reset: detached so a client
+		// that drops after the link was issued cannot leave the sessions alive.
+		rctx, rcancel := httpshared.DetachedCtx(c.Request.Context())
+		defer rcancel()
+		_ = store.RevokeAllSessions(rctx, user.ID)
 		c.JSON(http.StatusOK, gin.H{"link": link})
 	}
 }
@@ -91,7 +92,7 @@ func AdminListUserSessions(store *auth.Store) gin.HandlerFunc {
 		if user == nil {
 			return
 		}
-		sessions, err := store.ListSessions(user.ID, "")
+		sessions, err := store.ListSessions(c.Request.Context(), user.ID, "")
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -107,7 +108,9 @@ func AdminRevokeUserSession(store *auth.Store) gin.HandlerFunc {
 		if user == nil {
 			return
 		}
-		if err := store.RevokeSession(user.ID, c.Param("sid")); err != nil {
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.RevokeSession(ctx, user.ID, c.Param("sid")); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -123,7 +126,9 @@ func AdminRevokeUserSessions(store *auth.Store) gin.HandlerFunc {
 		if user == nil {
 			return
 		}
-		if err := store.RevokeAllSessions(user.ID); err != nil {
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.RevokeAllSessions(ctx, user.ID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -155,11 +160,11 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid email")
 			return
 		}
-		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
+		if _, err := store.VerifyPassword(c.Request.Context(), claims.Username, req.Password); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "incorrect password")
 			return
 		}
-		used, err := store.EmailInUse(email, claims.UserID)
+		used, err := store.EmailInUse(c.Request.Context(), email, claims.UserID)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -168,11 +173,23 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 			httpshared.RespondErrorMessage(c, http.StatusConflict, "email already registered")
 			return
 		}
-		if err := store.UpdateEmail(claims.UserID, email); err != nil {
+		if err := store.UpdateEmail(c.Request.Context(), claims.UserID, email); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		sendVerifyEmail(store, mlr, c, cfgBaseURL, claims.UserID, email)
 		c.JSON(http.StatusOK, gin.H{"message": "email updated — confirm it via the sent link"})
 	}
+}
+
+// adminSetPassword sets the password and revokes every session and paired
+// device as one security action: detached from the request so a dropped client
+// cannot leave the old credentials alive after the password changed.
+func adminSetPassword(parent context.Context, store *auth.Store, userID int, password string) error {
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
+	if err := store.SetPassword(ctx, userID, password); err != nil {
+		return err
+	}
+	return revokeAllAccess(ctx, store, userID)
 }

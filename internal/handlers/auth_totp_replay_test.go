@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,10 +36,10 @@ func TestLogin_TOTPCodeIsSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetTOTPSecret(user.ID, secret); err != nil {
+	if err := store.SetTOTPSecret(context.Background(), user.ID, secret); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.EnableTOTP(user.ID); err != nil {
+	if err := store.EnableTOTP(context.Background(), user.ID); err != nil {
 		t.Fatal(err)
 	}
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)

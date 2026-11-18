@@ -2,6 +2,7 @@ package transmissionrpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +37,7 @@ func newRPCAuthFixture(t *testing.T) *rpcAuthFixture {
 
 func (f *rpcAuthFixture) addUser(t *testing.T, name string, role auth.Role) int {
 	t.Helper()
-	id, err := f.as.CreateUser(name, name+"-pass1", role)
+	id, err := f.as.CreateUser(context.Background(), name, name+"-pass1", role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestRPC_BasicAuthRefusesInactiveAccounts(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			f := newRPCAuthFixture(t)
 			id := f.addUser(t, "carol", auth.RoleUser)
-			if err := f.as.SetStatus(id, status); err != nil {
+			if err := f.as.SetStatus(context.Background(), id, status); err != nil {
 				t.Fatal(err)
 			}
 			code, sid := f.handshake(t, "carol")

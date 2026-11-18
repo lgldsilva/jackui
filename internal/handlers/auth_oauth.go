@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -114,7 +115,7 @@ func (h *GoogleOAuthHandlers) Callback() gin.HandlerFunc {
 			oauthFail(c, h.spaLoginURL(slug))
 			return
 		}
-		user, slug, err := h.userFromGoogle(info)
+		user, slug, err := h.userFromGoogle(c.Request.Context(), info)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -160,14 +161,14 @@ func (h *GoogleOAuthHandlers) googleIdentity(c *gin.Context) (*auth.GoogleUserIn
 
 // userFromGoogle applies the linking contract (verified e-mail, domain
 // allowlist, existing account or opt-in provision, status gates).
-func (h *GoogleOAuthHandlers) userFromGoogle(info *auth.GoogleUserInfo) (*auth.User, string, error) {
+func (h *GoogleOAuthHandlers) userFromGoogle(ctx context.Context, info *auth.GoogleUserInfo) (*auth.User, string, error) {
 	if !info.EmailVerified {
 		return nil, oauthErrEmailUnverified, nil
 	}
 	if !h.opts.DomainAllowed(info.Email) {
 		return nil, oauthErrDomainNotAllowed, nil
 	}
-	user, err := h.store.GetUserByEmail(info.Email)
+	user, err := h.store.GetUserByEmail(ctx, info.Email)
 	if err != nil {
 		return nil, "", err
 	}
@@ -178,7 +179,7 @@ func (h *GoogleOAuthHandlers) userFromGoogle(info *auth.GoogleUserInfo) (*auth.U
 			log.Printf("Google OAuth: no JackUI account for e-mail of user id 0 (refused; auto_provision=off)")
 			return nil, oauthErrUnknownAccount, nil
 		}
-		user, err = h.provision(info.Email)
+		user, err = h.provision(ctx, info.Email)
 		if err != nil {
 			return nil, "", err
 		}
@@ -210,7 +211,7 @@ func (h *GoogleOAuthHandlers) Exchange() gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid or expired exchange code")
 			return
 		}
-		user, err := h.store.GetUserByID(userID)
+		user, err := h.store.GetUserByID(c.Request.Context(), userID)
 		if err != nil || user == nil {
 			h.flow.ConsumePending(req.Code)
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid login session")
@@ -227,7 +228,7 @@ func (h *GoogleOAuthHandlers) Exchange() gin.HandlerFunc {
 		// Single-use: consumed only on the success path — a wrong TOTP code can
 		// be retried while the pending code is still alive.
 		h.flow.ConsumePending(req.Code)
-		resp, err := issueTokens(h.store, h.tm, user, remember, c.Request.UserAgent(), c.ClientIP())
+		resp, err := issueTokens(c.Request.Context(), h.store, h.tm, user, remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
@@ -246,9 +247,9 @@ func (h *GoogleOAuthHandlers) rejectOAuthMFA(c *gin.Context, user *auth.User, to
 		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "MFA code required", gin.H{"mfaRequired": true})
 		return true
 	}
-	secret, _, _ := h.store.GetTOTPSecret(user.ID)
+	secret, _, _ := h.store.GetTOTPSecret(c.Request.Context(), user.ID)
 	// Replay-aware validation (records the matched step), same as the login flow.
-	if !h.store.ValidateTOTPForUser(user.ID, secret, totp) && !h.store.ConsumeBackupCode(user.ID, totp) {
+	if !h.store.ValidateTOTPForUser(user.ID, secret, totp) && !h.store.ConsumeBackupCode(c.Request.Context(), user.ID, totp) {
 		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "invalid MFA code", gin.H{"mfaRequired": true})
 		return true
 	}
@@ -258,11 +259,11 @@ func (h *GoogleOAuthHandlers) rejectOAuthMFA(c *gin.Context, user *auth.User, to
 // provision auto-creates an account for a verified Google e-mail. Username is
 // derived from the local part (sanitized, made unique); the random password is
 // unusable until the user sets one via reset — Google remains the login path.
-func (h *GoogleOAuthHandlers) provision(email string) (*auth.User, error) {
+func (h *GoogleOAuthHandlers) provision(ctx context.Context, email string) (*auth.User, error) {
 	base := deriveUsername(email)
 	username := base
 	for i := 2; ; i++ {
-		exists, err := h.store.Exists(username, "")
+		exists, err := h.store.Exists(ctx, username, "")
 		if err != nil {
 			return nil, err
 		}
@@ -278,12 +279,12 @@ func (h *GoogleOAuthHandlers) provision(email string) (*auth.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	id, err := h.store.CreateUserFull(username, email, password, auth.RoleUser, auth.StatusActive)
+	id, err := h.store.CreateUserFull(ctx, username, email, password, auth.RoleUser, auth.StatusActive)
 	if err != nil {
 		return nil, err
 	}
 	log.Printf("Google OAuth: auto-provisioned account id=%d username=%q", id, httpshared.SanitizeForLog(username))
-	return h.store.GetUserByID(id)
+	return h.store.GetUserByID(ctx, id)
 }
 
 // spaOrigin strips the redirect_uri pattern back to the SPA origin ("" →

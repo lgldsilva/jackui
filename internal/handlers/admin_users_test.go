@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -107,7 +108,7 @@ func TestAdminUserRoutes_InvalidID(t *testing.T) {
 func TestAdminResetPassword_WithPassword(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "alice", "oldpass1")
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "UA", "1.2.3.4"); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "UA", "1.2.3.4"); err != nil {
 		t.Fatal(err)
 	}
 	r := adminUsersRouter(store, adminClaims())
@@ -116,13 +117,13 @@ func TestAdminResetPassword_WithPassword(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	if _, err := store.VerifyPassword("alice", "newpass1"); err != nil {
+	if _, err := store.VerifyPassword(context.Background(), "alice", "newpass1"); err != nil {
 		t.Errorf("new password should work: %v", err)
 	}
-	if _, err := store.VerifyPassword("alice", "oldpass1"); err == nil {
+	if _, err := store.VerifyPassword(context.Background(), "alice", "oldpass1"); err == nil {
 		t.Error("old password should be dead")
 	}
-	sessions, _ := store.ListSessions(user.ID, "")
+	sessions, _ := store.ListSessions(context.Background(), user.ID, "")
 	if len(sessions) != 0 {
 		t.Errorf("sessions after reset = %d, want 0 (all revoked)", len(sessions))
 	}
@@ -142,7 +143,7 @@ func TestAdminResetPassword_ShortPassword(t *testing.T) {
 func TestAdminResetPassword_LinkMode(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "alice", "oldpass1")
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "", ""); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	r := adminUsersRouterWithBaseURL(store, adminClaims(), "https://example.com")
@@ -163,14 +164,14 @@ func TestAdminResetPassword_LinkMode(t *testing.T) {
 		t.Fatalf("link = %q, want a reset-password link", resp.Link)
 	}
 	tok := resp.Link[idx+len(marker):]
-	ti, err := store.ConsumeToken(tok, auth.TokenResetPassword)
+	ti, err := store.ConsumeToken(context.Background(), tok, auth.TokenResetPassword)
 	if err != nil {
 		t.Fatalf("token from link should be valid: %v", err)
 	}
 	if ti.UserID != user.ID {
 		t.Errorf("token user = %d, want %d", ti.UserID, user.ID)
 	}
-	sessions, _ := store.ListSessions(user.ID, "")
+	sessions, _ := store.ListSessions(context.Background(), user.ID, "")
 	if len(sessions) != 0 {
 		t.Errorf("sessions after reset link = %d, want 0 (all revoked)", len(sessions))
 	}
@@ -179,10 +180,10 @@ func TestAdminResetPassword_LinkMode(t *testing.T) {
 func TestAdminUserSessions_ListRevokeRevokeAll(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "alice", "secret123")
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "Safari iPhone", "10.0.0.7"); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "Safari iPhone", "10.0.0.7"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, true, "Chrome Desktop", "10.0.0.8"); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, true, "Chrome Desktop", "10.0.0.8"); err != nil {
 		t.Fatal(err)
 	}
 	r := adminUsersRouter(store, adminClaims())
@@ -215,7 +216,7 @@ func TestAdminUserSessions_ListRevokeRevokeAll(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("revoke status = %d", w.Code)
 	}
-	left, _ := store.ListSessions(user.ID, "")
+	left, _ := store.ListSessions(context.Background(), user.ID, "")
 	if len(left) != 1 {
 		t.Fatalf("sessions after single revoke = %d, want 1", len(left))
 	}
@@ -225,7 +226,7 @@ func TestAdminUserSessions_ListRevokeRevokeAll(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("revoke-all status = %d", w.Code)
 	}
-	left, _ = store.ListSessions(user.ID, "")
+	left, _ = store.ListSessions(context.Background(), user.ID, "")
 	if len(left) != 0 {
 		t.Fatalf("sessions after revoke-all = %d, want 0", len(left))
 	}
@@ -329,7 +330,7 @@ func TestChangeEmail_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "alice", "secret123")
-	_ = store.SetEmailVerified(user.ID, "")
+	_ = store.SetEmailVerified(context.Background(), user.ID, "")
 	claims := &auth.Claims{UserID: user.ID, Username: "alice", Role: auth.RoleUser}
 
 	// Mixed case + spaces are normalized.
@@ -337,7 +338,7 @@ func TestChangeEmail_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	got, err := store.GetUserByID(user.ID)
+	got, err := store.GetUserByID(context.Background(), user.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,11 +356,11 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "alice", "secret123")
-	keep, err := store.CreateRefreshToken(user.ID, time.Hour, false, "this device", "10.0.0.1")
+	keep, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "this device", "10.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "other device", "10.0.0.2"); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "other device", "10.0.0.2"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -383,7 +384,7 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 	if resp.Revoked != 1 {
 		t.Errorf("revoked = %d, want 1", resp.Revoked)
 	}
-	sessions, _ := store.ListSessions(user.ID, keep)
+	sessions, _ := store.ListSessions(context.Background(), user.ID, keep)
 	if len(sessions) != 1 {
 		t.Fatalf("sessions = %d, want only the kept one", len(sessions))
 	}

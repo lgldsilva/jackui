@@ -1,9 +1,4 @@
 # Ctx-less database calls per file (see noctx_ratchet_test.go). Only ever lower these.
-auth/auth_credentials.go 8
-auth/auth_sessions.go 11
-auth/auth_totp.go 10
-auth/device_keys.go 11
-auth/store.go 18
 downloads/completed_path_rel.go 2
 downloads/sources.go 10
 downloads/store.go 7

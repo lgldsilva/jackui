@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -39,7 +40,7 @@ func TestRegisterHandler_SendsVerifyEmailWithBaseURL(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	user, err := store.GetUserByEmail("verifyme@test.com")
+	user, err := store.GetUserByEmail(context.Background(), "verifyme@test.com")
 	if err != nil || user == nil {
 		t.Fatalf("user not created: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestInvite_WithEmailReturnsLink(t *testing.T) {
 func TestVerifyEmail_Success(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "pending", "password1")
-	tok, err := store.CreateToken(auth.TokenVerifyEmail, user.ID, user.Email, verifyTTL)
+	tok, err := store.CreateToken(context.Background(), auth.TokenVerifyEmail, user.ID, user.Email, verifyTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestForgot_KnownEmailIssuesResetToken(t *testing.T) {
 func TestReset_Success(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "resetter", "oldpass1")
-	tok, err := store.CreateToken(auth.TokenResetPassword, user.ID, user.Email, resetTTL)
+	tok, err := store.CreateToken(context.Background(), auth.TokenResetPassword, user.ID, user.Email, resetTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,10 +123,10 @@ func TestReset_Success(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "password reset") {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	if _, err := store.VerifyPassword("resetter", "newpass2"); err != nil {
+	if _, err := store.VerifyPassword(context.Background(), "resetter", "newpass2"); err != nil {
 		t.Errorf("new password should authenticate: %v", err)
 	}
-	if _, err := store.VerifyPassword("resetter", "oldpass1"); err == nil {
+	if _, err := store.VerifyPassword(context.Background(), "resetter", "oldpass1"); err == nil {
 		t.Error("old password must no longer authenticate")
 	}
 }

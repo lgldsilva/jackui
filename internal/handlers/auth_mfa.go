@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ func MFAEnrollStart(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		if err := store.SetTOTPSecret(claims.UserID, secret); err != nil {
+		if err := store.SetTOTPSecret(c.Request.Context(), claims.UserID, secret); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -50,20 +51,16 @@ func MFAEnrollVerify(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "code required")
 			return
 		}
-		secret, _, _ := store.GetTOTPSecret(claims.UserID)
+		secret, _, _ := store.GetTOTPSecret(c.Request.Context(), claims.UserID)
 		// ValidateTOTPForUser (not plain ValidateTOTP): records the matched step
 		// so the same code cannot be replayed within its window.
 		if !store.ValidateTOTPForUser(claims.UserID, secret, req.Code) {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid code")
 			return
 		}
-		if err := store.EnableTOTP(claims.UserID); err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
-			return
-		}
-		// Issue recovery codes immediately so the user can't lock themselves out by
-		// losing the authenticator. Shown exactly once.
-		codes, err := store.GenerateBackupCodes(claims.UserID, backupCodeCount)
+		// Enable + issue recovery codes immediately so the user can't lock
+		// themselves out by losing the authenticator. Shown exactly once.
+		codes, err := enableMFAWithBackupCodes(c.Request.Context(), store, claims.UserID)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -81,7 +78,7 @@ func MFABackupCodesStatus(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"remaining": store.CountBackupCodes(claims.UserID)})
+		c.JSON(http.StatusOK, gin.H{"remaining": store.CountBackupCodes(c.Request.Context(), claims.UserID)})
 	}
 }
 
@@ -99,11 +96,11 @@ func MFABackupCodesRegenerate(store *auth.Store) gin.HandlerFunc {
 			Password string `json:"password"`
 		}
 		_ = c.ShouldBindJSON(&req)
-		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
+		if _, err := store.VerifyPassword(c.Request.Context(), claims.Username, req.Password); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "incorrect password")
 			return
 		}
-		codes, err := store.GenerateBackupCodes(claims.UserID, backupCodeCount)
+		codes, err := store.GenerateBackupCodes(c.Request.Context(), claims.UserID, backupCodeCount)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -126,14 +123,26 @@ func MFADisable(store *auth.Store) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 		// Re-verify the password by username (we have it in claims).
-		if _, err := store.VerifyPassword(claims.Username, req.Password); err != nil {
+		if _, err := store.VerifyPassword(c.Request.Context(), claims.Username, req.Password); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "incorrect password")
 			return
 		}
-		if err := store.DisableTOTP(claims.UserID); err != nil {
+		if err := store.DisableTOTP(c.Request.Context(), claims.UserID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "MFA disabled"})
 	}
+}
+
+// enableMFAWithBackupCodes turns MFA on and mints the recovery codes as one
+// action, detached from the request: a dropped client must not leave MFA
+// enabled with no codes (the user would be locked out of recovery).
+func enableMFAWithBackupCodes(parent context.Context, store *auth.Store, userID int) ([]string, error) {
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
+	if err := store.EnableTOTP(ctx, userID); err != nil {
+		return nil, err
+	}
+	return store.GenerateBackupCodes(ctx, userID, backupCodeCount)
 }

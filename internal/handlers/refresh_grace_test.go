@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,7 @@ func TestRefresh_ConcurrentSameToken_DoesNotRevoke(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "tabby", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
-	refresh, err := store.CreateRefreshToken(user.ID, time.Hour, false, "", "")
+	refresh, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

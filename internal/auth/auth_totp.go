@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"strings"
 	"sync"
@@ -77,43 +78,52 @@ func normalizeBackupCode(s string) string {
 }
 
 // SetTOTPSecret stores a (not-yet-enabled) TOTP secret during enrollment.
-func (s *Store) SetTOTPSecret(userID int, secret string) error {
-	_, err := s.db.Exec("UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?", secret, userID)
+func (s *Store) SetTOTPSecret(ctx context.Context, userID int, secret string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE id = ?", secret, userID)
 	return err
 }
 
 // GetTOTPSecret returns the stored secret + whether MFA is enabled.
-func (s *Store) GetTOTPSecret(userID int) (secret string, enabled bool, err error) {
+func (s *Store) GetTOTPSecret(ctx context.Context, userID int) (secret string, enabled bool, err error) {
 	var en int
-	err = s.db.QueryRow("SELECT totp_secret, totp_enabled FROM users WHERE id = ?", userID).Scan(&secret, &en)
+	err = s.db.QueryRowContext(ctx, "SELECT totp_secret, totp_enabled FROM users WHERE id = ?", userID).Scan(&secret, &en)
 	return secret, en == 1, err
 }
 
 // EnableTOTP marks MFA active (after the user confirms a code during enrollment).
-func (s *Store) EnableTOTP(userID int) error {
-	_, err := s.db.Exec("UPDATE users SET totp_enabled = 1 WHERE id = ?", userID)
+func (s *Store) EnableTOTP(ctx context.Context, userID int) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE users SET totp_enabled = 1 WHERE id = ?", userID)
 	return err
 }
 
 // DisableTOTP clears the secret + disables MFA, and drops any backup codes
 // (they're meaningless once MFA is off).
-func (s *Store) DisableTOTP(userID int) error {
-	if _, err := s.db.Exec("UPDATE users SET totp_secret = '', totp_enabled = 0 WHERE id = ?", userID); err != nil {
+func (s *Store) DisableTOTP(ctx context.Context, userID int) error {
+	// One transaction: a cancellation between the two statements must not
+	// leave MFA off with live backup codes (or the reverse).
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	_, err := s.db.Exec("DELETE FROM mfa_backup_codes WHERE user_id = ?", userID)
-	return err
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET totp_secret = '', totp_enabled = 0 WHERE id = ?", userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM mfa_backup_codes WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GenerateBackupCodes replaces a user's backup codes with n fresh ones and
 // returns the PLAINTEXT (formatted "xxxx-xxxx") — shown once, never recoverable.
-func (s *Store) GenerateBackupCodes(userID, n int) ([]string, error) {
-	tx, err := s.db.Begin()
+func (s *Store) GenerateBackupCodes(ctx context.Context, userID, n int) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec("DELETE FROM mfa_backup_codes WHERE user_id = ?", userID); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM mfa_backup_codes WHERE user_id = ?", userID); err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, n)
@@ -123,7 +133,7 @@ func (s *Store) GenerateBackupCodes(userID, n int) ([]string, error) {
 			return nil, err
 		}
 		formatted := raw[:4] + "-" + raw[4:]
-		if _, err := tx.Exec(
+		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO mfa_backup_codes(code_hash, user_id) VALUES(?, ?)",
 			sha256Hex(normalizeBackupCode(raw)), userID,
 		); err != nil {
@@ -139,9 +149,9 @@ func (s *Store) GenerateBackupCodes(userID, n int) ([]string, error) {
 
 // ConsumeBackupCode validates a code for a user and marks it used (single-use).
 // Returns true on a successful redemption.
-func (s *Store) ConsumeBackupCode(userID int, code string) bool {
+func (s *Store) ConsumeBackupCode(ctx context.Context, userID int, code string) bool {
 	hash := sha256Hex(normalizeBackupCode(code))
-	res, err := s.db.Exec(
+	res, err := s.db.ExecContext(ctx,
 		"UPDATE mfa_backup_codes SET used_at = CURRENT_TIMESTAMP WHERE code_hash = ? AND user_id = ? AND used_at IS NULL",
 		hash, userID,
 	)
@@ -153,9 +163,9 @@ func (s *Store) ConsumeBackupCode(userID int, code string) bool {
 }
 
 // CountBackupCodes returns how many unused backup codes a user has left.
-func (s *Store) CountBackupCodes(userID int) int {
+func (s *Store) CountBackupCodes(ctx context.Context, userID int) int {
 	var n int
-	_ = s.db.QueryRow("SELECT COUNT(*) FROM mfa_backup_codes WHERE user_id = ? AND used_at IS NULL", userID).Scan(&n)
+	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mfa_backup_codes WHERE user_id = ? AND used_at IS NULL", userID).Scan(&n)
 	return n
 }
 

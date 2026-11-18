@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"html"
 	"log"
@@ -88,7 +89,7 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username, email and password (≥6) are required")
 		return
 	}
-	taken, err := store.Exists(req.Username, req.Email)
+	taken, err := store.Exists(c.Request.Context(), req.Username, req.Email)
 	if err != nil {
 		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
@@ -98,13 +99,13 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 		return
 	}
 
-	status, invited, ierr := resolveInviteStatus(store, req.Invite)
+	status, invited, ierr := resolveInviteStatus(c.Request.Context(), store, req.Invite)
 	if ierr != nil {
 		httpshared.RespondError(c, http.StatusBadRequest, ierr)
 		return
 	}
 
-	uid, err := store.CreateUserFull(req.Username, req.Email, req.Password, auth.RoleUser, status)
+	uid, err := store.CreateUserFull(c.Request.Context(), req.Username, req.Email, req.Password, auth.RoleUser, status)
 	if err != nil {
 		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
@@ -119,11 +120,11 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 	c.JSON(http.StatusOK, gin.H{"status": string(status), "invited": invited, "message": msg})
 }
 
-func resolveInviteStatus(store *auth.Store, inviteToken string) (auth.Status, bool, error) {
+func resolveInviteStatus(ctx context.Context, store *auth.Store, inviteToken string) (auth.Status, bool, error) {
 	if inviteToken == "" {
 		return auth.StatusPending, false, nil
 	}
-	if _, terr := store.ConsumeToken(inviteToken, auth.TokenInvite); terr != nil {
+	if _, terr := store.ConsumeToken(ctx, inviteToken, auth.TokenInvite); terr != nil {
 		return auth.StatusPending, false, fmt.Errorf("invalid or expired invite")
 	}
 	return auth.StatusActive, true, nil
@@ -134,7 +135,7 @@ func sendVerifyEmail(store *auth.Store, mlr *mailer.Mailer, c *gin.Context, cfgB
 	if base == "" {
 		return
 	}
-	if tok, terr := store.CreateToken(auth.TokenVerifyEmail, id, email, verifyTTL); terr == nil {
+	if tok, terr := store.CreateToken(c.Request.Context(), auth.TokenVerifyEmail, id, email, verifyTTL); terr == nil {
 		link := base + "/verify-email?token=" + tok
 		notify(mlr, email, "JackUI — confirm your email", "Confirm your email to finish signing up:", link)
 	}
@@ -155,7 +156,7 @@ func Invite(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, "public base URL not configured")
 			return
 		}
-		tok, err := store.CreateToken(auth.TokenInvite, 0, req.Email, inviteTTL)
+		tok, err := store.CreateToken(c.Request.Context(), auth.TokenInvite, 0, req.Email, inviteTTL)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -178,12 +179,12 @@ func VerifyEmail(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token required")
 			return
 		}
-		ti, err := store.ConsumeToken(req.Token, auth.TokenVerifyEmail)
+		ti, err := store.ConsumeToken(c.Request.Context(), req.Token, auth.TokenVerifyEmail)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		if err := store.SetEmailVerified(ti.UserID, ""); err != nil {
+		if err := store.SetEmailVerified(c.Request.Context(), ti.UserID, ""); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -201,10 +202,10 @@ func Forgot(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.Handle
 		}
 		_ = c.ShouldBindJSON(&req)
 		email := strings.TrimSpace(strings.ToLower(req.Email))
-		if u, _ := store.GetUserByEmail(email); u != nil {
+		if u, _ := store.GetUserByEmail(c.Request.Context(), email); u != nil {
 			base := baseURL(c, cfgBaseURL)
 			if base != "" {
-				if tok, terr := store.CreateToken(auth.TokenResetPassword, u.ID, email, resetTTL); terr == nil {
+				if tok, terr := store.CreateToken(c.Request.Context(), auth.TokenResetPassword, u.ID, email, resetTTL); terr == nil {
 					link := base + "/reset-password?token=" + tok
 					notify(mlr, email, "JackUI — password recovery", "To reset your password, go to:", link)
 				}
@@ -227,16 +228,21 @@ func Reset(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token and new password (≥6) are required")
 			return
 		}
-		ti, err := store.ConsumeToken(req.Token, auth.TokenResetPassword)
+		// consume + set + revoke must land together even if the client drops
+		// mid-way: a password set without the revocation would leave a
+		// compromised account's sessions alive.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		ti, err := store.ConsumeToken(ctx, req.Token, auth.TokenResetPassword)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		if err := store.SetPassword(ti.UserID, req.Password); err != nil {
+		if err := store.SetPassword(ctx, ti.UserID, req.Password); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		if err := revokeAllAccess(store, ti.UserID); err != nil {
+		if err := revokeAllAccess(ctx, store, ti.UserID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

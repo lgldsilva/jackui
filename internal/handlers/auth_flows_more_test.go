@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,7 +19,7 @@ func TestRefreshOutcomeOK_ReuseRevokesAllSessions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "victim", "password1")
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "ua", "ip"); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "ua", "ip"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -26,13 +27,13 @@ func TestRefreshOutcomeOK_ReuseRevokesAllSessions(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
 
-	if refreshOutcomeOK(c, store, user, auth.RefreshReuse) {
+	if refreshOutcomeOK(context.Background(), c, store, user, auth.RefreshReuse) {
 		t.Fatal("reuse must not be OK")
 	}
 	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "invalid refresh token") {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	sessions, _ := store.ListSessions(user.ID, "")
+	sessions, _ := store.ListSessions(context.Background(), user.ID, "")
 	if len(sessions) != 0 {
 		t.Errorf("sessions after reuse = %d, want 0 (all revoked)", len(sessions))
 	}
@@ -42,10 +43,10 @@ func TestRevokeSession_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "revoker", "password1")
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "ua", "ip"); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "ua", "ip"); err != nil {
 		t.Fatal(err)
 	}
-	sessions, err := store.ListSessions(user.ID, "")
+	sessions, err := store.ListSessions(context.Background(), user.ID, "")
 	if err != nil || len(sessions) != 1 {
 		t.Fatalf("sessions = %d err=%v, want 1", len(sessions), err)
 	}
@@ -61,7 +62,7 @@ func TestRevokeSession_Success(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "session terminated") {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	if left, _ := store.ListSessions(user.ID, ""); len(left) != 0 {
+	if left, _ := store.ListSessions(context.Background(), user.ID, ""); len(left) != 0 {
 		t.Errorf("sessions left = %d, want 0", len(left))
 	}
 }
@@ -70,12 +71,12 @@ func TestRevokeOtherSessions_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "multi", "password1")
-	keep, err := store.CreateRefreshToken(user.ID, time.Hour, false, "phone", "ip1")
+	keep, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "phone", "ip1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, ua := range []string{"laptop", "tv"} {
-		if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, ua, "ip2"); err != nil {
+		if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, ua, "ip2"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -91,7 +92,7 @@ func TestRevokeOtherSessions_Success(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"revoked":2`) {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	left, _ := store.ListSessions(user.ID, keep)
+	left, _ := store.ListSessions(context.Background(), user.ID, keep)
 	if len(left) != 1 || !left[0].Current {
 		t.Errorf("sessions left = %+v, want only the current one", left)
 	}
@@ -107,7 +108,7 @@ func TestMFAEnrollVerify_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetTOTPSecret(user.ID, secret); err != nil {
+	if err := store.SetTOTPSecret(context.Background(), user.ID, secret); err != nil {
 		t.Fatal(err)
 	}
 	code := totpCodeAt(secret, uint64(time.Now().Unix()/30))
@@ -123,7 +124,7 @@ func TestMFAEnrollVerify_Success(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "MFA enabled") || !strings.Contains(w.Body.String(), "backupCodes") {
 		t.Fatalf("status = %d; body %s", w.Code, w.Body.String())
 	}
-	if _, enabled, _ := store.GetTOTPSecret(user.ID); !enabled {
+	if _, enabled, _ := store.GetTOTPSecret(context.Background(), user.ID); !enabled {
 		t.Error("TOTP should be enabled after a successful verify")
 	}
 }

@@ -8,6 +8,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -72,11 +73,11 @@ func New(pool *sql.DB) (*Store, error) {
 
 // Bootstrap ensures an admin user exists. If no users at all, creates "admin" with the given password.
 // Use this once at startup with the password from config/env.
-func (s *Store) Bootstrap(adminUser, adminPass string) error {
+func (s *Store) Bootstrap(ctx context.Context, adminUser, adminPass string) error {
 	var count int
 	// Exclude the anonymous sentinel (id 0, seeded by the schema migration) so
 	// the admin is still bootstrapped on a fresh install.
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM users WHERE id <> 0").Scan(&count); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE id <> 0").Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -88,12 +89,12 @@ func (s *Store) Bootstrap(adminUser, adminPass string) error {
 	if adminPass == "" {
 		return errors.New("admin password required for bootstrap")
 	}
-	_, err := s.CreateUser(adminUser, adminPass, RoleAdmin)
+	_, err := s.CreateUser(ctx, adminUser, adminPass, RoleAdmin)
 	return err
 }
 
 // CreateUser hashes the password and inserts a new user. Returns the inserted ID.
-func (s *Store) CreateUser(username, password string, role Role) (int, error) {
+func (s *Store) CreateUser(ctx context.Context, username, password string, role Role) (int, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return 0, fmt.Errorf(errHashPassword, err)
@@ -102,7 +103,7 @@ func (s *Store) CreateUser(username, password string, role Role) (int, error) {
 		role = RoleUser
 	}
 	var id int64
-	err = s.db.QueryRow(
+	err = s.db.QueryRowContext(ctx,
 		"INSERT INTO users(username, password_hash, role) VALUES(?, ?, ?) RETURNING id",
 		username, string(hash), string(role),
 	).Scan(&id)
@@ -113,9 +114,9 @@ func (s *Store) CreateUser(username, password string, role Role) (int, error) {
 }
 
 // ChangePassword verifies the current password and sets a new one (self-service).
-func (s *Store) ChangePassword(userID int, current, new string) error {
+func (s *Store) ChangePassword(ctx context.Context, userID int, current, new string) error {
 	var hash string
-	err := s.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&hash)
+	err := s.db.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE id = ?", userID).Scan(&hash)
 	if err == sql.ErrNoRows {
 		return errors.New("user not found")
 	}
@@ -125,29 +126,29 @@ func (s *Store) ChangePassword(userID int, current, new string) error {
 	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(current)) != nil {
 		return errors.New("incorrect current password")
 	}
-	return s.SetPassword(userID, new)
+	return s.SetPassword(ctx, userID, new)
 }
 
 // SetPassword overwrites a user's password hash (used by ChangePassword + reset).
-func (s *Store) SetPassword(userID int, password string) error {
+func (s *Store) SetPassword(ctx context.Context, userID int, password string) error {
 	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf(errHashPassword, err)
 	}
-	_, err = s.db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", string(h), userID)
+	_, err = s.db.ExecContext(ctx, "UPDATE users SET password_hash = ? WHERE id = ?", string(h), userID)
 	return err
 }
 
 // SetStatus changes an account's lifecycle state (approve/disable/re-enable).
-func (s *Store) SetStatus(userID int, status Status) error {
-	_, err := s.db.Exec("UPDATE users SET status = ? WHERE id = ?", string(status), userID)
+func (s *Store) SetStatus(ctx context.Context, userID int, status Status) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE users SET status = ? WHERE id = ?", string(status), userID)
 	return err
 }
 
 // CreateUserFull creates a user with email + lifecycle status (used by the
 // registration flow). Returns the new id. Username uniqueness is enforced by
 // the table; email uniqueness is checked by the caller (Register handler).
-func (s *Store) CreateUserFull(username, email, password string, role Role, status Status) (int, error) {
+func (s *Store) CreateUserFull(ctx context.Context, username, email, password string, role Role, status Status) (int, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return 0, fmt.Errorf(errHashPassword, err)
@@ -156,7 +157,7 @@ func (s *Store) CreateUserFull(username, email, password string, role Role, stat
 		role = RoleUser
 	}
 	var id int64
-	err = s.db.QueryRow(
+	err = s.db.QueryRowContext(ctx,
 		"INSERT INTO users(username, email, password_hash, role, status, email_verified) VALUES(?, ?, ?, ?, ?, 0) RETURNING id",
 		username, email, string(hash), string(role), string(status),
 	).Scan(&id)
@@ -168,19 +169,19 @@ func (s *Store) CreateUserFull(username, email, password string, role Role, stat
 
 // UpdateEmail changes a user's email and resets email_verified — the new
 // address must be (re)confirmed via the verify-email link.
-func (s *Store) UpdateEmail(userID int, email string) error {
-	_, err := s.db.Exec("UPDATE users SET email = ?, email_verified = 0 WHERE id = ?", email, userID)
+func (s *Store) UpdateEmail(ctx context.Context, userID int, email string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE users SET email = ?, email_verified = 0 WHERE id = ?", email, userID)
 	return err
 }
 
 // EmailInUse reports whether a non-empty email belongs to any user other than
 // excludeID (so changing the case of your own address never collides).
-func (s *Store) EmailInUse(email string, excludeID int) (bool, error) {
+func (s *Store) EmailInUse(ctx context.Context, email string, excludeID int) (bool, error) {
 	if email == "" {
 		return false, nil
 	}
 	var n int
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM users WHERE email = ? AND id != ?",
 		email, excludeID,
 	).Scan(&n)
@@ -188,31 +189,31 @@ func (s *Store) EmailInUse(email string, excludeID int) (bool, error) {
 }
 
 // SetNtfyTopic updates a user's ntfy.sh notification topic.
-func (s *Store) SetNtfyTopic(userID int, topic string) error {
-	_, err := s.db.Exec("UPDATE users SET ntfy_topic = ? WHERE id = ?", topic, userID)
+func (s *Store) SetNtfyTopic(ctx context.Context, userID int, topic string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE users SET ntfy_topic = ? WHERE id = ?", topic, userID)
 	return err
 }
 
 // SetEmailVerified flips a user's email_verified flag (after they click the
 // confirmation link). Optionally promotes the account to a new status (an
 // invited user becomes active on confirmation).
-func (s *Store) SetEmailVerified(userID int, promoteTo Status) error {
+func (s *Store) SetEmailVerified(ctx context.Context, userID int, promoteTo Status) error {
 	if promoteTo != "" {
-		_, err := s.db.Exec("UPDATE users SET email_verified = 1, status = ? WHERE id = ?", string(promoteTo), userID)
+		_, err := s.db.ExecContext(ctx, "UPDATE users SET email_verified = 1, status = ? WHERE id = ?", string(promoteTo), userID)
 		return err
 	}
-	_, err := s.db.Exec("UPDATE users SET email_verified = 1 WHERE id = ?", userID)
+	_, err := s.db.ExecContext(ctx, "UPDATE users SET email_verified = 1 WHERE id = ?", userID)
 	return err
 }
 
 // GetUserByEmail returns the (verified-or-not) user with a given email, or nil
 // when none. Used by password recovery. Empty email never matches.
-func (s *Store) GetUserByEmail(email string) (*User, error) {
+func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	if email == "" {
 		return nil, nil
 	}
 	var u User
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT id, username, role, email, status, email_verified, ntfy_topic, created_at FROM users WHERE email = ? AND email != '' LIMIT 1",
 		email,
 	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.NtfyTopic, &u.CreatedAt)
@@ -226,9 +227,9 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 }
 
 // Exists reports whether a username or (non-empty) email is already taken.
-func (s *Store) Exists(username, email string) (bool, error) {
+func (s *Store) Exists(ctx context.Context, username, email string) (bool, error) {
 	var n int
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM users WHERE username = ? OR (email != '' AND email = ?)",
 		username, email,
 	).Scan(&n)
@@ -237,10 +238,10 @@ func (s *Store) Exists(username, email string) (bool, error) {
 
 // VerifyPassword loads a user by username and checks bcrypt against the supplied password.
 // Returns the User on match.
-func (s *Store) VerifyPassword(username, password string) (*User, error) {
+func (s *Store) VerifyPassword(ctx context.Context, username, password string) (*User, error) {
 	var u User
 	var hash string
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT id, username, password_hash, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE username = ?",
 		username,
 	).Scan(&u.ID, &u.Username, &hash, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
@@ -259,12 +260,12 @@ func (s *Store) VerifyPassword(username, password string) (*User, error) {
 // GetUserByUsername loads a user by login name (no password check). Used by the
 // passkey login flow, which authenticates via the authenticator assertion rather
 // than a password. Returns nil when no such user.
-func (s *Store) GetUserByUsername(username string) (*User, error) {
+func (s *Store) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	if username == "" {
 		return nil, nil
 	}
 	var u User
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE username = ?",
 		username,
 	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
@@ -278,9 +279,9 @@ func (s *Store) GetUserByUsername(username string) (*User, error) {
 }
 
 // GetUserByID is used by middleware after JWT validation to load current user state.
-func (s *Store) GetUserByID(id int) (*User, error) {
+func (s *Store) GetUserByID(ctx context.Context, id int) (*User, error) {
 	var u User
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE id = ?", id,
 	).Scan(&u.ID, &u.Username, &u.Role, &u.Email, &u.Status, &u.EmailVerified, &u.MfaEnabled, &u.NtfyTopic, &u.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -293,8 +294,8 @@ func (s *Store) GetUserByID(id int) (*User, error) {
 }
 
 // ListUsers returns all users (admin only).
-func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query("SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE id <> 0 ORDER BY created_at")
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, username, role, email, status, email_verified, totp_enabled, ntfy_topic, created_at FROM users WHERE id <> 0 ORDER BY created_at")
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +312,7 @@ func (s *Store) ListUsers() ([]User, error) {
 }
 
 // DeleteUser removes a user (and cascades refresh tokens via FK).
-func (s *Store) DeleteUser(id int) error {
-	_, err := s.db.Exec("DELETE FROM users WHERE id = ?", id)
+func (s *Store) DeleteUser(ctx context.Context, id int) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
 	return err
 }

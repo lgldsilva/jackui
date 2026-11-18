@@ -2,6 +2,7 @@ package transmissionrpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -107,11 +108,11 @@ func TestRPC_GuestCredentialsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := as.CreateUser("guesty", "guestpass1", auth.RoleGuest); err != nil {
+	if _, err := as.CreateUser(context.Background(), "guesty", "guestpass1", auth.RoleGuest); err != nil {
 		t.Fatal(err)
 	}
 	// Control account: a regular user must still complete the handshake.
-	if _, err := as.CreateUser("regular", "regularpass1", auth.RoleUser); err != nil {
+	if _, err := as.CreateUser(context.Background(), "regular", "regularpass1", auth.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	h := NewHandler(st, nil, as, "/data", "/data", "", nil)
@@ -168,11 +169,11 @@ func TestRPC_UserScoping_TorrentGetAndMutations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aliceID, err := as.CreateUser("alice", "alicepass1", auth.RoleUser)
+	aliceID, err := as.CreateUser(context.Background(), "alice", "alicepass1", auth.RoleUser)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bobID, err := as.CreateUser("bob", "bobpass1!", auth.RoleUser)
+	bobID, err := as.CreateUser(context.Background(), "bob", "bobpass1!", auth.RoleUser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +231,7 @@ func TestRPC_UserScoping_TorrentGetAndMutations(t *testing.T) {
 	}
 
 	// Control: an admin keeps full cross-user visibility.
-	if _, err := as.CreateUser("root", "rootpass1!", auth.RoleAdmin); err != nil {
+	if _, err := as.CreateUser(context.Background(), "root", "rootpass1!", auth.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
 	sidAdmin := rpcHandshake(t, router, "root", "rootpass1!")

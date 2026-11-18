@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +21,7 @@ func contains(s, substr string) bool {
 
 func TestUserCacheGetWithNilStore(t *testing.T) {
 	uc := userCache{}
-	if s := uc.get(nil, 1); s != "" {
+	if s := uc.get(context.Background(), nil, 1); s != "" {
 		t.Errorf("get(nil store) = %q, want empty", s)
 	}
 }
@@ -31,15 +32,15 @@ func TestUserCacheGetWithStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	uc := userCache{}
-	uid, err := store.CreateUser("coveruser", "pass", auth.RoleUser)
+	uid, err := store.CreateUser(context.Background(), "coveruser", "pass", auth.RoleUser)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if s := uc.get(store, uid); s != "coveruser" {
+	if s := uc.get(context.Background(), store, uid); s != "coveruser" {
 		t.Errorf("get() = %q, want 'coveruser'", s)
 	}
-	if s := uc.get(store, uid); s != "coveruser" {
+	if s := uc.get(context.Background(), store, uid); s != "coveruser" {
 		t.Errorf("get() cached = %q, want 'coveruser'", s)
 	}
 }
@@ -50,7 +51,7 @@ func TestUserCacheGetWithMissingUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	uc := userCache{}
-	if s := uc.get(store, 9999); s != "" {
+	if s := uc.get(context.Background(), store, 9999); s != "" {
 		t.Errorf("get() for non-existent user = %q, want empty", s)
 	}
 }

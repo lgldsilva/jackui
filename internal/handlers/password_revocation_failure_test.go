@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -31,7 +32,7 @@ func brokenRevocationStore(t *testing.T) (*auth.Store, *sql.DB) {
 func userWithSession(t *testing.T, store *auth.Store, username string) *auth.User {
 	t.Helper()
 	user := createTestUser(t, store, username, "oldpass1")
-	if _, err := store.CreateRefreshToken(user.ID, time.Hour, false, "attacker", "6.6.6.6"); err != nil {
+	if _, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "attacker", "6.6.6.6"); err != nil {
 		t.Fatal(err)
 	}
 	return user
@@ -65,7 +66,7 @@ func assertRevocationFailure(t *testing.T, w *httptest.ResponseRecorder, wantInE
 
 func assertPasswordIs(t *testing.T, store *auth.Store, username, password string) {
 	t.Helper()
-	if _, err := store.VerifyPassword(username, password); err != nil {
+	if _, err := store.VerifyPassword(context.Background(), username, password); err != nil {
 		t.Errorf("password %q rejected for %s: %v", password, username, err)
 	}
 }
@@ -78,7 +79,7 @@ func TestPasswordHandlers_DeviceKeyRevocationFailureIs500(t *testing.T) {
 	resetUser := userWithSession(t, store, "reset-victim")
 	adminUser := userWithSession(t, store, "admin-victim")
 	changeUser := userWithSession(t, store, "change-victim")
-	tok, err := store.CreateToken(auth.TokenResetPassword, resetUser.ID, resetUser.Email, resetTTL)
+	tok, err := store.CreateToken(context.Background(), auth.TokenResetPassword, resetUser.ID, resetUser.Email, resetTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,26 +123,26 @@ func TestRevokeHelpers_WrapTheFailingStep(t *testing.T) {
 	user := userWithSession(t, store, "victim")
 
 	dropTable(t, pool, "device_keys")
-	revoked, err := revokeAccessAfterPasswordChange(store, user.ID, "")
+	revoked, err := revokeAccessAfterPasswordChange(context.Background(), store, user.ID, "")
 	if err == nil || !strings.Contains(err.Error(), "password changed but paired devices were not revoked") {
 		t.Errorf("revokeAccessAfterPasswordChange err = %v, want the paired-devices failure", err)
 	}
 	if revoked != 1 {
 		t.Errorf("revoked = %d, want 1 (the session was dropped before the device step failed)", revoked)
 	}
-	if err := revokeAllAccess(store, user.ID); err == nil || !strings.Contains(err.Error(), "password set but paired devices were not revoked") {
+	if err := revokeAllAccess(context.Background(), store, user.ID); err == nil || !strings.Contains(err.Error(), "password set but paired devices were not revoked") {
 		t.Errorf("revokeAllAccess err = %v, want the paired-devices failure", err)
 	}
 
 	dropTable(t, pool, "refresh_tokens")
-	revoked, err = revokeAccessAfterPasswordChange(store, user.ID, "")
+	revoked, err = revokeAccessAfterPasswordChange(context.Background(), store, user.ID, "")
 	if err == nil || !strings.Contains(err.Error(), "password changed but sessions were not revoked") {
 		t.Errorf("revokeAccessAfterPasswordChange err = %v, want the sessions failure", err)
 	}
 	if revoked != 0 {
 		t.Errorf("revoked = %d, want 0 when the session step itself failed", revoked)
 	}
-	if err := revokeAllAccess(store, user.ID); err == nil || !strings.Contains(err.Error(), "password set but sessions were not revoked") {
+	if err := revokeAllAccess(context.Background(), store, user.ID); err == nil || !strings.Contains(err.Error(), "password set but sessions were not revoked") {
 		t.Errorf("revokeAllAccess err = %v, want the sessions failure", err)
 	}
 }

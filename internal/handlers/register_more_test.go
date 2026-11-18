@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -59,7 +60,7 @@ func TestRegisterHandler_DuplicateUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = store.CreateUserFull("existing", "existing@test.com", "password123", auth.RoleUser, auth.StatusActive)
+	_, err = store.CreateUserFull(context.Background(), "existing", "existing@test.com", "password123", auth.RoleUser, auth.StatusActive)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestRegisterHandler_DuplicateEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = store.CreateUserFull("other", "dup@test.com", "password123", auth.RoleUser, auth.StatusActive)
+	_, err = store.CreateUserFull(context.Background(), "other", "dup@test.com", "password123", auth.RoleUser, auth.StatusActive)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestRegisterHandler_SuccessInvited(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inviteToken, err := store.CreateToken(auth.TokenInvite, 0, "invited@test.com", inviteTTL)
+	inviteToken, err := store.CreateToken(context.Background(), auth.TokenInvite, 0, "invited@test.com", inviteTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +190,7 @@ func TestResolveInviteStatus_Empty(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	status, invited, ierr := resolveInviteStatus(store, "")
+	status, invited, ierr := resolveInviteStatus(context.Background(), store, "")
 	if ierr != nil {
 		t.Fatal(ierr)
 	}
@@ -207,7 +208,7 @@ func TestResolveInviteStatus_Invalid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, ierr := resolveInviteStatus(store, "invalid-token")
+	_, _, ierr := resolveInviteStatus(context.Background(), store, "invalid-token")
 	if ierr == nil {
 		t.Fatal("expected error for invalid token")
 	}
@@ -332,7 +333,7 @@ func TestRegisterHandler_SendsVerifyEmailLink(t *testing.T) {
 	if resp["status"] != "pending" {
 		t.Errorf("status = %v, want 'pending'", resp["status"])
 	}
-	u, err := store.GetUserByEmail("mailer@test.com")
+	u, err := store.GetUserByEmail(context.Background(), "mailer@test.com")
 	if err != nil || u == nil {
 		t.Fatalf("user should exist after registration: %v", err)
 	}
@@ -373,7 +374,7 @@ func TestForgot_SendsResetLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := store.CreateUserFull("forgotuser", "forgot@test.com", "password123", auth.RoleUser, auth.StatusActive); err != nil {
+	if _, err := store.CreateUserFull(context.Background(), "forgotuser", "forgot@test.com", "password123", auth.RoleUser, auth.StatusActive); err != nil {
 		t.Fatal(err)
 	}
 

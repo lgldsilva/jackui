@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"log"
@@ -106,7 +107,7 @@ func buildHiddenDownloadFilter(c *gin.Context, s *streamer.Streamer, b *local.Br
 	} else {
 		log.Printf("hidden curtain: favourites query failed (failing open): %v", err)
 	}
-	f.prefixes = hiddenLocalPrefixes(s, b, authStore, userID, includeAll)
+	f.prefixes = hiddenLocalPrefixes(c.Request.Context(), s, b, authStore, userID, includeAll)
 	return f
 }
 
@@ -114,7 +115,7 @@ func buildHiddenDownloadFilter(c *gin.Context, s *streamer.Streamer, b *local.Br
 // hidden local (mount, path) entries to absolute on-disk path prefixes, so a
 // download whose file lives under a hidden local folder can be matched by path.
 // Resolution honours UserSubpath mounts by resolving under the OWNER's scope.
-func hiddenLocalPrefixes(s *streamer.Streamer, b *local.Browser, authStore *auth.Store, userID int, includeAll bool) []string {
+func hiddenLocalPrefixes(ctx context.Context, s *streamer.Streamer, b *local.Browser, authStore *auth.Store, userID int, includeAll bool) []string {
 	if b == nil {
 		return nil
 	}
@@ -125,7 +126,7 @@ func hiddenLocalPrefixes(s *streamer.Streamer, b *local.Browser, authStore *auth
 	uc := userCache{}
 	out := make([]string, 0, len(owned))
 	for _, hp := range owned {
-		username := uc.get(authStore, hp.UserID)
+		username := uc.get(ctx, authStore, hp.UserID)
 		abs, err := b.ResolvePathFor(hp.Mount, hp.Path, username)
 		if err != nil || abs == "" {
 			continue
