@@ -137,9 +137,10 @@ multi-file DB split made cross-domain queries impossible. PostgreSQL (via `pgx`)
 replaced SQLite, unifying auth, history, library, queue, favorites, metadata cache,
 TMDB, watchlist, and AI benchmark in one DB with full concurrent access.
 
-**Migration path.** `cmd/server/migrate-auth.go` (one-shot ETL, `make dev` + flag
-`--from /data/auth.db`) reads the legacy SQLite `auth.db` and copies into PostgreSQL.
-Kept for anyone still on a pre-migration deployment.
+**Migration path.** `cmd/migrate-auth` (one-shot ETL, `go run ./cmd/migrate-auth
+--from /data/auth.db --to <DSN>`) reads the legacy SQLite `auth.db` and copies into
+PostgreSQL. Kept for anyone still on a pre-migration deployment, as a separate binary
+so the server does not link a SQLite driver (`cmd/server/deps_test.go` guards it).
 
 **Remaining traces.** `internal/dbutil.ParseTime` is still used (some pgx drivers
 emit RFC3339 — same edge case modernc had). Test helpers create throwaway SQLite

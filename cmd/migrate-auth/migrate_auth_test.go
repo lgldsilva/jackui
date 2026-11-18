@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,8 +89,9 @@ func TestRunMigrateAuth(t *testing.T) {
 	u.RawQuery = q.Encode()
 	dsn := u.String()
 
-	if err := runMigrateAuth([]string{"--from", authPath, "--to", dsn}); err != nil {
-		t.Fatalf("runMigrateAuth: %v", err)
+	var stderr strings.Builder
+	if code := run([]string{"--from", authPath, "--to", dsn}, &stderr); code != 0 {
+		t.Fatalf("run: exit %d: %s", code, stderr.String())
 	}
 
 	dst, err := sql.Open("pgx", dsn)
