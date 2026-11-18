@@ -144,7 +144,10 @@ func SubtitlesDownload(c *subtitles.Client) gin.HandlerFunc {
 			return
 		}
 		ctx.Header(httpshared.ContentType, httpshared.MIMEVTT)
-		ctx.Header("Access-Control-Allow-Origin", "*")
+		// CORS comes from the router-wide middleware (only answers requests that
+		// carry Origin). Vary keeps the immutable cache from serving a no-Origin
+		// copy to a later cross-origin <track crossorigin> load.
+		ctx.Header("Vary", "Origin")
 		// VTT content for a given file_id is immutable — cache aggressively in the browser
 		ctx.Header(httpshared.CacheControl, "public, max-age=2592000, immutable")
 		ctx.Header("ETag", `"sub-`+fileID+`"`)

@@ -144,12 +144,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	// Request count/latency per route template (FullPath, never the raw URL).
 	router.Use(metrics.HTTPMiddleware())
 
-	corsConfig := cors.DefaultConfig()
-	corsConfig.AllowAllOrigins = true
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range", middleware.HeaderRequestID}
-	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges", middleware.HeaderRequestID}
-	router.Use(cors.New(corsConfig))
+	router.Use(corsMiddleware())
 
 	router.GET("/healthz", handlers.Health(deps.historyStore, func() bool { return deps.streamSrv != nil }))
 	// Public build metadata (commit/build time/version) — checkable without a token.
@@ -729,4 +724,15 @@ func torrentControlGuard(deps *appDeps) gin.HandlerFunc {
 		a.Library = deps.libraryStore
 	}
 	return handlers.TorrentControlGuard(a)
+}
+
+// corsMiddleware is the router-wide CORS policy (any origin, no credentials).
+// Handlers must not set Access-Control-* themselves.
+func corsMiddleware() gin.HandlerFunc {
+	corsConfig := cors.DefaultConfig()
+	corsConfig.AllowAllOrigins = true
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range", middleware.HeaderRequestID}
+	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges", middleware.HeaderRequestID}
+	return cors.New(corsConfig)
 }
