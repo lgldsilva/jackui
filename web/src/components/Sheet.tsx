@@ -74,7 +74,13 @@ export function Sheet({
     <div
       className={`fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center ${zClass} sm:p-4`}
       onClick={e => e.target === e.currentTarget && onClose()}
-      onKeyDown={e => e.key === 'Escape' && onClose()}
+      onKeyDown={e => {
+        if (e.key !== 'Escape') return
+        // No portal: without this the same Escape also reaches whatever hosts
+        // the sheet (the player shell minimizes / navigates Home on it).
+        e.stopPropagation()
+        onClose()
+      }}
       tabIndex={-1}
     >
       <div

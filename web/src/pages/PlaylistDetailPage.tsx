@@ -10,6 +10,7 @@ import NavHeader from '../components/NavHeader'
 import { usePlayer } from '../components/PlayerProvider'
 import { newTabProps, playHref } from '../lib/cardNav'
 import { notifyError } from '../components/Toast'
+import { useLatestRequest } from '../lib/useLatestRequest'
 
 export default function PlaylistDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -32,19 +33,29 @@ export default function PlaylistDetailPage() {
     playPlaylist(playlist.name, items, idx, true)
   }
 
+  // Navigating between playlists: a slow response for the previous id must
+  // not replace the current one.
+  const loadReq = useLatestRequest()
   const load = async () => {
-    if (!playlistID) return
+    const isLatest = loadReq.begin()
+    if (!playlistID) {
+      // Non-numeric :id — nothing to fetch; fall through to "not found".
+      setPlaylist(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     try {
       const { playlist: p, items: its } = await playlistsGet(playlistID)
+      if (!isLatest()) return
       setPlaylist(p)
       setItems(its || [])
       setName(p.name)
       setDescription(p.description || '')
     } catch (err) {
-      notifyError(err)
+      if (isLatest()) notifyError(err)
     } finally {
-      setLoading(false)
+      if (isLatest()) setLoading(false)
     }
   }
 
