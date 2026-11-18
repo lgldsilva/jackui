@@ -114,7 +114,7 @@ func LocalAudioCover(b *lb.Browser, store *audiometa.Store, webSearch *imagesear
 		}
 		// Embedded cover first. A cached row saying "no embedded cover" skips the
 		// re-parse and jumps straight to the web fallback.
-		if t, hit := store.Get(c.Request.Context(), abs, modUnix); !(hit && !t.HasCover) {
+		if t, hit := store.Get(c.Request.Context(), abs, modUnix); !hit || t.HasCover {
 			if cover, has, err := audiometa.ReadCover(abs); err == nil && has {
 				c.Header(httpshared.CacheControl, httpshared.CachePublicYear)
 				c.Header("ETag", etag)
