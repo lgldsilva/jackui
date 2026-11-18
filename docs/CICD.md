@@ -17,6 +17,10 @@ GitHub (PR / push main / tag v*)
    │    ├─ SonarCloud consumes the immutable ARM coverage artifact
    │    └─ E2E smoke (Playwright) `scripts/e2e-smoke.sh` — PR and push@main only
    │
+   ├─ Dependabot auto-merge (.github/workflows/dependabot-automerge.yml)
+   │    on: pull_request_target (Dependabot PRs only)
+   │    └─ scripts/dependabot-automerge.sh → gh pr merge --auto --squash
+   │
    ├─ CodeQL (.github/workflows/codeql.yml)
    │    on: push@main, pull_request, weekly
    │    └─ Go + JavaScript/TypeScript security-and-quality
@@ -190,6 +194,45 @@ make sonar-scan
 - Go modules
 - GitHub Actions
 - Docker base images
+
+Majors listed in its `ignore` blocks never open a PR at all.
+
+### Auto-merge policy
+
+[`.github/workflows/dependabot-automerge.yml`](../.github/workflows/dependabot-automerge.yml)
+enables **squash auto-merge** on qualifying Dependabot PRs. The decision lives in
+[`scripts/dependabot-automerge.sh`](../scripts/dependabot-automerge.sh) (tested by
+`scripts/dependabot-automerge_test.sh` in the ARM CI job):
+
+| Ecosystem | patch | minor | major |
+|-----------|-------|-------|-------|
+| npm (`/web`, `/`; production and development) | auto | auto | human |
+| Go modules | auto | auto | human |
+| GitHub Actions | auto | auto | human |
+| Docker base images | auto | human | human |
+| No semver type (e.g. digest-only bump), unknown ecosystem | human | human | human |
+
+Grouped PRs are judged by their **highest** update type. A PR labelled
+`do-not-auto-merge` is skipped on Dependabot's next push; to stop one already
+armed, run `gh pr merge --disable-auto <pr>`. If a later Dependabot push turns
+a PR into a non-qualifying one, the workflow withdraws auto-merge.
+
+Safety:
+
+- Runs on `pull_request_target`, so the workflow and the policy script come from
+  `main`; the PR head is never checked out or executed. The job runs only when
+  both `github.actor` and the PR author are `dependabot[bot]`.
+- Workflow permissions are `{}`; only the job gets `contents: write` and
+  `pull-requests: write`. Actions are pinned by full SHA.
+- Auto-merge only arms the merge: GitHub merges after the required checks of the
+  `main` branch protection pass (`ARM CI stack`, `SonarCloud`, `Analyze (go, manual)`,
+  `Analyze (javascript-typescript, none)`, branch up to date). Those checks are the
+  real gate. A PR that falls behind `main` waits until it is rebased
+  (`@dependabot rebase`).
+- The merge is made with `GITHUB_TOKEN`, so it does not trigger the `push@main`
+  workflows (CI, CodeQL) for that commit; the next human merge or the weekly
+  CodeQL run covers it.
+- Requires the repository setting "Allow auto-merge".
 
 ## Secrets & variables
 
