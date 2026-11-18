@@ -4,6 +4,7 @@
 package watchlist
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -106,13 +107,13 @@ func (p *Params) normalize() error {
 
 // Create inserts a new watchlist row. The schedule is normalized and
 // next_check_at is computed from it so the worker knows when the item is due.
-func (s *Store) Create(userID int, p Params) (*Watchlist, error) {
+func (s *Store) Create(ctx context.Context, userID int, p Params) (*Watchlist, error) {
 	if err := p.normalize(); err != nil {
 		return nil, err
 	}
 	next := s.nextFor(p.Schedule, time.Now())
 	var id int64
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO watchlists(user_id, query, category, min_seeders, ntfy_topic,
 		                       sched_kind, sched_minutes, sched_weekday, sched_hour, sched_minute, next_check_at,
 		                       auto_download, min_resolution, max_size_bytes, codec)
@@ -123,19 +124,19 @@ func (s *Store) Create(userID int, p Params) (*Watchlist, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.Get(userID, int(id))
+	return s.Get(ctx, userID, int(id))
 }
 
 // Update modifies an existing watchlist owned by userID. A schedule change
 // recomputes next_check_at immediately. Changing the query resets last_checked
 // so the next worker pass re-baselines (marks the current results as seen)
 // instead of auto-downloading the whole new result set.
-func (s *Store) Update(userID, id int, p Params) error {
+func (s *Store) Update(ctx context.Context, userID, id int, p Params) error {
 	if err := p.normalize(); err != nil {
 		return err
 	}
 	next := s.nextFor(p.Schedule, time.Now())
-	res, err := s.db.Exec(`
+	res, err := s.db.ExecContext(ctx, `
 		UPDATE watchlists SET query=?, category=?, min_seeders=?, ntfy_topic=?,
 		       sched_kind=?, sched_minutes=?, sched_weekday=?, sched_hour=?, sched_minute=?, next_check_at=?,
 		       auto_download=?, min_resolution=?, max_size_bytes=?, codec=?,
@@ -163,8 +164,8 @@ func boolToInt(b bool) int {
 }
 
 // Delete removes a watchlist (and cascades the seen rows via FK).
-func (s *Store) Delete(userID, id int) error {
-	res, err := s.db.Exec("DELETE FROM watchlists WHERE id=? AND user_id=?", id, userID)
+func (s *Store) Delete(ctx context.Context, userID, id int) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM watchlists WHERE id=? AND user_id=?", id, userID)
 	if err != nil {
 		return err
 	}
@@ -199,8 +200,8 @@ func scanWatchlist(scan func(dest ...any) error, w *Watchlist) error {
 }
 
 // Get returns a single watchlist owned by userID.
-func (s *Store) Get(userID, id int) (*Watchlist, error) {
-	row := s.db.QueryRow(`SELECT `+watchlistCols+` FROM watchlists WHERE id=? AND user_id=?`, id, userID)
+func (s *Store) Get(ctx context.Context, userID, id int) (*Watchlist, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+watchlistCols+` FROM watchlists WHERE id=? AND user_id=?`, id, userID)
 	w := &Watchlist{}
 	if err := scanWatchlist(row.Scan, w); err != nil {
 		return nil, err
@@ -209,8 +210,8 @@ func (s *Store) Get(userID, id int) (*Watchlist, error) {
 }
 
 // getByID returns a watchlist regardless of owner — worker internals only.
-func (s *Store) getByID(id int) (*Watchlist, error) {
-	row := s.db.QueryRow(`SELECT `+watchlistCols+` FROM watchlists WHERE id=?`, id)
+func (s *Store) getByID(ctx context.Context, id int) (*Watchlist, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+watchlistCols+` FROM watchlists WHERE id=?`, id)
 	w := &Watchlist{}
 	if err := scanWatchlist(row.Scan, w); err != nil {
 		return nil, err
@@ -219,8 +220,8 @@ func (s *Store) getByID(id int) (*Watchlist, error) {
 }
 
 // List returns all watchlists for a user, newest first, with hit counts.
-func (s *Store) List(userID int) ([]Watchlist, error) {
-	rows, err := s.db.Query(`
+func (s *Store) List(ctx context.Context, userID int) ([]Watchlist, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+watchlistCols+`,
 		       (SELECT COUNT(*) FROM watchlist_seen WHERE watchlist_id=watchlists.id) AS hits
 		FROM watchlists
@@ -244,22 +245,22 @@ func (s *Store) List(userID int) ([]Watchlist, error) {
 }
 
 // ListAll returns every watchlist across all users — used by manual re-checks.
-func (s *Store) ListAll() ([]Watchlist, error) {
-	return s.queryAll(`SELECT ` + watchlistCols + ` FROM watchlists ORDER BY id`)
+func (s *Store) ListAll(ctx context.Context) ([]Watchlist, error) {
+	return s.queryAll(ctx, `SELECT `+watchlistCols+` FROM watchlists ORDER BY id`)
 }
 
 // ListDue returns the watchlists whose next check is due at `now`. Rows with a
 // NULL next_check_at (pre-migration) are due immediately.
-func (s *Store) ListDue(now time.Time) ([]Watchlist, error) {
-	return s.queryAll(`
+func (s *Store) ListDue(ctx context.Context, now time.Time) ([]Watchlist, error) {
+	return s.queryAll(ctx, `
 		SELECT `+watchlistCols+` FROM watchlists
 		WHERE next_check_at IS NULL OR next_check_at <= ?
 		ORDER BY id
 	`, now.UTC())
 }
 
-func (s *Store) queryAll(query string, args ...any) ([]Watchlist, error) {
-	rows, err := s.db.Query(query, args...)
+func (s *Store) queryAll(ctx context.Context, query string, args ...any) ([]Watchlist, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -277,8 +278,8 @@ func (s *Store) queryAll(query string, args ...any) ([]Watchlist, error) {
 
 // MarkSeen records an info_hash as already seen. Returns true if this was the
 // first time (i.e., a new hit), false if it was already known.
-func (s *Store) MarkSeen(watchlistID int, infoHash, title, magnet string, seeders int, size int64) (isNew bool, err error) {
-	res, err := s.db.Exec(`
+func (s *Store) MarkSeen(ctx context.Context, watchlistID int, infoHash, title, magnet string, seeders int, size int64) (isNew bool, err error) {
+	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO watchlist_seen(watchlist_id, info_hash, title, magnet, seeders, size)
 		VALUES(?, ?, ?, ?, ?, ?)
 		ON CONFLICT(watchlist_id, info_hash) DO NOTHING
@@ -291,8 +292,8 @@ func (s *Store) MarkSeen(watchlistID int, infoHash, title, magnet string, seeder
 }
 
 // MarkAutoDownloaded flags a seen hit as auto-enqueued, for display in the UI.
-func (s *Store) MarkAutoDownloaded(watchlistID int, infoHash string) error {
-	_, err := s.db.Exec(`
+func (s *Store) MarkAutoDownloaded(ctx context.Context, watchlistID int, infoHash string) error {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE watchlist_seen SET auto_downloaded=1 WHERE watchlist_id=? AND info_hash=?
 	`, watchlistID, infoHash)
 	return err
@@ -300,22 +301,22 @@ func (s *Store) MarkAutoDownloaded(watchlistID int, infoHash string) error {
 
 // MarkChecked refreshes last_checked to now and re-arms next_check_at — call
 // after a worker pass over the item.
-func (s *Store) MarkChecked(watchlistID int, next time.Time) error {
-	_, err := s.db.Exec(`UPDATE watchlists SET last_checked=CURRENT_TIMESTAMP, next_check_at=? WHERE id=?`,
+func (s *Store) MarkChecked(ctx context.Context, watchlistID int, next time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE watchlists SET last_checked=CURRENT_TIMESTAMP, next_check_at=? WHERE id=?`,
 		next.UTC(), watchlistID)
 	return err
 }
 
 // Hits returns the most recent hits for a watchlist owned by userID.
-func (s *Store) Hits(userID, watchlistID, limit int) ([]Hit, error) {
+func (s *Store) Hits(ctx context.Context, userID, watchlistID, limit int) ([]Hit, error) {
 	// Ownership check first
-	if _, err := s.Get(userID, watchlistID); err != nil {
+	if _, err := s.Get(ctx, userID, watchlistID); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT info_hash, title, magnet, seeders, size, seen_at, auto_downloaded
 		FROM watchlist_seen
 		WHERE watchlist_id=?

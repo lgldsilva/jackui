@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -244,7 +245,7 @@ func TestWatchlistUpdate_PersistsSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := s.Create(0, watchlist.Params{Query: "q", MinSeeders: 1})
+	created, err := s.Create(context.Background(), 0, watchlist.Params{Query: "q", MinSeeders: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +261,7 @@ func TestWatchlistUpdate_PersistsSchedule(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body: %s", w.Code, w.Body.String())
 	}
-	got, err := s.Get(0, created.ID)
+	got, err := s.Get(context.Background(), 0, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
