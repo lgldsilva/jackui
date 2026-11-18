@@ -15,7 +15,7 @@ RUN echo "Build at $BUILD_TIMESTAMP" && npm run build
 # Output goes to /app/ui/dist (configured in vite.config.ts)
 
 # Stage 2: Build backend
-FROM golang:1.26.10-alpine3.24@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS backend
+FROM golang:1.27.3-alpine3.24@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS backend
 ENV GOTOOLCHAIN=auto
 
 WORKDIR /app
