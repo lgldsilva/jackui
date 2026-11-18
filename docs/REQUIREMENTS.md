@@ -16,7 +16,7 @@ Este documento organiza o trabalho em **5 marcos sequenciais por risco crescente
 | **M0** — Docs | ✅ entregue | #508 (PR-2/3) + #511 (PR-1 `JACKUI_DL_AUTO_PROMOTE_ARR`); CA-0.1 vazio |
 | **M0.5** — Segurança | ✅ entregue | auditoria 2026-07-10 (`SECURITY.md`, `design-decisions.md`) |
 | **M1** — God-classes | ✅ entregue | #510 (16 Go) + #512 (9 `.tsx`) + #514 (fix Sonar); **0 arquivos `.go`/`.tsx` >600 ln na main** |
-| **M2** — HLS Phase 2 | ⬜ **aberto** | único milestone restante; feature (ver seção M2) |
+| **M2** — HLS Phase 2 | ✅ entregue no código (posterior a este snapshot) | master multi-variante + `TYPE=AUDIO` em `internal/handlers/hls_master.go`; `TYPE=SUBTITLES` atrás de `JACKUI_HLS_MEDIA_RENDITIONS` (default off) até validação no Safari (ver seção M2) |
 | **M3** — Testes | ✅ entregue | #513; 34/37 `time.Sleep` removidos; CA-3.2 script + audit local 3/3 (100%) |
 
 > Deploy confirmado: prod respondendo em `v0.91.0`, commit `27d9ba0` (= head da `main`), `Release / sonar` e `Release / deliver` = success.
@@ -27,7 +27,7 @@ Este documento organiza o trabalho em **5 marcos sequenciais por risco crescente
 ## Marcos (sequência final)
 
 ```
-M0 ✅ Docs     → M0.5 ✅ Segurança → M1 ✅ Decompor god-classes → M2 ⬜ HLS Phase 2 → M3 ✅ Testes
+M0 ✅ Docs     → M0.5 ✅ Segurança → M1 ✅ Decompor god-classes → M2 ✅ HLS Phase 2 → M3 ✅ Testes
 (risco zero)     (auditoria)         (risco médio/alto)           (feature)          (baixo)
 ```
 
@@ -78,8 +78,8 @@ M0 ✅ Docs     → M0.5 ✅ Segurança → M1 ✅ Decompor god-classes → M2 �
 - **CA-1.2**: complexidade cognitiva ≤15/função; zero NOSONAR novo.
 - **CA-1.3**: cobertura de testes não cai (baseline registrada antes do refactor).
 
-### M2 — HLS Master Playlist Phase 2  ·  ⬜ **ABERTO — próximo milestone**  ·  *requisito de produto (único `[ ]` do Roadmap, README:164)*
-> Não iniciado. Agora desbloqueado (M1 decompôs `hls.go` e `PlayerModal`). É feature: exige validação E2E com MKV multi-stream real — recomenda-se sessão dedicada, não fechar às pressas.
+### M2 — HLS Master Playlist Phase 2  ·  ✅ **ENTREGUE NO CÓDIGO** (legendas atrás de flag)  ·  *requisito de produto (marcado `[x]` no Roadmap do README)*
+> Implementado: master sintético multi-variante (`serveMasterIfMultiVariant` em `internal/handlers/hls_master.go`, ladder em `internal/transcode/variants.go`) e renditions `TYPE=AUDIO` quando a fonte tem ≥2 faixas. `TYPE=SUBTITLES` existe mas fica atrás de `JACKUI_HLS_MEDIA_RENDITIONS` (default off) — pendente: validação do WebVTT (`X-TIMESTAMP-MAP`) em Safari real. Os itens abaixo são o requisito original.
 - Multi-resolução **on-demand** (variantes só se fonte >1080p ou cliente em baixa banda).
 - Tracks de áudio/legenda unificados como `#EXT-X-MEDIA` no master (hoje por-sessão).
 - Implementado **sobre `hls.go` já decomposto** no M1.
@@ -109,7 +109,7 @@ M0 ✅ Docs     → M0.5 ✅ Segurança → M1 ✅ Decompor god-classes → M2 �
 
 Requisitos remanescentes, em ordem de prioridade:
 
-- **R1 — M2 (HLS Master Playlist Phase 2)** · *feature*: implementar sobre `hls.go` decomposto (ver seção M2). CA-2.1/2.2/2.3. Sessão dedicada com validação E2E de MKV multi-stream.
+- **R1 — M2 (HLS Master Playlist Phase 2)** · *feature*: ✅ multi-resolução + `TYPE=AUDIO` entregues (ver seção M2). Resta validar `TYPE=SUBTITLES` em Safari real e ligar `JACKUI_HLS_MEDIA_RENDITIONS` por default (metade de legendas do CA-2.2).
 - **R2 — CA-3.2 (estabilidade de CI)**: script `scripts/ci-stability-audit.sh` adicionado; audit local 3-run = 100%. Formal: 20 runs no runner (`./scripts/ci-stability-audit.sh 20`).
 - **R3 — `.ts` >600 ln**: ✅ `local.ts` + `stream.ts` decompostos (barrel + módulos irmãos; `stream.ts` 646→17 ln).
 - **R4 — Higiene de branches**: `scripts/branch-hygiene.sh --delete-merged` remove locais já mergeadas; remotes órfãs (`feat/i18n`, etc.) exigem `git push origin --delete` manual após revisão.

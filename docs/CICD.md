@@ -13,9 +13,13 @@ GitHub (PR / push main / tag v*)
    ├─ CI (.github/workflows/ci.yml)
    │    on: pull_request, push@main, workflow_call
    │    ├─ ARM stack `scripts/ci-arm.sh all`
-   │    │    └─ Go + Postgres + frontend + golangci + /healthz smoke
+   │    │    └─ Go + Postgres + race gate + frontend + Electron typecheck
+   │    │       + golangci + /healthz smoke
+   │    ├─ Trivy fs dependency scan (HIGH/CRITICAL)
    │    ├─ SonarCloud consumes the immutable ARM coverage artifact
-   │    └─ E2E smoke (Playwright) `scripts/e2e-smoke.sh` — PR and push@main only
+   │    │    (skipped when SONAR_TOKEN is unset)
+   │    ├─ E2E smoke (Playwright) `scripts/e2e-smoke.sh` — PR and push@main only
+   │    └─ Benchmarks (informational)
    │
    ├─ Dependabot auto-merge (.github/workflows/dependabot-automerge.yml)
    │    on: pull_request_target (Dependabot PRs only)
@@ -23,7 +27,11 @@ GitHub (PR / push main / tag v*)
    │
    ├─ CodeQL (.github/workflows/codeql.yml)
    │    on: push@main, pull_request, weekly
-   │    └─ Go + JavaScript/TypeScript security-and-quality
+   │    └─ Go + JavaScript/TypeScript security-extended + security-and-quality
+   │
+   ├─ Mutation (.github/workflows/mutation.yml)
+   │    on: nightly schedule, workflow_dispatch
+   │    └─ gremlins on the pure business-logic packages (non-blocking report)
    │
    └─ Release (.github/workflows/release.yml)
         on: push tags v*, workflow_dispatch (main or a v* tag only)
@@ -112,7 +120,7 @@ make deploy-auto-vpn    # + gluetun overlay
 
 > [!NOTE]
 > The author's production instance runs **behind gluetun** (`network_mode: container:gluetun`).
-> `watchForwardedPort` in `cmd/server/main.go` rebinds when the VPN port rotates.
+> `watchForwardedPort` in `cmd/server/wiring.go` triggers a graceful restart to rebind when the VPN port rotates.
 
 ## Local quality gates (before opening a PR)
 
@@ -242,8 +250,9 @@ Safety:
 | Name | Where | Purpose |
 |------|-------|---------|
 | `GITHUB_TOKEN` | automatic | GHCR push, releases, CodeQL |
-| `CODECOV_TOKEN` | optional secret | coverage upload (CI continues if missing) |
-| `SONAR_TOKEN` / `SONAR_HOST_URL` | optional (local/homelab) | Sonar quality gate outside GitHub CI |
+| `SONAR_TOKEN` | optional secret | SonarCloud analysis in CI (the job is skipped when unset) |
+| `SONAR_ORGANIZATION` / `SONAR_PROJECT_KEY` | optional repo variables | SonarCloud organization / project key overrides |
+| `SONAR_TOKEN` / `SONAR_HOST_URL` | optional local env | `make sonar-scan` against a self-hosted Sonar, outside GitHub CI |
 | `JACKUI_CI_DOCKER_CONTEXT` | optional env/repo variable | Docker context for the disposable CI stack (default `default`) |
 | `JACKUI_CI_COMPOSE_PROJECT` | optional env/repo variable | CI project prefix (default `jackui-ci`) |
 | `JACKUI_CI_RUNNER_LABELS` | optional GitHub variable | JSON ARM runner labels (default `["ubuntu-24.04-arm"]`) |

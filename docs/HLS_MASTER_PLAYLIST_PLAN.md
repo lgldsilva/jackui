@@ -1,6 +1,6 @@
 # Plano de Implementação — M2: HLS Master Playlist Phase 2
 
-> **Status**: ⬜ aberto (próximo milestone do `REQUIREMENTS.md`)
+> **Status**: ✅ M2a (multi-res) e `TYPE=AUDIO` do M2b entregues no código (`internal/handlers/hls_master.go`, `internal/transcode/variants.go`); `TYPE=SUBTITLES` implementado atrás de `JACKUI_HLS_MEDIA_RENDITIONS` (default off), pendente de validação em Safari real
 > **Criado**: 2026-07-10 · deepwork session
 > **Revisado**: 2026-07-10 · review de impacto (C1–C10) — **não executar a versão pré-review**
 > **Arquitetura**: Option B — master sintético + sessões lazy (trancada @oracle)
