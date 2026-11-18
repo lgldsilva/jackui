@@ -76,9 +76,9 @@ func sanitizeTsToken(s string) string {
 
 // DistinctQueryCount returns how many different searches the user has saved
 // (incognito excluded) — feeds the stats endpoint.
-func (s *Store) DistinctQueryCount(userID int) (int, error) {
+func (s *Store) DistinctQueryCount(ctx context.Context, userID int) (int, error) {
 	var n int
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(DISTINCT LOWER(query)) FROM results WHERE user_id = ? AND incognito = 0
 	`, userID).Scan(&n)
 	return n, err
@@ -86,11 +86,11 @@ func (s *Store) DistinctQueryCount(userID int) (int, error) {
 
 // DeleteIncognito removes all incognito-flagged entries for a user.
 // Called when the user ends their incognito session (logout or toggle-off).
-func (s *Store) DeleteIncognito(userID int) error {
+func (s *Store) DeleteIncognito(ctx context.Context, userID int) error {
 	if s == nil {
 		return nil
 	}
-	_, err := s.db.Exec(`DELETE FROM results WHERE user_id = ? AND incognito = 1`, userID)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM results WHERE user_id = ? AND incognito = 1`, userID)
 	return err
 }
 
@@ -98,17 +98,17 @@ func (s *Store) DeleteIncognito(userID int) error {
 // Called once at startup: after a restart the in-memory heartbeat map (which
 // the reaper relies on) is empty, so any incognito row left in the DB is
 // orphaned and would persist forever — defeating the purpose of incognito.
-func (s *Store) DeleteAllIncognito() error {
+func (s *Store) DeleteAllIncognito(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
-	_, err := s.db.Exec(`DELETE FROM results WHERE incognito = 1`)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM results WHERE incognito = 1`)
 	return err
 }
 
 // Search returns cached results for a query, ordered by seeders descending.
 // Filters by userID unless includeAll=true (admin override).
-func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResult, error) {
+func (s *Store) Search(ctx context.Context, query string, userID int, includeAll bool) ([]CachedResult, error) {
 	q := `
 		SELECT id, title, tracker, category, size, seeders, leechers, age, magnet_uri, link, info_hash, publish_date, saved_at
 		FROM results
@@ -120,7 +120,7 @@ func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResul
 	}
 	q += " ORDER BY seeders DESC, saved_at DESC LIMIT ?"
 	args = append(args, MaxSearchResults)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +145,7 @@ func (s *Store) Search(query string, userID int, includeAll bool) ([]CachedResul
 
 // SearchAll runs a Postgres full-text search across all cached results.
 // Filters by userID unless includeAll=true (admin override).
-func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) ([]CachedResult, error) {
+func (s *Store) SearchAll(ctx context.Context, query string, limit int, userID int, includeAll bool) ([]CachedResult, error) {
 	ftsQuery := buildFTSQuery(query)
 	if ftsQuery == "" {
 		return []CachedResult{}, nil
@@ -166,7 +166,7 @@ func (s *Store) SearchAll(query string, limit int, userID int, includeAll bool) 
 	// ts_rank DESC (higher = better) replaces FTS5's `rank` (lower = better, ASC).
 	q += " ORDER BY ts_rank(r.fts, to_tsquery('simple', public.immutable_unaccent(?))) DESC LIMIT ?"
 	args = append(args, ftsQuery, limit)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ type Entry struct {
 
 // RecentEntries returns the N most recently searched queries with metadata.
 // Filters by userID unless includeAll=true (admin override).
-func (s *Store) RecentEntries(limit int, userID int, includeAll bool) ([]Entry, error) {
+func (s *Store) RecentEntries(ctx context.Context, limit int, userID int, includeAll bool) ([]Entry, error) {
 	q := `
 		SELECT query, COUNT(*) AS result_count, MAX(saved_at) AS last_seen
 		FROM results
@@ -221,7 +221,7 @@ func (s *Store) RecentEntries(limit int, userID int, includeAll bool) ([]Entry, 
 		ORDER BY last_seen DESC
 		LIMIT ?`
 	args = append(args, limit)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func (s *Store) RecentEntries(limit int, userID int, includeAll bool) ([]Entry, 
 // the row doesn't exist or the user doesn't own it (and isn't an admin
 // requesting cross-user access). Used by the refresh endpoint to look up the
 // original title + info_hash before talking to Jackett.
-func (s *Store) GetResult(id int64, userID int, isAdmin bool) (*CachedResult, error) {
+func (s *Store) GetResult(ctx context.Context, id int64, userID int, isAdmin bool) (*CachedResult, error) {
 	q := `
 		SELECT id, title, tracker, category, size, seeders, leechers, age, magnet_uri, link, info_hash, publish_date, saved_at, query
 		FROM results
@@ -252,7 +252,7 @@ func (s *Store) GetResult(id int64, userID int, isAdmin bool) (*CachedResult, er
 		q += queryUserClause
 		args = append(args, userID)
 	}
-	row := s.db.QueryRow(q, args...)
+	row := s.db.QueryRowContext(ctx, q, args...)
 	var r CachedResult
 	if err := row.Scan(
 		&r.ID,
@@ -269,8 +269,8 @@ func (s *Store) GetResult(id int64, userID int, isAdmin bool) (*CachedResult, er
 // UpdateSeedersLeechers refreshes the swarm counters for a cached row and
 // bumps saved_at to "now" so subsequent UI sorts treat the row as fresh.
 // Used by the refresh endpoint after a fresh Jackett poll.
-func (s *Store) UpdateSeedersLeechers(id int64, seeders, leechers int) error {
-	_, err := s.db.Exec(
+func (s *Store) UpdateSeedersLeechers(ctx context.Context, id int64, seeders, leechers int) error {
+	_, err := s.db.ExecContext(ctx,
 		`UPDATE results SET seeders = ?, leechers = ?, saved_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		seeders, leechers, id,
 	)
@@ -278,29 +278,29 @@ func (s *Store) UpdateSeedersLeechers(id int64, seeders, leechers int) error {
 }
 
 // Cleanup removes results older than the given duration.
-func (s *Store) Cleanup(olderThan time.Duration) error {
+func (s *Store) Cleanup(ctx context.Context, olderThan time.Duration) error {
 	cutoff := time.Now().Add(-olderThan)
-	_, err := s.db.Exec("DELETE FROM results WHERE saved_at < ?", cutoff)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM results WHERE saved_at < ?", cutoff)
 	return err
 }
 
 // DeleteQuery removes cached results for a specific query.
 // If includeAll=true, deletes regardless of owner (admin). Otherwise only user's rows.
-func (s *Store) DeleteQuery(query string, userID int, includeAll bool) error {
+func (s *Store) DeleteQuery(ctx context.Context, query string, userID int, includeAll bool) error {
 	if includeAll {
-		_, err := s.db.Exec("DELETE FROM results WHERE LOWER(query) = LOWER(?)", query)
+		_, err := s.db.ExecContext(ctx, "DELETE FROM results WHERE LOWER(query) = LOWER(?)", query)
 		return err
 	}
-	_, err := s.db.Exec("DELETE FROM results WHERE LOWER(query) = LOWER(?) AND user_id = ?", query, userID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM results WHERE LOWER(query) = LOWER(?) AND user_id = ?", query, userID)
 	return err
 }
 
 // DeleteAll removes the user's cached results. Admin (includeAll) wipes everyone.
-func (s *Store) DeleteAll(userID int, includeAll bool) error {
+func (s *Store) DeleteAll(ctx context.Context, userID int, includeAll bool) error {
 	if includeAll {
-		_, err := s.db.Exec("DELETE FROM results")
+		_, err := s.db.ExecContext(ctx, "DELETE FROM results")
 		return err
 	}
-	_, err := s.db.Exec("DELETE FROM results WHERE user_id = ?", userID)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM results WHERE user_id = ?", userID)
 	return err
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"time"
@@ -32,7 +33,7 @@ func initHistoryStore(deps *appDeps) {
 		// pruned `results` at all.
 		time.Sleep(historyCleanupDelay)
 		for {
-			_ = store.Cleanup(90 * 24 * time.Hour)
+			_ = store.Cleanup(context.Background(), 90*24*time.Hour)
 			time.Sleep(24 * time.Hour)
 		}
 	}()
@@ -54,7 +55,7 @@ func initLibraryStore(deps *appDeps) {
 	deps.libraryStore = l
 	log.Printf("Library: PostgreSQL")
 	if mc := deps.streamSrv.MetadataCache(); mc != nil {
-		n, mErr := l.RefreshStalePrimary(func(hash string) (int, bool) {
+		n, mErr := l.RefreshStalePrimary(context.Background(), func(hash string) (int, bool) {
 			meta := mc.Get(hash)
 			if meta == nil {
 				return 0, false

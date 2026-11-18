@@ -27,3 +27,19 @@ func RespondErrorMessageFields(c *gin.Context, status int, message string, field
 	}
 	c.JSON(status, body)
 }
+
+// StatusClientClosedRequest is the de-facto (nginx) status for a request the
+// client abandoned before the response was written.
+const StatusClientClosedRequest = 499
+
+// AbortIfClientGone reports whether err happened because the request's own
+// context ended (client disconnect). It then aborts with a bodiless 499 so a
+// cancelled database call is neither logged as a failure nor leaked to the
+// client as a 500 carrying the driver's message. Callers return when it is true.
+func AbortIfClientGone(c *gin.Context, err error) bool {
+	if err == nil || c.Request.Context().Err() == nil {
+		return false
+	}
+	c.AbortWithStatus(StatusClientClosedRequest)
+	return true
+}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -150,9 +151,9 @@ func TestRefreshStoreAndOutcomeErrors(t *testing.T) {
 
 type failCleaner struct{}
 
-func (failCleaner) DeleteIncognito(int) error { return errors.New("db down") }
+func (failCleaner) DeleteIncognito(context.Context, int) error { return errors.New("db down") }
 
-func (failCleaner) DeleteAllIncognito() error { return errors.New("db down") }
+func (failCleaner) DeleteAllIncognito(context.Context) error { return errors.New("db down") }
 
 func TestClearIncognitoCleanerError(t *testing.T) {
 	gin.SetMode(gin.TestMode)

@@ -1,6 +1,7 @@
 package history
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,20 +18,20 @@ type countingTx struct {
 	failExec   error
 }
 
-func (c *countingTx) Query(query string, args ...any) (*sql.Rows, error) {
+func (c *countingTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	c.statements++
 	if c.failQuery != nil {
 		return nil, c.failQuery
 	}
-	return c.saveTx.Query(query, args...)
+	return c.saveTx.QueryContext(ctx, query, args...)
 }
 
-func (c *countingTx) Exec(query string, args ...any) (sql.Result, error) {
+func (c *countingTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	c.statements++
 	if c.failExec != nil {
 		return nil, c.failExec
 	}
-	return c.saveTx.Exec(query, args...)
+	return c.saveTx.ExecContext(ctx, query, args...)
 }
 
 func manyResults(n int) []jackett.Result {
@@ -52,7 +53,7 @@ func TestSaveStatementCountIsConstant(t *testing.T) {
 	defer tx.Rollback()
 
 	ctx := &countingTx{saveTx: tx}
-	if err := saveResults(ctx, "q", manyResults(50), 1, 0); err != nil {
+	if err := saveResults(context.Background(), ctx, "q", manyResults(50), 1, 0); err != nil {
 		t.Fatalf("saveResults: %v", err)
 	}
 	if ctx.statements > 2 {
@@ -61,7 +62,7 @@ func TestSaveStatementCountIsConstant(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Search("q", 1, false)
+	got, err := s.Search(context.Background(), "q", 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +82,7 @@ func TestSaveBatchedDedupSemantics(t *testing.T) {
 		{Title: "no hash 1"},
 		{Title: "no hash 2"},
 	}
-	if err := s.Save("q", first, 1, false); err != nil {
+	if err := s.Save(context.Background(), "q", first, 1, false); err != nil {
 		t.Fatal(err)
 	}
 	second := []jackett.Result{
@@ -89,14 +90,14 @@ func TestSaveBatchedDedupSemantics(t *testing.T) {
 		{Title: "B", InfoHash: "h2"},
 		{Title: "no hash 3"},
 	}
-	if err := s.Save("q", second, 1, false); err != nil {
+	if err := s.Save(context.Background(), "q", second, 1, false); err != nil {
 		t.Fatal(err)
 	}
 	// Another user and the incognito lane each keep their own copy of h1.
-	if err := s.Save("q", []jackett.Result{{Title: "A other", InfoHash: "h1"}}, 2, false); err != nil {
+	if err := s.Save(context.Background(), "q", []jackett.Result{{Title: "A other", InfoHash: "h1"}}, 2, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Save("q", []jackett.Result{{Title: "A incog", InfoHash: "h1"}}, 1, true); err != nil {
+	if err := s.Save(context.Background(), "q", []jackett.Result{{Title: "A incog", InfoHash: "h1"}}, 1, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +131,7 @@ func TestSaveBatchedDedupSemantics(t *testing.T) {
 func TestSaveChunksLargeBatchesInOrder(t *testing.T) {
 	s := newTestStore(t)
 	n := saveChunkRows*2 + 7
-	if err := s.Save("big", manyResults(n), 1, false); err != nil {
+	if err := s.Save(context.Background(), "big", manyResults(n), 1, false); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := s.db.Query("SELECT title FROM results WHERE user_id = 1 ORDER BY id")
@@ -166,15 +167,15 @@ func TestSaveResultsPropagatesErrors(t *testing.T) {
 	defer tx.Rollback()
 
 	boom := errors.New("boom")
-	if err := saveResults(&countingTx{saveTx: tx, failQuery: boom}, "q", manyResults(3), 1, 0); !errors.Is(err, boom) {
+	if err := saveResults(context.Background(), &countingTx{saveTx: tx, failQuery: boom}, "q", manyResults(3), 1, 0); !errors.Is(err, boom) {
 		t.Errorf("dedup lookup error = %v, want boom", err)
 	}
-	if err := saveResults(&countingTx{saveTx: tx, failExec: boom}, "q", manyResults(3), 1, 0); !errors.Is(err, boom) {
+	if err := saveResults(context.Background(), &countingTx{saveTx: tx, failExec: boom}, "q", manyResults(3), 1, 0); !errors.Is(err, boom) {
 		t.Errorf("insert error = %v, want boom", err)
 	}
 	// Hash-less only: no dedup lookup at all, straight to the insert.
 	c := &countingTx{saveTx: tx}
-	if err := saveResults(c, "q", []jackett.Result{{Title: "x"}}, 1, 0); err != nil {
+	if err := saveResults(context.Background(), c, "q", []jackett.Result{{Title: "x"}}, 1, 0); err != nil {
 		t.Fatal(err)
 	}
 	if c.statements != 1 {
@@ -185,7 +186,7 @@ func TestSaveResultsPropagatesErrors(t *testing.T) {
 func TestSaveOnClosedPoolFails(t *testing.T) {
 	s := newTestStore(t)
 	_ = s.db.Close()
-	if err := s.Save("q", manyResults(1), 1, false); err == nil {
+	if err := s.Save(context.Background(), "q", manyResults(1), 1, false); err == nil {
 		t.Fatal("Save on a closed pool must fail")
 	}
 }

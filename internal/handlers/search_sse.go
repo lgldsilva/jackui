@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -169,7 +170,7 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 		return seen, 0
 	}
 	count := 0
-	cached, _ := store.Search(query, userID, includeAll)
+	cached, _ := store.Search(c.Request.Context(), query, userID, includeAll)
 	if opts.preferDual {
 		sortPreferDual(cached, cachedResultDualKey)
 	}
@@ -193,7 +194,7 @@ func emitCachedResults(c *gin.Context, store *history.Store, query string, userI
 // already emitted in this SSE session (cache phase or live phase). Skipped when
 // the live phase emitted nothing — the cache pass already covered the DB snapshot
 // and a second identical SELECT would be wasted work.
-func (s *liveSearchState) emitConverged(store *history.Store, query string, userID int, includeAll bool) int {
+func (s *liveSearchState) emitConverged(ctx context.Context, store *history.Store, query string, userID int, includeAll bool) int {
 	if store == nil {
 		return 0
 	}
@@ -202,7 +203,7 @@ func (s *liveSearchState) emitConverged(store *history.Store, query string, user
 	if len(s.liveResults) == 0 && len(s.liveSeen) == 0 {
 		return 0
 	}
-	cached, err := store.Search(query, userID, includeAll)
+	cached, err := store.Search(ctx, query, userID, includeAll)
 	if err != nil {
 		return 0
 	}
@@ -243,7 +244,7 @@ func persistEmitted(c *gin.Context, store *history.Store, query string, results 
 	if store == nil || len(results) == 0 {
 		return
 	}
-	if err := store.Save(query, results, userID, middleware.IsIncognito(c)); err != nil {
+	if err := store.Save(c.Request.Context(), query, results, userID, middleware.IsIncognito(c)); err != nil {
 		log.Printf("search-sse: saving %d result(s) for %q failed: %v", len(results), httpshared.SanitizeForLog(query), err)
 	}
 }
@@ -335,7 +336,7 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		// filtered by indexer id, re-emitting them would leak other providers).
 		converged := 0
 		if len(indexers) == 0 {
-			converged = state.emitConverged(store, query, userID, includeAll)
+			converged = state.emitConverged(c.Request.Context(), store, query, userID, includeAll)
 		}
 
 		if err != nil {

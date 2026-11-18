@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -105,7 +106,7 @@ func TestHgEHistoryResults_EnrichesFavAndDownload(t *testing.T) {
 	dls := hgEDownloads(t)
 
 	// One cached result that is both favorited and downloaded by user 1.
-	if err := hist.Save("matrix", []jackett.Result{
+	if err := hist.Save(context.Background(), "matrix", []jackett.Result{
 		{Title: "The Matrix 1080p", InfoHash: hgEHash, MagnetURI: MagnetPrefix + hgEHash, CategoryID: 2000},
 	}, 1, false); err != nil {
 		t.Fatal(err)
@@ -161,7 +162,7 @@ func TestHgESearchCache_EnrichesWithEnricher(t *testing.T) {
 	favs := hgEFavs(t)
 	dls := hgEDownloads(t)
 
-	if err := hist.Save("inception", []jackett.Result{
+	if err := hist.Save(context.Background(), "inception", []jackett.Result{
 		{Title: "Inception 2010 1080p", InfoHash: hgEHash, MagnetURI: MagnetPrefix + hgEHash, CategoryID: 2000},
 	}, 1, false); err != nil {
 		t.Fatal(err)
@@ -184,7 +185,7 @@ func TestHgESearchCache_EnrichesWithEnricher(t *testing.T) {
 func TestHgEDeleteHistory_SpecificQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	hist := hgEHistory(t)
-	if err := hist.Save("doomed", []jackett.Result{
+	if err := hist.Save(context.Background(), "doomed", []jackett.Result{
 		{Title: "Doomed", InfoHash: hgEHash},
 	}, 1, false); err != nil {
 		t.Fatal(err)
@@ -212,7 +213,7 @@ func TestHgEDeleteHistory_SpecificQuery(t *testing.T) {
 
 func hgESeedLibrary(t *testing.T, lib *library.Store, userID int) int {
 	t.Helper()
-	e, err := lib.Upsert(library.UpsertInput{
+	e, err := lib.Upsert(context.Background(), library.UpsertInput{
 		UserID:      userID,
 		InfoHash:    hgEHash,
 		Magnet:      MagnetPrefix + hgEHash,
@@ -333,7 +334,7 @@ func TestHgELibraryGetByHash_NotFound(t *testing.T) {
 func TestHgELibraryGetByHash_IgnoresIncognito(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	lib := hgELibrary(t)
-	if _, err := lib.Upsert(library.UpsertInput{
+	if _, err := lib.Upsert(context.Background(), library.UpsertInput{
 		UserID: 1, InfoHash: hgEHash, Magnet: MagnetPrefix + hgEHash,
 		Name: "Secret", PrimaryFile: 0, TotalSize: 1, Kind: "movie", Incognito: true,
 	}); err != nil {

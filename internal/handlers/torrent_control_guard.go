@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -18,7 +19,7 @@ type TorrentControlAuthz struct {
 		HashOwnerIDs(infoHash string) (map[int]bool, error)
 	}
 	Library interface {
-		GetByHash(userID int, infoHash string) (*library.Entry, error)
+		GetByHash(ctx context.Context, userID int, infoHash string) (*library.Entry, error)
 	}
 	Viewers interface {
 		ViewedBy(hash metainfo.Hash, userKey string) bool
@@ -83,6 +84,6 @@ func (a TorrentControlAuthz) userMayControl(c *gin.Context, h metainfo.Hash, use
 	if a.Library == nil {
 		return false, nil
 	}
-	e, err := a.Library.GetByHash(userID, hex)
+	e, err := a.Library.GetByHash(c.Request.Context(), userID, hex)
 	return e != nil, err
 }

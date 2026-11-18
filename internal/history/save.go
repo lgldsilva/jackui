@@ -1,6 +1,7 @@
 package history
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 
@@ -10,8 +11,8 @@ import (
 // saveTx is the slice of *dbutil.Tx that Save needs; a seam so tests can count
 // the statements one Save issues.
 type saveTx interface {
-	Query(query string, args ...any) (*sql.Rows, error)
-	Exec(query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
 // Save persists Jackett results for a query, attributed to a user.
@@ -19,12 +20,12 @@ type saveTx interface {
 // userID=0 means "no auth" (legacy/anonymous mode).
 // When incognito=true the row is written with incognito=1 so it is visible during
 // the current session but excluded from normal queries and deleted on session end.
-func (s *Store) Save(query string, results []jackett.Result, userID int, incognito bool) error {
+func (s *Store) Save(ctx context.Context, query string, results []jackett.Result, userID int, incognito bool) error {
 	if len(results) == 0 {
 		return nil
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -34,7 +35,7 @@ func (s *Store) Save(query string, results []jackett.Result, userID int, incogni
 	if incognito {
 		incognitoVal = 1
 	}
-	if err := saveResults(tx, strings.ToLower(query), results, userID, incognitoVal); err != nil {
+	if err := saveResults(ctx, tx, strings.ToLower(query), results, userID, incognitoVal); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -49,15 +50,15 @@ const saveColumns = 14
 // saveResults stores the batch with a constant number of statements — one
 // dedup lookup plus one multi-row INSERT per chunk — instead of a COUNT and an
 // INSERT per result. Search runs it synchronously before the SSE `done` event.
-func saveResults(tx saveTx, lowerQuery string, results []jackett.Result, userID, incognitoVal int) error {
-	stored, err := storedHashes(tx, results, userID, incognitoVal)
+func saveResults(ctx context.Context, tx saveTx, lowerQuery string, results []jackett.Result, userID, incognitoVal int) error {
+	stored, err := storedHashes(ctx, tx, results, userID, incognitoVal)
 	if err != nil {
 		return err
 	}
 	fresh := dedupResults(results, stored)
 	for start := 0; start < len(fresh); start += saveChunkRows {
 		end := min(start+saveChunkRows, len(fresh))
-		if err := insertResults(tx, lowerQuery, fresh[start:end], userID, incognitoVal); err != nil {
+		if err := insertResults(ctx, tx, lowerQuery, fresh[start:end], userID, incognitoVal); err != nil {
 			return err
 		}
 	}
@@ -66,7 +67,7 @@ func saveResults(tx saveTx, lowerQuery string, results []jackett.Result, userID,
 
 // storedHashes returns which of the batch's info hashes this (user, incognito)
 // lane already has. A batch without hashes costs no query.
-func storedHashes(tx saveTx, results []jackett.Result, userID, incognitoVal int) (map[string]bool, error) {
+func storedHashes(ctx context.Context, tx saveTx, results []jackett.Result, userID, incognitoVal int) (map[string]bool, error) {
 	hashes := make([]string, 0, len(results))
 	for _, r := range results {
 		if r.InfoHash != "" {
@@ -77,7 +78,7 @@ func storedHashes(tx saveTx, results []jackett.Result, userID, incognitoVal int)
 	if len(hashes) == 0 {
 		return stored, nil
 	}
-	rows, err := tx.Query("SELECT DISTINCT info_hash FROM results WHERE user_id = ? AND incognito = ? AND info_hash = ANY(?)", userID, incognitoVal, hashes)
+	rows, err := tx.QueryContext(ctx, "SELECT DISTINCT info_hash FROM results WHERE user_id = ? AND incognito = ? AND info_hash = ANY(?)", userID, incognitoVal, hashes)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +110,7 @@ func dedupResults(results []jackett.Result, stored map[string]bool) []jackett.Re
 	return fresh
 }
 
-func insertResults(tx saveTx, lowerQuery string, rows []jackett.Result, userID, incognitoVal int) error {
+func insertResults(ctx context.Context, tx saveTx, lowerQuery string, rows []jackett.Result, userID, incognitoVal int) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -124,6 +125,6 @@ func insertResults(tx saveTx, lowerQuery string, rows []jackett.Result, userID, 
 		q.WriteString(tuple)
 		args = append(args, lowerQuery, r.Title, r.Tracker, r.Category, r.Size, r.Seeders, r.Leechers, r.Age, r.MagnetURI, r.Link, r.InfoHash, r.PublishDate, userID, incognitoVal)
 	}
-	_, err := tx.Exec(q.String(), args...)
+	_, err := tx.ExecContext(ctx, q.String(), args...)
 	return err
 }

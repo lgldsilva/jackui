@@ -6,6 +6,7 @@ package handlers
 // docs/PLAN_PTBR_SUBS_DUAL.md D2/D5).
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -395,7 +396,7 @@ func TestSearchSSE_DualOnly_KeepsFullHistory(t *testing.T) {
 
 	// persistEmitted is synchronous BEFORE done, so the full set is committed
 	// once the stream returns.
-	rows, err := store.Search("ssedualonlyhistory", 0, false)
+	rows, err := store.Search(context.Background(), "ssedualonlyhistory", 0, false)
 	if err != nil {
 		t.Fatalf("store.Search: %v", err)
 	}
@@ -408,7 +409,7 @@ func TestSearchSSE_DualOnly_KeepsFullHistory(t *testing.T) {
 // emission (exercises cachedResultDualKey).
 func TestSearchSSE_PreferDual_SortsCachedBatch(t *testing.T) {
 	store := newTestHistoryStore(t)
-	if err := store.Save("cachedualsort", []jackett.Result{
+	if err := store.Save(context.Background(), "cachedualsort", []jackett.Result{
 		{Title: titleDublado, Tracker: "Trk", InfoHash: hashA, Size: 1},
 		{Title: titlePlain, Tracker: "Trk", InfoHash: hashB, Size: 1},
 		{Title: titleHDTV, Tracker: "Trk", InfoHash: hashC, Size: 1},
@@ -436,7 +437,7 @@ func TestSearchSSE_PreferDual_SortsCachedBatch(t *testing.T) {
 // mark and stay in the history).
 func TestEmitConverged_PreferDualSortsAndDualOnlyFilters(t *testing.T) {
 	store := newTestHistoryStore(t)
-	if err := store.Save("convdual", []jackett.Result{
+	if err := store.Save(context.Background(), "convdual", []jackett.Result{
 		{Title: "Seen Earlier", Tracker: "Trk", InfoHash: hashC, Size: 1}, // live phase already emitted this one
 		{Title: titleDublado, Tracker: "Trk", InfoHash: hashA, Size: 1},   // 720p dual, unseen tail
 		{Title: titlePlain, Tracker: "Trk", InfoHash: hashB, Size: 1},     // 1080p plain, unseen tail
@@ -457,7 +458,7 @@ func TestEmitConverged_PreferDualSortsAndDualOnlyFilters(t *testing.T) {
 		liveSeen: map[string]bool{hashC: true},
 	}
 
-	if got := state.emitConverged(store, "convdual", 0, false); got != 1 {
+	if got := state.emitConverged(context.Background(), store, "convdual", 0, false); got != 1 {
 		t.Fatalf("emitConverged = %d, want 1 (only the dual row)", got)
 	}
 	body := w.Body.String()
@@ -471,7 +472,7 @@ func TestEmitConverged_PreferDualSortsAndDualOnlyFilters(t *testing.T) {
 		t.Error("filtered row must keep its seen mark")
 	}
 	// The full seed set stays in the history (dual_only never prunes it).
-	rows, err := store.Search("convdual", 0, false)
+	rows, err := store.Search(context.Background(), "convdual", 0, false)
 	if err != nil {
 		t.Fatalf("store.Search: %v", err)
 	}
@@ -601,7 +602,7 @@ func waitForHistoryRows(t *testing.T, store *history.Store, query string, want i
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		rows, err := store.Search(query, 0, false)
+		rows, err := store.Search(context.Background(), query, 0, false)
 		if err != nil {
 			t.Fatalf("store.Search: %v", err)
 		}
@@ -619,7 +620,7 @@ func TestSearchSSE_DualOnly_SkipsFilteredRowsInConvergence(t *testing.T) {
 	store := newTestHistoryStore(t)
 	// Pre-seed the cache so the cache phase emits the dual row and hides the
 	// plain one; the live phase then returns BOTH (same hashes → deduped).
-	if err := store.Save("convdualonly", []jackett.Result{
+	if err := store.Save(context.Background(), "convdualonly", []jackett.Result{
 		{Title: titleDual, Tracker: "Trk", InfoHash: hashA, Size: 1},
 		{Title: titlePlain, Tracker: "Trk", InfoHash: hashB, Size: 1},
 	}, 0, false); err != nil {

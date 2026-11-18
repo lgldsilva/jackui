@@ -121,7 +121,7 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 			return
 		}
 
-		entries, err := lib.List(userID, false, recLibWindow)
+		entries, err := lib.List(ctx.Request.Context(), userID, false, recLibWindow)
 		if err != nil {
 			httpshared.RespondError(ctx, http.StatusInternalServerError, err)
 			return
@@ -138,7 +138,7 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 		// Favorites first, audio dropped, capped — see seedCandidates.
 		candidates := seedCandidates(favoriteSeedEntries(s, userID, reveal), entries)
 
-		dismissed, derr := dismissedSet(lib, userID)
+		dismissed, derr := dismissedSet(ctx.Request.Context(), lib, userID)
 		if derr != nil {
 			httpshared.RespondError(ctx, http.StatusInternalServerError, derr)
 			return
@@ -213,7 +213,7 @@ func DismissRecommendation(lib *library.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(ctx)
-		if err := lib.DismissRecommendation(userID, req.Kind, req.TmdbID); err != nil {
+		if err := lib.DismissRecommendation(ctx.Request.Context(), userID, req.Kind, req.TmdbID); err != nil {
 			httpshared.RespondError(ctx, http.StatusInternalServerError, err)
 			return
 		}
@@ -240,11 +240,11 @@ func recHiddenCurtain(s *streamer.Streamer, userID int) streamer.HiddenCurtain {
 
 // dismissedSet loads the user's dismissed recommendations (kind:tmdbID set),
 // tolerating a nil store (returns an empty set, never errors).
-func dismissedSet(lib *library.Store, userID int) (map[string]bool, error) {
+func dismissedSet(ctx context.Context, lib *library.Store, userID int) (map[string]bool, error) {
 	if lib == nil {
 		return map[string]bool{}, nil
 	}
-	return lib.DismissedRecommendations(userID)
+	return lib.DismissedRecommendations(ctx, userID)
 }
 
 // seed is a watched title plus the TMDB recommendations it yielded.

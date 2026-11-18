@@ -411,7 +411,7 @@ func upsertLocalLibrary(c *gin.Context, lib *library.Store, mount, path string, 
 	if isAudio {
 		kind = "audio"
 	}
-	e, err := lib.Upsert(library.UpsertInput{
+	e, err := lib.Upsert(c.Request.Context(), library.UpsertInput{
 		UserID:    userID,
 		InfoHash:  hash,
 		Magnet:    "magnet:?xt=urn:btih:" + hash,

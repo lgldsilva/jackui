@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -76,17 +77,17 @@ func TestStats_AggregatesSeededStores(t *testing.T) {
 	hist := hgEHistory(t)
 	wl := hgEWatchlist(t)
 
-	e, err := lib.Upsert(library.UpsertInput{UserID: 1, InfoHash: hgEHash, Magnet: "m", Name: "Movie", Kind: "video"})
+	e, err := lib.Upsert(context.Background(), library.UpsertInput{UserID: 1, InfoHash: hgEHash, Magnet: "m", Name: "Movie", Kind: "video"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.UpdateResume(e.ID, 1, 95, 100, -1, false); err != nil {
+	if err := lib.UpdateResume(context.Background(), e.ID, 1, 95, 100, -1, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dl.Create(downloads.Download{UserID: 1, InfoHash: hgEHash, Magnet: "m"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := hist.Save("matrix", []jackett.Result{{Title: "X", InfoHash: hgEHash}}, 1, false); err != nil {
+	if err := hist.Save(context.Background(), "matrix", []jackett.Result{{Title: "X", InfoHash: hgEHash}}, 1, false); err != nil {
 		t.Fatal(err)
 	}
 	// The watchlist store stays empty on purpose: seeding it would couple this

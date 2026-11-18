@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -52,7 +53,7 @@ func TestGetHistory_WithEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = store.Save("test query", []jackett.Result{
+	err = store.Save(context.Background(), "test query", []jackett.Result{
 		{Title: "Test Result", InfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 	}, 1, false)
 	if err != nil {
@@ -83,10 +84,10 @@ func TestGetHistory_AdminAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_ = store.Save("user1 query", []jackett.Result{
+	_ = store.Save(context.Background(), "user1 query", []jackett.Result{
 		{Title: "User1 Result", InfoHash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
 	}, 1, false)
-	_ = store.Save("user2 query", []jackett.Result{
+	_ = store.Save(context.Background(), "user2 query", []jackett.Result{
 		{Title: "User2 Result", InfoHash: "cccccccccccccccccccccccccccccccccccccccc"},
 	}, 2, false)
 
@@ -199,7 +200,7 @@ func TestDeleteHistory_WithoutQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.Save("test", []jackett.Result{
+	_ = store.Save(context.Background(), "test", []jackett.Result{
 		{Title: "Test Result", InfoHash: "dddddddddddddddddddddddddddddddddddddddd"},
 	}, 1, false)
 
@@ -276,7 +277,7 @@ func TestCachedPayloadCarriesAudioFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = store.Save("dual", []jackett.Result{
+	err = store.Save(context.Background(), "dual", []jackett.Result{
 		// Known-DUAL title (mirrors parser/audioflags_test.go cases). Saved
 		// under the query "dual" — GetHistoryResults matches the query exactly,
 		// SearchCache (FTS) matches query/title tokens.

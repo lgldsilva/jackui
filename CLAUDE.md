@@ -100,6 +100,7 @@ internal/
 
 - Comments only where the WHY isn't obvious. Errors return JSON `{"error": "..."}`.
 - PostgreSQL stores: unified pool (`internal/db`), migrations via golang-migrate; stores write SQL with `?` placeholders (`dbutil.Rebind`).
+- New DB access uses the `*Context` variants (`QueryContext`/`QueryRowContext`/`ExecContext`/`BeginTx`) and takes `ctx` from the caller (`c.Request.Context()` in handlers); a per-file ratchet at `internal/dbutil/noctx_baseline.txt` (`TestNoContextDBCallRatchet`) fails if ctx-less calls increase — lower it with `UPDATE_NOCTX_BASELINE=1`.
 - Test with `net/http/httptest` — no external deps. `make test` must stay green.
 - New UI strings use `t()` with keys added to BOTH `web/src/locales/pt.json` and `en.json`. Backend errors stay in English (other packages match on `err.Error()` substrings).
 - Don't fatten god-files (`PlayerModal`, `DownloadsPage`, `SettingsPage`, `AIBenchmarkCard`, `DownloadModal`, `LocalPage`) — new components/logic go in their own files.

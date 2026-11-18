@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +63,7 @@ func Test_hgC_SearchSSE_FullFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Seed one cached result so emitCachedResults runs its loop (>0 path).
-	if err := store.Save("matrix", []jackett.Result{
+	if err := store.Save(context.Background(), "matrix", []jackett.Result{
 		{Title: "Cached Matrix", Tracker: "T0", InfoHash: "cachedhash"},
 	}, 0, false); err != nil {
 		t.Fatal(err)
@@ -128,7 +129,7 @@ func Test_hgC_EmitCachedResults_WithStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save("dune", []jackett.Result{
+	if err := store.Save(context.Background(), "dune", []jackett.Result{
 		{Title: "Dune A", InfoHash: "h1"},
 		{Title: "Dune B", InfoHash: ""},
 	}, 0, false); err != nil {
@@ -160,7 +161,7 @@ func Test_hgC_EmitCachedResults_SkipsWhenIndexersScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Save("dune", []jackett.Result{
+	if err := store.Save(context.Background(), "dune", []jackett.Result{
 		{Title: "Dune A", InfoHash: "h1"},
 		{Title: "Dune B", InfoHash: "h2"},
 	}, 0, false); err != nil {
