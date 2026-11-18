@@ -102,7 +102,7 @@ func fillActivityStats(ctx context.Context, out *userStats, hist *history.Store,
 	if wl == nil {
 		return
 	}
-	lists, err := wl.List(userID)
+	lists, err := wl.List(ctx, userID)
 	if err != nil {
 		return
 	}

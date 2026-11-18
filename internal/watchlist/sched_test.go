@@ -61,7 +61,7 @@ func (n *safeNotifier) count() int {
 
 func TestCreatePersistsScheduleAndArmsNextCheck(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, Params{Query: "q", MinSeeders: 1, Schedule: Schedule{Kind: SchedDaily, Hour: 12, Minute: 30}})
+	w, err := s.Create(context.Background(), 1, Params{Query: "q", MinSeeders: 1, Schedule: Schedule{Kind: SchedDaily, Hour: 12, Minute: 30}})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -76,11 +76,11 @@ func TestCreatePersistsScheduleAndArmsNextCheck(t *testing.T) {
 
 func TestUpdateReschedules(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, Params{Query: "q", MinSeeders: 1, Schedule: Schedule{Kind: SchedInterval, Minutes: 5}})
-	if err := s.Update(1, w.ID, Params{Query: "q", MinSeeders: 1, Schedule: Schedule{Kind: SchedWeekly, Weekday: 6, Hour: 8, Minute: 0}}); err != nil {
+	w, _ := s.Create(context.Background(), 1, Params{Query: "q", MinSeeders: 1, Schedule: Schedule{Kind: SchedInterval, Minutes: 5}})
+	if err := s.Update(context.Background(), 1, w.ID, Params{Query: "q", MinSeeders: 1, Schedule: Schedule{Kind: SchedWeekly, Weekday: 6, Hour: 8, Minute: 0}}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	got, _ := s.Get(1, w.ID)
+	got, _ := s.Get(context.Background(), 1, w.ID)
 	if got.Kind != SchedWeekly || got.Weekday != 6 || got.Hour != 8 {
 		t.Fatalf("schedule not updated: %+v", got.Schedule)
 	}
@@ -93,15 +93,15 @@ func TestUpdateReschedules(t *testing.T) {
 
 func TestListDue(t *testing.T) {
 	s := newTestStore(t)
-	due, _ := s.Create(1, Params{Query: "due", MinSeeders: 1})
-	notDue, _ := s.Create(1, Params{Query: "not-due", MinSeeders: 1})
-	if err := s.MarkChecked(due.ID, time.Now().Add(-time.Minute)); err != nil {
+	due, _ := s.Create(context.Background(), 1, Params{Query: "due", MinSeeders: 1})
+	notDue, _ := s.Create(context.Background(), 1, Params{Query: "not-due", MinSeeders: 1})
+	if err := s.MarkChecked(context.Background(), due.ID, time.Now().Add(-time.Minute)); err != nil {
 		t.Fatalf("MarkChecked: %v", err)
 	}
-	if err := s.MarkChecked(notDue.ID, time.Now().Add(time.Hour)); err != nil {
+	if err := s.MarkChecked(context.Background(), notDue.ID, time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("MarkChecked: %v", err)
 	}
-	lists, err := s.ListDue(time.Now())
+	lists, err := s.ListDue(context.Background(), time.Now())
 	if err != nil {
 		t.Fatalf("ListDue: %v", err)
 	}
@@ -112,11 +112,11 @@ func TestListDue(t *testing.T) {
 
 func TestListDue_NullNextCheckIsDue(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, Params{Query: "legacy", MinSeeders: 1})
+	w, _ := s.Create(context.Background(), 1, Params{Query: "legacy", MinSeeders: 1})
 	if _, err := s.db.Exec(`UPDATE watchlists SET next_check_at=NULL WHERE id=?`, w.ID); err != nil {
 		t.Fatalf("forcing NULL: %v", err)
 	}
-	lists, err := s.ListDue(time.Now())
+	lists, err := s.ListDue(context.Background(), time.Now())
 	if err != nil {
 		t.Fatalf("ListDue: %v", err)
 	}
@@ -127,10 +127,10 @@ func TestListDue_NullNextCheckIsDue(t *testing.T) {
 
 func TestWorker_RunDueOnlyProcessesDueItems(t *testing.T) {
 	s := newTestStore(t)
-	due, _ := s.Create(1, Params{Query: "due-query", MinSeeders: 1, Schedule: Schedule{Kind: SchedInterval, Minutes: 5}})
-	notDue, _ := s.Create(1, Params{Query: "future-query", MinSeeders: 1, Schedule: Schedule{Kind: SchedDaily, Hour: 23, Minute: 59}})
-	_ = s.MarkChecked(due.ID, time.Now().Add(-time.Minute))
-	_ = s.MarkChecked(notDue.ID, time.Now().Add(time.Hour))
+	due, _ := s.Create(context.Background(), 1, Params{Query: "due-query", MinSeeders: 1, Schedule: Schedule{Kind: SchedInterval, Minutes: 5}})
+	notDue, _ := s.Create(context.Background(), 1, Params{Query: "future-query", MinSeeders: 1, Schedule: Schedule{Kind: SchedDaily, Hour: 23, Minute: 59}})
+	_ = s.MarkChecked(context.Background(), due.ID, time.Now().Add(-time.Minute))
+	_ = s.MarkChecked(context.Background(), notDue.ID, time.Now().Add(time.Hour))
 
 	searcher := &countingSearcher{results: []jackett.Result{{InfoHash: "abc", Title: "Hit", MagnetURI: "m:1", Seeders: 9}}}
 	notifier := &safeNotifier{}
@@ -141,7 +141,7 @@ func TestWorker_RunDueOnlyProcessesDueItems(t *testing.T) {
 		t.Fatalf("searched %v, want only due-query", got)
 	}
 	// the due item must be re-armed into the future
-	after, _ := s.Get(1, due.ID)
+	after, _ := s.Get(context.Background(), 1, due.ID)
 	if !after.NextCheckAt.After(time.Now()) {
 		t.Fatalf("due item not re-armed: %v", after.NextCheckAt)
 	}
@@ -150,8 +150,8 @@ func TestWorker_RunDueOnlyProcessesDueItems(t *testing.T) {
 func TestWorker_KickChecksOneItemImmediately(t *testing.T) {
 	s := newTestStore(t)
 	// schedule far in the future — only the kick can trigger the check
-	w, _ := s.Create(1, Params{Query: "kicked", MinSeeders: 1, Schedule: Schedule{Kind: SchedDaily, Hour: 23, Minute: 59}})
-	_ = s.MarkChecked(w.ID, time.Now().Add(time.Hour))
+	w, _ := s.Create(context.Background(), 1, Params{Query: "kicked", MinSeeders: 1, Schedule: Schedule{Kind: SchedDaily, Hour: 23, Minute: 59}})
+	_ = s.MarkChecked(context.Background(), w.ID, time.Now().Add(time.Hour))
 
 	searcher := &countingSearcher{results: []jackett.Result{{InfoHash: "abc", Title: "Hit", MagnetURI: "m:1", Seeders: 9}}}
 	notifier := &safeNotifier{notified: make(chan struct{}, 1)}
@@ -191,7 +191,7 @@ func TestNewWorker_SeedsStoreDefaultEvery(t *testing.T) {
 		t.Fatalf("DefaultEvery = %v, want 42m", s.DefaultEvery)
 	}
 	// "server default" items must inherit it
-	w, _ := s.Create(1, Params{Query: "q", MinSeeders: 1})
+	w, _ := s.Create(context.Background(), 1, Params{Query: "q", MinSeeders: 1})
 	want := time.Now().Add(42 * time.Minute)
 	if w.NextCheckAt.Before(want.Add(-2*time.Second)) || w.NextCheckAt.After(want.Add(2*time.Second)) {
 		t.Fatalf("NextCheckAt = %v, want ≈ %v", w.NextCheckAt, want)
@@ -200,12 +200,12 @@ func TestNewWorker_SeedsStoreDefaultEvery(t *testing.T) {
 
 func TestMarkCheckedRoundTripsNextCheckAt(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, Params{Query: "q", MinSeeders: 1})
+	w, _ := s.Create(context.Background(), 1, Params{Query: "q", MinSeeders: 1})
 	next := time.Now().Add(30 * time.Minute)
-	if err := s.MarkChecked(w.ID, next); err != nil {
+	if err := s.MarkChecked(context.Background(), w.ID, next); err != nil {
 		t.Fatalf("MarkChecked: %v", err)
 	}
-	got, err := s.Get(1, w.ID)
+	got, err := s.Get(context.Background(), 1, w.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

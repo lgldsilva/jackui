@@ -1,6 +1,7 @@
 package watchlist
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 func mustCreate(t *testing.T, s *Store, userID int, p Params) {
 	t.Helper()
-	if _, err := s.Create(userID, p); err != nil {
+	if _, err := s.Create(context.Background(), userID, p); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -64,7 +65,7 @@ func TestMatchesFilters(t *testing.T) {
 
 func TestStore_AutoDownloadFieldsRoundtrip(t *testing.T) {
 	s := newTestStore(t)
-	w, err := s.Create(1, Params{
+	w, err := s.Create(context.Background(), 1, Params{
 		Query: "q", MinSeeders: 2, AutoDownload: true,
 		MinResolution: "1080P", MaxSizeBytes: 123, Codec: "X265",
 	})
@@ -74,11 +75,11 @@ func TestStore_AutoDownloadFieldsRoundtrip(t *testing.T) {
 	if !w.AutoDownload || w.MinResolution != "1080p" || w.MaxSizeBytes != 123 || w.Codec != "x265" {
 		t.Fatalf("roundtrip mismatch: %+v", w)
 	}
-	lists, _ := s.List(1)
+	lists, _ := s.List(context.Background(), 1)
 	if len(lists) != 1 || !lists[0].AutoDownload || lists[0].MinResolution != "1080p" {
 		t.Fatalf("List lost fields: %+v", lists)
 	}
-	all, _ := s.ListAll()
+	all, _ := s.ListAll(context.Background())
 	if len(all) != 1 || !all[0].AutoDownload || all[0].Codec != "x265" {
 		t.Fatalf("ListAll lost fields: %+v", all)
 	}
@@ -86,13 +87,13 @@ func TestStore_AutoDownloadFieldsRoundtrip(t *testing.T) {
 
 func TestStore_InvalidFilterValues(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Create(1, Params{Query: "q", MinResolution: "900p"}); err == nil {
+	if _, err := s.Create(context.Background(), 1, Params{Query: "q", MinResolution: "900p"}); err == nil {
 		t.Fatal("expected error for invalid minResolution")
 	}
-	if _, err := s.Create(1, Params{Query: "q", Codec: "mpeg2"}); err == nil {
+	if _, err := s.Create(context.Background(), 1, Params{Query: "q", Codec: "mpeg2"}); err == nil {
 		t.Fatal("expected error for invalid codec")
 	}
-	w, err := s.Create(1, Params{Query: "q", MaxSizeBytes: -1})
+	w, err := s.Create(context.Background(), 1, Params{Query: "q", MaxSizeBytes: -1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,23 +104,23 @@ func TestStore_InvalidFilterValues(t *testing.T) {
 
 func TestStore_UpdateQueryChangeResetsBaseline(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("old query", "", 1, ""))
-	if err := s.MarkChecked(w.ID, time.Now().Add(time.Hour)); err != nil {
+	w, _ := s.Create(context.Background(), 1, params("old query", "", 1, ""))
+	if err := s.MarkChecked(context.Background(), w.ID, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	// Same query: last_checked survives.
-	if err := s.Update(1, w.ID, params("old query", "", 3, "t")); err != nil {
+	if err := s.Update(context.Background(), 1, w.ID, params("old query", "", 3, "t")); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := s.Get(1, w.ID)
+	got, _ := s.Get(context.Background(), 1, w.ID)
 	if got.LastChecked.IsZero() {
 		t.Fatal("same-query update must keep last_checked")
 	}
 	// New query: re-baseline.
-	if err := s.Update(1, w.ID, params("new query", "", 3, "t")); err != nil {
+	if err := s.Update(context.Background(), 1, w.ID, params("new query", "", 3, "t")); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = s.Get(1, w.ID)
+	got, _ = s.Get(context.Background(), 1, w.ID)
 	if !got.LastChecked.IsZero() {
 		t.Fatalf("query change must reset last_checked, got %v", got.LastChecked)
 	}
@@ -127,14 +128,14 @@ func TestStore_UpdateQueryChangeResetsBaseline(t *testing.T) {
 
 func TestStore_MarkAutoDownloaded(t *testing.T) {
 	s := newTestStore(t)
-	w, _ := s.Create(1, params("q", "", 1, ""))
-	if _, err := s.MarkSeen(w.ID, "hash1", "Title", "magnet:1", 5, 100); err != nil {
+	w, _ := s.Create(context.Background(), 1, params("q", "", 1, ""))
+	if _, err := s.MarkSeen(context.Background(), w.ID, "hash1", "Title", "magnet:1", 5, 100); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkAutoDownloaded(w.ID, "hash1"); err != nil {
+	if err := s.MarkAutoDownloaded(context.Background(), w.ID, "hash1"); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := s.Hits(1, w.ID, 10)
+	hits, err := s.Hits(context.Background(), 1, w.ID, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +201,7 @@ func TestWorker_AutoDownload_SkipsBaselinePass(t *testing.T) {
 	if !strings.Contains(last.body, "in download queue") {
 		t.Fatalf("auto-download notification should say so, got %q", last.body)
 	}
-	hits, _ := s.Hits(7, mustFirstID(t, s, 7), 10)
+	hits, _ := s.Hits(context.Background(), 7, mustFirstID(t, s, 7), 10)
 	var auto int
 	for _, h := range hits {
 		if h.AutoDownloaded {
@@ -286,7 +287,7 @@ func TestWorker_AutoDownload_DisabledWatchlistNeverEnqueues(t *testing.T) {
 
 func mustFirstID(t *testing.T, s *Store, userID int) int {
 	t.Helper()
-	lists, err := s.List(userID)
+	lists, err := s.List(context.Background(), userID)
 	if err != nil || len(lists) == 0 {
 		t.Fatalf("List(%d): %v %v", userID, lists, err)
 	}
@@ -298,7 +299,7 @@ func mustFirstID(t *testing.T, s *Store, userID int) int {
 // not one alert per release — the fix for the create-time notification flood.
 func TestWorker_AggregatesHitsIntoOneNotification(t *testing.T) {
 	s := newTestStore(t)
-	wl, _ := s.Create(1, params("Rick and Morty", "", 1, "topic"))
+	wl, _ := s.Create(context.Background(), 1, params("Rick and Morty", "", 1, "topic"))
 	primeChecked(t, s, wl.ID) // past the silent baseline
 	searcher := &fakeSearcher{results: []jackett.Result{
 		{InfoHash: "a", Title: "Rick.and.Morty.S01E01", MagnetURI: "magnet:a", Seeders: 5, Size: 100},

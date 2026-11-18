@@ -155,7 +155,7 @@ func (w *Worker) Stop() {
 
 // RunOnce checks every watchlist regardless of schedule — tests / manual triggers.
 func (w *Worker) RunOnce() {
-	lists, err := w.store.ListAll()
+	lists, err := w.store.ListAll(w.ctx)
 	if err != nil {
 		log.Printf("watchlist: ListAll failed: %v", err)
 		return
@@ -165,7 +165,7 @@ func (w *Worker) RunOnce() {
 
 // runDue is the scheduled pass: only items whose next_check_at is due.
 func (w *Worker) runDue() {
-	lists, err := w.store.ListDue(time.Now())
+	lists, err := w.store.ListDue(w.ctx, time.Now())
 	if err != nil {
 		log.Printf("watchlist: ListDue failed: %v", err)
 		return
@@ -175,7 +175,7 @@ func (w *Worker) runDue() {
 
 // checkOne handles a Kick: immediate check of a single watchlist.
 func (w *Worker) checkOne(id int) {
-	wl, err := w.store.getByID(id)
+	wl, err := w.store.getByID(w.ctx, id)
 	if err != nil {
 		log.Printf("watchlist[%d]: kick lookup failed: %v", id, err)
 		return
@@ -214,7 +214,7 @@ func (w *Worker) processOne(ctx context.Context, wl *Watchlist) {
 	// forever, or every scheduler tick would retry it. last_checked therefore
 	// records the last ATTEMPT, matching the old fixed-interval behaviour.
 	next := nextCheckTime(wl.Schedule, time.Now(), w.interval)
-	if err := w.store.MarkChecked(wl.ID, next); err != nil {
+	if err := w.store.MarkChecked(ctx, wl.ID, next); err != nil {
 		log.Printf("watchlist[%d]: MarkChecked failed: %v", wl.ID, err)
 	}
 	results, err := search(ctx, w.searcher, wl.Query, wl.Category)
@@ -234,7 +234,7 @@ func (w *Worker) processOne(ctx context.Context, wl *Watchlist) {
 	}
 	var hits []newHit
 	for _, r := range results {
-		h, isNew := w.recordResult(wl, r, autoBudget > 0)
+		h, isNew := w.recordResult(ctx, wl, r, autoBudget > 0)
 		if !isNew {
 			continue
 		}
@@ -260,11 +260,11 @@ func (w *Worker) resolveTopic(wl *Watchlist) string {
 // downloads it. It returns the buffered hit plus whether the result was
 // previously unseen; notification is deferred to notifyHits so an entire pass
 // emits a single aggregated message instead of one alert per result.
-func (w *Worker) recordResult(wl *Watchlist, r jackett.Result, allowAuto bool) (newHit, bool) {
+func (w *Worker) recordResult(ctx context.Context, wl *Watchlist, r jackett.Result, allowAuto bool) (newHit, bool) {
 	if r.Seeders < wl.MinSeeders || r.InfoHash == "" {
 		return newHit{}, false
 	}
-	isNew, err := w.store.MarkSeen(wl.ID, r.InfoHash, r.Title, pickMagnet(r), r.Seeders, r.Size)
+	isNew, err := w.store.MarkSeen(ctx, wl.ID, r.InfoHash, r.Title, pickMagnet(r), r.Seeders, r.Size)
 	if err != nil {
 		log.Printf("watchlist[%d]: MarkSeen failed: %v", wl.ID, err)
 		return newHit{}, false
@@ -272,7 +272,7 @@ func (w *Worker) recordResult(wl *Watchlist, r jackett.Result, allowAuto bool) (
 	if !isNew {
 		return newHit{}, false
 	}
-	auto := w.maybeAutoDownload(wl, r, allowAuto)
+	auto := w.maybeAutoDownload(ctx, wl, r, allowAuto)
 	return newHit{title: r.Title, seeders: r.Seeders, size: r.Size, magnet: pickMagnet(r), auto: auto}, true
 }
 
@@ -340,7 +340,7 @@ func aggregateHits(wl *Watchlist, hits []newHit) (title, body, magnet string) {
 // maybeAutoDownload enqueues the hit when the watchlist opted in and the
 // release passes the quality filters. Best-effort: an enqueue failure only
 // logs — the user still gets the regular notification with the magnet.
-func (w *Worker) maybeAutoDownload(wl *Watchlist, r jackett.Result, allowAuto bool) bool {
+func (w *Worker) maybeAutoDownload(ctx context.Context, wl *Watchlist, r jackett.Result, allowAuto bool) bool {
 	if !allowAuto || !wl.AutoDownload || w.enqueuer == nil {
 		return false
 	}
@@ -351,7 +351,11 @@ func (w *Worker) maybeAutoDownload(wl *Watchlist, r jackett.Result, allowAuto bo
 		log.Printf("watchlist[%d]: auto-download enqueue failed: %v", wl.ID, err)
 		return false
 	}
-	if err := w.store.MarkAutoDownloaded(wl.ID, r.InfoHash); err != nil {
+	// The enqueue above is irreversible, so flag it even if the pass is being
+	// cancelled (shutdown); otherwise the UI would not show it as queued.
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := w.store.MarkAutoDownloaded(fctx, wl.ID, r.InfoHash); err != nil {
 		log.Printf("watchlist[%d]: MarkAutoDownloaded failed: %v", wl.ID, err)
 	}
 	log.Printf("watchlist[%d]: auto-download enqueued %q (user %d)", wl.ID, r.Title, wl.UserID)

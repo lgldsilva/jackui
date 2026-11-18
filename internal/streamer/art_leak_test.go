@@ -87,8 +87,15 @@ func TestTorrentImage_CanceledContextDoesNotLeakReaders(t *testing.T) {
 			t.Fatal("expected a context error from a canceled TorrentImage")
 		}
 	}
-	time.Sleep(250 * time.Millisecond)
-	if after := countStuckReaders(); after > before+2 {
+	// Poll until the readers have drained instead of sleeping a fixed window: a
+	// fixed 250ms flaked under -race load, and a real leak never drains so it
+	// still fails at the deadline.
+	after := countStuckReaders()
+	for deadline := time.Now().Add(5 * time.Second); after > before+2 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+		after = countStuckReaders()
+	}
+	if after > before+2 {
 		t.Fatalf("waitAvailable-blocked readers grew %d → %d across %d canceled TorrentImage calls — reads leak goroutine+reader",
 			before, after, calls)
 	}
