@@ -76,7 +76,7 @@ func TestSendOne_SkipsNonPublicEndpoint(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := sender.store.Subscribe(1, srv.URL, "p", "a"); err != nil {
+	if err := sender.store.Subscribe(context.Background(), 1, srv.URL, "p", "a"); err != nil {
 		t.Fatal(err)
 	}
 	if err := sender.NotifyUser(context.Background(), 1, "T", "b", ""); err != nil {
@@ -85,7 +85,7 @@ func TestSendOne_SkipsNonPublicEndpoint(t *testing.T) {
 	if delivered.Load() != 0 {
 		t.Fatalf("loopback endpoint must NOT be delivered to, got %d posts", delivered.Load())
 	}
-	subs, _ := sender.store.SubscriptionsFor(1)
+	subs, _ := sender.store.SubscriptionsFor(context.Background(), 1)
 	if len(subs) != 1 {
 		t.Fatalf("skip must keep the subscription row, got %+v", subs)
 	}

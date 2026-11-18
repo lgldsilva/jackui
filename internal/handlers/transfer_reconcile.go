@@ -26,7 +26,7 @@ func ReconcilePendingTransfers(pending *transfer.Store, tr *transfer.Tracker, st
 	if pending == nil {
 		return
 	}
-	list, err := pending.List()
+	list, err := pending.List(pendingCtx())
 	if err != nil {
 		log.Printf("transfer reconcile: list failed: %v", err)
 		return
@@ -43,7 +43,7 @@ func ReconcilePendingTransfers(pending *transfer.Store, tr *transfer.Tracker, st
 			// Unknown kind (older row / not yet supported): drop it so it doesn't
 			// linger forever. The source file stays intact (nothing was deleted).
 			log.Printf("transfer reconcile: dropping unsupported kind %q (#%d)", httpshared.SanitizeForLog(pt.Kind), pt.ID)
-			_ = pending.Remove(pt.ID)
+			_ = pending.Remove(pendingCtx(), pt.ID)
 		}
 	}
 }
@@ -61,7 +61,7 @@ func reconcilePromote(pending *transfer.Store, tr *transfer.Tracker, store *down
 		if _, dstErr := os.Stat(pt.Dst); dstErr == nil && pl.DownloadID > 0 {
 			_ = store.SetFilePath(pl.UserID, pl.DownloadID, pt.Dst)
 		}
-		_ = pending.Remove(pt.ID)
+		_ = pending.Remove(pendingCtx(), pt.ID)
 		return
 	}
 
@@ -88,7 +88,7 @@ func reconcilePromote(pending *transfer.Store, tr *transfer.Tracker, store *down
 			log.Printf("transfer reconcile: resume promote #%d failed: %v", pl.DownloadID, err)
 			return
 		}
-		_ = pending.Remove(pt.ID)
+		_ = pending.Remove(pendingCtx(), pt.ID)
 		job.Done()
 	})
 }

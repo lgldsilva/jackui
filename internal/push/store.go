@@ -5,6 +5,7 @@
 package push
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
@@ -47,8 +48,8 @@ func New(pool *sql.DB) (*Store, error) {
 // LoadOrCreateVAPID returns the persisted VAPID pair, generating it on first
 // boot. Rotating the pair would invalidate every browser subscription, so it
 // is generated exactly once.
-func (s *Store) LoadOrCreateVAPID() (publicKey, privateKey string, err error) {
-	row := s.db.QueryRow(`SELECT public_key, private_key FROM vapid_keys WHERE id=1`)
+func (s *Store) LoadOrCreateVAPID(ctx context.Context) (publicKey, privateKey string, err error) {
+	row := s.db.QueryRowContext(ctx, `SELECT public_key, private_key FROM vapid_keys WHERE id=1`)
 	switch err = row.Scan(&publicKey, &privateKey); {
 	case err == nil:
 		return publicKey, privateKey, nil
@@ -57,7 +58,7 @@ func (s *Store) LoadOrCreateVAPID() (publicKey, privateKey string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		_, err = s.db.Exec(`INSERT INTO vapid_keys(id, public_key, private_key) VALUES(1, ?, ?)`, publicKey, privateKey)
+		_, err = s.db.ExecContext(ctx, `INSERT INTO vapid_keys(id, public_key, private_key) VALUES(1, ?, ?)`, publicKey, privateKey)
 		return publicKey, privateKey, err
 	default:
 		return "", "", err
@@ -72,11 +73,11 @@ func (s *Store) LoadOrCreateVAPID() (publicKey, privateKey string, err error) {
 // unguessable capability URLs issued by the push service and only ever leave
 // the browser through this API, so the risk is low; rejecting re-own would
 // instead break switching users in the same browser profile.
-func (s *Store) Subscribe(userID int, endpoint, p256dh, auth string) error {
+func (s *Store) Subscribe(ctx context.Context, userID int, endpoint, p256dh, auth string) error {
 	if endpoint == "" || p256dh == "" || auth == "" {
 		return errors.New("endpoint, p256dh and auth are required")
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO push_subscriptions(user_id, endpoint, p256dh, auth) VALUES(?, ?, ?, ?)
 		ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, auth=excluded.auth
 	`, userID, endpoint, p256dh, auth)
@@ -84,21 +85,21 @@ func (s *Store) Subscribe(userID int, endpoint, p256dh, auth string) error {
 }
 
 // Unsubscribe removes the endpoint when owned by the user.
-func (s *Store) Unsubscribe(userID int, endpoint string) error {
-	_, err := s.db.Exec(`DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?`, userID, endpoint)
+func (s *Store) Unsubscribe(ctx context.Context, userID int, endpoint string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE user_id=? AND endpoint=?`, userID, endpoint)
 	return err
 }
 
 // DeleteEndpoint drops an endpoint regardless of owner — used when the push
 // service reports it gone (404/410).
-func (s *Store) DeleteEndpoint(endpoint string) error {
-	_, err := s.db.Exec(`DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
+func (s *Store) DeleteEndpoint(ctx context.Context, endpoint string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint)
 	return err
 }
 
 // SubscriptionsFor lists the user's registered endpoints.
-func (s *Store) SubscriptionsFor(userID int) ([]Subscription, error) {
-	rows, err := s.db.Query(`SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id=?`, userID)
+func (s *Store) SubscriptionsFor(ctx context.Context, userID int) ([]Subscription, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id=?`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -118,12 +119,12 @@ const maxFeedPerUser = 200
 
 // AddNotification appends to the in-app feed, trimming the oldest entries past
 // maxFeedPerUser so the table can't grow unbounded.
-func (s *Store) AddNotification(userID int, title, body, magnet string) error {
-	if _, err := s.db.Exec(`INSERT INTO notifications(user_id, title, body, magnet) VALUES(?, ?, ?, ?)`,
+func (s *Store) AddNotification(ctx context.Context, userID int, title, body, magnet string) error {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO notifications(user_id, title, body, magnet) VALUES(?, ?, ?, ?)`,
 		userID, title, body, magnet); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM notifications WHERE user_id=? AND id NOT IN (
 			SELECT id FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT ?
 		)`, userID, userID, maxFeedPerUser)
@@ -131,11 +132,11 @@ func (s *Store) AddNotification(userID int, title, body, magnet string) error {
 }
 
 // Notifications returns the newest entries of the user's feed.
-func (s *Store) Notifications(userID, limit int) ([]Notification, error) {
+func (s *Store) Notifications(ctx context.Context, userID, limit int) ([]Notification, error) {
 	if limit <= 0 || limit > maxFeedPerUser {
 		limit = 50
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, user_id, title, body, magnet, read, created_at
 		FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT ?`, userID, limit)
 	if err != nil {
@@ -156,14 +157,14 @@ func (s *Store) Notifications(userID, limit int) ([]Notification, error) {
 }
 
 // UnreadCount returns how many feed entries the user hasn't read.
-func (s *Store) UnreadCount(userID int) (int, error) {
+func (s *Store) UnreadCount(ctx context.Context, userID int) (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM notifications WHERE user_id=? AND read=0`, userID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notifications WHERE user_id=? AND read=0`, userID).Scan(&n)
 	return n, err
 }
 
 // MarkAllRead flags the whole feed as read.
-func (s *Store) MarkAllRead(userID int) error {
-	_, err := s.db.Exec(`UPDATE notifications SET read=1 WHERE user_id=? AND read=0`, userID)
+func (s *Store) MarkAllRead(ctx context.Context, userID int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE notifications SET read=1 WHERE user_id=? AND read=0`, userID)
 	return err
 }

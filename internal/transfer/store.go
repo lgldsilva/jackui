@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"context"
 	"database/sql"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
@@ -35,12 +36,12 @@ func OpenStore(pool *sql.DB) (*Store, error) {
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
 // Add persists a pending transfer and returns its id (0 when the store is nil).
-func (s *Store) Add(p Pending) (int64, error) {
+func (s *Store) Add(ctx context.Context, p Pending) (int64, error) {
 	if s == nil || s.db == nil {
 		return 0, nil
 	}
 	var id int64
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`INSERT INTO pending_transfers (kind, src, dst, payload) VALUES (?, ?, ?, ?) RETURNING id`,
 		p.Kind, p.Src, p.Dst, p.Payload,
 	).Scan(&id)
@@ -51,20 +52,20 @@ func (s *Store) Add(p Pending) (int64, error) {
 }
 
 // Remove deletes a pending transfer once its copy completed (no-op on id 0).
-func (s *Store) Remove(id int64) error {
+func (s *Store) Remove(ctx context.Context, id int64) error {
 	if s == nil || s.db == nil || id == 0 {
 		return nil
 	}
-	_, err := s.db.Exec(`DELETE FROM pending_transfers WHERE id = ?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM pending_transfers WHERE id = ?`, id)
 	return err
 }
 
 // List returns every pending transfer in insertion order (oldest first).
-func (s *Store) List() ([]Pending, error) {
+func (s *Store) List(ctx context.Context) ([]Pending, error) {
 	if s == nil || s.db == nil {
 		return nil, nil
 	}
-	rows, err := s.db.Query(`SELECT id, kind, src, dst, payload FROM pending_transfers ORDER BY id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, kind, src, dst, payload FROM pending_transfers ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

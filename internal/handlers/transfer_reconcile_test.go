@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -39,7 +40,7 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 	_ = store.SetStatus(0, d.ID, downloads.StatusCompleted)
 
 	payload, _ := json.Marshal(promotePayload{DownloadID: d.ID, UserID: 0, KeepSeeding: false})
-	if _, err := pending.Add(transfer.Pending{Kind: "promote", Src: src, Dst: dst, Payload: string(payload)}); err != nil {
+	if _, err := pending.Add(context.Background(), transfer.Pending{Kind: "promote", Src: src, Dst: dst, Payload: string(payload)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -64,12 +65,12 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 	// pending cleared + file_path updated.
 	deadline = time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if l, _ := pending.List(); len(l) == 0 {
+		if l, _ := pending.List(context.Background()); len(l) == 0 {
 			break
 		}
 		<-time.After(2 * time.Millisecond) // yields the CPU to the copy goroutine
 	}
-	if l, _ := pending.List(); len(l) != 0 {
+	if l, _ := pending.List(context.Background()); len(l) != 0 {
 		t.Errorf("pending should be empty, got %d", len(l))
 	}
 	if up, _ := store.Get(0, d.ID); up == nil || up.FilePath != dst {
@@ -97,11 +98,11 @@ func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 	}
 	_ = store.SetStatus(0, d.ID, downloads.StatusCompleted)
 	payload, _ := json.Marshal(promotePayload{DownloadID: d.ID, UserID: 0})
-	_, _ = pending.Add(transfer.Pending{Kind: "promote", Src: "/gone/done.mkv", Dst: dst, Payload: string(payload)})
+	_, _ = pending.Add(context.Background(), transfer.Pending{Kind: "promote", Src: "/gone/done.mkv", Dst: dst, Payload: string(payload)})
 
 	ReconcilePendingTransfers(pending, transfer.New(), store, s)
 
-	if l, _ := pending.List(); len(l) != 0 {
+	if l, _ := pending.List(context.Background()); len(l) != 0 {
 		t.Errorf("pending should be cleared, got %d", len(l))
 	}
 	if up, _ := store.Get(0, d.ID); up == nil || up.FilePath != dst {
@@ -116,9 +117,9 @@ func Test_Reconcile_UnknownKindDropped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _ = pending.Add(transfer.Pending{Kind: "bogus", Src: "a", Dst: "b"})
+	_, _ = pending.Add(context.Background(), transfer.Pending{Kind: "bogus", Src: "a", Dst: "b"})
 	ReconcilePendingTransfers(pending, transfer.New(), hgAStore(t), streamer.NewForTesting())
-	if l, _ := pending.List(); len(l) != 0 {
+	if l, _ := pending.List(context.Background()); len(l) != 0 {
 		t.Errorf("unknown kind should be removed, got %d", len(l))
 	}
 }
@@ -144,5 +145,16 @@ func Test_shouldSerialize_Modes(t *testing.T) {
 func Test_transferMode_NilSafe(t *testing.T) {
 	if transferMode(nil) != "" {
 		t.Error("transferMode(nil) should be empty")
+	}
+}
+
+// Pending-intent bookkeeping is deliberately not request-bound.
+func TestPendingCtx_IsLiveAndBounded(t *testing.T) {
+	ctx := pendingCtx()
+	if ctx.Err() != nil {
+		t.Fatal("pendingCtx must be live")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("pendingCtx must be bounded")
 	}
 }

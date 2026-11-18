@@ -182,7 +182,7 @@ func TestPutAICostConfig(t *testing.T) {
 	if cc := client.CostConfig(); cc.MaxCostPer1M != 0.5 || cc.KWhPrice != 0.16 || cc.LocalWatts != 300 {
 		t.Fatalf("live cost not applied: %+v", cc)
 	}
-	if got, ok := store.LoadCostConfig(); !ok || got.MaxCostPer1M != 0.5 {
+	if got, ok := store.LoadCostConfig(context.Background()); !ok || got.MaxCostPer1M != 0.5 {
 		t.Fatalf("not persisted: %+v ok=%v", got, ok)
 	}
 
@@ -277,10 +277,10 @@ func TestRunAIBenchmarkIncomplete_RerunsIncomplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SaveResults([]ai.SlotScore{{SlotID: "groq:m", Provider: "groq", Model: "m", Incomplete: true}}); err != nil {
+	if err := store.SaveResults(context.Background(), []ai.SlotScore{{SlotID: "groq:m", Provider: "groq", Model: "m", Incomplete: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetCases([]ai.BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}}); err != nil {
+	if err := store.SetCases(context.Background(), []ai.BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -292,7 +292,7 @@ func TestRunAIBenchmarkIncomplete_RerunsIncomplete(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
-	for _, sc := range store.Results() {
+	for _, sc := range store.Results(context.Background()) {
 		if sc.SlotID == "groq:m" && (sc.Incomplete || sc.Accuracy != 1) {
 			t.Fatalf("model should be complete + accurate after rerun, got %+v", sc)
 		}
@@ -318,7 +318,7 @@ func TestRunAIBenchmark_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetCases([]ai.BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}}); err != nil {
+	if err := store.SetCases(context.Background(), []ai.BenchmarkCase{{Raw: "Inception.2010", Expect: "Inception"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -373,7 +373,7 @@ func TestPersistBenchmarkRun(t *testing.T) {
 	scores := []ai.SlotScore{{SlotID: "p:m", Provider: "p", Model: "m", Samples: 1}}
 
 	// No store → pass-through, no error.
-	got, err := persistBenchmarkRun(nil, scores, "", "")
+	got, err := persistBenchmarkRun(context.Background(), nil, scores, "", "")
 	if err != nil || len(got) != 1 {
 		t.Fatalf("nil store: got %v, err %v", got, err)
 	}
@@ -385,7 +385,7 @@ func TestPersistBenchmarkRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool.Close()
-	if _, err := persistBenchmarkRun(store, scores, "", ""); err == nil {
+	if _, err := persistBenchmarkRun(context.Background(), store, scores, "", ""); err == nil {
 		t.Fatal("expected an error from a closed store")
 	}
 }
@@ -496,5 +496,22 @@ func TestGetAIBenchmark_ReportsRunning(t *testing.T) {
 	}
 	if !resp.Running || resp.StartedAt == "" {
 		t.Fatalf("expected running=true with a startedAt, got %+v", resp)
+	}
+}
+
+// The run is already paid for: persisting it must survive a client that left.
+func TestPersistBenchmarkRun_ClientGone_StillPersists(t *testing.T) {
+	store, err := ai.NewBenchmarkStore(dbtest.NewDB(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	scores := []ai.SlotScore{{SlotID: "p:m", Provider: "p", Model: "m", Samples: 1}}
+	if _, err := persistBenchmarkRun(gone, store, scores, "", ""); err != nil {
+		t.Fatalf("persist with a gone client: %v", err)
+	}
+	if got := store.Results(context.Background()); len(got) != 1 || got[0].SlotID != "p:m" {
+		t.Fatalf("results = %+v; want the persisted run", got)
 	}
 }

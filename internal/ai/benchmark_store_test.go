@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func seedHistory(t *testing.T, s *BenchmarkStore, slot, outcome, successAt, firs
 
 func resultBySlot(t *testing.T, s *BenchmarkStore, slot string) SlotScore {
 	t.Helper()
-	for _, r := range s.Results() {
+	for _, r := range s.Results(context.Background()) {
 		if r.SlotID == slot {
 			return r
 		}
@@ -71,10 +72,10 @@ func TestRunOutcome(t *testing.T) {
 // failure streak (consec 1, first_failure_at set) and no last_success_at.
 func TestRecordRunFirstError(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:m", Provider: "p", Model: "m"}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:m", Provider: "p", Model: "m"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordRun([]SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom"}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom"}}); err != nil {
 		t.Fatal(err)
 	}
 	r := resultBySlot(t, s, "p:m")
@@ -96,11 +97,11 @@ func TestRecordRunFirstError(t *testing.T) {
 // original first_failure_at (the date the error started) — that's "the error persisted".
 func TestRecordRunErrorPersists(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:m"}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:m"}}); err != nil {
 		t.Fatal(err)
 	}
 	seedHistory(t, s, "p:m", OutcomeError, "", "2020-01-01 00:00:00", 1)
-	if err := s.RecordRun([]SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom2"}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom2"}}); err != nil {
 		t.Fatal(err)
 	}
 	r := resultBySlot(t, s, "p:m")
@@ -119,11 +120,11 @@ func TestRecordRunErrorPersists(t *testing.T) {
 // stamps last_success_at — that's "when did it last succeed".
 func TestRecordRunRecovers(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:m"}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:m"}}); err != nil {
 		t.Fatal(err)
 	}
 	seedHistory(t, s, "p:m", OutcomeError, "", "2020-01-01 00:00:00", 3)
-	if err := s.RecordRun([]SlotScore{{SlotID: "p:m", Samples: 4, Accuracy: 1}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "p:m", Samples: 4, Accuracy: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	r := resultBySlot(t, s, "p:m")
@@ -145,11 +146,11 @@ func TestRecordRunRecovers(t *testing.T) {
 // succeeded errors, the last_success_at is kept — the UI still shows "last OK: …".
 func TestRecordRunErrorAfterSuccessPreservesLastSuccess(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:m"}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:m"}}); err != nil {
 		t.Fatal(err)
 	}
 	seedHistory(t, s, "p:m", OutcomeOK, "2019-05-05 12:00:00", "", 0)
-	if err := s.RecordRun([]SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom"}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom"}}); err != nil {
 		t.Fatal(err)
 	}
 	r := resultBySlot(t, s, "p:m")
@@ -165,11 +166,11 @@ func TestRecordRunErrorAfterSuccessPreservesLastSuccess(t *testing.T) {
 // error, so it clears the failure streak but does NOT stamp a new success.
 func TestRecordRunIncompleteResetsStreak(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:m"}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:m"}}); err != nil {
 		t.Fatal(err)
 	}
 	seedHistory(t, s, "p:m", OutcomeError, "2019-05-05 12:00:00", "2020-01-01 00:00:00", 2)
-	if err := s.RecordRun([]SlotScore{{SlotID: "p:m", Incomplete: true, FailureReason: "rate limited"}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "p:m", Incomplete: true, FailureReason: "rate limited"}}); err != nil {
 		t.Fatal(err)
 	}
 	r := resultBySlot(t, s, "p:m")
@@ -188,11 +189,11 @@ func TestRecordRunIncompleteResetsStreak(t *testing.T) {
 // touch the history of a slot that wasn't re-run (else its streak bumps for nothing).
 func TestRecordRunLeavesCarriedSlotUntouched(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:a"}, {SlotID: "p:b"}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:a"}, {SlotID: "p:b"}}); err != nil {
 		t.Fatal(err)
 	}
 	seedHistory(t, s, "p:b", OutcomeOK, "2019-05-05 12:00:00", "", 0)
-	if err := s.RecordRun([]SlotScore{{SlotID: "p:a", Samples: 0, FailureReason: "boom"}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "p:a", Samples: 0, FailureReason: "boom"}}); err != nil {
 		t.Fatal(err)
 	}
 	b := resultBySlot(t, s, "p:b")
@@ -209,7 +210,7 @@ func TestRecordRunLeavesCarriedSlotUntouched(t *testing.T) {
 // empty history fields rather than erroring.
 func TestResultsNoHistoryIsGraceful(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:m", Samples: 1, Accuracy: 1}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:m", Samples: 1, Accuracy: 1}}); err != nil {
 		t.Fatal(err)
 	}
 	r := resultBySlot(t, s, "p:m")
@@ -222,11 +223,11 @@ func TestResultsNoHistoryIsGraceful(t *testing.T) {
 // was never recorded (legacy/partial) gets one stamped now while still extending.
 func TestRecordRunErrorStreakWithoutPriorStart(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.SaveResults([]SlotScore{{SlotID: "p:m"}}); err != nil {
+	if err := s.SaveResults(context.Background(), []SlotScore{{SlotID: "p:m"}}); err != nil {
 		t.Fatal(err)
 	}
 	seedHistory(t, s, "p:m", OutcomeError, "", "", 1) // error streak, no first_failure_at
-	if err := s.RecordRun([]SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom"}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "p:m", Samples: 0, FailureReason: "boom"}}); err != nil {
 		t.Fatal(err)
 	}
 	r := resultBySlot(t, s, "p:m")
@@ -253,11 +254,11 @@ func TestTsRFC3339(t *testing.T) {
 
 func TestRecordRunNilSafe(t *testing.T) {
 	var s *BenchmarkStore
-	if err := s.RecordRun([]SlotScore{{SlotID: "x"}}); err != nil {
+	if err := s.RecordRun(context.Background(), []SlotScore{{SlotID: "x"}}); err != nil {
 		t.Errorf("nil store RecordRun should be a no-op, got %v", err)
 	}
 	live := newTestStore(t)
-	if err := live.RecordRun(nil); err != nil {
+	if err := live.RecordRun(context.Background(), nil); err != nil {
 		t.Errorf("empty RecordRun should be a no-op, got %v", err)
 	}
 }

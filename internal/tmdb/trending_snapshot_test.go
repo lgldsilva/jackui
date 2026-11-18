@@ -1,6 +1,7 @@
 package tmdb
 
 import (
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -50,14 +51,14 @@ func TestSetDirection(t *testing.T) {
 func TestApplyTrendingDirection_FirstWeekAllNew(t *testing.T) {
 	c := newSnapTestClient(t)
 	items := []Match{{TmdbID: 1}, {TmdbID: 2}, {TmdbID: 3}}
-	c.applyTrendingDirection(items)
+	c.applyTrendingDirection(context.Background(), items)
 	for _, m := range items {
 		if m.Direction != "new" {
 			t.Errorf("#%d: first week should be 'new', got %q", m.TmdbID, m.Direction)
 		}
 	}
 	// Snapshot was persisted.
-	ranks := c.prevWeekRanks("9999-W99")
+	ranks := c.prevWeekRanks(context.Background(), "9999-W99")
 	if len(ranks) != 3 {
 		t.Fatalf("expected 3 rows persisted, got %d", len(ranks))
 	}
@@ -74,7 +75,7 @@ func TestPrevWeekRanks_ComparesAcrossWeeks(t *testing.T) {
 	}
 	// This week: #3 jumped to the top, #1 fell.
 	items := []Match{{TmdbID: 3}, {TmdbID: 2}, {TmdbID: 1}}
-	c.applyTrendingDirection(items)
+	c.applyTrendingDirection(context.Background(), items)
 
 	byID := map[int]Match{}
 	for _, m := range items {
@@ -93,7 +94,7 @@ func TestPrevWeekRanks_ComparesAcrossWeeks(t *testing.T) {
 
 func TestSaveSnapshot_EmptyIsNoOp(t *testing.T) {
 	c := newSnapTestClient(t)
-	c.saveSnapshot("2030-W01", nil) // empty → no write, no panic
+	c.saveSnapshot(context.Background(), "2030-W01", nil) // empty → no write, no panic
 	var n int
 	_ = c.cache.QueryRow(`SELECT COUNT(*) FROM trending_snapshot`).Scan(&n)
 	if n != 0 {
@@ -108,13 +109,13 @@ func TestSnapshot_DBErrorsAreSafe(t *testing.T) {
 	c := newSnapTestClient(t)
 	_ = c.cache.Close()
 	items := []Match{{TmdbID: 1}, {TmdbID: 2}}
-	c.applyTrendingDirection(items)
+	c.applyTrendingDirection(context.Background(), items)
 	for _, m := range items {
 		if m.Direction != "new" {
 			t.Errorf("with no DB, items should default to 'new', got %q", m.Direction)
 		}
 	}
-	if got := c.prevWeekRanks("2099-W01"); len(got) != 0 {
+	if got := c.prevWeekRanks(context.Background(), "2099-W01"); len(got) != 0 {
 		t.Errorf("prevWeekRanks on closed DB should be empty, got %d", len(got))
 	}
 }
@@ -136,7 +137,7 @@ func TestPrevWeekRanks_DiscardsPartialOnRowsErr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	got := okClient.prevWeekRanks("2026-W41")
+	got := okClient.prevWeekRanks(context.Background(), "2026-W41")
 	if len(got) != 2 || got[10] != 0 || got[20] != 1 {
 		t.Fatalf("clean scan = %v, want map[10:0 20:1]", got)
 	}
@@ -149,7 +150,7 @@ func TestPrevWeekRanks_DiscardsPartialOnRowsErr(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if got := badClient.prevWeekRanks("2026-W41"); len(got) != 0 {
+	if got := badClient.prevWeekRanks(context.Background(), "2026-W41"); len(got) != 0 {
 		t.Fatalf("prevWeekRanks = %v, want an empty map after rows.Err", got)
 	}
 	if n := badDB.Queries(); n != 2 {
@@ -166,7 +167,7 @@ func TestSaveSnapshot_PrunesOldWeeks(t *testing.T) {
 			t.Fatalf("seed: %v", err)
 		}
 	}
-	c.saveSnapshot(weekKey(time.Now()), []Match{{TmdbID: 1}})
+	c.saveSnapshot(context.Background(), weekKey(time.Now()), []Match{{TmdbID: 1}})
 	var weeks int
 	_ = c.cache.QueryRow(`SELECT COUNT(DISTINCT week_key) FROM trending_snapshot`).Scan(&weeks)
 	if weeks > snapshotHistoryWeeks {

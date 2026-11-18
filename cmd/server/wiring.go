@@ -311,11 +311,11 @@ func initAIClient(deps *appDeps) {
 	} else {
 		deps.aiBench = bs
 		deps.addCleanup(func() { _ = bs.Close() })
-		if res := bs.Results(); len(res) > 0 {
+		if res := bs.Results(context.Background()); len(res) > 0 {
 			aiClient.AdoptBenchmark(res)
 		}
 		// A cost config set via the Settings UI overrides the env/yaml defaults.
-		if cc, ok := bs.LoadCostConfig(); ok {
+		if cc, ok := bs.LoadCostConfig(context.Background()); ok {
 			aiClient.SetCostConfig(cc)
 		}
 	}

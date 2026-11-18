@@ -31,7 +31,7 @@ type Sender struct {
 
 // NewSender loads (or generates) the VAPID pair and returns a ready Sender.
 func NewSender(store *Store) (*Sender, error) {
-	pub, priv, err := store.LoadOrCreateVAPID()
+	pub, priv, err := store.LoadOrCreateVAPID(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -108,10 +108,10 @@ type payload struct {
 // of the user's browser subscriptions. The feed write is the source of truth —
 // push delivery is opportunistic.
 func (s *Sender) NotifyUser(ctx context.Context, userID int, title, body, magnet string) error {
-	if err := s.store.AddNotification(userID, title, body, magnet); err != nil {
+	if err := s.store.AddNotification(ctx, userID, title, body, magnet); err != nil {
 		return err
 	}
-	subs, err := s.store.SubscriptionsFor(userID)
+	subs, err := s.store.SubscriptionsFor(ctx, userID)
 	if err != nil || len(subs) == 0 {
 		return err
 	}
@@ -153,7 +153,7 @@ func (s *Sender) sendOne(ctx context.Context, sub Subscription, msg []byte) {
 	defer func() { _ = resp.Body.Close() }()
 	// The push service says this endpoint no longer exists — stop trying.
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
-		_ = s.store.DeleteEndpoint(sub.Endpoint)
+		_ = s.store.DeleteEndpoint(ctx, sub.Endpoint)
 		return
 	}
 	if resp.StatusCode >= 300 {

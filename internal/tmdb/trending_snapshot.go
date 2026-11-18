@@ -1,6 +1,7 @@
 package tmdb
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -17,13 +18,13 @@ func weekKey(t time.Time) string {
 
 // applyTrendingDirection tags each item with its movement vs last week's ranking
 // (the slice order is the current rank), then persists this week's snapshot.
-func (c *Client) applyTrendingDirection(items []Match) {
+func (c *Client) applyTrendingDirection(ctx context.Context, items []Match) {
 	cur := weekKey(time.Now())
-	prev := c.prevWeekRanks(cur)
+	prev := c.prevWeekRanks(ctx, cur)
 	for i := range items {
 		setDirection(&items[i], i, prev)
 	}
-	c.saveSnapshot(cur, items)
+	c.saveSnapshot(ctx, cur, items)
 }
 
 func setDirection(m *Match, rank int, prevRanks map[int]int) {
@@ -42,15 +43,15 @@ func setDirection(m *Match, rank int, prevRanks map[int]int) {
 
 // prevWeekRanks returns tmdb_id→rank for the most recent snapshot week strictly
 // before curWeek. Empty (→ all "new") when there's no prior week yet.
-func (c *Client) prevWeekRanks(curWeek string) map[int]int {
+func (c *Client) prevWeekRanks(ctx context.Context, curWeek string) map[int]int {
 	ranks := map[int]int{}
 	var prevWeek string
-	if err := c.cache.QueryRow(
+	if err := c.cache.QueryRowContext(ctx,
 		`SELECT week_key FROM trending_snapshot WHERE week_key < ? ORDER BY week_key DESC LIMIT 1`,
 		curWeek).Scan(&prevWeek); err != nil || prevWeek == "" {
 		return ranks
 	}
-	rows, err := c.cache.Query(`SELECT tmdb_id, rank FROM trending_snapshot WHERE week_key=?`, prevWeek)
+	rows, err := c.cache.QueryContext(ctx, `SELECT tmdb_id, rank FROM trending_snapshot WHERE week_key=?`, prevWeek)
 	if err != nil {
 		return ranks
 	}
@@ -70,20 +71,24 @@ func (c *Client) prevWeekRanks(curWeek string) map[int]int {
 // saveSnapshot records this week's ranking (rank = slice index). Re-runs within
 // the same week overwrite (the list shifts across the 6h refresh window), then
 // old weeks beyond snapshotHistoryWeeks are pruned.
-func (c *Client) saveSnapshot(week string, items []Match) {
+func (c *Client) saveSnapshot(ctx context.Context, week string, items []Match) {
+	// The weekly ranking was fetched with several TMDB calls; persisting it must
+	// not depend on the requesting client staying connected.
+	ctx, cancel := detachedWriteCtx(ctx)
+	defer cancel()
 	if len(items) == 0 {
 		return
 	}
-	tx, err := c.cache.Begin()
+	tx, err := c.cache.BeginTx(ctx, nil)
 	if err != nil {
 		return
 	}
-	if _, err := tx.Exec(`DELETE FROM trending_snapshot WHERE week_key=?`, week); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM trending_snapshot WHERE week_key=?`, week); err != nil {
 		_ = tx.Rollback()
 		return
 	}
 	for i, m := range items {
-		if _, err := tx.Exec(`INSERT INTO trending_snapshot(week_key, tmdb_id, rank) VALUES(?, ?, ?)`, week, m.TmdbID, i); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO trending_snapshot(week_key, tmdb_id, rank) VALUES(?, ?, ?)`, week, m.TmdbID, i); err != nil {
 			_ = tx.Rollback()
 			return
 		}
@@ -91,6 +96,15 @@ func (c *Client) saveSnapshot(week string, items []Match) {
 	if err := tx.Commit(); err != nil {
 		return
 	}
-	_, _ = c.cache.Exec(`DELETE FROM trending_snapshot WHERE week_key NOT IN (
+	_, _ = c.cache.ExecContext(ctx, `DELETE FROM trending_snapshot WHERE week_key NOT IN (
 		SELECT DISTINCT week_key FROM trending_snapshot ORDER BY week_key DESC LIMIT ?)`, snapshotHistoryWeeks)
+}
+
+// detachedWriteTimeout bounds a cache write that outlives its caller's context.
+const detachedWriteTimeout = 10 * time.Second
+
+// detachedWriteCtx keeps ctx's values but not its cancellation (internal/tmdb
+// cannot import httpshared; same contract as httpshared.DetachedCtx).
+func detachedWriteCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), detachedWriteTimeout)
 }

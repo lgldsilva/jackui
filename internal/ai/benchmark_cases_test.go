@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -165,7 +166,7 @@ func TestStoreCasesOriginRoundtrip(t *testing.T) {
 	defer st.Close()
 
 	// First read seeds the FULL multi-task defaults, origin stamped.
-	cases := st.Cases()
+	cases := st.Cases(context.Background())
 	if len(cases) != len(AllDefaultBenchmarkCases()) {
 		t.Fatalf("seed: got %d cases, want %d", len(cases), len(AllDefaultBenchmarkCases()))
 	}
@@ -181,10 +182,10 @@ func TestStoreCasesOriginRoundtrip(t *testing.T) {
 		{Raw: "Kept.Case.2010.1080p", Expect: "Kept Case - 2010", Origin: OriginDefault},
 		{Raw: "toda quinta às 20h", Expect: "weekly:4:20:0", Task: TaskSchedule},
 	}
-	if err := st.SetCases(custom); err != nil {
+	if err := st.SetCases(context.Background(), custom); err != nil {
 		t.Fatalf("SetCases: %v", err)
 	}
-	got := st.Cases()
+	got := st.Cases(context.Background())
 	if len(got) != 3 || got[0].Origin != "" || got[1].Origin != OriginDefault {
 		t.Fatalf("roundtrip mismatch: %+v", got)
 	}
@@ -201,29 +202,29 @@ func TestStoreLegacySeedUpgrade(t *testing.T) {
 	defer st.Close()
 
 	// Simulate a store seeded by an older build: the original 7 cases, untouched.
-	if err := st.SetCases(legacySeedCases); err != nil {
+	if err := st.SetCases(context.Background(), legacySeedCases); err != nil {
 		t.Fatalf("SetCases legacy: %v", err)
 	}
-	if got := st.Cases(); len(got) != len(AllDefaultBenchmarkCases()) {
+	if got := st.Cases(context.Background()); len(got) != len(AllDefaultBenchmarkCases()) {
 		t.Fatalf("legacy seed should upgrade to the full multi-task defaults: got %d, want %d", len(got), len(AllDefaultBenchmarkCases()))
 	}
 
 	// A store seeded by the broad-but-rename-only build (no schedule/identify task)
 	// also upgrades to the full multi-task set.
-	if err := st.SetCases(DefaultBenchmarkCases); err != nil {
+	if err := st.SetCases(context.Background(), DefaultBenchmarkCases); err != nil {
 		t.Fatalf("SetCases rename-only: %v", err)
 	}
-	if got := st.Cases(); len(got) != len(AllDefaultBenchmarkCases()) {
+	if got := st.Cases(context.Background()); len(got) != len(AllDefaultBenchmarkCases()) {
 		t.Fatalf("rename-only seed should upgrade to full multi-task: got %d, want %d", len(got), len(AllDefaultBenchmarkCases()))
 	}
 
 	// But an EDITED legacy set is the user's — it must be preserved.
 	edited := append([]BenchmarkCase(nil), legacySeedCases...)
 	edited[0].Expect = "Edited - 2010"
-	if err := st.SetCases(edited); err != nil {
+	if err := st.SetCases(context.Background(), edited); err != nil {
 		t.Fatalf("SetCases edited: %v", err)
 	}
-	got := st.Cases()
+	got := st.Cases(context.Background())
 	if len(got) != len(edited) || got[0].Expect != "Edited - 2010" {
 		t.Fatalf("edited set must be preserved, got %+v", got)
 	}

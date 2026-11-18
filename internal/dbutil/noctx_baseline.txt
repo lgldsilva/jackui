@@ -1,6 +1,4 @@
 # Ctx-less database calls per file (see noctx_ratchet_test.go). Only ever lower these.
-ai/benchmark_store.go 17
-audiometa/store.go 2
 auth/auth_credentials.go 8
 auth/auth_sessions.go 11
 auth/auth_totp.go 10
@@ -16,12 +14,8 @@ downloads/store_delete.go 2
 downloads/store_groups.go 13
 downloads/store_list.go 11
 downloads/store_setters.go 20
-push/store.go 11
 streamer/favorites.go 22
 streamer/favorites_names.go 1
 streamer/favorites_recover.go 4
 streamer/metadata_cache.go 9
 streamer/seeds.go 4
-tmdb/client.go 3
-tmdb/trending_snapshot.go 6
-transfer/store.go 3

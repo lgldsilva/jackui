@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -94,7 +95,7 @@ func TestPromotePreparePlan_PendingIntentAllowsResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := `{"downloadID":` + strconv.Itoa(d.ID) + `,"userID":0}`
-	if _, err := pend.Add(transfer.Pending{Kind: "promote", Src: d.FilePath, Dst: dst, Payload: payload}); err != nil {
+	if _, err := pend.Add(context.Background(), transfer.Pending{Kind: "promote", Src: d.FilePath, Dst: dst, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 

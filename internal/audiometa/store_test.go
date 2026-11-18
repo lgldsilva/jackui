@@ -1,6 +1,7 @@
 package audiometa
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -34,11 +35,11 @@ func TestStoreSaveAndGet(t *testing.T) {
 		HasCover:    true,
 	}
 
-	if err := s.Save(absPath, modTime, tags); err != nil {
+	if err := s.Save(context.Background(), absPath, modTime, tags); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	got, ok := s.Get(absPath, modTime)
+	got, ok := s.Get(context.Background(), absPath, modTime)
 	if !ok {
 		t.Fatal("Get: expected ok=true, got false")
 	}
@@ -78,7 +79,7 @@ func TestStoreGetMiss(t *testing.T) {
 	absPath := "/music/unknown/song.mp3"
 	modTime := time.Now().Unix()
 
-	got, ok := s.Get(absPath, modTime)
+	got, ok := s.Get(context.Background(), absPath, modTime)
 	if ok {
 		t.Fatal("Get: expected ok=false for unknown path, got true")
 	}
@@ -105,12 +106,12 @@ func TestStoreGetStaleModtime(t *testing.T) {
 		HasCover:    true,
 	}
 
-	if err := s.Save(absPath, oldModTime, tags); err != nil {
+	if err := s.Save(context.Background(), absPath, oldModTime, tags); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	// Get with newer modtime should return miss (stale detection)
-	got, ok := s.Get(absPath, newModTime)
+	got, ok := s.Get(context.Background(), absPath, newModTime)
 	if ok {
 		t.Fatal("Get: expected ok=false for stale modtime, got true")
 	}
@@ -138,11 +139,11 @@ func TestStoreRoundTrip(t *testing.T) {
 		HasCover:    false,
 	}
 
-	if err := s.Save(absPath, modTime, tags1); err != nil {
+	if err := s.Save(context.Background(), absPath, modTime, tags1); err != nil {
 		t.Fatalf("Save first: %v", err)
 	}
 
-	got, ok := s.Get(absPath, modTime)
+	got, ok := s.Get(context.Background(), absPath, modTime)
 	if !ok {
 		t.Fatal("Get first: expected ok=true, got false")
 	}
@@ -163,11 +164,11 @@ func TestStoreRoundTrip(t *testing.T) {
 		HasCover:    false,
 	}
 
-	if err := s.Save(absPath, modTime, tags2); err != nil {
+	if err := s.Save(context.Background(), absPath, modTime, tags2); err != nil {
 		t.Fatalf("Save update: %v", err)
 	}
 
-	got, ok = s.Get(absPath, modTime)
+	got, ok = s.Get(context.Background(), absPath, modTime)
 	if !ok {
 		t.Fatal("Get update: expected ok=true, got false")
 	}
@@ -190,7 +191,7 @@ func TestStoreNilSafety(t *testing.T) {
 	}
 
 	// Get on nil store should not panic and return ok=false
-	got, ok := s.Get(absPath, modTime)
+	got, ok := s.Get(context.Background(), absPath, modTime)
 	if ok {
 		t.Fatal("Get nil store: expected ok=false, got true")
 	}
@@ -199,7 +200,7 @@ func TestStoreNilSafety(t *testing.T) {
 	}
 
 	// Save on nil store should not panic and return nil
-	if err := s.Save(absPath, modTime, tags); err != nil {
+	if err := s.Save(context.Background(), absPath, modTime, tags); err != nil {
 		t.Errorf("Save nil store: expected nil error, got %v", err)
 	}
 }

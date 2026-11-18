@@ -53,7 +53,7 @@ func TestNotifyUser_WritesFeedWithoutSubscriptions(t *testing.T) {
 	if err := sender.NotifyUser(context.Background(), 1, "Title", "body", "magnet:x"); err != nil {
 		t.Fatal(err)
 	}
-	items, _ := store.Notifications(1, 10)
+	items, _ := store.Notifications(context.Background(), 1, 10)
 	if len(items) != 1 || items[0].Title != "Title" || items[0].Magnet != "magnet:x" {
 		t.Fatalf("feed mismatch: %+v", items)
 	}
@@ -73,10 +73,10 @@ func TestNotifyUser_DeliversToEndpointAndDropsGone(t *testing.T) {
 	defer goneSrv.Close()
 
 	p256dh, auth := browserKeys(t)
-	if err := store.Subscribe(1, okSrv.URL, p256dh, auth); err != nil {
+	if err := store.Subscribe(context.Background(), 1, okSrv.URL, p256dh, auth); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Subscribe(1, goneSrv.URL, p256dh, auth); err != nil {
+	if err := store.Subscribe(context.Background(), 1, goneSrv.URL, p256dh, auth); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,7 +86,7 @@ func TestNotifyUser_DeliversToEndpointAndDropsGone(t *testing.T) {
 	if delivered.Load() != 1 {
 		t.Fatalf("expected 1 delivery to the live endpoint, got %d", delivered.Load())
 	}
-	subs, _ := store.SubscriptionsFor(1)
+	subs, _ := store.SubscriptionsFor(context.Background(), 1)
 	if len(subs) != 1 || subs[0].Endpoint != okSrv.URL {
 		t.Fatalf("gone endpoint should be dropped, kept %+v", subs)
 	}
@@ -108,18 +108,18 @@ func TestSendOne_TransportErrorAndServerError(t *testing.T) {
 	sender, store := newTestSender(t)
 	p256dh, auth := browserKeys(t)
 	// Unreachable endpoint → transport error path (just logs).
-	_ = store.Subscribe(1, "http://127.0.0.1:1/unreachable", p256dh, auth)
+	_ = store.Subscribe(context.Background(), 1, "http://127.0.0.1:1/unreachable", p256dh, auth)
 	// 500 from the push service → logged, subscription kept.
 	errSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer errSrv.Close()
-	_ = store.Subscribe(1, errSrv.URL, p256dh, auth)
+	_ = store.Subscribe(context.Background(), 1, errSrv.URL, p256dh, auth)
 
 	if err := sender.NotifyUser(context.Background(), 1, "T", "b", ""); err != nil {
 		t.Fatal(err)
 	}
-	subs, _ := store.SubscriptionsFor(1)
+	subs, _ := store.SubscriptionsFor(context.Background(), 1)
 	if len(subs) != 2 {
 		t.Fatalf("non-410 failures must keep subscriptions, got %d", len(subs))
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"testing"
 )
@@ -29,7 +30,7 @@ func TestPushSubscribe_RejectsInternalEndpoints(t *testing.T) {
 			t.Errorf("subscribe %q: status = %d, want 400; body %s", ep, w.Code, w.Body.String())
 		}
 	}
-	subs, _ := store.SubscriptionsFor(1)
+	subs, _ := store.SubscriptionsFor(context.Background(), 1)
 	if len(subs) != 0 {
 		t.Errorf("blocked endpoints must not be persisted, got %+v", subs)
 	}
@@ -48,7 +49,7 @@ func TestPushSubscribe_AcceptsPublicHTTPS(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("subscribe public endpoint: status = %d, want 200; body %s", w.Code, w.Body.String())
 	}
-	subs, _ := store.SubscriptionsFor(1)
+	subs, _ := store.SubscriptionsFor(context.Background(), 1)
 	if len(subs) != 1 {
 		t.Fatalf("expected the public endpoint persisted, got %+v", subs)
 	}

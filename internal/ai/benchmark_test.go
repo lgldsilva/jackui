@@ -799,13 +799,13 @@ func TestCostConfigRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if _, ok := st.LoadCostConfig(); ok {
+	if _, ok := st.LoadCostConfig(context.Background()); ok {
 		t.Fatal("fresh store should have no cost config")
 	}
-	if err := st.SaveCostConfig(CostConfig{MaxCostPer1M: 0.5, KWhPrice: 0.16, LocalWatts: 300}); err != nil {
+	if err := st.SaveCostConfig(context.Background(), CostConfig{MaxCostPer1M: 0.5, KWhPrice: 0.16, LocalWatts: 300}); err != nil {
 		t.Fatal(err)
 	}
-	cc, ok := st.LoadCostConfig()
+	cc, ok := st.LoadCostConfig(context.Background())
 	if !ok || cc.MaxCostPer1M != 0.5 || cc.KWhPrice != 0.16 || cc.LocalWatts != 300 {
 		t.Fatalf("round-trip wrong: %+v ok=%v", cc, ok)
 	}
@@ -1034,13 +1034,13 @@ func TestDefaultBenchmarkStorePath(t *testing.T) {
 func TestBenchmarkStoreEdgeCases(t *testing.T) {
 	t.Run("nil store returns defaults", func(t *testing.T) {
 		var s *BenchmarkStore
-		if got := s.Results(); got != nil {
+		if got := s.Results(context.Background()); got != nil {
 			t.Fatal("expected nil results")
 		}
-		if got := s.Order(); got != nil {
+		if got := s.Order(context.Background()); got != nil {
 			t.Fatal("expected nil order")
 		}
-		if got := s.Cases(); len(got) == 0 {
+		if got := s.Cases(context.Background()); len(got) == 0 {
 			t.Fatal("expected default cases")
 		}
 		if err := s.Close(); err != nil {
@@ -1058,15 +1058,15 @@ func TestBenchmarkStoreRoundTrip(t *testing.T) {
 
 	// Cases seed the FULL multi-task defaults (rename + schedule + identify) on
 	// first read.
-	if got := st.Cases(); len(got) != len(AllDefaultBenchmarkCases()) {
+	if got := st.Cases(context.Background()); len(got) != len(AllDefaultBenchmarkCases()) {
 		t.Fatalf("expected default cases seeded, got %d", len(got))
 	}
 	// Editable: replace the set.
 	custom := []BenchmarkCase{{Raw: "Foo.2020", Expect: "Foo"}}
-	if err := st.SetCases(custom); err != nil {
+	if err := st.SetCases(context.Background(), custom); err != nil {
 		t.Fatalf("SetCases: %v", err)
 	}
-	if got := st.Cases(); len(got) != 1 || got[0].Expect != "Foo" {
+	if got := st.Cases(context.Background()); len(got) != 1 || got[0].Expect != "Foo" {
 		t.Fatalf("cases not replaced: %+v", got)
 	}
 
@@ -1075,14 +1075,14 @@ func TestBenchmarkStoreRoundTrip(t *testing.T) {
 		{SlotID: "x", Composite: 0.9, Accuracy: 0.9, AvgLatencyMs: 500},
 		{SlotID: "y", Composite: 0.2, Accuracy: 0.5, AvgLatencyMs: 6000},
 	}
-	if err := st.SaveResults(scores); err != nil {
+	if err := st.SaveResults(context.Background(), scores); err != nil {
 		t.Fatalf("SaveResults: %v", err)
 	}
-	order := st.Order()
+	order := st.Order(context.Background())
 	if len(order) != 2 || order[0] != "x" || order[1] != "y" {
 		t.Fatalf("order wrong: %v", order)
 	}
-	if res := st.Results(); len(res) != 2 || res[0].SlotID != "x" {
+	if res := st.Results(context.Background()); len(res) != 2 || res[0].SlotID != "x" {
 		t.Fatalf("results wrong: %+v", res)
 	}
 }

@@ -53,7 +53,7 @@ func PushSubscribe(store *push.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if err := store.Subscribe(userID, in.Endpoint, in.Keys.P256dh, in.Keys.Auth); err != nil {
+		if err := store.Subscribe(c.Request.Context(), userID, in.Endpoint, in.Keys.P256dh, in.Keys.Auth); err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
@@ -76,7 +76,7 @@ func PushUnsubscribe(store *push.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if err := store.Unsubscribe(userID, in.Endpoint); err != nil {
+		if err := store.Unsubscribe(c.Request.Context(), userID, in.Endpoint); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -94,12 +94,12 @@ func NotificationsList(store *push.Store) gin.HandlerFunc {
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		limit, _ := strconv.Atoi(c.Query("limit"))
-		items, err := store.Notifications(userID, limit)
+		items, err := store.Notifications(c.Request.Context(), userID, limit)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		unread, _ := store.UnreadCount(userID)
+		unread, _ := store.UnreadCount(c.Request.Context(), userID)
 		c.JSON(http.StatusOK, gin.H{"items": items, "unread": unread})
 	}
 }
@@ -113,7 +113,7 @@ func NotificationsMarkRead(store *push.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if err := store.MarkAllRead(userID); err != nil {
+		if err := store.MarkAllRead(c.Request.Context(), userID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
