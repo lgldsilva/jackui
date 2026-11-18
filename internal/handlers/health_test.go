@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -171,8 +170,8 @@ func TestStatus_DbDegraded(t *testing.T) {
 	if body["status"] != "degraded" {
 		t.Errorf("status = %v, want 'degraded'", body["status"])
 	}
-	if !strings.HasPrefix(body["db"].(string), "down:") {
-		t.Errorf("db = %v, want 'down:...'", body["db"])
+	if body["db"] != "down" {
+		t.Errorf("db = %v, want 'down'", body["db"])
 	}
 }
 
@@ -247,8 +246,8 @@ func TestBuildInfo_DbDown(t *testing.T) {
 	}
 	var body map[string]interface{}
 	json.Unmarshal(w.Body.Bytes(), &body)
-	if !strings.HasPrefix(body["db"].(string), "down:") {
-		t.Errorf("db = %v, want 'down:...'", body["db"])
+	if body["db"] != "down" {
+		t.Errorf("db = %v, want 'down'", body["db"])
 	}
 }
 
