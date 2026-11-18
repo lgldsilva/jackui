@@ -6,9 +6,9 @@ require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/anacrolix/generics v0.2.0
 	github.com/anacrolix/log v0.17.1-0.20251118025802-918f1157b7bb
-	github.com/anacrolix/torrent v1.61.1-0.20260911233437-76452a2c8a2f
+	github.com/anacrolix/torrent v1.62.0
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
-	github.com/gin-contrib/cors v1.7.9
+	github.com/gin-contrib/cors v1.7.11
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -52,6 +52,7 @@ require (
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/edsrzf/mmap-go v1.2.0 // indirect
@@ -75,7 +76,6 @@ require (
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/pprof v0.0.0-20261016150608-1facf8f91b50 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/huandu/xstrings v1.5.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
