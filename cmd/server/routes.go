@@ -16,6 +16,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/gluetun"
 	"github.com/lgldsilva/jackui/internal/handlers"
 	lh "github.com/lgldsilva/jackui/internal/handlers/local"
+	"github.com/lgldsilva/jackui/internal/logging"
 	"github.com/lgldsilva/jackui/internal/mailer"
 	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/middleware"
@@ -137,19 +138,17 @@ func peerPortRefreshHandler(ctrlURL string, s *streamer.Streamer, restart chan<-
 func setupRouter(deps *appDeps) *gin.Engine {
 	router := gin.New()
 	applyTrustedProxies(router, deps.cfg.TrustedProxies)
-	// Custom formatter instead of gin.Logger(): media routes authenticate via
-	// ?token=<JWT> (<video> can't send headers), and the default access log was
-	// writing those JWTs verbatim into `docker logs`.
-	router.Use(gin.LoggerWithFormatter(middleware.RedactingLogFormatter))
-	router.Use(gin.Recovery())
+	// Request id + access log + panic recovery (text or JSON per
+	// JACKUI_LOG_FORMAT); see logsetup.go.
+	router.Use(httpLogMiddlewares(logging.JSONEnabled())...)
 	// Request count/latency per route template (FullPath, never the raw URL).
 	router.Use(metrics.HTTPMiddleware())
 
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowAllOrigins = true
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range"}
-	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range", middleware.HeaderRequestID}
+	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges", middleware.HeaderRequestID}
 	router.Use(cors.New(corsConfig))
 
 	router.GET("/healthz", handlers.Health(deps.historyStore, func() bool { return deps.streamSrv != nil }))

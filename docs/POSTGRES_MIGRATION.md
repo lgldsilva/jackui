@@ -15,7 +15,9 @@ tokens) são preservados na virada; o resto nasce vazio.
   `0007_subtitle_links` (decisões de legenda automática por (info_hash, file_index)).
 - Todos os stores recebem o `*sql.DB` compartilhado (`deps.db` em `cmd/server/main.go`).
 - Config: `JACKUI_DATABASE_URL` (ou `DATABASE_URL`, ou `JACKUI_PG_*`).
-- `jackui migrate-auth --from <auth.db> --to <DSN>`: ETL one-time do auth.db legado.
+- `go run ./cmd/migrate-auth --from <auth.db> --to <DSN>`: ETL one-time do auth.db legado.
+  É um binário à parte (o servidor não linka driver SQLite). Releases até a v0.107.8 (a última antes desta mudança) traziam o subcomando
+  `jackui migrate-auth` na imagem; daqui em diante use o comando standalone.
 
 ## Deploy local (sem VPN — `make deploy-auto`)
 
@@ -49,12 +51,14 @@ Edite à mão:
    cd <prod-config-dir>
    docker compose up -d postgres && docker compose ps   # aguarde "healthy"
    ```
-6. Rode a ETL do auth (no netns do gluetun, destino localhost:5432):
+6. Rode a ETL do auth (destino = o Postgres do passo 5). A imagem não traz mais
+   o migrator; rode-o de um checkout do repo, com acesso ao `auth.db` e ao PG:
    ```
-   docker compose run --rm --entrypoint /app/jackui jackui \
-     migrate-auth --from /data/auth.db \
-     --to "postgres://jackui:<senha>@localhost:5432/jackui?sslmode=disable"
+   go run ./cmd/migrate-auth --from <config-dir>/auth.db \
+     --to "postgres://jackui:<senha>@<host-do-pg>:5432/jackui?sslmode=disable"
    ```
+   (Alternativa: a imagem `ghcr.io/lgldsilva/jackui:v0.107.8`, a última com o
+   subcomando quando isto foi escrito, via `docker compose run --rm --entrypoint /app/jackui jackui migrate-auth …`.)
    Valide: `count(*)` por tabela + 1 login + 1 refresh token ativo.
 7. **Só depois da imagem nova (com pgx) publicada pelo workflow de release**, recrie:
    `docker compose up -d --force-recreate jackui` e acompanhe `logs -f jackui`.

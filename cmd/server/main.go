@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -228,10 +229,9 @@ func main() {
 	}
 	setupLogger()
 	setSoftMemoryLimit(os.Getenv("JACKUI_GOMEMLIMIT"))
-	// Subcommands must be handled before loadConfig (which treats os.Args[1] as
-	// the config path).
-	if handledMigrateAuth() {
-		return
+	// Must run before loadConfig, which treats os.Args[1] as the config path.
+	if err := removedSubcommand(os.Args[1:]); err != nil {
+		log.Fatal(err)
 	}
 	deps := bootstrapApp()
 	defer deps.runCleanup()
@@ -259,16 +259,14 @@ func main() {
 	serveUntilShutdown(deps, srv)
 }
 
-// handledMigrateAuth runs the migrate-auth subcommand when requested.
-// Returns true when main should exit (subcommand handled, success or fatal).
-func handledMigrateAuth() bool {
-	if len(os.Args) <= 1 || os.Args[1] != "migrate-auth" {
-		return false
+// removedSubcommand rejects the old `jackui migrate-auth` subcommand with a
+// pointer to its new home, instead of loading "migrate-auth" as a config path.
+func removedSubcommand(args []string) error {
+	if len(args) > 0 && args[0] == "migrate-auth" {
+		return errors.New("migrate-auth is no longer part of the server binary; " +
+			"build and run the standalone command: go run ./cmd/migrate-auth --from <auth.db> --to <DSN>")
 	}
-	if err := runMigrateAuth(os.Args[2:]); err != nil {
-		log.Fatalf("migrate-auth: %v", err)
-	}
-	return true
+	return nil
 }
 
 // bootstrapApp wires config, stores, workers and destinations.
