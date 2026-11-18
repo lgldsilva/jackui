@@ -5,12 +5,12 @@
 # Run:   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
 
 # Stage 1: Build frontend
-FROM node:24-alpine AS frontend
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS frontend
 
 WORKDIR /app/web
 
 COPY web/package.json web/package-lock.json* ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY web/ ./
 
@@ -20,7 +20,7 @@ ARG BUILD_TIMESTAMP
 RUN echo "Build at $BUILD_TIMESTAMP" && npm run build
 
 # Stage 2: Build backend (Alpine — small, no GPU code linked into Go binary)
-FROM golang:1.26.10-alpine3.24 AS backend
+FROM golang:1.26.10-alpine3.24@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS backend
 ENV GOTOOLCHAIN=auto
 
 WORKDIR /app
@@ -48,7 +48,7 @@ RUN go build -trimpath -ldflags "-s -w \
 # Stage 3: Final runtime — Ubuntu 22.04 + NVIDIA CUDA runtime + ffmpeg
 # nvidia/cuda image provides libcuda.so links, NVENC/NVDEC SDK, etc.
 # Ubuntu's ffmpeg package is compiled with --enable-nvenc --enable-cuvid.
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04@sha256:739e0bde7bafdb2ed9057865f53085539f51cbf8bd6bf719f2e114bab321e70e
 
 # Signal to nvidia-container-runtime which capabilities we need
 ENV NVIDIA_VISIBLE_DEVICES=all
