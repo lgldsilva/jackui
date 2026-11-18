@@ -1,6 +1,7 @@
 package push
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -20,11 +21,11 @@ func newTestStore(t *testing.T) *Store {
 
 func TestLoadOrCreateVAPID_StableAcrossCalls(t *testing.T) {
 	s := newTestStore(t)
-	pub1, priv1, err := s.LoadOrCreateVAPID()
+	pub1, priv1, err := s.LoadOrCreateVAPID(context.Background())
 	if err != nil || pub1 == "" || priv1 == "" {
 		t.Fatalf("first load: %q %q %v", pub1, priv1, err)
 	}
-	pub2, priv2, err := s.LoadOrCreateVAPID()
+	pub2, priv2, err := s.LoadOrCreateVAPID(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,38 +36,38 @@ func TestLoadOrCreateVAPID_StableAcrossCalls(t *testing.T) {
 
 func TestSubscribe_UpsertAndUnsubscribe(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.Subscribe(1, "https://push/ep1", "p", "a"); err != nil {
+	if err := s.Subscribe(context.Background(), 1, "https://push/ep1", "p", "a"); err != nil {
 		t.Fatal(err)
 	}
 	// Same endpoint re-subscribed by another user → re-owned, not duplicated.
-	if err := s.Subscribe(2, "https://push/ep1", "p2", "a2"); err != nil {
+	if err := s.Subscribe(context.Background(), 2, "https://push/ep1", "p2", "a2"); err != nil {
 		t.Fatal(err)
 	}
-	subs1, _ := s.SubscriptionsFor(1)
-	subs2, _ := s.SubscriptionsFor(2)
+	subs1, _ := s.SubscriptionsFor(context.Background(), 1)
+	subs2, _ := s.SubscriptionsFor(context.Background(), 2)
 	if len(subs1) != 0 || len(subs2) != 1 || subs2[0].P256dh != "p2" {
 		t.Fatalf("upsert mismatch: user1=%+v user2=%+v", subs1, subs2)
 	}
-	if err := s.Unsubscribe(2, "https://push/ep1"); err != nil {
+	if err := s.Unsubscribe(context.Background(), 2, "https://push/ep1"); err != nil {
 		t.Fatal(err)
 	}
-	subs2, _ = s.SubscriptionsFor(2)
+	subs2, _ = s.SubscriptionsFor(context.Background(), 2)
 	if len(subs2) != 0 {
 		t.Fatalf("unsubscribe left %+v", subs2)
 	}
 	// Missing fields rejected.
-	if err := s.Subscribe(1, "", "p", "a"); err == nil {
+	if err := s.Subscribe(context.Background(), 1, "", "p", "a"); err == nil {
 		t.Fatal("expected error for empty endpoint")
 	}
 }
 
 func TestDeleteEndpoint(t *testing.T) {
 	s := newTestStore(t)
-	_ = s.Subscribe(1, "https://push/dead", "p", "a")
-	if err := s.DeleteEndpoint("https://push/dead"); err != nil {
+	_ = s.Subscribe(context.Background(), 1, "https://push/dead", "p", "a")
+	if err := s.DeleteEndpoint(context.Background(), "https://push/dead"); err != nil {
 		t.Fatal(err)
 	}
-	subs, _ := s.SubscriptionsFor(1)
+	subs, _ := s.SubscriptionsFor(context.Background(), 1)
 	if len(subs) != 0 {
 		t.Fatalf("endpoint not deleted: %+v", subs)
 	}
@@ -74,34 +75,34 @@ func TestDeleteEndpoint(t *testing.T) {
 
 func TestNotificationsFeed(t *testing.T) {
 	s := newTestStore(t)
-	if err := s.AddNotification(1, "Title A", "body", "magnet:a"); err != nil {
+	if err := s.AddNotification(context.Background(), 1, "Title A", "body", "magnet:a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddNotification(1, "Title B", "body", ""); err != nil {
+	if err := s.AddNotification(context.Background(), 1, "Title B", "body", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddNotification(2, "Other user", "", ""); err != nil {
+	if err := s.AddNotification(context.Background(), 2, "Other user", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	items, err := s.Notifications(1, 0)
+	items, err := s.Notifications(context.Background(), 1, 0)
 	if err != nil || len(items) != 2 {
 		t.Fatalf("Notifications: %v %+v", err, items)
 	}
 	if items[0].Title != "Title B" {
 		t.Fatalf("newest first expected, got %+v", items[0])
 	}
-	unread, _ := s.UnreadCount(1)
+	unread, _ := s.UnreadCount(context.Background(), 1)
 	if unread != 2 {
 		t.Fatalf("unread = %d", unread)
 	}
-	if err := s.MarkAllRead(1); err != nil {
+	if err := s.MarkAllRead(context.Background(), 1); err != nil {
 		t.Fatal(err)
 	}
-	unread, _ = s.UnreadCount(1)
+	unread, _ = s.UnreadCount(context.Background(), 1)
 	if unread != 0 {
 		t.Fatalf("unread after mark = %d", unread)
 	}
-	otherUnread, _ := s.UnreadCount(2)
+	otherUnread, _ := s.UnreadCount(context.Background(), 2)
 	if otherUnread != 1 {
 		t.Fatalf("user 2 unread = %d", otherUnread)
 	}
@@ -110,11 +111,11 @@ func TestNotificationsFeed(t *testing.T) {
 func TestNotificationsFeed_TrimsToCap(t *testing.T) {
 	s := newTestStore(t)
 	for i := 0; i < maxFeedPerUser+10; i++ {
-		if err := s.AddNotification(1, "t", "", ""); err != nil {
+		if err := s.AddNotification(context.Background(), 1, "t", "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
-	items, err := s.Notifications(1, maxFeedPerUser)
+	items, err := s.Notifications(context.Background(), 1, maxFeedPerUser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,19 +132,19 @@ func TestStore_ErrorPathsOnClosedDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	pool.Close()
-	if _, _, err := s.LoadOrCreateVAPID(); err == nil {
+	if _, _, err := s.LoadOrCreateVAPID(context.Background()); err == nil {
 		t.Fatal("LoadOrCreateVAPID on closed db should error")
 	}
-	if err := s.AddNotification(1, "t", "", ""); err == nil {
+	if err := s.AddNotification(context.Background(), 1, "t", "", ""); err == nil {
 		t.Fatal("AddNotification on closed db should error")
 	}
-	if _, err := s.Notifications(1, 5); err == nil {
+	if _, err := s.Notifications(context.Background(), 1, 5); err == nil {
 		t.Fatal("Notifications on closed db should error")
 	}
-	if _, err := s.SubscriptionsFor(1); err == nil {
+	if _, err := s.SubscriptionsFor(context.Background(), 1); err == nil {
 		t.Fatal("SubscriptionsFor on closed db should error")
 	}
-	if err := s.MarkAllRead(1); err == nil {
+	if err := s.MarkAllRead(context.Background(), 1); err == nil {
 		t.Fatal("MarkAllRead on closed db should error")
 	}
 }

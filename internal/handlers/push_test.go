@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -89,7 +90,7 @@ func TestPush_SubscribeListUnsubscribe(t *testing.T) {
 		t.Fatalf("subscribe missing keys should 400, got %d", w.Code)
 	}
 
-	if err := store.AddNotification(1, "Hi", "body", ""); err != nil {
+	if err := store.AddNotification(context.Background(), 1, "Hi", "body", ""); err != nil {
 		t.Fatal(err)
 	}
 	w = pushDo(r, "GET", "/api/notifications?limit=10", nil)
@@ -110,7 +111,7 @@ func TestPush_SubscribeListUnsubscribe(t *testing.T) {
 	if w := pushDo(r, "POST", "/api/notifications/read", nil); w.Code != http.StatusOK {
 		t.Fatalf("mark read: %d", w.Code)
 	}
-	if n, _ := store.UnreadCount(1); n != 0 {
+	if n, _ := store.UnreadCount(context.Background(), 1); n != 0 {
 		t.Fatalf("unread after read = %d", n)
 	}
 

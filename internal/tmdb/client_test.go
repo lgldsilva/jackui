@@ -306,8 +306,8 @@ func TestMatch_APIError(t *testing.T) {
 
 func TestSetCached_NilMatch(t *testing.T) {
 	c, _ := New("key", "", dbtest.NewDB(t))
-	c.setCached("testkey", nil)
-	m, ok := c.getCached("testkey")
+	c.setCached(context.Background(), "testkey", nil)
+	m, ok := c.getCached(context.Background(), "testkey")
 	// Negative cache: ok=true, m=nil
 	if !ok {
 		t.Fatal("expected negative cache hit (ok=true)")
@@ -355,7 +355,7 @@ func TestGetCached_ExpiredEntry(t *testing.T) {
 	c, _ := New("key", "", dbtest.NewDB(t))
 
 	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, '{"title":"old"}', '2020-01-01 00:00:00')`, "expiredkey")
-	m, ok := c.getCached("expiredkey")
+	m, ok := c.getCached(context.Background(), "expiredkey")
 	if ok || m != nil {
 		t.Fatal("expected expired entry to be treated as miss")
 	}
@@ -365,7 +365,7 @@ func TestGetCached_CorruptPayload(t *testing.T) {
 	c, _ := New("key", "", dbtest.NewDB(t))
 
 	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, '{corrupt', CURRENT_TIMESTAMP)`, "corruptkey")
-	m, ok := c.getCached("corruptkey")
+	m, ok := c.getCached(context.Background(), "corruptkey")
 	if ok || m != nil {
 		t.Fatal("expected corrupt entry to be treated as miss")
 	}
@@ -375,7 +375,7 @@ func TestGetCached_NegativeCache(t *testing.T) {
 	c, _ := New("key", "", dbtest.NewDB(t))
 
 	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, 'null', CURRENT_TIMESTAMP)`, "negkey")
-	m, ok := c.getCached("negkey")
+	m, ok := c.getCached(context.Background(), "negkey")
 	if !ok || m != nil {
 		t.Fatal("expected negative cache hit (ok=true, m=nil)")
 	}
@@ -473,28 +473,28 @@ func TestBackfillRating(t *testing.T) {
 
 	c, _ := New("key", "omdbkey", dbtest.NewDB(t))
 
-	c.setCached("movie|2020", &Match{TmdbID: 1, ImdbID: "tt1234567", ImdbRating: 0, Title: "Test", Year: 2020, Kind: "movie"})
+	c.setCached(context.Background(), "movie|2020", &Match{TmdbID: 1, ImdbID: "tt1234567", ImdbRating: 0, Title: "Test", Year: 2020, Kind: "movie"})
 	c.backfillRating("movie|2020", Match{TmdbID: 1, ImdbID: "tt1234567", ImdbRating: 0, Title: "Test", Year: 2020, Kind: "movie"})
 }
 
 func TestBackfillRating_ZeroRating(t *testing.T) {
 	c, _ := New("key", "omdbkey", dbtest.NewDB(t))
 
-	c.setCached("testkey", &Match{TmdbID: 1, ImdbID: "tt0000000", Title: "Test", Kind: "movie"})
+	c.setCached(context.Background(), "testkey", &Match{TmdbID: 1, ImdbID: "tt0000000", Title: "Test", Kind: "movie"})
 	c.backfillRating("testkey", Match{TmdbID: 1, ImdbID: "tt0000000", Title: "Test", Kind: "movie"})
 }
 
 func TestSetCachedAndGetCached(t *testing.T) {
 	c, _ := New("key", "", dbtest.NewDB(t))
 
-	c.setCached("testkey", nil)
-	m, ok := c.getCached("testkey")
+	c.setCached(context.Background(), "testkey", nil)
+	m, ok := c.getCached(context.Background(), "testkey")
 	if !ok || m != nil {
 		t.Fatal("expected ok=true, nil match for negative cache")
 	}
 
-	c.setCached("testkey2", &Match{TmdbID: 42, Title: "Found", Kind: "movie"})
-	m, ok = c.getCached("testkey2")
+	c.setCached(context.Background(), "testkey2", &Match{TmdbID: 42, Title: "Found", Kind: "movie"})
+	m, ok = c.getCached(context.Background(), "testkey2")
 	if !ok || m == nil || m.TmdbID != 42 {
 		t.Fatal("expected cached match")
 	}
@@ -589,7 +589,7 @@ func TestCachedTTLCheck(t *testing.T) {
 
 	// Insert fresh entry
 	c.cache.Exec(`INSERT INTO tmdb_match(cache_key, payload, cached_at) VALUES(?, '{"tmdbId":1,"title":"test","kind":"movie"}', now())`, "freshkey")
-	m, ok := c.getCached("freshkey")
+	m, ok := c.getCached(context.Background(), "freshkey")
 	if !ok || m == nil || m.TmdbID != 1 {
 		t.Fatal("expected fresh cache hit")
 	}

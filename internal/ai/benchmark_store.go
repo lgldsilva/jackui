@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
@@ -36,13 +37,13 @@ func b2i(b bool) int {
 
 // SaveResults replaces the stored results with a fresh run. The slice is assumed
 // sorted best-first (as Run returns it), so the index becomes chain_order.
-func (s *BenchmarkStore) SaveResults(scores []SlotScore) error {
-	tx, err := s.db.Begin()
+func (s *BenchmarkStore) SaveResults(ctx context.Context, scores []SlotScore) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM benchmark_result`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM benchmark_result`); err != nil {
 		return err
 	}
 	for i, sc := range scores {
@@ -52,7 +53,7 @@ func (s *BenchmarkStore) SaveResults(scores []SlotScore) error {
 				tasksJSON = string(b)
 			}
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason, incomplete, cost_per_1m, tasks)
 			VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, sc.SlotID, sc.Provider, sc.Model, sc.Accuracy, sc.AvgLatencyMs, sc.Composite, i, sc.Samples, sc.FailureReason, b2i(sc.Incomplete), sc.CostPer1M, tasksJSON); err != nil {
@@ -70,18 +71,18 @@ func (s *BenchmarkStore) SaveResults(scores []SlotScore) error {
 //   - ok         → last_success_at = now, streak cleared
 //   - incomplete → last_success_at preserved, streak cleared (rate-limited, not a hard error)
 //   - error      → last_success_at preserved, streak extended (first_failure_at kept; +1)
-func (s *BenchmarkStore) RecordRun(fresh []SlotScore) error {
+func (s *BenchmarkStore) RecordRun(ctx context.Context, fresh []SlotScore) error {
 	if s == nil || len(fresh) == 0 {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	now := time.Now().UTC()
 	for _, sc := range fresh {
-		if err := recordOneHistory(tx, sc, now); err != nil {
+		if err := recordOneHistory(ctx, tx, sc, now); err != nil {
 			return err
 		}
 	}
@@ -91,27 +92,27 @@ func (s *BenchmarkStore) RecordRun(fresh []SlotScore) error {
 // RecordOne is RecordRun for a single freshly-measured score, in its own
 // transaction — used to update the durable history incrementally, one slot at a
 // time, as a benchmark run progresses (see UpsertResult).
-func (s *BenchmarkStore) RecordOne(sc SlotScore) error {
+func (s *BenchmarkStore) RecordOne(ctx context.Context, sc SlotScore) error {
 	if s == nil {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := recordOneHistory(tx, sc, time.Now().UTC()); err != nil {
+	if err := recordOneHistory(ctx, tx, sc, time.Now().UTC()); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func recordOneHistory(tx *dbutil.Tx, sc SlotScore, now time.Time) error {
+func recordOneHistory(ctx context.Context, tx *dbutil.Tx, sc SlotScore, now time.Time) error {
 	var prev histState
-	_ = tx.QueryRow(`SELECT last_outcome, last_success_at, first_failure_at, consecutive_failures FROM benchmark_history WHERE slot_id = ?`, sc.SlotID).
+	_ = tx.QueryRowContext(ctx, `SELECT last_outcome, last_success_at, first_failure_at, consecutive_failures FROM benchmark_history WHERE slot_id = ?`, sc.SlotID).
 		Scan(&prev.outcome, &prev.successAt, &prev.firstFailAt, &prev.consec)
 	next := nextHistState(prev, sc, now)
-	_, err := tx.Exec(`
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO benchmark_history(slot_id, last_outcome, last_error, last_success_at, last_run_at, first_failure_at, consecutive_failures)
 		VALUES(?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(slot_id) DO UPDATE SET
@@ -133,7 +134,7 @@ func recordOneHistory(tx *dbutil.Tx, sc SlotScore, now time.Time) error {
 // the end. chain_order is left at its current value (or 0 for a new row) — the
 // closing SaveResults call re-derives the real best-first order once the whole
 // run completes.
-func (s *BenchmarkStore) UpsertResult(sc SlotScore) error {
+func (s *BenchmarkStore) UpsertResult(ctx context.Context, sc SlotScore) error {
 	if s == nil {
 		return nil
 	}
@@ -143,7 +144,7 @@ func (s *BenchmarkStore) UpsertResult(sc SlotScore) error {
 			tasksJSON = string(b)
 		}
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO benchmark_result(slot_id, provider, model, accuracy, avg_latency_ms, composite, chain_order, samples, failure_reason, incomplete, cost_per_1m, tasks)
 		VALUES(?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
 		ON CONFLICT(slot_id) DO UPDATE SET
@@ -222,18 +223,27 @@ func tsRFC3339(ns sql.NullTime) string {
 // Results returns the last benchmark, ordered best-first by chain_order, with each
 // row's durable run history (outcome, success/run timestamps, failure streak)
 // joined in. Legacy rows with no history row leave those fields empty/zero.
-func (s *BenchmarkStore) Results() []SlotScore {
+func (s *BenchmarkStore) Results(ctx context.Context) []SlotScore {
+	out, _ := s.ResultsErr(ctx)
+	return out
+}
+
+// ResultsErr is Results with the failure surfaced: a read that fails (dead ctx,
+// DB error, truncated rows) returns an error instead of looking like "no
+// results". Callers that feed a WRITE (re-run, merge) must use this one, or a
+// failed read becomes an empty set that the write then commits over the table.
+func (s *BenchmarkStore) ResultsErr(ctx context.Context) ([]SlotScore, error) {
 	if s == nil {
-		return nil
+		return nil, nil
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.slot_id, r.provider, r.model, r.accuracy, r.avg_latency_ms, r.composite, r.samples, r.failure_reason, r.incomplete, r.cost_per_1m, r.tasks,
 		       h.last_outcome, h.last_error, h.last_success_at, h.last_run_at, h.first_failure_at, h.consecutive_failures
 		FROM benchmark_result r
 		LEFT JOIN benchmark_history h ON h.slot_id = r.slot_id
 		ORDER BY r.chain_order`)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []SlotScore
@@ -257,19 +267,19 @@ func (s *BenchmarkStore) Results() []SlotScore {
 			out = append(out, sc)
 		}
 	}
-	if rows.Err() != nil {
-		return nil // a truncated read must not look like the full result set
+	if err := rows.Err(); err != nil {
+		return nil, err // a truncated read must not look like the full result set
 	}
-	return out
+	return out, nil
 }
 
 // Order returns the persisted chain order (slot ids, best-first), or nil if no
 // benchmark has run — the chain then keeps its config order.
-func (s *BenchmarkStore) Order() []string {
+func (s *BenchmarkStore) Order(ctx context.Context) []string {
 	if s == nil {
 		return nil
 	}
-	rows, err := s.db.Query(`SELECT slot_id FROM benchmark_result ORDER BY chain_order`)
+	rows, err := s.db.QueryContext(ctx, `SELECT slot_id FROM benchmark_result ORDER BY chain_order`)
 	if err != nil {
 		return nil
 	}
@@ -290,13 +300,24 @@ func (s *BenchmarkStore) Order() []string {
 // Cases returns the user-editable case set, seeding the defaults on first use.
 // The seed is the FULL multi-task set (rename + schedule + identify), so a fresh
 // install benchmarks every AI task out of the box.
-func (s *BenchmarkStore) Cases() []BenchmarkCase {
-	if s == nil {
-		return AllDefaultBenchmarkCases()
-	}
-	rows, err := s.db.Query(`SELECT raw, expect, task, origin FROM benchmark_case ORDER BY id`)
+func (s *BenchmarkStore) Cases(ctx context.Context) []BenchmarkCase {
+	out, err := s.CasesErr(ctx)
 	if err != nil {
-		return AllDefaultBenchmarkCases()
+		return AllDefaultBenchmarkCases() // display/boot only: defaults in memory, never persisted
+	}
+	return out
+}
+
+// CasesErr is Cases with the failure surfaced. A run that persists its outcome
+// must use this one: silently falling back to the defaults would measure, and
+// store as authoritative, a case set the user did not choose.
+func (s *BenchmarkStore) CasesErr(ctx context.Context) ([]BenchmarkCase, error) {
+	if s == nil {
+		return AllDefaultBenchmarkCases(), nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT raw, expect, task, origin FROM benchmark_case ORDER BY id`)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
 	var out []BenchmarkCase
@@ -306,42 +327,42 @@ func (s *BenchmarkStore) Cases() []BenchmarkCase {
 			out = append(out, bc)
 		}
 	}
-	if rows.Err() != nil {
+	if err := rows.Err(); err != nil {
 		// A failed read is NOT an empty table: never re-seed (that would overwrite
-		// the user's edited set) — serve the defaults in memory only.
-		return AllDefaultBenchmarkCases()
+		// the user's edited set).
+		return nil, err
 	}
 	if len(out) == 0 {
 		def := AllDefaultBenchmarkCases()
-		_ = s.SetCases(def)
-		return def
+		_ = s.SetCases(ctx, def)
+		return def, nil
 	}
 	// Upgrade path: a store still holding the original 7-case seed untouched, OR the
 	// rename-only broad set with no schedule/identify task yet, gets the new full
 	// multi-task default set. Any user-edited set is left alone.
 	if isLegacySeed(out) || isRenameOnlySeed(out) {
 		def := AllDefaultBenchmarkCases()
-		_ = s.SetCases(def)
-		return def
+		_ = s.SetCases(ctx, def)
+		return def, nil
 	}
-	return out
+	return out, nil
 }
 
 // SetCases replaces the entire case set (the UI sends the full edited list).
-func (s *BenchmarkStore) SetCases(cases []BenchmarkCase) error {
-	tx, err := s.db.Begin()
+func (s *BenchmarkStore) SetCases(ctx context.Context, cases []BenchmarkCase) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM benchmark_case`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM benchmark_case`); err != nil {
 		return err
 	}
 	for _, bc := range cases {
 		if bc.Raw == "" {
 			continue
 		}
-		if _, err := tx.Exec(`INSERT INTO benchmark_case(raw, expect, task, origin) VALUES(?, ?, ?, ?)`, bc.Raw, bc.Expect, bc.Task, bc.Origin); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO benchmark_case(raw, expect, task, origin) VALUES(?, ?, ?, ?)`, bc.Raw, bc.Expect, bc.Task, bc.Origin); err != nil {
 			return err
 		}
 	}
@@ -350,17 +371,17 @@ func (s *BenchmarkStore) SetCases(cases []BenchmarkCase) error {
 
 // SaveCostConfig persists the runtime cost knobs (set from the Settings UI) so
 // they survive a restart and override the env/yaml defaults on boot.
-func (s *BenchmarkStore) SaveCostConfig(cc CostConfig) error {
+func (s *BenchmarkStore) SaveCostConfig(ctx context.Context, cc CostConfig) error {
 	if s == nil {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for k, v := range map[string]float64{"max_cost_per_1m": cc.MaxCostPer1M, "kwh_price": cc.KWhPrice, "local_watts": cc.LocalWatts} {
-		if _, err := tx.Exec(`INSERT INTO benchmark_setting(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, v); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO benchmark_setting(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, v); err != nil {
 			return err
 		}
 	}
@@ -369,11 +390,11 @@ func (s *BenchmarkStore) SaveCostConfig(cc CostConfig) error {
 
 // LoadCostConfig returns the persisted cost knobs and ok=true when any were saved
 // (so boot can apply a UI override; otherwise the env/yaml config stands).
-func (s *BenchmarkStore) LoadCostConfig() (CostConfig, bool) {
+func (s *BenchmarkStore) LoadCostConfig(ctx context.Context) (CostConfig, bool) {
 	if s == nil {
 		return CostConfig{}, false
 	}
-	rows, err := s.db.Query(`SELECT key, value FROM benchmark_setting`)
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM benchmark_setting`)
 	if err != nil {
 		return CostConfig{}, false
 	}

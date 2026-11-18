@@ -1,6 +1,7 @@
 package audiometa
 
 import (
+	"context"
 	"database/sql"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
@@ -35,14 +36,14 @@ func New(pool *sql.DB) (*Store, error) {
 // the file's current modtime (incremental invalidation: a re-rip / promote that
 // changes the file changes its mtime, so a stale row is treated as a miss). ok
 // is false on miss, stale row, or nil store.
-func (s *Store) Get(absPath string, modUnix int64) (Tags, bool) {
+func (s *Store) Get(ctx context.Context, absPath string, modUnix int64) (Tags, bool) {
 	if s == nil {
 		return Tags{}, false
 	}
 	var t Tags
 	var hasCover int
 	var lastMod int64
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT title, artist, album, album_artist, genre, year, track_number, disc_number, has_cover, last_mod
 		FROM audio_metadata WHERE file_path = ?`, absPath).
 		Scan(&t.Title, &t.Artist, &t.Album, &t.AlbumArtist, &t.Genre, &t.Year, &t.TrackNumber, &t.DiscNumber, &hasCover, &lastMod)
@@ -55,7 +56,7 @@ func (s *Store) Get(absPath string, modUnix int64) (Tags, bool) {
 
 // Save upserts the parsed tags for absPath at the given modtime. Single-row,
 // short transaction — never holds the connection for a folder-wide scan.
-func (s *Store) Save(absPath string, modUnix int64, t Tags) error {
+func (s *Store) Save(ctx context.Context, absPath string, modUnix int64, t Tags) error {
 	if s == nil {
 		return nil
 	}
@@ -63,7 +64,7 @@ func (s *Store) Save(absPath string, modUnix int64, t Tags) error {
 	if t.HasCover {
 		hasCover = 1
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO audio_metadata(file_path, title, artist, album, album_artist, genre, year, track_number, disc_number, has_cover, last_mod, updated_at)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(file_path) DO UPDATE SET

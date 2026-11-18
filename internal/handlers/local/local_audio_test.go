@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -241,5 +242,28 @@ func TestLocalPlayAudioUnknownUnsafeExtDirect(t *testing.T) {
 	}
 	if resp.Kind != "direct" {
 		t.Errorf("unidentifiable flac should direct-play, got %q", resp.Kind)
+	}
+}
+
+// The parsed-tags cache write must land even when the client dropped.
+func TestLocalAudioMeta_ClientGone_StillCachesTags(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "song.mp3"), id3mp3(false), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := lb.NewBrowser([]config.ExternalMount{{Name: "M", Path: dir}})
+	pool := dbtest.NewDB(t)
+	st, err := audiometa.New(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, c := ctxFor("GET", "/api/local/audio/meta?mount=M&path=song.mp3")
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	cancel()
+	c.Request = c.Request.WithContext(ctx)
+	LocalAudioMeta(b, st)(c)
+	var n int
+	if err := pool.QueryRow("SELECT COUNT(*) FROM audio_metadata").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("cached rows = %d, %v; want 1 (write must survive a gone client)", n, err)
 	}
 }

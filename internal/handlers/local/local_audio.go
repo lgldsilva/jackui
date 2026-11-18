@@ -75,7 +75,7 @@ func LocalAudioMeta(b *lb.Browser, store *audiometa.Store) gin.HandlerFunc {
 			return
 		}
 		modUnix := stat.ModTime().Unix()
-		if t, hit := store.Get(abs, modUnix); hit {
+		if t, hit := store.Get(c.Request.Context(), abs, modUnix); hit {
 			c.JSON(http.StatusOK, t)
 			return
 		}
@@ -85,7 +85,10 @@ func LocalAudioMeta(b *lb.Browser, store *audiometa.Store) gin.HandlerFunc {
 			c.JSON(http.StatusOK, audiometa.Tags{})
 			return
 		}
-		_ = store.Save(abs, modUnix, t)
+		// Cache write after a parse the client may not wait for: detached.
+		sctx, scancel := httpshared.DetachedCtx(c.Request.Context())
+		defer scancel()
+		_ = store.Save(sctx, abs, modUnix, t)
 		c.JSON(http.StatusOK, t)
 	}
 }
@@ -111,7 +114,7 @@ func LocalAudioCover(b *lb.Browser, store *audiometa.Store, webSearch *imagesear
 		}
 		// Embedded cover first. A cached row saying "no embedded cover" skips the
 		// re-parse and jumps straight to the web fallback.
-		if t, hit := store.Get(abs, modUnix); !(hit && !t.HasCover) {
+		if t, hit := store.Get(c.Request.Context(), abs, modUnix); !hit || t.HasCover {
 			if cover, has, err := audiometa.ReadCover(abs); err == nil && has {
 				c.Header(httpshared.CacheControl, httpshared.CachePublicYear)
 				c.Header("ETag", etag)

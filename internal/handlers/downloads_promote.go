@@ -446,7 +446,7 @@ func submitPromotePlans(o *promoteOpts, tr *transfer.Tracker, plans []*promotePl
 				log.Printf("promote: #%d %q failed: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
 				return
 			}
-			_ = o.pending.Remove(pid)
+			_ = o.pending.Remove(pendingCtx(), pid)
 			job.Done()
 		})
 	}
@@ -476,7 +476,7 @@ func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promoteP
 				log.Printf("promote: #%d %q failed: %v", p.d.ID, httpshared.SanitizeForLog(p.d.Name), err)
 				continue
 			}
-			_ = o.pending.Remove(pids[i])
+			_ = o.pending.Remove(pendingCtx(), pids[i])
 		}
 		if firstErr != nil {
 			job.Fail(firstErr)
@@ -490,7 +490,7 @@ func submitPromoteSerial(o *promoteOpts, tr *transfer.Tracker, plans []*promoteP
 // the id used to remove it on completion.
 func addPendingPromote(o *promoteOpts, p *promotePlan) int64 {
 	payload, _ := json.Marshal(promotePayload{DownloadID: p.d.ID, UserID: o.userID, KeepSeeding: o.keepSeeding})
-	pid, _ := o.pending.Add(transfer.Pending{Kind: "promote", Src: p.src, Dst: p.dst, Payload: string(payload)})
+	pid, _ := o.pending.Add(pendingCtx(), transfer.Pending{Kind: "promote", Src: p.src, Dst: p.dst, Payload: string(payload)})
 	return pid
 }
 
@@ -532,7 +532,7 @@ func promoteDestPath(o *promoteOpts, baseName string, targetDir *string) string 
 // resume rather than a clobber. A nil or unreadable pending store means no
 // intent: the fresh-move collision rule applies.
 func hasPendingPromoteIntent(pending *transfer.Store, src, dst string) bool {
-	list, err := pending.List()
+	list, err := pending.List(pendingCtx())
 	if err != nil {
 		return false
 	}
@@ -637,4 +637,15 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer, worker Down
 		notifyRemoved(worker, row)
 		c.Status(http.StatusNoContent)
 	}
+}
+
+// pendingCtx returns a bounded context for the pending-transfer bookkeeping.
+// The intent row is the crash-recovery marker of a copy that outlives its
+// request (and its completion runs on a transfer goroutine), so these writes
+// are deliberately not tied to any request. The cancel is released by the
+// timeout.
+func pendingCtx() context.Context {
+	ctx, cancel := httpshared.DetachedCtx(context.Background())
+	_ = cancel // bounded by DetachedWriteTimeout; no request to release on
+	return ctx
 }

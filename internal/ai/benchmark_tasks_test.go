@@ -395,10 +395,10 @@ func TestStoreResultTaskBreakdownRoundtrip(t *testing.T) {
 		}},
 		{SlotID: "b", Composite: 0.5, Accuracy: 0.5, Samples: 1}, // no breakdown
 	}
-	if err := st.SaveResults(scores); err != nil {
+	if err := st.SaveResults(context.Background(), scores); err != nil {
 		t.Fatalf("SaveResults: %v", err)
 	}
-	got := st.Results()
+	got := st.Results(context.Background())
 	if len(got) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(got))
 	}

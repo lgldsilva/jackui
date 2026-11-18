@@ -152,7 +152,7 @@ func (c *Client) Match(ctx context.Context, rawTitle string) (*Match, error) {
 	}
 
 	// Cache lookup
-	if m, ok := c.getCached(key); ok {
+	if m, ok := c.getCached(ctx, key); ok {
 		return m, nil
 	}
 
@@ -161,14 +161,14 @@ func (c *Client) Match(ctx context.Context, rawTitle string) (*Match, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.setCached(key, m)
+	c.setCached(ctx, key, m)
 	return m, nil
 }
 
-func (c *Client) getCached(key string) (*Match, bool) {
+func (c *Client) getCached(ctx context.Context, key string) (*Match, bool) {
 	var payload string
 	var ts time.Time
-	err := c.cache.QueryRow(`SELECT payload, cached_at FROM tmdb_match WHERE cache_key=?`, key).Scan(&payload, &ts)
+	err := c.cache.QueryRowContext(ctx, `SELECT payload, cached_at FROM tmdb_match WHERE cache_key=?`, key).Scan(&payload, &ts)
 	if err != nil {
 		return nil, false
 	}
@@ -208,16 +208,23 @@ func (c *Client) backfillRating(key string, m Match) {
 	m.ImdbRating = rating
 	b, _ := json.Marshal(&m)
 	// Preserve cached_at so the backfill doesn't extend the TTL of a stale match.
-	_, _ = c.cache.Exec(`UPDATE tmdb_match SET payload=? WHERE cache_key=?`, string(b), key)
+	wctx, wcancel := detachedWriteCtx(context.Background())
+	defer wcancel()
+	_, _ = c.cache.ExecContext(wctx, `UPDATE tmdb_match SET payload=? WHERE cache_key=?`, string(b), key)
 }
 
-func (c *Client) setCached(key string, m *Match) {
+// setCached stores a lookup result. The write is detached from the caller's
+// cancellation: the TMDB round-trip that produced it is already paid for, and a
+// cache miss is cheap to avoid.
+func (c *Client) setCached(ctx context.Context, key string, m *Match) {
+	ctx, cancel := detachedWriteCtx(ctx)
+	defer cancel()
 	payload := "null"
 	if m != nil {
 		b, _ := json.Marshal(m)
 		payload = string(b)
 	}
-	_, _ = c.cache.Exec(`
+	_, _ = c.cache.ExecContext(ctx, `
 		INSERT INTO tmdb_match(cache_key, payload, cached_at)
 		VALUES(?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload, cached_at=CURRENT_TIMESTAMP
@@ -348,7 +355,7 @@ func (c *Client) fetchTrending(ctx context.Context) ([]Match, error) {
 	// across pages (the weekly ranking shifts between HTTP calls), and a repeat
 	// would reach the UI as two cards sharing one React key ("kind-tmdbId").
 	all = dedupeMatches(all)
-	c.applyTrendingDirection(all)
+	c.applyTrendingDirection(ctx, all)
 	return all, nil
 }
 

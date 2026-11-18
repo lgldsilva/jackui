@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"context"
 	"io"
 	"testing"
 
@@ -14,13 +15,13 @@ func TestBenchmarkStore_IterationErrorIsNotEmpty(t *testing.T) {
 	f := dbtest.NewFailRowsDB(t, nil, io.ErrUnexpectedEOF)
 	s, _ := NewBenchmarkStore(f.DB)
 
-	if got := s.Cases(); len(got) != len(AllDefaultBenchmarkCases()) {
+	if got := s.Cases(context.Background()); len(got) != len(AllDefaultBenchmarkCases()) {
 		t.Fatalf("Cases() = %d cases, want the in-memory defaults", len(got))
 	}
 	if n := f.Execs(); n != 0 {
 		t.Fatalf("Cases() wrote %d statements after a failed read — would overwrite the user's set", n)
 	}
-	if _, found := s.LoadCostConfig(); found {
+	if _, found := s.LoadCostConfig(context.Background()); found {
 		t.Fatal("LoadCostConfig must report not-found on a failed read")
 	}
 }
@@ -28,19 +29,19 @@ func TestBenchmarkStore_IterationErrorIsNotEmpty(t *testing.T) {
 func TestBenchmarkStore_PartialReadIsDiscarded(t *testing.T) {
 	f := dbtest.NewFailRowsDB(t, [][]any{{"slot-a"}}, io.ErrUnexpectedEOF)
 	s, _ := NewBenchmarkStore(f.DB)
-	if got := s.Order(); got != nil {
+	if got := s.Order(context.Background()); got != nil {
 		t.Fatalf("Order() = %v, want nil (a truncated chain order must not be applied)", got)
 	}
 
 	f2 := dbtest.NewFailRowsDB(t, [][]any{{"max_cost_per_1m", 2.5}}, io.ErrUnexpectedEOF)
 	s2, _ := NewBenchmarkStore(f2.DB)
-	if cc, found := s2.LoadCostConfig(); found {
+	if cc, found := s2.LoadCostConfig(context.Background()); found {
 		t.Fatalf("LoadCostConfig = %+v,true, want not-found on a truncated read", cc)
 	}
 
 	f3 := dbtest.NewFailRowsDB(t, [][]any{{"r", "e", "rename", "user"}}, io.ErrUnexpectedEOF)
 	s3, _ := NewBenchmarkStore(f3.DB)
-	if got := s3.Cases(); len(got) == 1 {
+	if got := s3.Cases(context.Background()); len(got) == 1 {
 		t.Fatal("Cases() returned a truncated user set as if complete")
 	}
 	if f3.Execs() != 0 {

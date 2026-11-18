@@ -2,6 +2,7 @@ package audiometa
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -134,10 +135,10 @@ func TestStoreRoundTripAndStale(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	tags := Tags{Title: "T", Artist: "A", Album: "Al", Year: 2024, TrackNumber: 3, HasCover: true}
-	if err := st.Save("/m/x.flac", 1000, tags); err != nil {
+	if err := st.Save(context.Background(), "/m/x.flac", 1000, tags); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	got, ok := st.Get("/m/x.flac", 1000)
+	got, ok := st.Get(context.Background(), "/m/x.flac", 1000)
 	if !ok {
 		t.Fatal("expected cache hit")
 	}
@@ -145,24 +146,24 @@ func TestStoreRoundTripAndStale(t *testing.T) {
 		t.Errorf("round-trip mismatch: %+v", got)
 	}
 	// A changed mtime invalidates the row (incremental cache).
-	if _, ok := st.Get("/m/x.flac", 2000); ok {
+	if _, ok := st.Get(context.Background(), "/m/x.flac", 2000); ok {
 		t.Error("expected miss when mtime differs (stale)")
 	}
 	// Re-save at the new mtime updates in place.
-	if err := st.Save("/m/x.flac", 2000, tags); err != nil {
+	if err := st.Save(context.Background(), "/m/x.flac", 2000, tags); err != nil {
 		t.Fatalf("Save (update): %v", err)
 	}
-	if _, ok := st.Get("/m/x.flac", 2000); !ok {
+	if _, ok := st.Get(context.Background(), "/m/x.flac", 2000); !ok {
 		t.Error("expected hit after re-save at new mtime")
 	}
 }
 
 func TestStoreNilSafe(t *testing.T) {
 	var st *Store
-	if _, ok := st.Get("/x", 1); ok {
+	if _, ok := st.Get(context.Background(), "/x", 1); ok {
 		t.Error("nil store Get should miss")
 	}
-	if err := st.Save("/x", 1, Tags{}); err != nil {
+	if err := st.Save(context.Background(), "/x", 1, Tags{}); err != nil {
 		t.Errorf("nil store Save should no-op, got %v", err)
 	}
 }
