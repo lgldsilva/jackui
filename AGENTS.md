@@ -105,7 +105,7 @@ scenarios found while operating the project.
 
 ## Cursor Cloud specific instructions
 
-- `.cursor/cloud-install.sh` installs PostgreSQL 16, Node 24.19.0 (same release as `Dockerfile.ci`), and golangci-lint v2.13.1, then runs `npm ci` and `npm run build` in `web/`. The frontend build is required because `ui/embed.go` embeds `all:dist`, so `go run ./cmd/server` fails when `ui/dist` is missing.
+- `.cursor/cloud-install.sh` installs PostgreSQL 16, Node 24.19.0 (same release as `Dockerfile.ci`), and golangci-lint v2.15.0, then runs `npm ci` and `npm run build` in `web/`. The frontend build is required because `ui/embed.go` embeds `all:dist`, so `go run ./cmd/server` fails when `ui/dist` is missing.
 - Node is unpacked to `/usr/local/lib/jackui-node`. The agent `PATH` finds `/exec-daemon/node` first, so install and start symlink `node`, `npm`, and `npx` there.
 - `.cursor/cloud-start.sh` starts PostgreSQL without systemd (`pg_ctlcluster`), creates the peer-auth role `ubuntu` and databases `jackui` (app) and `jackui_test` (Go tests), and writes `~/.jackui/dev.env`. Source that file before `make dev-backend` and before `make test`. The DSNs are quoted because they contain `&`. `JACKUI_TEST_DATABASE_URL` must stay on `jackui_test`: store tests drop tables, and a shared `public` schema makes those error-path tests hit the app's live rows.
 - Stop the dev backend before `make test`. `streamer.New` turns `ListenPort: 0` into peer port 51469, the same port the server binds, so torrent-client tests fail with `address already in use` while it is running.

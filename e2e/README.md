@@ -43,7 +43,7 @@ docker run --rm --network <stack_network> \
   -v "$PWD":/work -w /work \
   -e E2E_BASE_URL=http://<app_container>:8989 \
   -e E2E_ADMIN_PASSWORD='…' \
-  golang:1.26.10-alpine go test -tags e2e ./e2e/
+  golang:1.27.4-alpine go test -tags e2e ./e2e/
 ```
 
 ## Expected-status convention

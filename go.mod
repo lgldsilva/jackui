@@ -1,6 +1,6 @@
 module github.com/lgldsilva/jackui
 
-go 1.26.10
+go 1.27.4
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0

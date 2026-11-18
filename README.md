@@ -2,7 +2,7 @@
 
 A self-hosted **torrent streaming media server** — search, stream a torrent to your browser *before it finishes downloading*, transcode on the fly with hardware acceleration, and watch (Safari included, via HLS). Go backend, React UI embedded in a single binary, runs in Docker.
 
-![status](https://img.shields.io/badge/status-active-success) ![go](https://img.shields.io/badge/Go-1.26+-00ADD8) ![license](https://img.shields.io/badge/license-MIT-blue)
+![status](https://img.shields.io/badge/status-active-success) ![go](https://img.shields.io/badge/Go-1.27+-00ADD8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 > JackUI started as a visual front-end for [Jackett](https://github.com/Jackett/Jackett) and grew into a full media server: find a release, start playing it while it downloads, and let the server transcode incompatible codecs to something your browser can play. No "wait for the download to finish", no separate transcoding box.
 >
@@ -56,7 +56,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 
 | Layer | Tech |
 |---|---|
-| Backend | Go 1.26, [Gin](https://github.com/gin-gonic/gin), [anacrolix/torrent](https://github.com/anacrolix/torrent) |
+| Backend | Go 1.27, [Gin](https://github.com/gin-gonic/gin), [anacrolix/torrent](https://github.com/anacrolix/torrent) |
 | Transcode | ffmpeg (NVENC / VAAPI / QSV / libx264), HLS for Safari |
 | Frontend | React 18 + TypeScript + Vite + TailwindCSS, embedded via `//go:embed all:dist` |
 | Storage | PostgreSQL (`JACKUI_DATABASE_URL`, unified schema via `internal/db`); disk cache for torrent pieces |
@@ -64,7 +64,7 @@ The torrent is exposed as a seekable HTTP source with Range support, so ffmpeg (
 
 ## Requirements
 
-- **Go 1.26+** and **Node 20.19+** (for development/building).
+- **Go 1.27+** and **Node 20.19+** (for development/building).
 - **ffmpeg** with the hardware encoders you intend to use (NVENC needs an NVIDIA GPU + the NVIDIA container toolkit; VAAPI/QSV need `/dev/dri`).
 - **Docker** (for deployment) and a [Jackett](https://github.com/Jackett/Jackett) instance for search.
 
