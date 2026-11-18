@@ -10,6 +10,7 @@ import { dedupeMatches } from '../lib/dedupeMatches'
 import { usePersistedState } from '../lib/storage'
 import { useQueryParam, useEnumQueryParam } from '../lib/useQueryState'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
+import { useLatestRequest } from '../lib/useLatestRequest'
 import { newTabProps, searchHref } from '../lib/cardNav'
 import { useMediaMode } from '../lib/mediaMode'
 import { MusicDiscoverView } from '../components/MusicDiscoverView'
@@ -264,16 +265,24 @@ export default function DiscoverPage() {
     tmdbRecommendations().then(l => setRecs(dedupeMatches(l))).catch(() => setRecs([]))
   }, [])
 
+  // A slow response for a previous year/genre must not replace the current one.
+  const trendingReq = useLatestRequest()
   const loadTrending = useCallback(() => {
+    const isLatest = trendingReq.begin()
     setItems(null)
     setTrendingError(null)
     tmdbTrending({ year, genre })
-      .then(l => { setItems(dedupeMatches(l)); setTrendingError(null) })
+      .then(l => {
+        if (!isLatest()) return
+        setItems(dedupeMatches(l))
+        setTrendingError(null)
+      })
       .catch(err => {
+        if (!isLatest()) return
         setItems([])
         setTrendingError(err instanceof Error ? err.message : t('discover.load_error'))
       })
-  }, [year, genre, t])
+  }, [year, genre, t, trendingReq])
 
   // Trending / discover list — refetched whenever the year/genre filter changes.
   useEffect(() => { loadTrending() }, [loadTrending])
