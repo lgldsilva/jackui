@@ -173,3 +173,46 @@ describe('Sheet — accessibility', () => {
     expect(dialog).not.toHaveAttribute('aria-labelledby')
   })
 })
+
+// Regression (#223): Sheet is rendered without a portal, so a React Escape
+// keydown bubbled to whatever hosts it. Over the player that also minimized the
+// player (or sent a full-viewport tab back Home).
+describe('Sheet — keyboard layering', () => {
+  it('Escape closes the sheet and never reaches a parent onKeyDown', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const parentKeys: string[] = []
+
+    render(
+      <div role="presentation" onKeyDown={e => parentKeys.push(e.key)}>
+        <Sheet open onClose={onClose} title="Layered">
+          <button data-testid="inner">Inner</button>
+        </Sheet>
+      </div>,
+    )
+
+    screen.getByTestId('inner').focus()
+    await user.keyboard('{Escape}')
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(parentKeys).not.toContain('Escape')
+  })
+
+  it('still lets non-Escape keys bubble to the host', async () => {
+    const user = userEvent.setup()
+    const parentKeys: string[] = []
+
+    render(
+      <div role="presentation" onKeyDown={e => parentKeys.push(e.key)}>
+        <Sheet open onClose={vi.fn()} title="Layered">
+          <button data-testid="inner">Inner</button>
+        </Sheet>
+      </div>,
+    )
+
+    screen.getByTestId('inner').focus()
+    await user.keyboard('a')
+
+    expect(parentKeys).toContain('a')
+  })
+})
