@@ -26,13 +26,45 @@ GitHub (PR / push main / tag v*)
         ├─ semver          scripts/semver.sh + scripts/release-guard.sh
         │                  (a published <semver> is never overwritten from another commit)
         ├─ ci              calls ci.yml; build/push needs it green
-        ├─ build amd64     load local (no push)
-        ├─ Trivy gate      CRITICAL fails BEFORE registry push
-        ├─ push multi-arch ghcr.io/<owner>/jackui:{version,latest} (amd64+arm64)
-        ├─ push nvidia     ghcr.io/<owner>/jackui:nvidia (amd64)
-        ├─ SBOM            CycloneDX via Trivy → attached to GitHub Release
-        └─ GitHub Release  changelog + bom.json
+        ├─ build default   amd64+arm64, pushed BY DIGEST only (no tag)
+        ├─ Trivy gate      CRITICAL, on that digest: linux/amd64 and linux/arm64
+        ├─ build nvidia    amd64 (Dockerfile.nvidia), pushed BY DIGEST only
+        ├─ Trivy gate      CRITICAL, on the nvidia digest
+        ├─ promote         scanned digests → :{version,latest} and :nvidia
+        ├─ SBOM            CycloneDX via Trivy, one per scanned image/platform
+        └─ GitHub Release  changelog + bom-*.json
 ```
+
+### Release image gate
+
+The gate scans the artifact that is published, not a look-alike build
+(`scripts/release-images.sh`, contract-tested by `scripts/release-images_test.sh`):
+
+1. Each image is built once and pushed to GHCR **by digest only**
+   (`push-by-digest=true`): the manifest exists in the registry but no tag
+   points at it.
+2. `release-images.sh scan` runs Trivy against that digest from the registry,
+   once per platform (`linux/amd64` and `linux/arm64` for the default image,
+   `linux/amd64` for the NVIDIA image), failing on any fixable `CRITICAL`, and
+   writes that platform's CycloneDX SBOM. It refuses a reference that is not
+   digest-pinned.
+3. Only after **every** scan passed, `release-images.sh promote` points
+   `:<semver>`, `:latest` and `:nvidia` at the scanned digests
+   (`docker buildx imagetools create`) and reads each tag back to confirm the
+   registry serves exactly the scanned digest.
+
+If a gate fails, the job fails, no tag moves, and the GitHub Release is not
+created. The rejected manifest stays in GHCR untagged (reachable only by its
+digest) until the package version is deleted. Do not bulk-delete "untagged"
+versions: the per-platform children of a tagged multi-arch image are untagged
+too.
+
+The NVIDIA image shares the gate: a fixable `CRITICAL` in its `nvidia/cuda`
+base blocks the whole release, default image included, until the base is
+bumped (Dependabot ignores `nvidia/cuda`, so that bump is manual).
+
+SBOMs attached to the GitHub Release: `bom-linux-amd64.json`,
+`bom-linux-arm64.json` (default image) and `bom-nvidia-linux-amd64.json`.
 
 ## Images
 
