@@ -407,7 +407,7 @@ func TestAutoNoResultsGatesStaleOutcomeFields(t *testing.T) {
 	// zero traffic.
 	base, searches := f2.server.totals()
 	f2.a.StartTorrent(f2.meta, fresh, 0)
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, f2.a)
 	if total, s := f2.server.totals(); total != base || s != searches {
 		t.Errorf("Start on failed row issued HTTP: total/searches = %d/%d, want %d/%d", total, s, base, searches)
 	}
@@ -500,7 +500,7 @@ func TestAutoDedupSecondStartZeroHTTP(t *testing.T) {
 
 	// RF7: a ready row means the second Start issues zero OS traffic.
 	f.a.StartTorrent(f.meta, f.hash, 0)
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, f.a)
 	total, searches := f.server.totals()
 	if total != base || searches != 1 {
 		t.Errorf("after second Start: total/searches = %d/%d, want %d/1", total, searches, base)
@@ -550,7 +550,7 @@ func TestAutoLanguagesChangeResearcheExactlyOnce(t *testing.T) {
 
 	// Converged: further Starts are free.
 	f.a.StartTorrent(f.meta, f.hash, 0)
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, f.a)
 	if _, searches := f.server.totals(); searches != 2 {
 		t.Errorf("post-convergence searches = %d, want 2", searches)
 	}
@@ -672,7 +672,7 @@ func TestAutoCancelStopsHashPhase(t *testing.T) {
 	}
 	f.a.Cancel(f.key)
 	<-f.meta.canceled
-	time.Sleep(100 * time.Millisecond) // let the goroutine settle
+	waitIdle(t, f.a)
 
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("OS traffic after cancel = %d, want 0", total)
@@ -730,7 +730,7 @@ func TestAutoRefineUpgradesOnce(t *testing.T) {
 
 	// A second completion event must not re-search (source == hash).
 	f.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, f.a)
 	if _, searches := f.server.totals(); searches != 2 {
 		t.Errorf("refine ran twice: searches = %d, want 2", searches)
 	}
@@ -761,7 +761,7 @@ func TestAutoRefineFailureKeepsRowOnce(t *testing.T) {
 	f.meta.hashFn = instantHash
 	// Refine through the EMPTY-server fetcher so the hash search finds nothing.
 	fail.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(250 * time.Millisecond) // settle the single refine attempt
+	waitIdle(t, fail.a)
 
 	row, _ := f.links.Get(context.Background(), f.key, 0)
 	if row.Source != SourceIMDB || row.Status != StatusReady || row.FileID != "777" {
@@ -781,7 +781,7 @@ func TestAutoRefineFailureKeepsRowOnce(t *testing.T) {
 	// Refinement guard: repeat completion events must not re-attempt.
 	fail.a.RefineOnComplete(f.meta, f.hash, 0)
 	fail.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(200 * time.Millisecond)
+	waitIdle(t, fail.a)
 	if _, sFail := fail.server.totals(); sFail != 1 {
 		t.Errorf("refine searches after repeats = %d, want 1 (in-memory guard)", sFail)
 	}
@@ -794,7 +794,7 @@ func TestAutoRefineFailureKeepsRowOnce(t *testing.T) {
 	})
 	fresh.a = NewAutoFetcher(fresh.c, f.links, fresh.tmdb, func() (string, bool) { return *f.langs, *f.autoPtr })
 	fresh.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(200 * time.Millisecond)
+	waitIdle(t, fresh.a)
 	if _, sFresh := fresh.server.totals(); sFresh != 0 {
 		t.Errorf("fresh process re-attempted failed refine: searches = %d, want 0 (persisted hash_refined)", sFresh)
 	}
@@ -831,7 +831,7 @@ func TestAutoRefineSearchErrorKeepsRow(t *testing.T) {
 	}
 	// No restart loop: once the flag is persisted the traffic count is final.
 	total, searches := serverError.server.totals()
-	time.Sleep(300 * time.Millisecond)
+	waitIdle(t, serverError.a)
 	if total2, s2 := serverError.server.totals(); total2 != total || s2 != searches {
 		t.Errorf("refine traffic kept growing: %d/%d → %d/%d (total/searches)", total, searches, total2, s2)
 	}
@@ -929,7 +929,7 @@ func TestAutoRefineIgnoresIncompleteAndDisabled(t *testing.T) {
 	})
 	f.meta.complete = false
 	f.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(100 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("traffic = %d, want 0 for an incomplete file", total)
 	}
@@ -937,7 +937,7 @@ func TestAutoRefineIgnoresIncompleteAndDisabled(t *testing.T) {
 	// No row at all: nothing to refine.
 	f.meta.complete = true
 	f.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(100 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("traffic = %d, want 0 without a row", total)
 	}
@@ -948,10 +948,11 @@ func TestAutoRefineIgnoresIncompleteAndDisabled(t *testing.T) {
 		t.Fatalf("UpsertPending: %v", err)
 	}
 	f.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(100 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("traffic = %d, want 0 with auto-fetch off", total)
 	}
+	requireTrafficPossible(t, f)
 }
 
 func TestAutoStatusReadySurvivesAutoFetchOff(t *testing.T) {
@@ -994,7 +995,7 @@ func TestAutoStartDisabledNoOp(t *testing.T) {
 	*f.autoPtr = false
 	f.a.StartTorrent(f.meta, f.hash, 0)
 	f.a.StartLocal("local:xyz", 0, "Movie.2024.mkv", "/nonexistent")
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("traffic = %d, want 0 when auto-fetch is off", total)
 	}
@@ -1005,6 +1006,7 @@ func TestAutoStartDisabledNoOp(t *testing.T) {
 	if row != nil {
 		t.Errorf("row = %+v, want none when auto-fetch is off", row)
 	}
+	requireTrafficPossible(t, f)
 }
 
 func TestAutoLocalCompleteFileHashesDirectly(t *testing.T) {
@@ -1072,9 +1074,17 @@ func TestAutoDBErrorsAbortQuietly(t *testing.T) {
 	a := NewAutoFetcher(c, links, &fakeTMDB{}, func() (string, bool) { return "pt-BR,pt", true })
 
 	a.StartTorrent(&fakeTorrent{name: "x"}, hash, 0)
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, a)
 	if total, _ := ts.totals(); total != 0 {
 		t.Errorf("traffic = %d, want 0 when persistence is broken", total)
+	}
+	// Positive control: the same client/server counts traffic once persistence works.
+	goodLinks, _ := newLinksStore(t)
+	good := NewAutoFetcher(c, goodLinks, &fakeTMDB{}, func() (string, bool) { return "pt-BR,pt", true })
+	good.StartTorrent(&fakeTorrent{name: "x"}, hash, 0)
+	waitIdle(t, good)
+	if total, _ := ts.totals(); total == 0 {
+		t.Fatal("positive control: a healthy store produced no traffic, so the absence check above proves nothing")
 	}
 	if st := a.Status(context.Background(), key, 0); st.Status != statusNone {
 		t.Errorf("status = %q, want none on DB error", st.Status)
@@ -1298,10 +1308,11 @@ func TestAutoNilSettingsAndGuardShortCircuits(t *testing.T) {
 	a.run(ctx, f.key, 0, "pt-BR", nil) // nil resolve → no-op
 	zero := &AutoFetcher{}
 	zero.run(ctx, f.key, 0, "", nil) // no links/client → no-op
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("guard paths issued HTTP: %d requests, want 0", total)
 	}
+	requireTrafficPossible(t, f)
 
 	// A ready row is still reported without a settings closure (auto-fetch
 	// "off" + ready ⇒ valid previously fetched subtitle).
@@ -1368,4 +1379,39 @@ func expectedLocalHash(path string) (string, error) {
 		return "", err
 	}
 	return res.Hash, nil
+}
+
+// waitIdle blocks until the fetcher has no in-flight work. start registers the
+// in-flight entry synchronously before spawning its goroutine, so after a
+// Start*/RefineOnComplete call "idle" means either the call was gated off or
+// the goroutine has fully finished. This is what makes an absence assertion
+// ("no HTTP happened") meaningful: unlike a fixed sleep it cannot pass merely
+// because the goroutine has not been scheduled yet.
+func waitIdle(t *testing.T, a *AutoFetcher) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		a.mu.Lock()
+		n := len(a.inflight)
+		a.mu.Unlock()
+		if n == 0 {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("timed out waiting for the AutoFetcher to go idle")
+}
+
+// requireTrafficPossible is the positive control for absence checks: it proves
+// that the fixture's server counter and fetch path DO register a request when
+// the gate is open, so a preceding "total == 0" is evidence rather than luck.
+func requireTrafficPossible(t *testing.T, f *autoFixture) {
+	t.Helper()
+	*f.autoPtr = true
+	ctrl := metainfo.HashBytes([]byte(t.Name() + "-control"))
+	f.a.StartTorrent(f.meta, ctrl, 0)
+	waitIdle(t, f.a)
+	if total, _ := f.server.totals(); total == 0 {
+		t.Fatal("positive control: an enabled Start produced no HTTP traffic, so the absence checks above prove nothing")
+	}
 }
