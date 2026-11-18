@@ -11,6 +11,10 @@ import NavHeader from '../components/NavHeader'
 import PullToRefreshIndicator from '../components/PullToRefreshIndicator'
 import TorrentContentsModal from '../components/TorrentContentsModal'
 import { useScrollRestoration } from '../lib/useScrollRestoration'
+import { useLatestRequest } from '../lib/useLatestRequest'
+import { errMessage } from '../lib/errMessage'
+import { notifyError } from '../components/Toast'
+import { AsyncState } from '../components/AsyncState'
 import PlaylistPickerModal from '../components/PlaylistPickerModal'
 import { useConfirm } from '../components/ConfirmDialog'
 import { useFilteredResults } from '../lib/useFilteredResults'
@@ -34,6 +38,10 @@ export default function HistoryPage() {
   const [playlistTarget, setPlaylistTarget] = useState<SearchResult | null>(null)
   const [playlistTargetFile, setPlaylistTargetFile] = useState<{ index: number; title: string } | null>(null)
   const confirm = useConfirm()
+  // A slow response for an earlier selection/keystroke must not overwrite the
+  // current one.
+  const resultsReq = useLatestRequest()
+  const globalReq = useLatestRequest()
 
   // Filters for the query list. Sort persists; the text filter is transient
   // (reopening with a stale text filter would be confusing).
@@ -70,9 +78,26 @@ export default function HistoryPage() {
   const [refreshingIDs, setRefreshingIDs] = useState<Set<number>>(new Set())
   const [refreshedLabels, setRefreshedLabels] = useState<Map<number, string>>(new Map())
 
+  // loading/loadError keep "not loaded yet" and "failed to load" apart from a
+  // genuinely empty history.
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const loadHistory = async () => {
-    try { setEntries(await getHistory()) }
-    catch { setEntries([]) }
+    try {
+      setEntries((await getHistory()) || [])
+      setLoadError(null)
+    } catch (err) {
+      setLoadError(errMessage(err))
+      // A failed refresh keeps the list on screen, so the error needs a toast.
+      if (entries.length > 0) notifyError(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+  const retryLoad = () => {
+    setLoading(true)
+    setLoadError(null)
+    void loadHistory()
   }
 
   useEffect(() => { loadHistory() }, [])
@@ -80,9 +105,14 @@ export default function HistoryPage() {
   const ptr = usePullToRefresh({
     onRefresh: async () => {
       await loadHistory()
-      if (selected) {
-        const data = await getHistoryResults(selected).catch(() => [])
+      // Read the selection after the await: it may have changed meanwhile.
+      const open = selectedRef.current
+      if (open) {
+        const isLatest = resultsReq.begin()
+        const data = await getHistoryResults(open).catch(() => [])
+        if (!isLatest()) return
         setResults(data || [])
+        setLoadingResults(false)
       }
     },
   })
@@ -95,14 +125,22 @@ export default function HistoryPage() {
     setMinSeeders(0)
     setBrowseVisible(PAGE_SIZE)
     setLoadingResults(true)
+    const isLatest = resultsReq.begin()
     try {
       const data = await getHistoryResults(q)
-      setResults(data || [])
+      if (isLatest()) setResults(data || [])
     } catch {
-      setResults([])
+      if (isLatest()) setResults([])
     } finally {
-      setLoadingResults(false)
+      if (isLatest()) setLoadingResults(false)
     }
+  }
+
+  const closeSelected = () => {
+    resultsReq.invalidate()
+    setSelected(null)
+    setResults([])
+    setLoadingResults(false)
   }
 
   // Re-run a query live against Jackett (the history view shows the CACHED
@@ -123,13 +161,19 @@ export default function HistoryPage() {
       const fresh = await searchTorrents(query, ['all'], 'all')
       if (fresh) {
         // Only swap the visible results if this query is still the open one.
-        if (selectedRef.current === query) setResults(fresh)
+        if (selectedRef.current === query) {
+          // Live results win over a cached load still in flight for this query.
+          resultsReq.invalidate()
+          setResults(fresh)
+          setLoadingResults(false)
+        }
         // Refresh the query's card in the list (count + "agora") even in background.
         setEntries(prev => prev.map(en =>
           en.query === query ? { ...en, resultCount: fresh.length, lastSaved: new Date().toISOString() } : en))
       }
-    } catch {
-      /* keep the cached results on failure */
+    } catch (err) {
+      // Keep the cached results on failure.
+      notifyError(err)
     } finally {
       refreshingRef.current.delete(query)
       setRefreshingQueries(new Set(refreshingRef.current))
@@ -157,18 +201,27 @@ export default function HistoryPage() {
   const handleClear = async () => {
     const ok = await confirm({ title: t('history.clearCache'), message: t('history.clearCacheMessage', { count: entries.length }), confirmLabel: t('history.clearCacheConfirm'), destructive: true })
     if (!ok) return
-    await clearHistory()
+    try {
+      await clearHistory()
+    } catch (err) {
+      notifyError(err)
+      return
+    }
     setEntries([])
-    setSelected(null)
-    setResults([])
+    setLoadError(null)
+    closeSelected()
   }
 
   // Debounced global FTS search — triggers 300ms after user stops typing
   useEffect(() => {
     if (mode !== 'global') return
+    // Taken per keystroke (not inside the timer) so clearing the box also
+    // discards the search still in flight.
+    const isLatest = globalReq.begin()
     if (!globalQuery.trim()) {
       setGlobalResults([])
       setGlobalSearched(false)
+      setGlobalLoading(false)
       return
     }
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -176,24 +229,29 @@ export default function HistoryPage() {
       setGlobalLoading(true)
       try {
         const data = await searchCache(globalQuery)
+        if (!isLatest()) return
         setGlobalResults(data || [])
         setGlobalSearched(true)
       } catch {
-        setGlobalResults([])
+        if (isLatest()) setGlobalResults([])
       } finally {
-        setGlobalLoading(false)
+        if (isLatest()) setGlobalLoading(false)
       }
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [globalQuery, mode])
+  }, [globalQuery, mode, globalReq])
 
   const deleteEntry = async (q: string) => {
-    await deleteHistoryEntry(q)
-    setEntries(prev => prev.filter(en => en.query !== q))
-    if (selected === q) {
-      setSelected(null)
-      setResults([])
+    try {
+      await deleteHistoryEntry(q)
+    } catch (err) {
+      notifyError(err)
+      return
     }
+    setEntries(prev => prev.filter(en => en.query !== q))
+    // The server answered, so an error left by an earlier failed refresh is stale.
+    setLoadError(null)
+    if (selected === q) closeSelected()
   }
   const handleDeleteEntry = (q: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -232,8 +290,8 @@ export default function HistoryPage() {
           return next
         })
       }, 30_000)
-    } catch {
-      /* swallow — the spinner will simply stop without changes */
+    } catch (err) {
+      notifyError(err)
     } finally {
       setRefreshingIDs(prev => {
         const next = new Set(prev)
@@ -381,7 +439,13 @@ export default function HistoryPage() {
   )
 
   const renderBrowseContent = () => {
-    if (entries.length === 0) return <BrowseEmptyState />
+    if (entries.length === 0) {
+      return (
+        <AsyncState loading={loading} error={loadError} onRetry={retryLoad}>
+          <BrowseEmptyState />
+        </AsyncState>
+      )
+    }
     return (
       <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4 flex-1">
         {/* Master-detail on mobile: once a query is selected the list hides and
@@ -423,7 +487,7 @@ export default function HistoryPage() {
               browseSentinelRef={browseSentinelRef}
               refreshingSearch={refreshingQueries.has(selected)}
               onRefreshSearch={() => handleRefreshSearch(selected)}
-              onBack={() => { setSelected(null); setResults([]) }}
+              onBack={closeSelected}
               onDownload={setDownloadTarget}
               onPlay={(r) => playSingle(r)}
               onAddToPlaylist={(r) => { setPlaylistTargetFile(null); setPlaylistTarget(r) }}
