@@ -154,7 +154,9 @@ func runFFprobe(ctx context.Context, input string, stdin io.Reader) ([]byte, err
 	out, err := cmd.Output()
 	if err != nil {
 		events.FFprobeExecFailed(ctx, events.ProbeMedia)
-		if len(out) == 0 {
+		// Output that is not even JSON is already counted above: return the exec
+		// error instead of letting parseProbeOutput count it a second time.
+		if len(out) == 0 || !json.Valid(out) {
 			return nil, fmt.Errorf("ffprobe: %w", err)
 		}
 	}
