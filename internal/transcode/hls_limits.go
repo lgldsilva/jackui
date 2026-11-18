@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 )
 
 // ErrTooManySessions is returned by GetOrStart when the global HLS session cap
@@ -52,6 +54,7 @@ func (m *HLSSessionManager) admitLocked(owner string) (*HLSSession, error) {
 	if owner != "" && m.maxPerOwner > 0 && m.ownerCountLocked(owner) >= m.maxPerOwner {
 		victim = m.ownerLRULocked(owner)
 		if victim == nil {
+			events.HLSAdmissionEvent(events.HLSAdmitRejectedCap)
 			return nil, ErrTooManySessions // all of the owner's slots are still starting
 		}
 		delete(m.sess, victim.Key)
@@ -60,7 +63,11 @@ func (m *HLSSessionManager) admitLocked(owner string) (*HLSSession, error) {
 		if victim != nil {
 			m.sess[victim.Key] = victim // undo: refusing anyway, keep it alive
 		}
+		events.HLSAdmissionEvent(events.HLSAdmitRejectedCap)
 		return nil, ErrTooManySessions
+	}
+	if victim != nil {
+		events.HLSAdmissionEvent(events.HLSAdmitEvictedLRU)
 	}
 	return victim, nil
 }

@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 )
 
 // HLS session start/build (GetOrStart, buildSession, GPU reservation) — extracted from hls.go.
@@ -110,6 +112,7 @@ func (m *HLSSessionManager) finishBuild(effKey string, opts HLSStartOpts, s *HLS
 		orphan.stop() // owns (and closes) opts.Source
 		return nil, err
 	case err != nil:
+		events.HLSSessionFailed(events.HLSFailStartError)
 		closeIfCloser(opts.Source)
 		return nil, err
 	}
@@ -271,6 +274,7 @@ func (m *HLSSessionManager) buildSession(ctx context.Context, effKey string, opt
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
+	events.HLSSessionStarted(s.spec.vod, !s.spec.usesHWDecode() || s.spec.swDecode)
 
 	if durationSec <= 0 && mode != VODOff {
 		// Born EVENT only because the probe failed — re-probe in background so

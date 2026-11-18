@@ -17,6 +17,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/handlers"
 	lh "github.com/lgldsilva/jackui/internal/handlers/local"
 	"github.com/lgldsilva/jackui/internal/mailer"
+	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/middleware"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/transmissionrpc"
@@ -141,6 +142,8 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	// writing those JWTs verbatim into `docker logs`.
 	router.Use(gin.LoggerWithFormatter(middleware.RedactingLogFormatter))
 	router.Use(gin.Recovery())
+	// Request count/latency per route template (FullPath, never the raw URL).
+	router.Use(metrics.HTTPMiddleware())
 
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowAllOrigins = true

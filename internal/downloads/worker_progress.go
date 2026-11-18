@@ -95,11 +95,18 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 // flips the row to `failed`. A cancelled download (no longer in `pending`) is
 // left untouched.
 func (w *Worker) failOrRetry(ctx context.Context, d Download, msg string) {
+	recordInitOutcome(ctx, w.applyInitFailure(ctx, d, msg))
+}
+
+// applyInitFailure is failOrRetry without the metric: it updates the retry
+// state/row and reports what happened, so a group init can record ONE event
+// per torrent instead of one per member row.
+func (w *Worker) applyInitFailure(ctx context.Context, d Download, msg string) initOutcome {
 	w.mu.Lock()
 	stillPending := w.ownsPendingLocked(d.ID, initGen(ctx))
 	if !stillPending {
 		w.mu.Unlock()
-		return // cancelled during init — don't clobber status
+		return initOutcomeNone // cancelled during init — don't clobber status
 	}
 	n := w.retries[d.ID] + 1
 	w.retries[d.ID] = n
@@ -118,10 +125,11 @@ func (w *Worker) failOrRetry(ctx context.Context, d Download, msg string) {
 			name = d.InfoHash
 		}
 		go w.sendNtfy(context.Background(), "Download failed: "+name, msg, "x,torrent")
-		return
+		return initOutcomeFailed
 	}
 	log.Printf("downloads: init #%d (%s) transient failure %d/%d: %s", d.ID, d.InfoHash, n, maxInitRetries, msg)
 	// Leave status=downloading — next tick re-launches initDownload.
+	return initOutcomeRetry
 }
 
 // sendNtfy posts a push notification to ntfy.sh (or a self-hosted instance)
