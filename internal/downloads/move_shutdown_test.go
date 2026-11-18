@@ -1,6 +1,10 @@
 package downloads
 
 import (
+	"bytes"
+	"log"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +18,7 @@ import (
 // skips `failed` rows at boot, so the interrupted move was never rescued. The
 // row must stay `moving`, exactly like the group path does.
 func TestRunCompletionMove_ShutdownDuringBackoffKeepsRowMoving(t *testing.T) {
+	logs := captureLog(t)
 	store := dlwNewStore(t)
 	s := streamer.NewForTesting()
 	w := NewWorker(WorkerConfig{
@@ -44,7 +49,10 @@ func TestRunCompletionMove_ShutdownDuringBackoffKeepsRowMoving(t *testing.T) {
 		defer close(done)
 		w.runCompletionMove(*d, "Halt", []string{"Halt/missing.mkv"}, false, 4, job)
 	}()
-	time.Sleep(50 * time.Millisecond) // let attempt 1 fail and park in the backoff
+	// Attempt 1 logs its failure right before parking in the backoff select;
+	// closing stop only after that line makes the test cover the "interrupted
+	// DURING backoff" path rather than racing a fixed sleep against it.
+	waitForLog(t, logs, "attempt 1/")
 	close(w.stop)
 	select {
 	case <-done:
@@ -90,4 +98,35 @@ func TestAttemptCompletionMove_ShutdownReturnsSentinel(t *testing.T) {
 	if dst != "" {
 		t.Fatalf("dst = %q, want empty", dst)
 	}
+}
+
+type lockedBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func captureLog(t *testing.T) *lockedBuf {
+	t.Helper()
+	buf := &lockedBuf{}
+	prev := log.Writer()
+	log.SetOutput(buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	return buf
+}
+
+func waitForLog(t *testing.T, buf *lockedBuf, substr string) {
+	t.Helper()
+	waitFor(t, "log line "+substr, func() bool { return strings.Contains(buf.String(), substr) })
 }
