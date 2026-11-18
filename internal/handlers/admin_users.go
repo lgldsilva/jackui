@@ -108,7 +108,9 @@ func AdminRevokeUserSession(store *auth.Store) gin.HandlerFunc {
 		if user == nil {
 			return
 		}
-		if err := store.RevokeSession(c.Request.Context(), user.ID, c.Param("sid")); err != nil {
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.RevokeSession(ctx, user.ID, c.Param("sid")); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -124,7 +126,9 @@ func AdminRevokeUserSessions(store *auth.Store) gin.HandlerFunc {
 		if user == nil {
 			return
 		}
-		if err := store.RevokeAllSessions(c.Request.Context(), user.ID); err != nil {
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.RevokeAllSessions(ctx, user.ID); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

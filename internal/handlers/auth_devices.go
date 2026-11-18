@@ -72,7 +72,9 @@ func RevokeDevice(store *auth.Store) gin.HandlerFunc {
 		if isAdmin {
 			owner = -1
 		}
-		if err := store.RevokeDeviceKey(c.Request.Context(), id, owner); err != nil {
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.RevokeDeviceKey(ctx, id, owner); err != nil {
 			respondDeviceKeyErr(c, err)
 			return
 		}

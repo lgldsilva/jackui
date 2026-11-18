@@ -126,13 +126,18 @@ func DeviceToken(flow *auth.DeviceFlow, store *auth.Store, tm *auth.TokenManager
 			httpshared.RespondErrorMessageFields(c, http.StatusBadRequest, poll.Err, fields)
 			return
 		}
-		user, err := store.GetUserByID(c.Request.Context(), poll.UserID)
+		// flow.Poll consumed the single-use pairing: from here on nothing may
+		// depend on the polling client still being connected, or the pairing is
+		// burnt without a key.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		user, err := store.GetUserByID(ctx, poll.UserID)
 		if err != nil || user.Status != auth.StatusActive {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, auth.DeviceErrDenied)
 			return
 		}
 		p := poll.Pairing
-		key, id, err := persistPairedDeviceKey(c.Request.Context(), store, user.ID, auth.DeviceKeyMeta{DeviceID: p.DeviceID, Name: p.Name, Model: p.Model, IP: c.ClientIP()})
+		key, id, err := persistPairedDeviceKey(ctx, store, user.ID, auth.DeviceKeyMeta{DeviceID: p.DeviceID, Name: p.Name, Model: p.Model, IP: c.ClientIP()})
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return

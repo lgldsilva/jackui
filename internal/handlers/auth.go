@@ -320,7 +320,11 @@ func Logout(store *auth.Store, cleaners ...incognitoCleanable) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 		if req.Refresh != "" {
-			_ = store.ConsumeRefreshToken(c.Request.Context(), req.Refresh)
+			// Logout often fires on page unload: the revocation must not be
+			// droppable by the connection closing.
+			rctx, rcancel := httpshared.DetachedCtx(c.Request.Context())
+			defer rcancel()
+			_ = store.ConsumeRefreshToken(rctx, req.Refresh)
 		}
 		// Clean up any incognito history/library entries for this user.
 		if claims, ok := auth.ClaimsFromCtx(c); ok {
@@ -388,7 +392,9 @@ func RevokeSession(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
-		if err := store.RevokeSession(c.Request.Context(), claims.UserID, c.Param("id")); err != nil {
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.RevokeSession(ctx, claims.UserID, c.Param("id")); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -412,7 +418,9 @@ func RevokeOtherSessions(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "refresh token required")
 			return
 		}
-		n, err := store.RevokeOtherSessions(c.Request.Context(), claims.UserID, req.Refresh)
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		n, err := store.RevokeOtherSessions(ctx, claims.UserID, req.Refresh)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
