@@ -147,7 +147,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowAllOrigins = true
 	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range", middleware.HeaderRequestID}
 	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges", middleware.HeaderRequestID}
 	router.Use(cors.New(corsConfig))
 

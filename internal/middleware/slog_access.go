@@ -3,11 +3,9 @@ package middleware
 import (
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
-	"os"
 	"runtime/debug"
-	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,13 +22,16 @@ type UserIDFunc func(c *gin.Context) (id int, ok bool)
 func SlogAccessLog(logger *slog.Logger, userID UserIDFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
+		// Captured before c.Next(): handlers may rewrite the URL (spaFallback
+		// sets Path="/" to serve index.html for deep links).
+		path := RedactToken(c.Request.URL.RequestURI())
 		c.Next()
 		status := c.Writer.Status()
 		attrs := []slog.Attr{
 			slog.String("request_id", RequestIDFrom(c)),
 			slog.String("method", c.Request.Method),
 			slog.String("route", c.FullPath()),
-			slog.String("path", RedactToken(c.Request.URL.RequestURI())),
+			slog.String("path", path),
 			slog.Int("status", status),
 			slog.Float64("latency_ms", float64(time.Since(start).Microseconds())/1000),
 			slog.String("client_ip", c.ClientIP()),
@@ -70,7 +71,8 @@ func SlogRecovery(logger *slog.Logger) gin.HandlerFunc {
 			if rec == nil {
 				return
 			}
-			brokenPipe := isBrokenPipe(rec)
+			err, _ := rec.(error)
+			brokenPipe := isBrokenPipe(err)
 			logger.LogAttrs(c.Request.Context(), slog.LevelError, "panic recovered",
 				slog.String("request_id", RequestIDFrom(c)),
 				slog.String("method", c.Request.Method),
@@ -81,6 +83,8 @@ func SlogRecovery(logger *slog.Logger) gin.HandlerFunc {
 				slog.String("stack", string(debug.Stack())),
 			)
 			if brokenPipe {
+				// Dead connection: no status can be written (mirrors gin).
+				_ = c.Error(err)
 				c.Abort()
 				return
 			}
@@ -90,19 +94,13 @@ func SlogRecovery(logger *slog.Logger) gin.HandlerFunc {
 	}
 }
 
-func isBrokenPipe(rec any) bool {
-	err, ok := rec.(error)
-	if !ok {
+// isBrokenPipe matches gin 1.12's recovery: a write to a closed connection
+// or an http.ErrAbortHandler is not a server fault worth a 500.
+func isBrokenPipe(err error) bool {
+	if err == nil {
 		return false
 	}
-	var opErr *net.OpError
-	if !errors.As(err, &opErr) {
-		return false
-	}
-	var sysErr *os.SyscallError
-	if !errors.As(opErr, &sysErr) {
-		return false
-	}
-	msg := strings.ToLower(sysErr.Error())
-	return strings.Contains(msg, "broken pipe") || strings.Contains(msg, "connection reset by peer")
+	return errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, http.ErrAbortHandler)
 }

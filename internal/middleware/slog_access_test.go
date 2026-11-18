@@ -123,7 +123,7 @@ func TestAccessLevelAndBrokenPipe(t *testing.T) {
 	if accessLevel(200) != slog.LevelInfo || accessLevel(302) != slog.LevelInfo {
 		t.Error("2xx/3xx should be INFO")
 	}
-	if isBrokenPipe("str") || isBrokenPipe(errors.New("x")) || isBrokenPipe(&net.OpError{Err: errors.New("x")}) {
+	if isBrokenPipe(nil) || isBrokenPipe(errors.New("x")) || isBrokenPipe(&net.OpError{Err: errors.New("x")}) {
 		t.Error("non broken-pipe values misclassified")
 	}
 	if !isBrokenPipe(&net.OpError{Err: os.NewSyscallError("read", syscall.ECONNRESET)}) {
@@ -137,5 +137,46 @@ func TestAccessLevelAndBrokenPipe(t *testing.T) {
 	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	if strings.Contains(buf.String(), "user_id") {
 		t.Error("nil userID func should omit user_id")
+	}
+}
+
+// A handler that rewrites URL.Path (spaFallback serves index.html by setting
+// it to "/") must not change what the access log reports.
+func TestSlogAccessLogKeepsOriginalPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var buf bytes.Buffer
+	r := gin.New()
+	r.Use(SlogAccessLog(slog.New(slog.NewJSONHandler(&buf, nil)), nil))
+	r.NoRoute(func(c *gin.Context) {
+		c.Request.URL.Path = "/"
+		c.Request.URL.RawQuery = ""
+		c.Status(http.StatusOK)
+	})
+	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/library/deep?x=1&token=SECRET", nil))
+	recs := jsonRecords(t, &buf)
+	if len(recs) != 1 || recs[0]["path"] != "/library/deep?x=1&token=REDACTED" {
+		t.Fatalf("logged path should be the original request URI: %v", recs)
+	}
+}
+
+func TestSlogRecoveryAbortHandlerIsBrokenPipe(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	r := gin.New()
+	var ginErrs int
+	r.Use(func(c *gin.Context) { c.Next(); ginErrs = len(c.Errors) }, SlogRecovery(logger))
+	r.GET("/abort", func(*gin.Context) { panic(http.ErrAbortHandler) })
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/abort", nil))
+	recs := jsonRecords(t, &buf)
+	if len(recs) != 1 || recs[0]["broken_pipe"] != true {
+		t.Fatalf("ErrAbortHandler should be treated as a dead connection: %v", recs)
+	}
+	if ginErrs != 1 {
+		t.Errorf("broken pipe should be attached via c.Error, got %d errors", ginErrs)
+	}
+	if !isBrokenPipe(os.NewSyscallError("write", syscall.EPIPE)) {
+		t.Error("bare EPIPE syscall error should count as broken pipe")
 	}
 }
