@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 )
 
 // HLSSessionManager owns the lifecycle of ffmpeg-driven HLS transcoding
@@ -371,6 +373,7 @@ func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) flo
 	)
 	out, err := cmd.Output()
 	if err != nil {
+		events.FFprobeExecFailed(cctx, events.ProbeDuration)
 		return 0
 	}
 	var parsed struct {
@@ -379,10 +382,12 @@ func probeDurationSeekable(ctx context.Context, ffmpegPath, inputURL string) flo
 		} `json:"format"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
+		events.FFprobeFailed(events.ProbeDuration, events.ProbeReasonParse)
 		return 0
 	}
 	d, perr := strconv.ParseFloat(parsed.Format.Duration, 64)
 	if perr != nil || d <= 0 {
+		events.FFprobeFailed(events.ProbeDuration, events.ProbeReasonNoDuration)
 		return 0
 	}
 	return d

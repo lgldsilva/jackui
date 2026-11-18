@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
 
@@ -110,6 +111,7 @@ func (w *Worker) failOrRetry(ctx context.Context, d Download, msg string) {
 		delete(w.retries, d.ID)
 		w.mu.Unlock()
 		log.Printf("downloads: init #%d (%s) failed after %d tries: %s", d.ID, d.InfoHash, n, msg)
+		events.DownloadInitFailed(true)
 		if err := w.store.SetError(d.UserID, d.ID, msg); err != nil {
 			log.Printf("downloads: failed to set error for download %d: %v", d.ID, err)
 		}
@@ -121,6 +123,7 @@ func (w *Worker) failOrRetry(ctx context.Context, d Download, msg string) {
 		return
 	}
 	log.Printf("downloads: init #%d (%s) transient failure %d/%d: %s", d.ID, d.InfoHash, n, maxInitRetries, msg)
+	events.DownloadInitFailed(false)
 	// Leave status=downloading — next tick re-launches initDownload.
 }
 

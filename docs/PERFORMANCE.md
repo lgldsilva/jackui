@@ -131,6 +131,37 @@ Production uses a hand-maintained compose file, so changing the versioned compos
 `.env.example` alone does not change the live container. Sync the same resource values to
 the server compose and intentionally recreate the service to apply them.
 
+## Incident metrics — `/api/metrics`
+
+`/api/metrics` (admin JWT or `JACKUI_METRICS_TOKEN`; open only with auth disabled) exports,
+besides the sampled workload gauges above (`jackui_active_torrents`,
+`jackui_torrent_peers_total`, `jackui_network_*`, `jackui_active_transcode_sessions`,
+`jackui_cache_bytes_used`, refreshed every 10s), event counters recorded where the
+incident happens. Every label value comes from a fixed set (unknown values fold into
+`other`); no info_hash, file name, user id, path or error text is ever a label value.
+
+| Metric | Type | Labels | Incident it answers |
+|---|---|---|---|
+| `jackui_http_requests_total` | counter | `method` (GET…OPTIONS, else `OTHER`), `route` (Gin route template, `unmatched` for 404/SPA fallback), `status_class` | 5xx bursts on one route; 429s from the HLS cap; eternal-502 vs. app errors (no samples = process not serving) |
+| `jackui_http_request_duration_seconds` | histogram | `method`, `route` | Slow endpoints (e.g. `GET /api/downloads` regressing to O(files)); long media responses land in `+Inf` by design |
+| `jackui_hls_sessions_started_total` | counter | `mode` (`vod`/`event`), `decode` (`hw`/`sw`) | Plays falling back to EVENT/live (no seekbar); GPU-decode cap pushing sessions to software |
+| `jackui_hls_session_failures_total` | counter | `reason` (`start_error`, `ffmpeg_exit`, `cuda_oom_fallback`, `relaunch_error`) | ffmpeg dying mid-session, failed session builds, CUDA OOM on the decoder |
+| `jackui_hls_admission_events_total` | counter | `event` (`rejected_cap`, `evicted_owner_lru`) | Session cap hit (HTTP 429), one user's playbacks evicting each other |
+| `jackui_ffprobe_failures_total` | counter | `probe` (`media`, `duration`), `reason` (`timeout`, `error`, `parse`, `no_duration`) | Probe hangs on a starved torrent (`timeout`), duration probe failing → EVENT fallback |
+| `jackui_downloads_init_failures_total` | counter | `outcome` (`retry`, `failed`) | Dead magnets / GotInfo timeouts; retries that end in `failed` |
+| `jackui_downloads_stalls_total` | counter | — | Torrents demoted by stall detection (no seed / no progress) |
+| `jackui_downloads_stall_pauses_total` | counter | — | Torrents paused after `max_stalls` |
+| `jackui_downloads_completions_total` | counter | `kind` (`single`, `group`) | Completion throughput; a flat line with active downloads = stuck moves |
+| `jackui_downloads_move_failures_total` | counter | `kind` (`single`, `group`) | Completion moves that gave up after retries (bulk full, permissions, missing file) |
+| `go_sql_*{db_name="jackui"}` | gauges/counters | `db_name` | Pool exhaustion: `go_sql_in_use_connections` at `go_sql_max_open_connections` with rising `go_sql_wait_count_total` / `go_sql_wait_duration_seconds_total` |
+
+The shutdown watchdog (`cleanupHardDeadline`) is not a metric: it fires during exit, after
+the last scrape. It shows up as a container restart plus the "cleanup exceeded" log line.
+
+Example queries: `sum by (route) (rate(jackui_http_requests_total{status_class="5xx"}[5m]))`,
+`histogram_quantile(0.95, sum by (le, route) (rate(jackui_http_request_duration_seconds_bucket[5m])))`,
+`increase(jackui_hls_session_failures_total[1h])`, `rate(go_sql_wait_duration_seconds_total[5m])`.
+
 ## Profiling sob demanda — `/debug/pprof`
 
 O backlog acima nasceu de leitura de código; para medir em vez de adivinhar, o servidor

@@ -13,6 +13,7 @@ import (
 
 	"github.com/anacrolix/torrent/metainfo"
 
+	"github.com/lgldsilva/jackui/internal/metrics/events"
 	"github.com/lgldsilva/jackui/internal/renamer"
 	"github.com/lgldsilva/jackui/internal/transfer"
 )
@@ -66,6 +67,7 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 		}
 		job.Fail(err)
 		log.Printf("downloads: completion move #%d %q failed after %d attempts: %v", d.ID, name, moveMaxAttempts, err)
+		events.DownloadMoveFailed(events.DownloadKindSingle)
 		return
 	}
 	if err := w.store.SetStatus(d.UserID, d.ID, StatusCompleted); err != nil {
@@ -73,6 +75,7 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 	}
 	job.Done()
 	log.Printf("downloads: completed #%d %q", d.ID, name)
+	events.DownloadCompleted(events.DownloadKindSingle)
 	body := fmt.Sprintf("%s · %.2f MB", name, float64(total)/1048576)
 	go w.sendNtfy(context.Background(), "Download completed: "+name, body, "white_check_mark,torrent")
 	// ORDER MATTERS: AI-rename BEFORE reseed. Both touch the same on-disk file —
