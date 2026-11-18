@@ -39,9 +39,9 @@ if [[ -d /exec-daemon ]]; then
 	sudo ln -sfn "${NODE_PREFIX}/bin/npx" /exec-daemon/npx
 fi
 
-if ! command -v golangci-lint >/dev/null 2>&1 || ! golangci-lint version 2>/dev/null | grep -q '2\.13\.1'; then
+if ! command -v golangci-lint >/dev/null 2>&1 || ! golangci-lint version 2>/dev/null | grep -q '2\.15\.0'; then
 	tmpbin="$(mktemp -d)"
-	GOBIN="${tmpbin}" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+	GOBIN="${tmpbin}" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 	sudo install -m 0755 "${tmpbin}/golangci-lint" /usr/local/bin/golangci-lint
 	rm -rf "${tmpbin}"
 fi
