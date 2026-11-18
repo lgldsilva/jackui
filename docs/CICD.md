@@ -221,7 +221,10 @@ Safety:
 
 - Runs on `pull_request_target`, so the workflow and the policy script come from
   `main`; the PR head is never checked out or executed. The job runs only when
-  both `github.actor` and the PR author are `dependabot[bot]`.
+  the PR author is `dependabot[bot]` and the head branch lives in this
+  repository. `github.actor` is deliberately not trusted: it names whoever
+  triggered the event and can read `dependabot[bot]` on someone else's PR
+  ("Dependabot confusion", Sonar `githubactions:S8232`).
 - Workflow permissions are `{}`; only the job gets `contents: write` and
   `pull-requests: write`. Actions are pinned by full SHA.
 - Auto-merge only arms the merge: GitHub merges after the required checks of the

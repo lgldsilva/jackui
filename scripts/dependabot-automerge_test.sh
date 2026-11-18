@@ -20,15 +20,20 @@ trap 'rm -f "${out}"' EXIT
 
 # decide <ecosystem> <update-type> [labels] → exit status of the policy.
 decide() {
-	ECOSYSTEM="$1" UPDATE_TYPE="$2" LABELS="${3:-}" bash "${POLICY}" >"${out}" 2>&1
+	local ecosystem="$1" update_type="$2" labels="${3:-}"
+	ECOSYSTEM="${ecosystem}" UPDATE_TYPE="${update_type}" LABELS="${labels}" \
+		bash "${POLICY}" >"${out}" 2>&1
 }
 expect_merge() {
-	decide "$2" "$3" "${4:-}" || fail "$1: expected auto-merge, got: $(cat "${out}")"
+	local name="$1" ecosystem="$2" update_type="$3" labels="${4:-}"
+	decide "${ecosystem}" "${update_type}" "${labels}" ||
+		fail "${name}: expected auto-merge, got: $(cat "${out}")"
 }
 expect_skip() {
-	local status=0
-	decide "$2" "$3" "${4:-}" || status=$?
-	[[ ${status} -eq 1 ]] || fail "$1: expected skip (exit 1), got ${status}: $(cat "${out}")"
+	local name="$1" ecosystem="$2" update_type="$3" labels="${4:-}" status=0
+	decide "${ecosystem}" "${update_type}" "${labels}" || status=$?
+	[[ ${status} -eq 1 ]] ||
+		fail "${name}: expected skip (exit 1), got ${status}: $(cat "${out}")"
 }
 
 readonly PATCH=version-update:semver-patch
@@ -62,7 +67,10 @@ ECOSYSTEM='' UPDATE_TYPE="${PATCH}" bash "${POLICY}" >"${out}" 2>&1 || status=$?
 
 # ── Workflow wiring ─────────────────────────────────────────────────────────
 [[ -f ${WORKFLOW} ]] || fail "missing ${WORKFLOW}"
-has() { grep -q "$1" -- "$2" "${WORKFLOW}"; }
+has() {
+	local mode="$1" pattern="$2"
+	grep -q "${mode}" -- "${pattern}" "${WORKFLOW}"
+}
 
 has -E '^  pull_request_target:' ||
 	fail 'workflow must run on pull_request_target (base-branch code only)'
@@ -70,10 +78,14 @@ has -E '^permissions: \{\}$' ||
 	fail 'workflow-level permissions must be empty'
 # shellcheck disable=SC2016 # Literal GitHub expressions, not shell expansions.
 {
-	has -F "github.actor == 'dependabot[bot]'" ||
-		fail 'job must be gated on github.actor == dependabot[bot]'
 	has -F "github.event.pull_request.user.login == 'dependabot[bot]'" ||
 		fail 'job must be gated on the PR author being dependabot[bot]'
+	has -F 'github.event.pull_request.head.repo.full_name == github.repository' ||
+		fail 'job must be gated on the PR head living in this repository'
+	# github.actor is forgeable ("Dependabot confusion", Sonar S8232).
+	if grep -Eq '^[^#]*github\.(triggering_)?actor' "${WORKFLOW}"; then
+		fail 'workflow must not trust github.actor'
+	fi
 	has -F 'gh pr merge --auto --squash "${PR_URL}"' ||
 		fail 'workflow must enable squash auto-merge via gh'
 	has -F 'scripts/dependabot-automerge.sh' ||

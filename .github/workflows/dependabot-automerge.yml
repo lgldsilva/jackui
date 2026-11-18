@@ -10,8 +10,6 @@ name: Dependabot auto-merge
 # checked out or executed; fetch-metadata reads the PR through the API only.
 on:
   pull_request_target:
-    # Only Dependabot's own events pass the actor gate below, so label or
-    # review events from humans would never run this job anyway.
     types: [opened, reopened, synchronize]
 
 permissions: {}
@@ -23,9 +21,14 @@ concurrency:
 jobs:
   auto-merge:
     name: Enable auto-merge
+    # Trust the PR author, which cannot be changed after the PR is opened, and
+    # require the head branch to live in this repository (Dependabot's do;
+    # forks cannot). github.actor is deliberately NOT used: it names whoever
+    # triggered the event and can be made to read 'dependabot[bot]' on a PR
+    # someone else authored ("Dependabot confusion", Sonar S8232).
     if: >-
-      github.actor == 'dependabot[bot]' &&
-      github.event.pull_request.user.login == 'dependabot[bot]'
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
