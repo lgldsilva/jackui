@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,11 +41,11 @@ func closedAuthStore(t *testing.T) *auth.Store {
 
 func createTestUser(t *testing.T, store *auth.Store, username, password string) *auth.User {
 	t.Helper()
-	id, err := store.CreateUserFull(username, username+"@test.com", password, auth.RoleUser, auth.StatusActive)
+	id, err := store.CreateUserFull(context.Background(), username, username+"@test.com", password, auth.RoleUser, auth.StatusActive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := store.GetUserByID(id)
+	user, err := store.GetUserByID(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +226,7 @@ func TestIssueTokens(t *testing.T) {
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
-	resp, err := issueTokens(store, tm, user, false, "", "")
+	resp, err := issueTokens(context.Background(), store, tm, user, false, "", "")
 	if err != nil {
 		t.Fatalf("issueTokens failed: %v", err)
 	}
@@ -249,7 +250,7 @@ func TestIssueTokens_Remember(t *testing.T) {
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
-	resp, err := issueTokens(store, tm, user, true, "", "")
+	resp, err := issueTokens(context.Background(), store, tm, user, true, "", "")
 	if err != nil {
 		t.Fatalf("issueTokens failed: %v", err)
 	}
@@ -282,7 +283,7 @@ func TestRefresh_Valid(t *testing.T) {
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "testuser", "pass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
-	refresh, err := store.CreateRefreshToken(user.ID, time.Hour, false, "", "")
+	refresh, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +413,7 @@ func TestDeleteUser_Valid(t *testing.T) {
 		t.Errorf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 
-	_, err := store.GetUserByID(2)
+	_, err := store.GetUserByID(context.Background(), 2)
 	if err == nil {
 		t.Error("expected user to be deleted")
 	}
@@ -440,7 +441,7 @@ func TestListSessions_WithBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	createTestUser(t, store, "testuser", "pass")
-	refresh, err := store.CreateRefreshToken(1, time.Hour, false, "", "")
+	refresh, err := store.CreateRefreshToken(context.Background(), 1, time.Hour, false, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +676,7 @@ func TestListSessions_StoreError(t *testing.T) {
 func TestLogin_PendingStatus(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
-	id, _ := store.CreateUserFull("pendinguser", "p@t.com", "pass", auth.RoleUser, auth.StatusPending)
+	id, _ := store.CreateUserFull(context.Background(), "pendinguser", "p@t.com", "pass", auth.RoleUser, auth.StatusPending)
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 	lockout := auth.NewLockout(3, time.Minute)
 
@@ -697,9 +698,9 @@ func TestRefresh_InactiveAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "testuser", "pass")
-	store.SetStatus(user.ID, auth.StatusDisabled)
+	store.SetStatus(context.Background(), user.ID, auth.StatusDisabled)
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
-	refresh, _ := store.CreateRefreshToken(user.ID, time.Hour, false, "", "")
+	refresh, _ := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "", "")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -741,7 +742,7 @@ func TestLogout_WithRefresh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "testuser", "pass")
-	refresh, _ := store.CreateRefreshToken(user.ID, time.Hour, false, "", "")
+	refresh, _ := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "", "")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -920,7 +921,7 @@ func TestResolveNtfyTopic_WithUserTopic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "testuser", "pass")
-	store.SetNtfyTopic(user.ID, "usertopic")
+	store.SetNtfyTopic(context.Background(), user.ID, "usertopic")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

@@ -52,7 +52,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 		if respondIfLocked(c, lockout, req.Username) {
 			return
 		}
-		user, err := store.VerifyPassword(req.Username, req.Password)
+		user, err := store.VerifyPassword(c.Request.Context(), req.Username, req.Password)
 		if err != nil {
 			lockout.Fail(req.Username)
 			httpshared.RespondError(c, http.StatusUnauthorized, err)
@@ -65,7 +65,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 			return
 		}
 		lockout.Reset(req.Username)
-		resp, err := issueTokens(store, tm, user, req.Remember, c.Request.UserAgent(), c.ClientIP())
+		resp, err := issueTokens(c.Request.Context(), store, tm, user, req.Remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
@@ -104,10 +104,10 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 		httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "MFA code required", gin.H{"mfaRequired": true})
 		return false
 	}
-	secret, _, _ := store.GetTOTPSecret(user.ID)
+	secret, _, _ := store.GetTOTPSecret(c.Request.Context(), user.ID)
 	// ValidateTOTPForUser (not plain ValidateTOTP) records the matched step so
 	// the same code can't be replayed within its ±1 window.
-	if store.ValidateTOTPForUser(user.ID, secret, totp) || store.ConsumeBackupCode(user.ID, totp) {
+	if store.ValidateTOTPForUser(user.ID, secret, totp) || store.ConsumeBackupCode(c.Request.Context(), user.ID, totp) {
 		return true
 	}
 	lockout.Fail(user.Username)
@@ -115,7 +115,7 @@ func verifyMFA(c *gin.Context, store *auth.Store, lockout *auth.Lockout, user *a
 	return false
 }
 
-func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool, userAgent, ip string) (tokenResp, error) {
+func issueTokens(ctx context.Context, store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool, userAgent, ip string) (tokenResp, error) {
 	access, exp, err := tm.SignAccess(user)
 	if err != nil {
 		return tokenResp{}, err
@@ -124,7 +124,7 @@ func issueTokens(store *auth.Store, tm *auth.TokenManager, user *auth.User, reme
 	if remember {
 		ttl = refreshTTLRemember
 	}
-	refresh, err := store.CreateRefreshToken(user.ID, ttl, remember, userAgent, ip)
+	refresh, err := store.CreateRefreshToken(ctx, user.ID, ttl, remember, userAgent, ip)
 	if err != nil {
 		return tokenResp{}, err
 	}
@@ -142,17 +142,24 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "refresh token required")
 			return
 		}
+		// Rotation is consume-old then issue-new across two statements, and the
+		// reuse/inactive branches revoke sessions. Cancelling halfway would burn
+		// the presented token without a replacement (the retry past the grace
+		// window then reads as theft and revokes every session) or skip a
+		// revocation, so the whole sequence runs detached from the client.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		// Atomic rotation with a grace window: distinguishes a benign concurrent
 		// refresh (reissue) from a real replay of a long-rotated token (revoke).
-		user, remember, outcome, err := store.RotateRefreshToken(req.Refresh, refreshGrace)
+		user, remember, outcome, err := store.RotateRefreshToken(ctx, req.Refresh, refreshGrace)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		if !refreshOutcomeOK(c, store, user, outcome) {
+		if !refreshOutcomeOK(ctx, c, store, user, outcome) {
 			return
 		}
-		resp, err := issueTokenPair(store, tm, user, remember, c.Request.UserAgent(), c.ClientIP())
+		resp, err := issueTokenPair(ctx, store, tm, user, remember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -163,20 +170,20 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 
 // refreshOutcomeOK writes the error response for a failed rotation and returns false.
 // true means the caller may issue a new token pair.
-func refreshOutcomeOK(c *gin.Context, store *auth.Store, user *auth.User, outcome auth.RefreshOutcome) bool {
+func refreshOutcomeOK(ctx context.Context, c *gin.Context, store *auth.Store, user *auth.User, outcome auth.RefreshOutcome) bool {
 	switch outcome {
 	case auth.RefreshInvalid:
 		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid refresh token")
 		return false
 	case auth.RefreshReuse:
 		// Rotated token replayed after the grace → treat as theft: revoke all.
-		_ = store.RevokeAllSessions(user.ID)
+		_ = store.RevokeAllSessions(ctx, user.ID)
 		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid refresh token")
 		return false
 	}
 	// Disabled/pending accounts must not keep renewing access.
 	if user.Status != auth.StatusActive && user.Status != "" {
-		_ = store.RevokeAllSessions(user.ID)
+		_ = store.RevokeAllSessions(ctx, user.ID)
 		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta inativa", gin.H{"status": string(user.Status)})
 		return false
 	}
@@ -184,7 +191,7 @@ func refreshOutcomeOK(c *gin.Context, store *auth.Store, user *auth.User, outcom
 }
 
 // issueTokenPair signs a fresh access token and sliding-window refresh token.
-func issueTokenPair(store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool, ua, ip string) (tokenResp, error) {
+func issueTokenPair(ctx context.Context, store *auth.Store, tm *auth.TokenManager, user *auth.User, remember bool, ua, ip string) (tokenResp, error) {
 	access, exp, err := tm.SignAccess(user)
 	if err != nil {
 		return tokenResp{}, errors.New(errTokenSigningFailed)
@@ -193,7 +200,7 @@ func issueTokenPair(store *auth.Store, tm *auth.TokenManager, user *auth.User, r
 	if remember {
 		ttl = refreshTTLRemember
 	}
-	newRefresh, err := store.CreateRefreshToken(user.ID, ttl, remember, ua, ip)
+	newRefresh, err := store.CreateRefreshToken(ctx, user.ID, ttl, remember, ua, ip)
 	if err != nil {
 		return tokenResp{}, err
 	}
@@ -213,7 +220,7 @@ func MediaToken(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
-		user, err := store.GetUserByID(claims.UserID)
+		user, err := store.GetUserByID(c.Request.Context(), claims.UserID)
 		if err != nil || user == nil {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "user not found")
 			return
@@ -313,7 +320,7 @@ func Logout(store *auth.Store, cleaners ...incognitoCleanable) gin.HandlerFunc {
 		}
 		_ = c.ShouldBindJSON(&req)
 		if req.Refresh != "" {
-			_ = store.ConsumeRefreshToken(req.Refresh)
+			_ = store.ConsumeRefreshToken(c.Request.Context(), req.Refresh)
 		}
 		// Clean up any incognito history/library entries for this user.
 		if claims, ok := auth.ClaimsFromCtx(c); ok {
@@ -364,7 +371,7 @@ func ListSessions(store *auth.Store) gin.HandlerFunc {
 			Refresh string `json:"refresh"`
 		}
 		_ = c.ShouldBindJSON(&req)
-		sessions, err := store.ListSessions(claims.UserID, req.Refresh)
+		sessions, err := store.ListSessions(c.Request.Context(), claims.UserID, req.Refresh)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -381,7 +388,7 @@ func RevokeSession(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
-		if err := store.RevokeSession(claims.UserID, c.Param("id")); err != nil {
+		if err := store.RevokeSession(c.Request.Context(), claims.UserID, c.Param("id")); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -405,7 +412,7 @@ func RevokeOtherSessions(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "refresh token required")
 			return
 		}
-		n, err := store.RevokeOtherSessions(claims.UserID, req.Refresh)
+		n, err := store.RevokeOtherSessions(c.Request.Context(), claims.UserID, req.Refresh)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -422,7 +429,7 @@ func Me(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
-		user, err := store.GetUserByID(claims.UserID)
+		user, err := store.GetUserByID(c.Request.Context(), claims.UserID)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusUnauthorized, err)
 			return
@@ -456,11 +463,15 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "the new password must be at least 6 characters")
 			return
 		}
-		if err := store.ChangePassword(claims.UserID, req.Current, req.New); err != nil {
+		// change + revoke are one security action: detached so a dropped client
+		// cannot leave the other sessions alive under the new password.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.ChangePassword(ctx, claims.UserID, req.Current, req.New); err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		revoked, err := revokeAccessAfterPasswordChange(store, claims.UserID, req.Refresh)
+		revoked, err := revokeAccessAfterPasswordChange(ctx, store, claims.UserID, req.Refresh)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return

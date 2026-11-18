@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -95,7 +96,7 @@ func TestPasskeyLoginBegin_NoPasskeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = store.CreateUserFull("testuser", "test@test.com", "password123", auth.RoleUser, auth.StatusActive)
+	_, err = store.CreateUserFull(context.Background(), "testuser", "test@test.com", "password123", auth.RoleUser, auth.StatusActive)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +142,7 @@ func TestPasskeyLoginFinish_PendingStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = store.CreateUserFull("pendinguser", "pending@test.com", "password123", auth.RoleUser, auth.StatusPending)
+	_, err = store.CreateUserFull(context.Background(), "pendinguser", "pending@test.com", "password123", auth.RoleUser, auth.StatusPending)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +166,7 @@ func TestPasskeyLoginFinish_DisabledStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = store.CreateUserFull("disableduser", "disabled@test.com", "password123", auth.RoleUser, auth.StatusDisabled)
+	_, err = store.CreateUserFull(context.Background(), "disableduser", "disabled@test.com", "password123", auth.RoleUser, auth.StatusDisabled)
 	if err != nil {
 		t.Fatal(err)
 	}

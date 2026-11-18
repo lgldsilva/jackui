@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func TestConsumeToken_ConcurrentRedemptionSingleWinner(t *testing.T) {
 
 	const attempts = 40
 	for i := 0; i < attempts; i++ {
-		plain, err := s.CreateToken(TokenResetPassword, 0, "race@test.com", time.Hour)
+		plain, err := s.CreateToken(context.Background(), TokenResetPassword, 0, "race@test.com", time.Hour)
 		if err != nil {
 			t.Fatalf("CreateToken: %v", err)
 		}
@@ -28,7 +29,7 @@ func TestConsumeToken_ConcurrentRedemptionSingleWinner(t *testing.T) {
 			go func(g int) {
 				defer wg.Done()
 				<-start
-				_, errs[g] = s.ConsumeToken(plain, TokenResetPassword)
+				_, errs[g] = s.ConsumeToken(context.Background(), plain, TokenResetPassword)
 			}(g)
 		}
 		close(start)

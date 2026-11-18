@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/url"
 	"strings"
 
@@ -33,14 +34,14 @@ func parseMagnetTrackers(magnet string) []string {
 // request. Avoids N+1 queries to the auth store for each download row.
 type userCache map[int]string
 
-func (uc userCache) get(store *auth.Store, userID int) string {
+func (uc userCache) get(ctx context.Context, store *auth.Store, userID int) string {
 	if s, ok := uc[userID]; ok {
 		return s
 	}
 	if store == nil {
 		return ""
 	}
-	u, err := store.GetUserByID(userID)
+	u, err := store.GetUserByID(ctx, userID)
 	if err != nil {
 		return ""
 	}

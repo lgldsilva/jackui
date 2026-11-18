@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -19,7 +20,7 @@ type TokenInfo struct {
 
 // CreateToken issues a single-use token for a purpose (invite/verify/reset) and
 // returns the PLAINTEXT (only its SHA-256 is stored). userID 0 → NULL row.
-func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.Duration) (string, error) {
+func (s *Store) CreateToken(ctx context.Context, purpose string, userID int, email string, ttl time.Duration) (string, error) {
 	plain, err := randomToken(32)
 	if err != nil {
 		return "", err
@@ -28,7 +29,7 @@ func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.D
 	if userID > 0 {
 		uid = userID
 	}
-	_, err = s.db.Exec(
+	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO auth_tokens(token_hash, user_id, purpose, email, expires_at) VALUES(?, ?, ?, ?, ?)`,
 		sha256Hex(plain), uid, purpose, email, time.Now().Add(ttl).UTC(),
 	)
@@ -40,13 +41,13 @@ func (s *Store) CreateToken(purpose string, userID int, email string, ttl time.D
 
 // ConsumeToken validates a token for the given purpose (exists, right purpose,
 // not used, not expired) and marks it used (single-use). Returns its payload.
-func (s *Store) ConsumeToken(plain, purpose string) (*TokenInfo, error) {
+func (s *Store) ConsumeToken(ctx context.Context, plain, purpose string) (*TokenInfo, error) {
 	hash := sha256Hex(plain)
 	var uid sql.NullInt64
 	var email string
 	var exp time.Time
 	var used sql.NullTime
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT user_id, email, expires_at, used_at FROM auth_tokens WHERE token_hash = ? AND purpose = ?`,
 		hash, purpose,
 	).Scan(&uid, &email, &exp, &used)
@@ -67,7 +68,7 @@ func (s *Store) ConsumeToken(plain, purpose string) (*TokenInfo, error) {
 	// on one statement and only the winner's RowsAffected is 1 (the same
 	// pattern as ConsumeBackupCode). A plain unconditional UPDATE here let both
 	// racers succeed — the SELECTs above had both seen the row as unused.
-	res, err := s.db.Exec(
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE auth_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ? AND used_at IS NULL`,
 		hash,
 	)
@@ -89,12 +90,12 @@ func (s *Store) ConsumeToken(plain, purpose string) (*TokenInfo, error) {
 func credKey(id []byte) string { return base64.RawURLEncoding.EncodeToString(id) }
 
 // AddCredential persists a newly-registered passkey for a user.
-func (s *Store) AddCredential(userID int, cred *webauthn.Credential) error {
+func (s *Store) AddCredential(ctx context.Context, userID int, cred *webauthn.Credential) error {
 	blob, err := json.Marshal(cred)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(
+	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO webauthn_credentials(cred_id, user_id, data) VALUES(?, ?, ?)
 		 ON CONFLICT(cred_id) DO UPDATE SET user_id = excluded.user_id, data = excluded.data`,
 		credKey(cred.ID), userID, string(blob),
@@ -103,8 +104,8 @@ func (s *Store) AddCredential(userID int, cred *webauthn.Credential) error {
 }
 
 // Credentials returns all passkeys registered by a user (empty slice if none).
-func (s *Store) Credentials(userID int) ([]webauthn.Credential, error) {
-	rows, err := s.db.Query("SELECT data FROM webauthn_credentials WHERE user_id = ?", userID)
+func (s *Store) Credentials(ctx context.Context, userID int) ([]webauthn.Credential, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT data FROM webauthn_credentials WHERE user_id = ?", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,24 +126,24 @@ func (s *Store) Credentials(userID int) ([]webauthn.Credential, error) {
 
 // UpdateCredential rewrites a credential after a successful login (the sign
 // counter advances and must be persisted to detect cloned authenticators).
-func (s *Store) UpdateCredential(cred *webauthn.Credential) error {
+func (s *Store) UpdateCredential(ctx context.Context, cred *webauthn.Credential) error {
 	blob, err := json.Marshal(cred)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec("UPDATE webauthn_credentials SET data = ? WHERE cred_id = ?", string(blob), credKey(cred.ID))
+	_, err = s.db.ExecContext(ctx, "UPDATE webauthn_credentials SET data = ? WHERE cred_id = ?", string(blob), credKey(cred.ID))
 	return err
 }
 
 // HasPasskey reports whether a user has at least one registered passkey.
-func (s *Store) HasPasskey(userID int) bool {
+func (s *Store) HasPasskey(ctx context.Context, userID int) bool {
 	var n int
-	_ = s.db.QueryRow("SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", userID).Scan(&n)
+	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = ?", userID).Scan(&n)
 	return n > 0
 }
 
 // DeleteCredential removes one passkey (by base64url id) owned by a user.
-func (s *Store) DeleteCredential(userID int, credIDB64 string) error {
-	_, err := s.db.Exec("DELETE FROM webauthn_credentials WHERE cred_id = ? AND user_id = ?", credIDB64, userID)
+func (s *Store) DeleteCredential(ctx context.Context, userID int, credIDB64 string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM webauthn_credentials WHERE cred_id = ? AND user_id = ?", credIDB64, userID)
 	return err
 }

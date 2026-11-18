@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -125,7 +126,7 @@ func Test_hgDNotifyTestPerUserTopic(t *testing.T) {
 
 	store := newAuthStore(t)
 	user := createTestUser(t, store, "hgDuser", "hgDpass")
-	if err := store.SetNtfyTopic(user.ID, "hgDpersonal"); err != nil {
+	if err := store.SetNtfyTopic(context.Background(), user.ID, "hgDpersonal"); err != nil {
 		t.Fatal(err)
 	}
 

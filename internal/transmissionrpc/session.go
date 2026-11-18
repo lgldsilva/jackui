@@ -73,7 +73,7 @@ func (h *Handler) resolveSessionUser(c *gin.Context, sessionID string) (rpcIdent
 // integrations. Use a dedicated non-MFA account for the *arr if that matters
 // (see docs/TRANSMISSION_RPC.md).
 func (h *Handler) establishSession(c *gin.Context, sid, user, pass string) bool {
-	u, err := h.authStore.VerifyPassword(user, pass)
+	u, err := h.authStore.VerifyPassword(c.Request.Context(), user, pass)
 	if err != nil || u == nil {
 		// Count toward the brute-force lockout.
 		if h.lockout != nil {

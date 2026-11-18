@@ -27,7 +27,7 @@ func PasskeyRegisterBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc
 			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfigF)
 			return
 		}
-		creds, _ := store.Credentials(claims.UserID)
+		creds, _ := store.Credentials(c.Request.Context(), claims.UserID)
 		opts, session, err := wa.BeginRegister(claims.UserID, claims.Username, creds)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
@@ -49,13 +49,13 @@ func PasskeyRegisterFinish(store *auth.Store, wa *auth.WAManager) gin.HandlerFun
 			httpshared.RespondErrorMessage(c, http.StatusServiceUnavailable, ErrWebAuthnNotConfig)
 			return
 		}
-		creds, _ := store.Credentials(claims.UserID)
+		creds, _ := store.Credentials(c.Request.Context(), claims.UserID)
 		cred, err := wa.FinishRegister(claims.UserID, claims.Username, creds, c.Query("session"), c.Request)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		if err := store.AddCredential(claims.UserID, cred); err != nil {
+		if err := store.AddCredential(c.Request.Context(), claims.UserID, cred); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -77,7 +77,7 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username required")
 			return
 		}
-		user, err := store.GetUserByUsername(req.Username)
+		user, err := store.GetUserByUsername(c.Request.Context(), req.Username)
 		// Neutral response shape, but a passkey login needs the credential list to
 		// build the assertion challenge — so an unknown user / no-passkey can't be
 		// fully hidden here. Return a generic error without leaking which case it is.
@@ -85,7 +85,7 @@ func PasskeyLoginBegin(store *auth.Store, wa *auth.WAManager) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey unavailable for this user")
 			return
 		}
-		creds, _ := store.Credentials(user.ID)
+		creds, _ := store.Credentials(c.Request.Context(), user.ID)
 		if len(creds) == 0 {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey unavailable for this user")
 			return
@@ -108,7 +108,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 		}
 		// The assertion JSON is the body go-webauthn parses (we must NOT consume it
 		// with ShouldBindJSON), so the username + flags ride in the query string.
-		user, err := store.GetUserByUsername(c.Query("username"))
+		user, err := store.GetUserByUsername(c.Request.Context(), c.Query("username"))
 		if err != nil || user == nil {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey authentication failed")
 			return
@@ -121,14 +121,14 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 			httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "account disabled", gin.H{"status": "disabled"})
 			return
 		}
-		creds, _ := store.Credentials(user.ID)
+		creds, _ := store.Credentials(c.Request.Context(), user.ID)
 		cred, err := wa.FinishLogin(user.ID, user.Username, creds, c.Query("session"), c.Request)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "passkey authentication failed")
 			return
 		}
 		// Persist the advanced sign counter (clone-detection state).
-		_ = store.UpdateCredential(cred)
+		_ = store.UpdateCredential(c.Request.Context(), cred)
 
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
@@ -139,7 +139,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 		if c.Query("remember") == "1" {
 			ttl = refreshTTLRemember
 		}
-		refresh, err := store.CreateRefreshToken(user.ID, ttl, ttl == refreshTTLRemember, c.Request.UserAgent(), c.ClientIP())
+		refresh, err := store.CreateRefreshToken(c.Request.Context(), user.ID, ttl, ttl == refreshTTLRemember, c.Request.UserAgent(), c.ClientIP())
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -157,7 +157,7 @@ func PasskeyList(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
-		creds, _ := store.Credentials(claims.UserID)
+		creds, _ := store.Credentials(c.Request.Context(), claims.UserID)
 		out := make([]gin.H, 0, len(creds))
 		for _, cr := range creds {
 			out = append(out, gin.H{"id": base64.RawURLEncoding.EncodeToString(cr.ID)})
@@ -174,7 +174,7 @@ func PasskeyDelete(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, errNotAuthenticated)
 			return
 		}
-		if err := store.DeleteCredential(claims.UserID, c.Param("id")); err != nil {
+		if err := store.DeleteCredential(c.Request.Context(), claims.UserID, c.Param("id")); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

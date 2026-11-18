@@ -1,25 +1,26 @@
 package auth
 
 import (
+	"context"
 	"testing"
 	"time"
 )
 
 func TestUpdateEmail_ResetsVerified(t *testing.T) {
 	s := newTestStore(t)
-	id, err := s.CreateUserFull("alice", "alice@old.com", "secret123", RoleUser, StatusActive)
+	id, err := s.CreateUserFull(context.Background(), "alice", "alice@old.com", "secret123", RoleUser, StatusActive)
 	if err != nil {
 		t.Fatalf("CreateUserFull: %v", err)
 	}
-	if err := s.SetEmailVerified(id, ""); err != nil {
+	if err := s.SetEmailVerified(context.Background(), id, ""); err != nil {
 		t.Fatalf("SetEmailVerified: %v", err)
 	}
 
-	if err := s.UpdateEmail(id, "alice@new.com"); err != nil {
+	if err := s.UpdateEmail(context.Background(), id, "alice@new.com"); err != nil {
 		t.Fatalf("UpdateEmail: %v", err)
 	}
 
-	u, err := s.GetUserByID(id)
+	u, err := s.GetUserByID(context.Background(), id)
 	if err != nil {
 		t.Fatalf("GetUserByID: %v", err)
 	}
@@ -33,11 +34,11 @@ func TestUpdateEmail_ResetsVerified(t *testing.T) {
 
 func TestEmailInUse(t *testing.T) {
 	s := newTestStore(t)
-	aliceID, _ := s.CreateUserFull("alice", "alice@test.com", "secret123", RoleUser, StatusActive)
-	s.CreateUserFull("bob", "bob@test.com", "secret123", RoleUser, StatusActive)
+	aliceID, _ := s.CreateUserFull(context.Background(), "alice", "alice@test.com", "secret123", RoleUser, StatusActive)
+	s.CreateUserFull(context.Background(), "bob", "bob@test.com", "secret123", RoleUser, StatusActive)
 
 	// Another user's address is in use.
-	used, err := s.EmailInUse("bob@test.com", aliceID)
+	used, err := s.EmailInUse(context.Background(), "bob@test.com", aliceID)
 	if err != nil {
 		t.Fatalf("EmailInUse: %v", err)
 	}
@@ -46,7 +47,7 @@ func TestEmailInUse(t *testing.T) {
 	}
 
 	// One's OWN address is excluded.
-	used, err = s.EmailInUse("alice@test.com", aliceID)
+	used, err = s.EmailInUse(context.Background(), "alice@test.com", aliceID)
 	if err != nil {
 		t.Fatalf("EmailInUse: %v", err)
 	}
@@ -55,26 +56,26 @@ func TestEmailInUse(t *testing.T) {
 	}
 
 	// Free address.
-	if used, _ = s.EmailInUse("free@test.com", aliceID); used {
+	if used, _ = s.EmailInUse(context.Background(), "free@test.com", aliceID); used {
 		t.Error("free@test.com should not be in use")
 	}
 
 	// Empty never matches (rows with empty email would collide otherwise).
-	if used, _ = s.EmailInUse("", aliceID); used {
+	if used, _ = s.EmailInUse(context.Background(), "", aliceID); used {
 		t.Error("empty email must never be in use")
 	}
 }
 
 func TestSessions_PersistUserAgentAndIP(t *testing.T) {
 	s := newTestStore(t)
-	id, _ := s.CreateUserFull("alice", "alice@test.com", "secret123", RoleUser, StatusActive)
+	id, _ := s.CreateUserFull(context.Background(), "alice", "alice@test.com", "secret123", RoleUser, StatusActive)
 
-	tok, err := s.CreateRefreshToken(id, time.Hour, false, "Mozilla/5.0 (iPhone)", "10.0.0.7")
+	tok, err := s.CreateRefreshToken(context.Background(), id, time.Hour, false, "Mozilla/5.0 (iPhone)", "10.0.0.7")
 	if err != nil {
 		t.Fatalf("CreateRefreshToken: %v", err)
 	}
 
-	sessions, err := s.ListSessions(id, tok)
+	sessions, err := s.ListSessions(context.Background(), id, tok)
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}

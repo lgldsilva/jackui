@@ -146,7 +146,7 @@ func initDownloadsStore(deps *appDeps) {
 		if deps.authStore == nil {
 			return ""
 		}
-		u, err := deps.authStore.GetUserByID(userID)
+		u, err := deps.authStore.GetUserByID(context.Background(), userID)
 		if err != nil || u == nil {
 			return ""
 		}
@@ -201,7 +201,7 @@ func migrateUserSubpathMounts(deps *appDeps) {
 	if deps.localBrowser == nil || deps.downloadsStore == nil || deps.authStore == nil {
 		return
 	}
-	users, err := deps.authStore.ListUsers()
+	users, err := deps.authStore.ListUsers(context.Background())
 	if err != nil {
 		log.Printf("Warning: usersubpath migration skipped (list users: %v)", err)
 		return
@@ -234,7 +234,7 @@ func buildOwnerAttributor(deps *appDeps) func(abs string) (string, bool) {
 		if err != nil || len(dls) == 0 {
 			return "", false
 		}
-		u, err := deps.authStore.GetUserByID(dls[0].UserID)
+		u, err := deps.authStore.GetUserByID(context.Background(), dls[0].UserID)
 		if err != nil || u == nil {
 			return "", false
 		}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"net/http"
 	"strings"
@@ -67,7 +68,7 @@ func TestForgot_LogsNoResetToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateUserFull("victim", "victim@example.com", "password123", auth.RoleUser, auth.StatusActive); err != nil {
+	if _, err := store.CreateUserFull(context.Background(), "victim", "victim@example.com", "password123", auth.RoleUser, auth.StatusActive); err != nil {
 		t.Fatal(err)
 	}
 

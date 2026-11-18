@@ -56,7 +56,7 @@ func initAuth(deps *appDeps) {
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)
-			_ = deps.authStore.CleanupExpired()
+			_ = deps.authStore.CleanupExpired(context.Background())
 		}
 	}()
 }
@@ -110,7 +110,7 @@ func bootstrapAdmin(deps *appDeps) {
 	if deps.cfg.Auth.AdminPassword == "" {
 		log.Fatalf("Auth enabled but JACKUI_ADMIN_PASSWORD / config admin_password not set")
 	}
-	if err := deps.authStore.Bootstrap(adminUser, deps.cfg.Auth.AdminPassword); err != nil {
+	if err := deps.authStore.Bootstrap(context.Background(), adminUser, deps.cfg.Auth.AdminPassword); err != nil {
 		log.Fatalf("Auth bootstrap failed: %v", err)
 	}
 	log.Printf("Admin user=%s", adminUser)

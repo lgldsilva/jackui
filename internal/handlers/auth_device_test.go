@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -54,11 +55,11 @@ func newDeviceEnv(t *testing.T) *deviceEnv {
 
 func (e *deviceEnv) mkUser(t *testing.T, name string, role auth.Role) *auth.User {
 	t.Helper()
-	id, err := e.store.CreateUser(name, "pw-"+name+"-123456", role)
+	id, err := e.store.CreateUser(context.Background(), name, "pw-"+name+"-123456", role)
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, _ := e.store.GetUserByID(id)
+	u, _ := e.store.GetUserByID(context.Background(), id)
 	return u
 }
 
@@ -235,7 +236,7 @@ func TestDevicePairing_ProfilesPINAndIsolation(t *testing.T) {
 		t.Fatalf("non-admin all must be own only = %d %v", w.Code, l)
 	}
 	_ = sess
-	if err := e.store.SetStatus(e.alice.ID, auth.StatusDisabled); err != nil {
+	if err := e.store.SetStatus(context.Background(), e.alice.ID, auth.StatusDisabled); err != nil {
 		t.Fatal(err)
 	}
 	if w, _ := e.do(http.MethodPost, "/api/auth/device/session", auth.DevicePrefix+aKey, nil); w.Code != http.StatusForbidden {
@@ -250,7 +251,7 @@ func TestDeviceToken_DisabledApproverGetsDenied(t *testing.T) {
 	e := newDeviceEnv(t)
 	_, start := e.do(http.MethodPost, "/api/auth/device/start", "", gin.H{"deviceId": "tv-2"})
 	e.do(http.MethodPost, "/api/auth/device/approve", e.bearer(t, e.alice), gin.H{"userCode": start["userCode"], "approve": true})
-	_ = e.store.SetStatus(e.alice.ID, auth.StatusDisabled)
+	_ = e.store.SetStatus(context.Background(), e.alice.ID, auth.StatusDisabled)
 	if _, body := e.do(http.MethodPost, "/api/auth/device/token", "", gin.H{"deviceCode": start["deviceCode"]}); body["error"] != auth.DeviceErrDenied {
 		t.Fatalf("disabled approver = %v", body)
 	}

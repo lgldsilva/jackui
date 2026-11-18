@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -92,25 +93,25 @@ func scanDeviceKey(r rowScanner) (*DeviceKey, error) {
 // CreateDeviceKey issues a fresh key for (meta.DeviceID, userID), revoking any
 // previous active key of the same pair (re-pairing replaces). Returns the plain
 // key — shown once, only its hash is stored.
-func (s *Store) CreateDeviceKey(userID int, meta DeviceKeyMeta) (string, int64, error) {
+func (s *Store) CreateDeviceKey(ctx context.Context, userID int, meta DeviceKeyMeta) (string, int64, error) {
 	raw, err := randomToken(32)
 	if err != nil {
 		return "", 0, err
 	}
 	plain := DeviceKeyPrefix + raw
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.Exec(
+	if _, err := tx.ExecContext(ctx,
 		"UPDATE device_keys SET revoked_at = now() WHERE device_id = ? AND user_id = ? AND revoked_at IS NULL",
 		meta.DeviceID, userID,
 	); err != nil {
 		return "", 0, err
 	}
 	var id int64
-	if err := tx.QueryRow(
+	if err := tx.QueryRowContext(ctx,
 		"INSERT INTO device_keys(user_id, device_id, name, model, key_hash, last_ip) VALUES(?, ?, ?, ?, ?, ?) RETURNING id",
 		userID, meta.DeviceID, meta.Name, meta.Model, sha256Hex(plain), meta.IP,
 	).Scan(&id); err != nil {
@@ -121,11 +122,11 @@ func (s *Store) CreateDeviceKey(userID int, meta DeviceKeyMeta) (string, int64, 
 
 // LookupDeviceKey resolves an active (non-revoked) key. Does not touch usage
 // stamps — see TouchDeviceKey.
-func (s *Store) LookupDeviceKey(plain string) (*DeviceKey, error) {
+func (s *Store) LookupDeviceKey(ctx context.Context, plain string) (*DeviceKey, error) {
 	if !strings.HasPrefix(plain, DeviceKeyPrefix) {
 		return nil, ErrDeviceKeyInvalid
 	}
-	k, err := scanDeviceKey(s.db.QueryRow(
+	k, err := scanDeviceKey(s.db.QueryRowContext(ctx,
 		deviceKeySelect+"k.key_hash = ? AND k.revoked_at IS NULL",
 		sha256Hex(plain),
 	))
@@ -136,32 +137,32 @@ func (s *Store) LookupDeviceKey(plain string) (*DeviceKey, error) {
 }
 
 // TouchDeviceKey records a successful use (last_used_at / last_ip).
-func (s *Store) TouchDeviceKey(id int64, ip string) error {
-	_, err := s.db.Exec("UPDATE device_keys SET last_used_at = now(), last_ip = ? WHERE id = ?", ip, id)
+func (s *Store) TouchDeviceKey(ctx context.Context, id int64, ip string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE device_keys SET last_used_at = now(), last_ip = ? WHERE id = ?", ip, id)
 	return err
 }
 
 // ListDeviceKeys returns active keys. userID < 0 lists every user's keys (admin).
-func (s *Store) ListDeviceKeys(userID int) ([]DeviceKey, error) {
+func (s *Store) ListDeviceKeys(ctx context.Context, userID int) ([]DeviceKey, error) {
 	q := deviceKeySelect + "k.revoked_at IS NULL"
 	args := []any{}
 	if userID >= 0 {
 		q += " AND k.user_id = ?"
 		args = append(args, userID)
 	}
-	return s.queryDeviceKeys(q+" ORDER BY k.device_id, k.created_at", args...)
+	return s.queryDeviceKeys(ctx, q+" ORDER BY k.device_id, k.created_at", args...)
 }
 
 // DeviceProfiles lists the active keys sharing deviceID (the TV's profile picker).
-func (s *Store) DeviceProfiles(deviceID string) ([]DeviceKey, error) {
-	return s.queryDeviceKeys(
+func (s *Store) DeviceProfiles(ctx context.Context, deviceID string) ([]DeviceKey, error) {
+	return s.queryDeviceKeys(ctx,
 		deviceKeySelect+"k.device_id = ? AND k.revoked_at IS NULL ORDER BY u.username",
 		deviceID,
 	)
 }
 
-func (s *Store) queryDeviceKeys(q string, args ...any) ([]DeviceKey, error) {
-	rows, err := s.db.Query(q, args...)
+func (s *Store) queryDeviceKeys(ctx context.Context, q string, args ...any) ([]DeviceKey, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -180,26 +181,26 @@ func (s *Store) queryDeviceKeys(q string, args ...any) ([]DeviceKey, error) {
 // RevokeDeviceKey revokes key id. ownerID < 0 = admin (any owner); otherwise
 // only the owner's own key matches, so a foreign id is indistinguishable from
 // a missing one (ErrDeviceKeyNotFound).
-func (s *Store) RevokeDeviceKey(id int64, ownerID int) error {
+func (s *Store) RevokeDeviceKey(ctx context.Context, id int64, ownerID int) error {
 	q := "UPDATE device_keys SET revoked_at = now() WHERE id = ? AND revoked_at IS NULL"
 	args := []any{id}
 	if ownerID >= 0 {
 		q += " AND user_id = ?"
 		args = append(args, ownerID)
 	}
-	return expectOneRow(s.db.Exec(q, args...))
+	return expectOneRow(s.db.ExecContext(ctx, q, args...))
 }
 
 // RevokeAllDeviceKeys revokes every paired device of a user. A device key
 // never expires and mints fresh tokens on its own, so it has to die together
 // with the refresh sessions whenever the password is (re)set.
-func (s *Store) RevokeAllDeviceKeys(userID int) error {
-	_, err := s.db.Exec("UPDATE device_keys SET revoked_at = now() WHERE user_id = ? AND revoked_at IS NULL", userID)
+func (s *Store) RevokeAllDeviceKeys(ctx context.Context, userID int) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE device_keys SET revoked_at = now() WHERE user_id = ? AND revoked_at IS NULL", userID)
 	return err
 }
 
 // SetDevicePIN sets (or with pin == "" clears) the profile PIN of the owner's key.
-func (s *Store) SetDevicePIN(id int64, ownerID int, pin string) error {
+func (s *Store) SetDevicePIN(ctx context.Context, id int64, ownerID int, pin string) error {
 	hash := ""
 	if pin != "" {
 		if !validPIN(pin) {
@@ -211,7 +212,7 @@ func (s *Store) SetDevicePIN(id int64, ownerID int, pin string) error {
 		}
 		hash = string(b)
 	}
-	return expectOneRow(s.db.Exec(
+	return expectOneRow(s.db.ExecContext(ctx,
 		"UPDATE device_keys SET pin_hash = ?, pin_failures = 0, pin_locked_until = NULL WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
 		hash, id, ownerID,
 	))
@@ -221,7 +222,7 @@ func (s *Store) SetDevicePIN(id int64, ownerID int, pin string) error {
 // counting failures and locking after devicePINMaxFailures. The attempt is
 // charged in the database BEFORE the PIN is compared, so parallel guesses
 // cannot all read the same counter and slip past the limit.
-func (s *Store) CheckDevicePIN(k *DeviceKey, pin string, now time.Time) error {
+func (s *Store) CheckDevicePIN(ctx context.Context, k *DeviceKey, pin string, now time.Time) error {
 	if !k.HasPIN {
 		return nil
 	}
@@ -231,12 +232,12 @@ func (s *Store) CheckDevicePIN(k *DeviceKey, pin string, now time.Time) error {
 		}
 		return ErrDevicePINRequired
 	}
-	locked, err := s.chargeDevicePINAttempt(k.ID, now)
+	locked, err := s.chargeDevicePINAttempt(ctx, k.ID, now)
 	if err != nil {
 		return err
 	}
 	if bcrypt.CompareHashAndPassword([]byte(k.pinHash), []byte(pin)) == nil {
-		_, err := s.db.Exec("UPDATE device_keys SET pin_failures = 0, pin_locked_until = NULL WHERE id = ?", k.ID)
+		_, err := s.db.ExecContext(ctx, "UPDATE device_keys SET pin_failures = 0, pin_locked_until = NULL WHERE id = ?", k.ID)
 		return err
 	}
 	if locked {
@@ -249,9 +250,9 @@ func (s *Store) CheckDevicePIN(k *DeviceKey, pin string, now time.Time) error {
 // reports whether it was the one that tripped the lock. A key that is already
 // locked matches no row and yields ErrDevicePINLocked without being charged;
 // the row lock serialises concurrent callers, each re-checking the predicate.
-func (s *Store) chargeDevicePINAttempt(id int64, now time.Time) (bool, error) {
+func (s *Store) chargeDevicePINAttempt(ctx context.Context, id int64, now time.Time) (bool, error) {
 	var locked bool
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`UPDATE device_keys SET
 			pin_failures = CASE WHEN pin_failures + 1 >= ? THEN 0 ELSE pin_failures + 1 END,
 			pin_locked_until = CASE WHEN pin_failures + 1 >= ? THEN CAST(? AS TIMESTAMPTZ) END

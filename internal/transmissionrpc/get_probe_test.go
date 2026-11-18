@@ -1,6 +1,7 @@
 package transmissionrpc
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,7 +22,7 @@ func TestRPC_GetSessionProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := as.CreateUser("bob", "secret123!", auth.RoleUser); err != nil {
+	if _, err := as.CreateUser(context.Background(), "bob", "secret123!", auth.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	h := NewHandler(st, nil, as, "/data", "/data", "", nil)

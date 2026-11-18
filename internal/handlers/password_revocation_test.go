@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -17,11 +18,11 @@ import (
 func compromisedAccount(t *testing.T, store *auth.Store) (user *auth.User, refresh, deviceKey string) {
 	t.Helper()
 	user = createTestUser(t, store, "victim", "oldpass1")
-	refresh, err := store.CreateRefreshToken(user.ID, time.Hour, false, "attacker", "6.6.6.6")
+	refresh, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "attacker", "6.6.6.6")
 	if err != nil {
 		t.Fatal(err)
 	}
-	deviceKey, _, err = store.CreateDeviceKey(user.ID, auth.DeviceKeyMeta{DeviceID: "tv-evil", Name: "TV", Model: "X", IP: "6.6.6.6"})
+	deviceKey, _, err = store.CreateDeviceKey(context.Background(), user.ID, auth.DeviceKeyMeta{DeviceID: "tv-evil", Name: "TV", Model: "X", IP: "6.6.6.6"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,14 +31,14 @@ func compromisedAccount(t *testing.T, store *auth.Store) (user *auth.User, refre
 
 func assertDeviceKeyRevoked(t *testing.T, store *auth.Store, deviceKey string) {
 	t.Helper()
-	if _, err := store.LookupDeviceKey(deviceKey); !errors.Is(err, auth.ErrDeviceKeyInvalid) {
+	if _, err := store.LookupDeviceKey(context.Background(), deviceKey); !errors.Is(err, auth.ErrDeviceKeyInvalid) {
 		t.Errorf("device key still valid after the password was set (err = %v), want revoked", err)
 	}
 }
 
 func assertSessionCount(t *testing.T, store *auth.Store, userID, want int) {
 	t.Helper()
-	sessions, err := store.ListSessions(userID, "")
+	sessions, err := store.ListSessions(context.Background(), userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func changePasswordAs(t *testing.T, store *auth.Store, user *auth.User, body str
 func TestReset_RevokesSessionsAndDeviceKeys(t *testing.T) {
 	store := newAuthStore(t)
 	user, _, deviceKey := compromisedAccount(t, store)
-	tok, err := store.CreateToken(auth.TokenResetPassword, user.ID, user.Email, resetTTL)
+	tok, err := store.CreateToken(context.Background(), auth.TokenResetPassword, user.ID, user.Email, resetTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,14 +85,14 @@ func TestReset_RevokesSessionsAndDeviceKeys(t *testing.T) {
 func TestChangePassword_RevokesDeviceKeysKeepsOwnSession(t *testing.T) {
 	store := newAuthStore(t)
 	user, _, deviceKey := compromisedAccount(t, store)
-	own, err := store.CreateRefreshToken(user.ID, time.Hour, false, "this device", "10.0.0.1")
+	own, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "this device", "10.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	changePasswordAs(t, store, user, `{"current":"oldpass1","new":"newpass1","refresh":"`+own+`"}`)
 
-	sessions, _ := store.ListSessions(user.ID, own)
+	sessions, _ := store.ListSessions(context.Background(), user.ID, own)
 	if len(sessions) != 1 || !sessions[0].Current {
 		t.Errorf("sessions = %+v, want only the caller's own", sessions)
 	}

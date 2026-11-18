@@ -2,6 +2,7 @@ package transmissionrpc
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -158,7 +159,7 @@ func TestRPC_AuthHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := as.CreateUser("bob", "secret123!", auth.RoleUser); err != nil {
+	if _, err := as.CreateUser(context.Background(), "bob", "secret123!", auth.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	h := NewHandler(st, nil, as, "/data", "/data", "", nil)

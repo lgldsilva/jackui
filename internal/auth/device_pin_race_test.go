@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -12,7 +13,7 @@ func pinnedDeviceKey(t *testing.T) (*Store, string) {
 	t.Helper()
 	s := newDeviceStore(t)
 	plain, id := mustDeviceKey(t, s, 1, "tv-1")
-	if err := s.SetDevicePIN(id, 1, "1234"); err != nil {
+	if err := s.SetDevicePIN(context.Background(), id, 1, "1234"); err != nil {
 		t.Fatal(err)
 	}
 	return s, plain
@@ -29,7 +30,7 @@ func TestDeviceKey_PINLockoutHoldsUnderConcurrency(t *testing.T) {
 	// Every request loads its snapshot before any of them verifies — the worst case.
 	snaps := make([]*DeviceKey, attempts)
 	for i := range snaps {
-		k, err := s.LookupDeviceKey(plain)
+		k, err := s.LookupDeviceKey(context.Background(), plain)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,7 +44,7 @@ func TestDeviceKey_PINLockoutHoldsUnderConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs[i] = s.CheckDevicePIN(snaps[i], "9999", now)
+			errs[i] = s.CheckDevicePIN(context.Background(), snaps[i], "9999", now)
 		}()
 	}
 	close(start)
@@ -64,14 +65,14 @@ func TestDeviceKey_PINLockoutHoldsUnderConcurrency(t *testing.T) {
 		t.Fatalf("%d of %d concurrent wrong PINs were evaluated without locking (limit %d)",
 			invalid, attempts, devicePINMaxFailures)
 	}
-	k, err := s.LookupDeviceKey(plain)
+	k, err := s.LookupDeviceKey(context.Background(), plain)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if k.pinLocked == nil || !now.Before(*k.pinLocked) {
 		t.Fatalf("profile not locked after %d concurrent wrong PINs (pin_failures=%d)", attempts, k.pinFails)
 	}
-	if err := s.CheckDevicePIN(k, "1234", now); !errors.Is(err, ErrDevicePINLocked) {
+	if err := s.CheckDevicePIN(context.Background(), k, "1234", now); !errors.Is(err, ErrDevicePINLocked) {
 		t.Fatalf("locked profile accepted the right PIN: %v", err)
 	}
 }
@@ -80,15 +81,15 @@ func TestDeviceKey_PINLockoutHoldsUnderConcurrency(t *testing.T) {
 func TestDeviceKey_PINStaleSnapshotCannotBypassLock(t *testing.T) {
 	s, plain := pinnedDeviceKey(t)
 	now := time.Now()
-	stale, err := s.LookupDeviceKey(plain)
+	stale, err := s.LookupDeviceKey(context.Background(), plain)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < devicePINMaxFailures; i++ {
-		k, _ := s.LookupDeviceKey(plain)
-		_ = s.CheckDevicePIN(k, "9999", now)
+		k, _ := s.LookupDeviceKey(context.Background(), plain)
+		_ = s.CheckDevicePIN(context.Background(), k, "9999", now)
 	}
-	if err := s.CheckDevicePIN(stale, "1234", now); !errors.Is(err, ErrDevicePINLocked) {
+	if err := s.CheckDevicePIN(context.Background(), stale, "1234", now); !errors.Is(err, ErrDevicePINLocked) {
 		t.Fatalf("stale snapshot bypassed the lock: %v", err)
 	}
 }
@@ -98,16 +99,16 @@ func TestDeviceKey_PINRightOnLastAttemptResets(t *testing.T) {
 	s, plain := pinnedDeviceKey(t)
 	now := time.Now()
 	for i := 0; i < devicePINMaxFailures-1; i++ {
-		k, _ := s.LookupDeviceKey(plain)
-		if err := s.CheckDevicePIN(k, "9999", now); !errors.Is(err, ErrDevicePINInvalid) {
+		k, _ := s.LookupDeviceKey(context.Background(), plain)
+		if err := s.CheckDevicePIN(context.Background(), k, "9999", now); !errors.Is(err, ErrDevicePINInvalid) {
 			t.Fatalf("miss %d err = %v", i, err)
 		}
 	}
-	k, _ := s.LookupDeviceKey(plain)
-	if err := s.CheckDevicePIN(k, "1234", now); err != nil {
+	k, _ := s.LookupDeviceKey(context.Background(), plain)
+	if err := s.CheckDevicePIN(context.Background(), k, "1234", now); err != nil {
 		t.Fatalf("right PIN on the last attempt: %v", err)
 	}
-	k, _ = s.LookupDeviceKey(plain)
+	k, _ = s.LookupDeviceKey(context.Background(), plain)
 	if k.pinFails != 0 || k.pinLocked != nil {
 		t.Fatalf("success must clear the lockout state: fails=%d locked=%v", k.pinFails, k.pinLocked)
 	}

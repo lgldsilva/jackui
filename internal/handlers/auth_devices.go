@@ -25,7 +25,7 @@ func ListDevices(store *auth.Store) gin.HandlerFunc {
 		if isAdmin && c.Query("all") == "1" {
 			owner = -1
 		}
-		keys, err := store.ListDeviceKeys(owner)
+		keys, err := store.ListDeviceKeys(c.Request.Context(), owner)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -72,7 +72,7 @@ func RevokeDevice(store *auth.Store) gin.HandlerFunc {
 		if isAdmin {
 			owner = -1
 		}
-		if err := store.RevokeDeviceKey(id, owner); err != nil {
+		if err := store.RevokeDeviceKey(c.Request.Context(), id, owner); err != nil {
 			respondDeviceKeyErr(c, err)
 			return
 		}
@@ -95,7 +95,7 @@ func SetDevicePIN(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "invalid body")
 			return
 		}
-		if err := store.SetDevicePIN(id, uid, req.PIN); err != nil {
+		if err := store.SetDevicePIN(c.Request.Context(), id, uid, req.PIN); err != nil {
 			respondDeviceKeyErr(c, err)
 			return
 		}

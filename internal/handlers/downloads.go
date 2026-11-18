@@ -94,7 +94,7 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 		list = dropHiddenDownloads(list, buildHiddenDownloadFilter(c, streamer, browser, authStore, 0, true))
 		uc := userCache{}
 		for i := range list {
-			list[i].Username = uc.get(authStore, list[i].UserID)
+			list[i].Username = uc.get(c.Request.Context(), authStore, list[i].UserID)
 		}
 		enrichETAList(list, streamer)
 		downloads.AssignQueuePositions(list)
@@ -119,7 +119,7 @@ func DownloadsUsers(dlStore *downloads.Store, authStore *auth.Store) gin.Handler
 		uc := userCache{}
 		out := make([]userEntry, 0, len(userIDs))
 		for _, uid := range userIDs {
-			out = append(out, userEntry{ID: uid, Username: uc.get(authStore, uid)})
+			out = append(out, userEntry{ID: uid, Username: uc.get(c.Request.Context(), authStore, uid)})
 		}
 		c.JSON(http.StatusOK, out)
 	}

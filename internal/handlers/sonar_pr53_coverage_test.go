@@ -238,7 +238,7 @@ func TestPasskeyLoginFinishSessionExpired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
-	if _, err := store.CreateUserFull("pkuser", "pk@example.com", "secret1", auth.RoleUser, auth.StatusActive); err != nil {
+	if _, err := store.CreateUserFull(context.Background(), "pkuser", "pk@example.com", "secret1", auth.RoleUser, auth.StatusActive); err != nil {
 		t.Fatalf("CreateUserFull: %v", err)
 	}
 	handler := PasskeyLoginFinish(store, nil, newTestWAManager(t))

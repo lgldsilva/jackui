@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -125,13 +126,13 @@ func DeviceToken(flow *auth.DeviceFlow, store *auth.Store, tm *auth.TokenManager
 			httpshared.RespondErrorMessageFields(c, http.StatusBadRequest, poll.Err, fields)
 			return
 		}
-		user, err := store.GetUserByID(poll.UserID)
+		user, err := store.GetUserByID(c.Request.Context(), poll.UserID)
 		if err != nil || user.Status != auth.StatusActive {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, auth.DeviceErrDenied)
 			return
 		}
 		p := poll.Pairing
-		key, id, err := store.CreateDeviceKey(user.ID, auth.DeviceKeyMeta{DeviceID: p.DeviceID, Name: p.Name, Model: p.Model, IP: c.ClientIP()})
+		key, id, err := persistPairedDeviceKey(c.Request.Context(), store, user.ID, auth.DeviceKeyMeta{DeviceID: p.DeviceID, Name: p.Name, Model: p.Model, IP: c.ClientIP()})
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -148,7 +149,7 @@ func DeviceToken(flow *auth.DeviceFlow, store *auth.Store, tm *auth.TokenManager
 
 // deviceKeyAuth resolves the "Authorization: Device …" key; writes 401 on failure.
 func deviceKeyAuth(c *gin.Context, store *auth.Store) (*auth.DeviceKey, bool) {
-	k, err := store.LookupDeviceKey(auth.DeviceKeyFromHeader(c))
+	k, err := store.LookupDeviceKey(c.Request.Context(), auth.DeviceKeyFromHeader(c))
 	if err != nil {
 		httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid device key")
 		return nil, false
@@ -171,7 +172,7 @@ func DeviceSession(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		if !checkDevicePIN(c, store, k, req.PIN) {
 			return
 		}
-		user, err := store.GetUserByID(k.UserID)
+		user, err := store.GetUserByID(c.Request.Context(), k.UserID)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusUnauthorized, "invalid device key")
 			return
@@ -184,14 +185,19 @@ func DeviceSession(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
 		}
-		_ = store.TouchDeviceKey(k.ID, c.ClientIP())
+		_ = store.TouchDeviceKey(c.Request.Context(), k.ID, c.ClientIP())
 		resp.DeviceKeyID, resp.DeviceID = k.ID, k.DeviceID
 		c.JSON(http.StatusOK, resp)
 	}
 }
 
 func checkDevicePIN(c *gin.Context, store *auth.Store, k *auth.DeviceKey, pin string) bool {
-	err := store.CheckDevicePIN(k, pin, time.Now())
+	// The attempt is charged in the database before the PIN is compared; a
+	// client that disconnects after guessing must still pay for the guess, so
+	// the check is detached from the request.
+	ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	defer cancel()
+	err := store.CheckDevicePIN(ctx, k, pin, time.Now())
 	switch {
 	case err == nil:
 		return true
@@ -213,7 +219,7 @@ func DeviceProfiles(store *auth.Store) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		keys, err := store.DeviceProfiles(k.DeviceID)
+		keys, err := store.DeviceProfiles(c.Request.Context(), k.DeviceID)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -292,4 +298,13 @@ func DeviceApprove(flow *auth.DeviceFlow, lockout *auth.Lockout) gin.HandlerFunc
 		view["approved"] = req.Approve
 		c.JSON(http.StatusOK, view)
 	}
+}
+
+// persistPairedDeviceKey stores the key for a pairing that flow.Poll already
+// consumed (in memory, single-use): detached so a TV that drops the poll does
+// not burn the pairing without a key to show for it.
+func persistPairedDeviceKey(parent context.Context, store *auth.Store, userID int, meta auth.DeviceKeyMeta) (string, int64, error) {
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
+	return store.CreateDeviceKey(ctx, userID, meta)
 }

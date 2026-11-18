@@ -8,6 +8,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -23,7 +24,7 @@ import (
 // `remember` controls TTL behavior on refresh: when true, every successful refresh re-extends
 // the expiration by 30 days from now (sliding window — only logs out after 30d of inactivity).
 // userAgent/ip identify the creating device so sessions are recognizable in the UI.
-func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool, userAgent, ip string) (string, error) {
+func (s *Store) CreateRefreshToken(ctx context.Context, userID int, ttl time.Duration, remember bool, userAgent, ip string) (string, error) {
 	plain, err := randomToken(32)
 	if err != nil {
 		return "", err
@@ -33,7 +34,7 @@ func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool,
 	if remember {
 		rem = 1
 	}
-	_, err = s.db.Exec(
+	_, err = s.db.ExecContext(ctx,
 		"INSERT INTO refresh_tokens(token_hash, user_id, expires_at, remember_me, user_agent, ip) VALUES(?, ?, ?, ?, ?, ?)",
 		hash, userID, time.Now().Add(ttl).UTC(), rem, userAgent, ip,
 	)
@@ -45,12 +46,12 @@ func (s *Store) CreateRefreshToken(userID int, ttl time.Duration, remember bool,
 
 // ValidateRefreshToken looks up a token, checks expiry, returns the owning user
 // plus the `remember` flag that the session was created with.
-func (s *Store) ValidateRefreshToken(plain string) (*User, bool, error) {
+func (s *Store) ValidateRefreshToken(ctx context.Context, plain string) (*User, bool, error) {
 	hash := sha256Hex(plain)
 	var userID int
 	var exp time.Time
 	var remember int
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT user_id, expires_at, remember_me FROM refresh_tokens WHERE token_hash = ?",
 		hash,
 	).Scan(&userID, &exp, &remember)
@@ -63,7 +64,7 @@ func (s *Store) ValidateRefreshToken(plain string) (*User, bool, error) {
 	if time.Now().UTC().After(exp) {
 		return nil, false, errors.New("refresh token expired")
 	}
-	u, err := s.GetUserByID(userID)
+	u, err := s.GetUserByID(ctx, userID)
 	return u, remember == 1, err
 }
 
@@ -91,12 +92,12 @@ const (
 //     rotated (possibly stolen) token → caller revokes all sessions.
 //
 // Returns the owning user + remember flag for the issue-tokens outcomes.
-func (s *Store) RotateRefreshToken(plain string, grace time.Duration) (*User, bool, RefreshOutcome, error) {
+func (s *Store) RotateRefreshToken(ctx context.Context, plain string, grace time.Duration) (*User, bool, RefreshOutcome, error) {
 	hash := sha256Hex(plain)
 	var userID, remember int
 	var exp time.Time
 	var consumed sql.NullTime
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		"SELECT user_id, expires_at, remember_me, consumed_at FROM refresh_tokens WHERE token_hash = ?",
 		hash,
 	).Scan(&userID, &exp, &remember, &consumed)
@@ -109,7 +110,7 @@ func (s *Store) RotateRefreshToken(plain string, grace time.Duration) (*User, bo
 	if time.Now().UTC().After(exp) {
 		return nil, false, RefreshInvalid, nil
 	}
-	u, err := s.GetUserByID(userID)
+	u, err := s.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, false, RefreshInvalid, err
 	}
@@ -121,7 +122,7 @@ func (s *Store) RotateRefreshToken(plain string, grace time.Duration) (*User, bo
 	}
 	// Active token: try to consume it. We may lose to a concurrent refresh that
 	// flipped consumed_at first — that's a benign grace reissue, not reuse.
-	res, err := s.db.Exec(
+	res, err := s.db.ExecContext(ctx,
 		"UPDATE refresh_tokens SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL",
 		time.Now().UTC(), hash,
 	)
@@ -135,9 +136,9 @@ func (s *Store) RotateRefreshToken(plain string, grace time.Duration) (*User, bo
 }
 
 // ConsumeRefreshToken deletes a refresh token (use on logout, or rolling rotation).
-func (s *Store) ConsumeRefreshToken(plain string) error {
+func (s *Store) ConsumeRefreshToken(ctx context.Context, plain string) error {
 	hash := sha256Hex(plain)
-	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token_hash = ?", hash)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM refresh_tokens WHERE token_hash = ?", hash)
 	return err
 }
 
@@ -146,9 +147,9 @@ func (s *Store) ConsumeRefreshToken(plain string) error {
 // close the validate-then-delete TOCTOU: with two concurrent refreshes of the
 // same token, only one gets `true` and may issue a new pair; the loser gets
 // `false` (the token was already consumed) and must be rejected.
-func (s *Store) ConsumeRefreshTokenOnce(plain string) (bool, error) {
+func (s *Store) ConsumeRefreshTokenOnce(ctx context.Context, plain string) (bool, error) {
 	hash := sha256Hex(plain)
-	res, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token_hash = ?", hash)
+	res, err := s.db.ExecContext(ctx, "DELETE FROM refresh_tokens WHERE token_hash = ?", hash)
 	if err != nil {
 		return false, err
 	}
@@ -159,9 +160,9 @@ func (s *Store) ConsumeRefreshTokenOnce(plain string) (bool, error) {
 // CleanupExpired removes refresh tokens past their TTL, plus soft-consumed tokens
 // older than an hour (well past the rotation grace window) so they don't linger
 // until their original TTL. Call periodically.
-func (s *Store) CleanupExpired() error {
+func (s *Store) CleanupExpired(ctx context.Context) error {
 	now := time.Now().UTC()
-	_, err := s.db.Exec(
+	_, err := s.db.ExecContext(ctx,
 		"DELETE FROM refresh_tokens WHERE expires_at < ? OR (consumed_at IS NOT NULL AND consumed_at < ?)",
 		now, now.Add(-time.Hour),
 	)
@@ -185,8 +186,8 @@ type SessionInfo struct {
 
 // ListSessions returns a user's active sessions, newest first. currentPlain (the
 // caller's own refresh token, may be empty) flags which row is "this device".
-func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, error) {
-	rows, err := s.db.Query(
+func (s *Store) ListSessions(ctx context.Context, userID int, currentPlain string) ([]SessionInfo, error) {
+	rows, err := s.db.QueryContext(ctx,
 		"SELECT token_hash, created_at, expires_at, remember_me, user_agent, ip FROM refresh_tokens WHERE user_id = ? AND consumed_at IS NULL ORDER BY created_at DESC",
 		userID,
 	)
@@ -216,15 +217,15 @@ func (s *Store) ListSessions(userID int, currentPlain string) ([]SessionInfo, er
 
 // RevokeSession deletes one session by its id (token_hash), scoped to the owner
 // so a user can't revoke another account's session.
-func (s *Store) RevokeSession(userID int, id string) error {
-	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE token_hash = ? AND user_id = ?", id, userID)
+func (s *Store) RevokeSession(ctx context.Context, userID int, id string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM refresh_tokens WHERE token_hash = ? AND user_id = ?", id, userID)
 	return err
 }
 
 // RevokeOtherSessions deletes every session for a user EXCEPT the caller's own
 // (identified by currentPlain). Returns how many were dropped.
-func (s *Store) RevokeOtherSessions(userID int, currentPlain string) (int, error) {
-	res, err := s.db.Exec(
+func (s *Store) RevokeOtherSessions(ctx context.Context, userID int, currentPlain string) (int, error) {
+	res, err := s.db.ExecContext(ctx,
 		"DELETE FROM refresh_tokens WHERE user_id = ? AND token_hash != ?",
 		userID, sha256Hex(currentPlain),
 	)
@@ -237,8 +238,8 @@ func (s *Store) RevokeOtherSessions(userID int, currentPlain string) (int, error
 
 // RevokeAllSessions deletes every session for a user (used when an admin disables
 // the account so existing logins can't keep refreshing).
-func (s *Store) RevokeAllSessions(userID int) error {
-	_, err := s.db.Exec("DELETE FROM refresh_tokens WHERE user_id = ?", userID)
+func (s *Store) RevokeAllSessions(ctx context.Context, userID int) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM refresh_tokens WHERE user_id = ?", userID)
 	return err
 }
 

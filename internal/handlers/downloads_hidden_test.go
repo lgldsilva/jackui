@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -52,11 +53,11 @@ func newDLHiddenFixture(t *testing.T) *dlHiddenFixture {
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
-	alice, err := authSt.CreateUser("alice", "pw-alice-123", auth.RoleUser)
+	alice, err := authSt.CreateUser(context.Background(), "alice", "pw-alice-123", auth.RoleUser)
 	if err != nil {
 		t.Fatalf("CreateUser alice: %v", err)
 	}
-	bob, err := authSt.CreateUser("bob", "pw-bob-123", auth.RoleUser)
+	bob, err := authSt.CreateUser(context.Background(), "bob", "pw-bob-123", auth.RoleUser)
 	if err != nil {
 		t.Fatalf("CreateUser bob: %v", err)
 	}

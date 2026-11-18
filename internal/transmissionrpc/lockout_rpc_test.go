@@ -2,6 +2,7 @@ package transmissionrpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -24,7 +25,7 @@ func TestRPC_BasicAuthLockout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := as.CreateUser("carol", "carolpass1", auth.RoleUser); err != nil {
+	if _, err := as.CreateUser(context.Background(), "carol", "carolpass1", auth.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	h := NewHandler(st, nil, as, "/data", "/data", "", nil)
@@ -63,7 +64,7 @@ func TestRPC_BasicAuthLockout(t *testing.T) {
 	}
 
 	// Control: a different username is NOT affected by carol's lockout.
-	if _, err := as.CreateUser("dave", "davepass1", auth.RoleUser); err != nil {
+	if _, err := as.CreateUser(context.Background(), "dave", "davepass1", auth.RoleUser); err != nil {
 		t.Fatal(err)
 	}
 	if code := postBasic(t, router, "dave", "davepass1"); code != http.StatusConflict {

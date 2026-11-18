@@ -45,14 +45,19 @@ func SetUserStatus(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "cannot disable yourself")
 			return
 		}
-		if err := store.SetStatus(id, req.Status); err != nil {
+		// SetStatus + session revocation are one block action: detached so a
+		// dropped admin connection cannot disable an account but leave its
+		// refresh sessions alive.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.SetStatus(ctx, id, req.Status); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		// Disabling kills active sessions so the block takes effect within one
 		// access-token TTL instead of waiting for the refresh token to expire.
 		if req.Status == auth.StatusDisabled {
-			_ = store.RevokeAllSessions(id)
+			_ = store.RevokeAllSessions(ctx, id)
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "status updated"})
 	}
@@ -66,7 +71,7 @@ func CreateUser(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username + password required")
 			return
 		}
-		id, err := store.CreateUser(req.Username, req.Password, req.Role)
+		id, err := store.CreateUser(c.Request.Context(), req.Username, req.Password, req.Role)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -78,7 +83,7 @@ func CreateUser(store *auth.Store) gin.HandlerFunc {
 // ListUsers handles GET /api/auth/users (admin only).
 func ListUsers(store *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		users, err := store.ListUsers()
+		users, err := store.ListUsers(c.Request.Context())
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -102,7 +107,7 @@ func SetNtfyTopic(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		claims, _ := auth.ClaimsFromCtx(c)
-		if err := store.SetNtfyTopic(claims.UserID, req.Topic); err != nil {
+		if err := store.SetNtfyTopic(c.Request.Context(), claims.UserID, req.Topic); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -144,7 +149,7 @@ func resolveNtfyTopic(cfg *config.Config, store *auth.Store, c *gin.Context) str
 	if !ok {
 		return topic
 	}
-	user, err := store.GetUserByID(claims.UserID)
+	user, err := store.GetUserByID(c.Request.Context(), claims.UserID)
 	if err != nil || user.NtfyTopic == "" {
 		return topic
 	}
@@ -188,7 +193,7 @@ func DeleteUser(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "cannot delete yourself")
 			return
 		}
-		if err := store.DeleteUser(id); err != nil {
+		if err := store.DeleteUser(c.Request.Context(), id); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
