@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -13,6 +14,27 @@ import (
 
 const downPrefix = "down: "
 
+// healthDBTimeout bounds the DB probe of the health endpoints. Docker polls
+// /healthz every 30s with a 10s budget, so the probe must give up well before
+// that instead of holding a pool connection while Postgres is unreachable.
+var healthDBTimeout = 2 * time.Second
+
+// dbHealth answers "disabled", "ok" or "down". The driver error is only
+// logged: /healthz and /status are public and it can carry hostnames, user
+// names and DSN fragments.
+func dbHealth(ctx context.Context, store *history.Store) string {
+	if store == nil {
+		return "disabled"
+	}
+	ctx, cancel := context.WithTimeout(ctx, healthDBTimeout)
+	defer cancel()
+	if err := store.Ping(ctx); err != nil {
+		log.Printf("health: db probe failed: %v", err)
+		return "down"
+	}
+	return "ok"
+}
+
 // BuildInfo handles GET /status — public build metadata (commit, build time,
 // version, Go version) plus a quick DB liveness flag. Public like /healthz so
 // the running version can be checked with a plain curl, no token needed (the
@@ -21,25 +43,19 @@ const downPrefix = "down: "
 func BuildInfo(store *history.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		info := version.Get()
-		dbStatus := "ok"
-		if store == nil {
-			dbStatus = "disabled"
-		} else if _, err := store.RecentEntries(1, 0, true); err != nil {
-			dbStatus = downPrefix + err.Error()
-		}
 		c.JSON(http.StatusOK, gin.H{
 			"status":    "ok",
 			"version":   info.Version,
 			"commit":    info.Commit,
 			"buildTime": info.BuildTime,
 			"goVersion": info.GoVersion,
-			"db":        dbStatus,
+			"db":        dbHealth(c.Request.Context(), store),
 			"time":      time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }
 
-// Health handles GET /healthz — readiness check. Fast, no external deps.
+// Health handles GET /healthz — readiness check: a bounded DB ping, no query.
 // Returns 200 only when the DB is alive AND the streamer initialized; 503
 // (status "degraded") otherwise, so the Docker healthcheck surfaces a process
 // that came up without streaming (a silent init failure used to read healthy).
@@ -50,11 +66,8 @@ func Health(store *history.Store, streamerReady func() bool) gin.HandlerFunc {
 		out := gin.H{"status": "ok", "time": time.Now().UTC().Format(time.RFC3339)}
 		degraded := false
 
-		dbStatus := "ok"
-		if store == nil {
-			dbStatus = "disabled"
-		} else if _, err := store.RecentEntries(1, 0, true); err != nil {
-			dbStatus = downPrefix + err.Error()
+		dbStatus := dbHealth(c.Request.Context(), store)
+		if dbStatus == "down" {
 			degraded = true
 		}
 		out["db"] = dbStatus
@@ -103,10 +116,8 @@ func Status(client *jackett.Client, store *history.Store) gin.HandlerFunc {
 			out["status"] = "degraded"
 		}
 
-		if store == nil {
-			out["db"] = "disabled"
-		} else if _, err := store.RecentEntries(1, 0, true); err != nil {
-			out["db"] = downPrefix + err.Error()
+		out["db"] = dbHealth(c.Request.Context(), store)
+		if out["db"] == "down" {
 			out["status"] = "degraded"
 		}
 

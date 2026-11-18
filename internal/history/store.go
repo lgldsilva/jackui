@@ -1,6 +1,7 @@
 package history
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"time"
@@ -33,6 +34,12 @@ type CachedResult struct {
 // centrally (internal/db migrations).
 func New(pool *sql.DB) (*Store, error) {
 	return &Store{db: dbutil.Wrap(pool)}, nil
+}
+
+// Ping checks the pool can reach Postgres within ctx. Health probes use it
+// instead of a query, so they never scan a table.
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
 }
 
 // Close is a no-op: the shared pool's lifecycle is owned by main.
