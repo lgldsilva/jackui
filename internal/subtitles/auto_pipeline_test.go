@@ -120,7 +120,7 @@ func TestAutoPipeStartTorrentNilMetaNoOp(t *testing.T) {
 		writeJSON(w, searchPayload("pt-BR", 777))
 	})
 	f.a.StartTorrent(nil, f.hash, 0)
-	time.Sleep(100 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("HTTP requests = %d, want 0", total)
 	}
@@ -202,7 +202,7 @@ func TestAutoPipeStartLocalTable(t *testing.T) {
 			writeJSON(w, searchPayload("pt-BR", 777))
 		})
 		f.a.StartLocal("", 0, "Movie.mkv", "/tmp/movie.mkv")
-		time.Sleep(100 * time.Millisecond)
+		waitIdle(t, f.a)
 		if total, _ := f.server.totals(); total != 0 {
 			t.Errorf("HTTP requests = %d, want 0 for an empty key", total)
 		}
@@ -360,7 +360,7 @@ func TestAutoPipeConcurrentStartDedup(t *testing.T) {
 	f.a.StartTorrent(f.meta, f.hash, 0)
 	<-f.meta.entered // the first fetch owns the item
 	f.a.StartTorrent(f.meta, f.hash, 0)
-	time.Sleep(100 * time.Millisecond)
+	// no sleep: the first fetch is parked in the hash phase, so there is no completion to wait for
 
 	if _, searches := f.server.totals(); searches != 0 {
 		t.Errorf("searches = %d, want 0 (dedup must not search)", searches)
@@ -380,7 +380,7 @@ func TestAutoPipeRefineOnCompleteGuards(t *testing.T) {
 	f.a.RefineOnComplete(nil, f.hash, 0) // nil torrent → no-op
 	f.meta.complete = false              // incomplete → no-op
 	f.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(100 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("guards issued HTTP: %d requests", total)
 	}
@@ -395,7 +395,7 @@ func TestAutoPipeRefineOnCompleteGuards(t *testing.T) {
 	}
 	*f.autoPtr = false
 	f.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(100 * time.Millisecond)
+	waitIdle(t, f.a)
 	if total, _ := f.server.totals(); total != 0 {
 		t.Errorf("auto-fetch-off refine issued HTTP: %d requests", total)
 	}
@@ -442,7 +442,7 @@ func TestAutoPipeRefineUpgradesToHash(t *testing.T) {
 
 	// Completion events after the upgrade must not re-search.
 	f.a.RefineOnComplete(f.meta, f.hash, 0)
-	time.Sleep(150 * time.Millisecond)
+	waitIdle(t, f.a)
 	if _, searches := f.server.totals(); searches != 2 {
 		t.Errorf("refine ran twice: searches = %d, want 2", searches)
 	}
@@ -581,7 +581,7 @@ func TestAutoPipeRefineFailurePathsTable(t *testing.T) {
 			fresh.a = NewAutoFetcher(fresh.c, f.links, fresh.tmdb,
 				func() (string, bool) { return *f.langs, *f.autoPtr })
 			fresh.a.RefineOnComplete(f.meta, f.hash, 0)
-			time.Sleep(150 * time.Millisecond)
+			waitIdle(t, fresh.a)
 			if _, searches := fresh.server.totals(); searches != 0 {
 				t.Errorf("fresh process re-attempted the failed refine: %d searches", searches)
 			}
