@@ -1,6 +1,13 @@
 import { X, Play, Cpu, Heart, EyeOff, Eye, Info, Maximize2, Minimize2, Home } from 'lucide-react'
 import { SearchResult, TorrentInfo, TranscodeCapabilities } from '../../api/client'
 import type { TFn } from './playerTypes'
+import { PLAYER_SHELL_ATTR, isFromNestedDialog } from '../../lib/keyboardLayering'
+
+// Escape belongs to the top layer: one pressed inside a dialog layered over the
+// player closes that dialog only.
+function isShellEscape(e: React.KeyboardEvent<HTMLDivElement>): boolean {
+  return e.key === 'Escape' && !isFromNestedDialog(e.target, e.currentTarget)
+}
 
 // minimizedOrFullClass returns the outer panel classes for the player shell:
 // minimized (audio bar / video PiP), full-viewport (deep-link tab — fills the
@@ -30,7 +37,7 @@ export function shellProps(opts: {
   // Accessible name of the role="dialog" (axe's aria-dialog-name rule) — the
   // playing media's title.
   ariaLabel: string
-}): React.HTMLAttributes<HTMLDivElement> {
+}): React.HTMLAttributes<HTMLDivElement> & { readonly [PLAYER_SHELL_ATTR]?: '' } {
   const { minimized, audioMode, fullViewport, onHome, onClose, setMinimized, ariaLabel } = opts
   if (minimized) {
     // Audio: thin full-width bar glued to the footer (above the bottom nav, if any)
@@ -47,7 +54,8 @@ export function shellProps(opts: {
   if (fullViewport) {
     return {
       className: 'fixed inset-0 bg-black flex items-stretch justify-center z-50 outline-none',
-      onKeyDown: (e) => { if (e.key === 'Escape') (onHome ?? onClose)() },
+      onKeyDown: (e) => { if (isShellEscape(e)) (onHome ?? onClose)() },
+      [PLAYER_SHELL_ATTR]: '',
       role: 'dialog',
       'aria-modal': 'true',
       'aria-label': ariaLabel,
@@ -57,7 +65,8 @@ export function shellProps(opts: {
   return {
     className: 'fixed inset-0 bg-black/80 backdrop-blur-sm flex items-stretch sm:items-center justify-center z-50 sm:p-4 outline-none',
     onClick: (e) => { if (e.target === e.currentTarget) setMinimized(true) },
-    onKeyDown: (e) => { if (e.key === 'Escape') setMinimized(true) },
+    onKeyDown: (e) => { if (isShellEscape(e)) setMinimized(true) },
+    [PLAYER_SHELL_ATTR]: '',
     role: 'dialog',
     'aria-modal': 'true',
     'aria-label': ariaLabel,
