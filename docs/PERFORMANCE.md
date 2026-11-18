@@ -155,6 +155,20 @@ incident happens. Every label value comes from a fixed set (unknown values fold 
 | `jackui_downloads_move_failures_total` | counter | `kind` (`single`, `group`) | Completion moves that gave up after retries (bulk full, permissions, missing file) |
 | `go_sql_*{db_name="jackui"}` | gauges/counters | `db_name` | Pool exhaustion: `go_sql_in_use_connections` at `go_sql_max_open_connections` with rising `go_sql_wait_count_total` / `go_sql_wait_duration_seconds_total` |
 
+Caveats when querying:
+
+- **Exclude media routes from latency/SLO queries.** For `/api/stream/*` (progressive
+  stream, HLS playlists/segments), `/api/local/file` and `/api/local/hls/*` the recorded
+  duration is the length of the transfer, not service latency; one playback can sit in
+  `+Inf` for its whole runtime. Filter them out, e.g.
+  `route!~"/api/stream/.*|/api/local/(file|hls/.*)"`.
+- **Recovered panics are not counted.** A handler panic unwinds through the metrics
+  middleware (registered after `gin.Recovery`) before Recovery turns it into a 500, so it
+  never reaches `jackui_http_requests_total`. Watch the logs for those.
+- `jackui_downloads_init_failures_total` counts once per torrent per attempt (a
+  multi-file torrent is one queue unit); inits cancelled by shutdown or removal are not
+  counted.
+
 The shutdown watchdog (`cleanupHardDeadline`) is not a metric: it fires during exit, after
 the last scrape. It shows up as a container restart plus the "cleanup exceeded" log line.
 

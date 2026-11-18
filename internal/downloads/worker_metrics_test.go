@@ -145,3 +145,61 @@ func TestDownloadMetrics_GroupCompletionMove(t *testing.T) {
 		t.Errorf("move_failures{group} delta = %v, want 1", got)
 	}
 }
+
+// A multi-file torrent is ONE queue unit: a failed group init is one failure
+// per attempt, not one per row (consistent with stalls/completions).
+func TestDownloadMetrics_GroupInitFailureCountsOncePerTorrent(t *testing.T) {
+	store := dlwNewStore(t)
+	w := NewWorker(WorkerConfig{Store: store, Streamer: streamer.NewForTesting(), DataDir: t.TempDir()})
+	var members []Download
+	for i := 0; i < 3; i++ {
+		d, _ := store.Create(Download{UserID: 1, InfoHash: "grpinit", FileIndex: i, Magnet: "m", Name: "G"})
+		_, _ = store.PromoteToDownloading(d.ID)
+		d, _ = store.Get(1, d.ID)
+		members = append(members, *d)
+	}
+	g := Group{Key: "1|grpinit", UserID: 1, Members: members}
+	w.mu.Lock()
+	for _, m := range members {
+		w.pending[m.ID] = func() {}
+	}
+	w.mu.Unlock()
+
+	retry, failed := initFailures("retry"), initFailures("failed")
+	w.failOrRetryGroup(context.Background(), g, "transient")
+	if got := initFailures("retry") - retry; got != 1 {
+		t.Errorf("group retry delta = %v, want 1 (one torrent)", got)
+	}
+
+	w.mu.Lock()
+	for _, m := range members {
+		w.retries[m.ID] = maxInitRetries - 1
+	}
+	w.mu.Unlock()
+	w.failOrRetryGroup(context.Background(), g, "final")
+	if got := initFailures("failed") - failed; got != 1 {
+		t.Errorf("group failed delta = %v, want 1 (one torrent)", got)
+	}
+}
+
+// Worker.Stop cancels in-flight inits; that shutdown is not an init failure.
+func TestDownloadMetrics_CancelledInitNotCounted(t *testing.T) {
+	store := dlwNewStore(t)
+	d, _ := store.Create(Download{UserID: 1, InfoHash: "cancelinit", FileIndex: 0, Magnet: "m", Name: "c"})
+	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ = store.Get(1, d.ID)
+	w := NewWorker(WorkerConfig{Store: store, Streamer: streamer.NewForTesting(), DataDir: t.TempDir()})
+	w.mu.Lock()
+	w.pending[d.ID] = func() {}
+	w.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	total := initFailures("retry") + initFailures("failed")
+	w.failOrRetry(ctx, *d, "context canceled")
+	g := Group{Key: "1|cancelinit", UserID: 1, Members: []Download{*d}}
+	w.failOrRetryGroup(ctx, g, "context canceled")
+	if after := initFailures("retry") + initFailures("failed"); after != total {
+		t.Errorf("cancelled init counted: delta = %v, want 0", after-total)
+	}
+}
