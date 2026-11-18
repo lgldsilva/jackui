@@ -29,9 +29,9 @@ func SlogAccessLog(logger *slog.Logger, userID UserIDFunc) gin.HandlerFunc {
 		c.Next()
 		status := c.Writer.Status()
 		attrs := []slog.Attr{
-			slog.String("request_id", RequestIDFrom(c)),
+			slog.String("request_id", logSafe(RequestIDFrom(c))),
 			slog.String("method", logSafe(c.Request.Method)),
-			slog.String("route", c.FullPath()),
+			slog.String("route", logSafe(c.FullPath())),
 			slog.String("path", path),
 			slog.Int("status", status),
 			slog.Float64("latency_ms", float64(time.Since(start).Microseconds())/1000),
@@ -75,9 +75,9 @@ func SlogRecovery(logger *slog.Logger) gin.HandlerFunc {
 			err, _ := rec.(error)
 			brokenPipe := isBrokenPipe(err)
 			logger.LogAttrs(c.Request.Context(), slog.LevelError, "panic recovered",
-				slog.String("request_id", RequestIDFrom(c)),
+				slog.String("request_id", logSafe(RequestIDFrom(c))),
 				slog.String("method", logSafe(c.Request.Method)),
-				slog.String("route", c.FullPath()),
+				slog.String("route", logSafe(c.FullPath())),
 				slog.String("path", logSafe(RedactToken(c.Request.URL.Path))),
 				slog.Any("panic", rec),
 				slog.Bool("broken_pipe", brokenPipe),
