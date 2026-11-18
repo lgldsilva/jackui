@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -63,7 +63,7 @@ func StreamAdd(s *streamer.Streamer, lib *library.Store) gin.HandlerFunc {
 			}
 			// %q escapes control chars (newlines) so a malformed magnet or a
 			// parser error echoing user input can't forge log entries.
-			fmt.Printf("[stream/add] failed for %q: %q\n", preview, err.Error())
+			log.Printf("[stream/add] failed for %q: %q", preview, err.Error())
 			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}

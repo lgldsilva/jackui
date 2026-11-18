@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -495,23 +494,4 @@ func dirWritable(path string) bool {
 	_ = f.Close()
 	_ = os.Remove(probe)
 	return true
-}
-
-func setupLogger() {
-	var handler slog.Handler
-	if os.Getenv("JACKUI_LOG_FORMAT") == "json" {
-		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		})
-	} else {
-		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelInfo,
-		})
-	}
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
-
-	// Redirect the standard "log" package logs to the slog handler
-	log.SetOutput(slog.NewLogLogger(handler, slog.LevelInfo).Writer())
-	log.SetFlags(0)
 }

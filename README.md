@@ -171,7 +171,7 @@ All variables below accept empty/unset as "use default". Application defaults ar
 | | `JACKUI_SMTP_USER` | — | SMTP user |
 | | `JACKUI_SMTP_PASS` | — | SMTP password |
 | | `JACKUI_SMTP_FROM` | — | Sender address |
-| **Observability** | `JACKUI_LOG_FORMAT` | — | Structured logs: `json` (empty = text) |
+| **Observability** | `JACKUI_LOG_FORMAT` | — | Structured logs: `json` = one JSON object per line (level, msg, request_id/route/status/latency_ms on HTTP lines, panic stack); empty = text. Every response carries `X-Request-ID` |
 
 State lives in **PostgreSQL** (`JACKUI_DATABASE_URL`). The piece cache (`JACKUI_STREAM_DIR`) is deliberately separate to reduce I/O contention on torrent pieces.
 
