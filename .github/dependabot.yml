@@ -1,5 +1,6 @@
 # Dependabot policy (jackui):
-# - Auto-friendly: patch/minor only in groups
+# - Auto-merge: patch/minor (docker: patch only) via
+#   .github/workflows/dependabot-automerge.yml, after required checks pass
 # - Manual PRs: React/TS/Vite majors, Actions majors, CUDA/Node majors
 # See session notes: major toolchain/GPU/UI = intentional PR, not bot merge.
 version: 2

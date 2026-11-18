@@ -1,0 +1,68 @@
+name: Dependabot auto-merge
+
+# Enables squash auto-merge on Dependabot PRs that pass the policy in
+# scripts/dependabot-automerge.sh (patch/minor; docker base images patch only;
+# majors never). GitHub then merges only after the required checks of the main
+# branch protection are green — that is the real safety gate.
+#
+# pull_request_target runs the workflow and the policy script from the BASE
+# branch, so a PR cannot change the policy that judges it. The PR head is never
+# checked out or executed; fetch-metadata reads the PR through the API only.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Enable auto-merge
+    # Trust the PR author, which cannot be changed after the PR is opened, and
+    # require the head branch to live in this repository (Dependabot's do;
+    # forks cannot). github.actor is deliberately NOT used: it names whoever
+    # triggered the event and can be made to read 'dependabot[bot]' on a PR
+    # someone else authored ("Dependabot confusion", Sonar S8232).
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Base-branch checkout (the pull_request_target default), only for the
+      # policy script. No credentials are left in .git.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/dependabot-automerge.sh
+          sparse-checkout-cone-mode: false
+
+      - id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      - name: Enable auto-merge when the policy allows it
+        env:
+          ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if bash scripts/dependabot-automerge.sh; then
+            gh pr merge --auto --squash "${PR_URL}"
+          else
+            status=$?
+            [ "${status}" -eq 1 ] || exit "${status}"
+            # A rebase can turn a qualifying PR into one that does not
+            # (e.g. a new major); withdraw auto-merge armed on an earlier push.
+            armed="$(gh pr view "${PR_URL}" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+            if [ "${armed}" = true ]; then
+              gh pr merge --disable-auto "${PR_URL}"
+            fi
+          fi
