@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 )
 
@@ -17,15 +18,15 @@ import (
 func TestSetStatusPausedIgnoresCompleted(t *testing.T) {
 	s := newTestStore(t)
 	d := mustCreate(t, s, 1, "aaa", 0)
-	if err := s.SetStatus(1, d.ID, StatusCompleted); err != nil {
+	if err := s.SetStatus(context.Background(), 1, d.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus completed: %v", err)
 	}
 
-	if err := s.SetStatus(1, d.ID, StatusPaused); err != nil {
+	if err := s.SetStatus(context.Background(), 1, d.ID, StatusPaused); err != nil {
 		t.Fatalf("SetStatus paused: %v", err)
 	}
 
-	got, err := s.Get(1, d.ID)
+	got, err := s.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -39,15 +40,15 @@ func TestSetStatusPausedIgnoresCompleted(t *testing.T) {
 func TestSetStatusPausedIgnoresFailed(t *testing.T) {
 	s := newTestStore(t)
 	d := mustCreate(t, s, 1, "bbb", 0)
-	if err := s.SetStatus(1, d.ID, StatusFailed); err != nil {
+	if err := s.SetStatus(context.Background(), 1, d.ID, StatusFailed); err != nil {
 		t.Fatalf("SetStatus failed: %v", err)
 	}
 
-	if err := s.SetStatus(1, d.ID, StatusPaused); err != nil {
+	if err := s.SetStatus(context.Background(), 1, d.ID, StatusPaused); err != nil {
 		t.Fatalf("SetStatus paused: %v", err)
 	}
 
-	got, _ := s.Get(1, d.ID)
+	got, _ := s.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusFailed {
 		t.Errorf("status=%q, want %q — pausing a failed row must be a no-op", got.Status, StatusFailed)
 	}
@@ -59,15 +60,15 @@ func TestSetStatusPausedIgnoresFailed(t *testing.T) {
 func TestSetStatusCompletedToDownloadingStillAllowed(t *testing.T) {
 	s := newTestStore(t)
 	d := mustCreate(t, s, 1, "ccc", 0)
-	if err := s.SetStatus(1, d.ID, StatusCompleted); err != nil {
+	if err := s.SetStatus(context.Background(), 1, d.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus completed: %v", err)
 	}
 
-	if err := s.SetStatus(1, d.ID, StatusDownloading); err != nil {
+	if err := s.SetStatus(context.Background(), 1, d.ID, StatusDownloading); err != nil {
 		t.Fatalf("SetStatus downloading: %v", err)
 	}
 
-	got, _ := s.Get(1, d.ID)
+	got, _ := s.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusDownloading {
 		t.Errorf("status=%q, want %q — re-download must not be blocked", got.Status, StatusDownloading)
 	}
@@ -81,17 +82,17 @@ func TestSetStatusByIDsPausedSkipsTerminalRows(t *testing.T) {
 	active := mustCreate(t, s, 1, "ddd", 0)
 	completed := mustCreate(t, s, 1, "ddd", 1)
 	failed := mustCreate(t, s, 1, "ddd", 2)
-	if err := s.SetStatus(1, active.ID, StatusDownloading); err != nil {
+	if err := s.SetStatus(context.Background(), 1, active.ID, StatusDownloading); err != nil {
 		t.Fatalf("SetStatus downloading: %v", err)
 	}
-	if err := s.SetStatus(1, completed.ID, StatusCompleted); err != nil {
+	if err := s.SetStatus(context.Background(), 1, completed.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus completed: %v", err)
 	}
-	if err := s.SetStatus(1, failed.ID, StatusFailed); err != nil {
+	if err := s.SetStatus(context.Background(), 1, failed.ID, StatusFailed); err != nil {
 		t.Fatalf("SetStatus failed: %v", err)
 	}
 
-	n, err := s.SetStatusByIDs(1, []int{active.ID, completed.ID, failed.ID}, StatusPaused)
+	n, err := s.SetStatusByIDs(context.Background(), 1, []int{active.ID, completed.ID, failed.ID}, StatusPaused)
 	if err != nil {
 		t.Fatalf("SetStatusByIDs: %v", err)
 	}
@@ -99,15 +100,15 @@ func TestSetStatusByIDsPausedSkipsTerminalRows(t *testing.T) {
 		t.Errorf("affected=%d, want 1 — only the active row can be paused", n)
 	}
 
-	gotCompleted, _ := s.Get(1, completed.ID)
+	gotCompleted, _ := s.Get(context.Background(), 1, completed.ID)
 	if gotCompleted.Status != StatusCompleted {
 		t.Errorf("completed became %q on batch pause", gotCompleted.Status)
 	}
-	gotFailed, _ := s.Get(1, failed.ID)
+	gotFailed, _ := s.Get(context.Background(), 1, failed.ID)
 	if gotFailed.Status != StatusFailed {
 		t.Errorf("failed became %q on batch pause", gotFailed.Status)
 	}
-	gotActive, _ := s.Get(1, active.ID)
+	gotActive, _ := s.Get(context.Background(), 1, active.ID)
 	if gotActive.Status != StatusPaused {
 		t.Errorf("active row was not paused: %q", gotActive.Status)
 	}
@@ -118,11 +119,11 @@ func TestSetStatusByIDsPausedSkipsTerminalRows(t *testing.T) {
 func TestSetStatusByIDsNonPausedUnaffectedByGuard(t *testing.T) {
 	s := newTestStore(t)
 	completed := mustCreate(t, s, 1, "eee", 0)
-	if err := s.SetStatus(1, completed.ID, StatusCompleted); err != nil {
+	if err := s.SetStatus(context.Background(), 1, completed.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus completed: %v", err)
 	}
 
-	n, err := s.SetStatusByIDs(1, []int{completed.ID}, StatusQueued)
+	n, err := s.SetStatusByIDs(context.Background(), 1, []int{completed.ID}, StatusQueued)
 	if err != nil {
 		t.Fatalf("SetStatusByIDs: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestSetStatusByIDsNonPausedUnaffectedByGuard(t *testing.T) {
 
 func mustCreate(t *testing.T, s *Store, userID int, infoHash string, fileIndex int) *Download {
 	t.Helper()
-	d, err := s.Create(Download{
+	d, err := s.Create(context.Background(), Download{
 		UserID: userID, InfoHash: infoHash, FileIndex: fileIndex,
 		Magnet: "magnet:?xt=urn:btih:" + infoHash, Name: "x", FilePath: "x", FileSize: 10,
 	})

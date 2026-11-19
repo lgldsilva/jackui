@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -15,17 +16,17 @@ func TestUserStats(t *testing.T) {
 	}
 
 	mk := func(hash string, status string, bytes int64) {
-		d, cerr := s.Create(Download{UserID: 1, InfoHash: hash, Magnet: "magnet:" + hash})
+		d, cerr := s.Create(context.Background(), Download{UserID: 1, InfoHash: hash, Magnet: "magnet:" + hash})
 		if cerr != nil {
 			t.Fatal(cerr)
 		}
 		if status != StatusQueued {
-			if uerr := s.SetStatus(1, d.ID, status); uerr != nil {
+			if uerr := s.SetStatus(context.Background(), 1, d.ID, status); uerr != nil {
 				t.Fatal(uerr)
 			}
 		}
 		if bytes > 0 {
-			if perr := s.UpdateProgress(1, d.ID, bytes); perr != nil {
+			if perr := s.UpdateProgress(context.Background(), 1, d.ID, bytes); perr != nil {
 				t.Fatal(perr)
 			}
 		}
@@ -34,7 +35,7 @@ func TestUserStats(t *testing.T) {
 	mk("h2", StatusDownloading, 300)
 	mk("h3", StatusQueued, 0)
 
-	total, completed, bytes, err := s.UserStats(1)
+	total, completed, bytes, err := s.UserStats(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestUserStats(t *testing.T) {
 	}
 
 	// A user with no rows gets zeroes, not an error.
-	total, completed, bytes, err = s.UserStats(99)
+	total, completed, bytes, err = s.UserStats(context.Background(), 99)
 	if err != nil || total != 0 || completed != 0 || bytes != 0 {
 		t.Fatalf("empty UserStats = (%d, %d, %d, %v)", total, completed, bytes, err)
 	}

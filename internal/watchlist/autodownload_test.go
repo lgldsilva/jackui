@@ -158,7 +158,7 @@ type enqueueCall struct {
 	infoHash, name, magnet, tracker string
 }
 
-func (e *recorderEnqueuer) EnqueueMagnet(userID int, infoHash, name, magnet, tracker string) error {
+func (e *recorderEnqueuer) EnqueueMagnet(_ context.Context, userID int, infoHash, name, magnet, tracker string) error {
 	e.calls = append(e.calls, enqueueCall{userID, infoHash, name, magnet, tracker})
 	return e.err
 }
@@ -354,5 +354,30 @@ func TestAggregateHits_TruncatesLongList(t *testing.T) {
 	}
 	if strings.Contains(body, "Rel.07") {
 		t.Fatalf("body must not spell out releases past the cap, got %q", body)
+	}
+}
+
+// ctxEnqueuer records whether the ctx it was handed was already done.
+type ctxEnqueuer struct{ doneAtCall *bool }
+
+func (e ctxEnqueuer) EnqueueMagnet(ctx context.Context, _ int, _, _, _, _ string) error {
+	*e.doneAtCall = ctx.Err() != nil
+	return nil
+}
+
+// The hit is already recorded as seen when the enqueue runs, so an enqueue
+// cancelled with the pass would be lost for good: it must get a ctx that survives
+// the pass being cancelled (shutdown).
+func TestMaybeAutoDownload_EnqueueSurvivesCancelledPass(t *testing.T) {
+	s := newTestStore(t)
+	var done bool
+	w := NewWorker(s, &fakeSearcher{}, &recorderNotifier{}, "topic", 15*time.Minute)
+	w.SetEnqueuer(ctxEnqueuer{&done})
+	pass, cancel := context.WithCancel(context.Background())
+	cancel()
+	wl := &Watchlist{ID: 1, UserID: 1, AutoDownload: true}
+	_ = w.maybeAutoDownload(pass, wl, jackett.Result{InfoHash: "aa", Title: "t"}, true)
+	if done {
+		t.Fatal("enqueue received a cancelled ctx: the auto-download would be dropped")
 	}
 }

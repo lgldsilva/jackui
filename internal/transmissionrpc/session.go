@@ -319,7 +319,7 @@ func (h *Handler) methodSessionStats() rpcResponse {
 	}
 
 	if h.store != nil {
-		all, err := h.store.ListAll()
+		all, err := h.store.ListAll(rpcCtx())
 		if err == nil {
 			for _, d := range all {
 				switch d.Status {

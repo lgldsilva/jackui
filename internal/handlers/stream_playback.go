@@ -64,7 +64,7 @@ func serveFromCompletedStore(c *gin.Context, store *downloads.Store, s *streamer
 	}
 	userID, _, _ := auth.UserIDFromCtx(c)
 	relPath := func() string { return s.FileRelPath(h, fileIdx) }
-	path, err := store.GetCompletedPathRelFunc(h.HexString(), fileIdx, relPath, userID)
+	path, err := store.GetCompletedPathRelFunc(c.Request.Context(), h.HexString(), fileIdx, relPath, userID)
 	if err != nil || path == "" {
 		return false
 	}

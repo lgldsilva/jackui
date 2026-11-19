@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -189,14 +190,14 @@ func TestStreamDropBatch_SeedStoppedOnlyForDroppedRows(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
 	}
 
-	gotIdle, err := store.Get(rowIdle.UserID, rowIdle.ID)
+	gotIdle, err := store.Get(context.Background(), rowIdle.UserID, rowIdle.ID)
 	if err != nil {
 		t.Fatalf("Get(idle): %v", err)
 	}
 	if gotIdle.SeedStoppedAt == nil {
 		t.Fatal("dropped hash's row should be seed-stopped")
 	}
-	gotWatched, err := store.Get(rowWatched.UserID, rowWatched.ID)
+	gotWatched, err := store.Get(context.Background(), rowWatched.UserID, rowWatched.ID)
 	if err != nil {
 		t.Fatalf("Get(watched): %v", err)
 	}

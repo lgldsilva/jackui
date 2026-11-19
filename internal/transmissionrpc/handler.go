@@ -1,6 +1,7 @@
 package transmissionrpc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -465,6 +466,13 @@ func failResp(msg string) rpcResponse {
 	return rpcResponse{Result: msg}
 }
 
+// rpcCtx is the ctx for the RPC handler's store calls. The Transmission API is
+// driven by automation (*arr) and its methods list rows and then mutate them
+// (pause + persist, remove + delete): a client that hangs up mid-request must
+// not leave that sequence half applied, so these calls deliberately do not take
+// the request ctx. Every call is a single short statement.
+func rpcCtx() context.Context { return context.Background() }
+
 // forEachDownload applies fn to every download matching ids within the
 // caller's scope (non-admins only ever see their own rows). When ids is nil
 // (omitted), applies to ALL downloads in scope. Returns success when no
@@ -473,7 +481,7 @@ func (h *Handler) forEachDownload(ids map[int]bool, ident rpcIdentity, fn func(d
 	if h.store == nil {
 		return successResp(nil)
 	}
-	all, err := h.store.ListAll()
+	all, err := h.store.ListAll(rpcCtx())
 	if err != nil {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}

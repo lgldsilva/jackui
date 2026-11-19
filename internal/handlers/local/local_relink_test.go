@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -31,9 +32,9 @@ func TestRelinkMovedTorrents(t *testing.T) {
 	}
 	oldDir := "/srv/cache/Filmes"
 	// Exact file at oldDir, a file nested under oldDir, and an unrelated one.
-	exact, _ := dls.Create(downloads.Download{UserID: 1, InfoHash: "h1", Magnet: "m1", FilePath: oldDir + "/movie.mkv", Name: "movie"})
-	nested, _ := dls.Create(downloads.Download{UserID: 1, InfoHash: "h2", Magnet: "m2", FilePath: oldDir + "/Season 1/ep.mkv", Name: "ep"})
-	other, _ := dls.Create(downloads.Download{UserID: 1, InfoHash: "h3", Magnet: "m3", FilePath: "/srv/cache/Series/x.mkv", Name: "x"})
+	exact, _ := dls.Create(context.Background(), downloads.Download{UserID: 1, InfoHash: "h1", Magnet: "m1", FilePath: oldDir + "/movie.mkv", Name: "movie"})
+	nested, _ := dls.Create(context.Background(), downloads.Download{UserID: 1, InfoHash: "h2", Magnet: "m2", FilePath: oldDir + "/Season 1/ep.mkv", Name: "ep"})
+	other, _ := dls.Create(context.Background(), downloads.Download{UserID: 1, InfoHash: "h3", Magnet: "m3", FilePath: "/srv/cache/Series/x.mkv", Name: "x"})
 
 	newDir := "/srv/shared/Filmes (2020)"
 	if n := relinkMovedTorrents(dls, nil, oldDir, newDir); n != 2 {
@@ -41,7 +42,7 @@ func TestRelinkMovedTorrents(t *testing.T) {
 	}
 
 	paths := map[int]string{}
-	list, err := dls.List(1)
+	list, err := dls.List(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,12 +83,12 @@ func TestRelinkMovedTorrentsDropsTorrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	hash := "0123456789abcdef0123456789abcdef01234567" // valid 40-hex, not loaded
-	d, _ := dls.Create(downloads.Download{UserID: 1, InfoHash: hash, Magnet: "m", FilePath: "/old/f.mkv", Name: "f"})
+	d, _ := dls.Create(context.Background(), downloads.Download{UserID: 1, InfoHash: hash, Magnet: "m", FilePath: "/old/f.mkv", Name: "f"})
 
 	if n := relinkMovedTorrents(dls, s, "/old", "/new"); n != 1 {
 		t.Fatalf("relinked = %d, want 1", n)
 	}
-	list, _ := dls.List(1)
+	list, _ := dls.List(context.Background(), 1)
 	for _, row := range list {
 		if row.ID == d.ID && row.FilePath != "/new/f.mkv" {
 			t.Fatalf("file_path = %q, want /new/f.mkv", row.FilePath)

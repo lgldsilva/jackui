@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -26,7 +27,7 @@ func canceledJob(t *testing.T) *transfer.Job {
 // (no retries, no backoff) with the sentinel error.
 func TestAttemptCompletionMove_CanceledJob(t *testing.T) {
 	w, store := newBulkWorker(t, t.TempDir(), "", false)
-	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Gone.mkv"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Gone.mkv"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestAttemptCompletionMove_CanceledJob(t *testing.T) {
 // Same guard inside the per-file loop of a multi-file group move.
 func TestMoveGroupFiles_CanceledJob(t *testing.T) {
 	w, store := newBulkWorker(t, t.TempDir(), "", false)
-	d, err := store.Create(Download{UserID: 1, InfoHash: "grp", FileIndex: 0, Magnet: "m", Name: "Pack"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "grp", FileIndex: 0, Magnet: "m", Name: "Pack"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestMoveGroupFiles_CanceledJob(t *testing.T) {
 // `failed` with the cancel reason and the job is marked failed.
 func TestRunGroupCompletionMove_CanceledJob(t *testing.T) {
 	w, store := newBulkWorker(t, t.TempDir(), "", false)
-	d, err := store.Create(Download{UserID: 1, InfoHash: "grp2", FileIndex: 0, Magnet: "m", Name: "Pack"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "grp2", FileIndex: 0, Magnet: "m", Name: "Pack"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestRunGroupCompletionMove_CanceledJob(t *testing.T) {
 
 	w.runGroupCompletionMove(g, "Pack", movers, 1, job)
 
-	row, err := store.Get(1, d.ID)
+	row, err := store.Get(context.Background(), 1, d.ID)
 	if err != nil || row == nil {
 		t.Fatalf("Get: %v", err)
 	}

@@ -157,7 +157,7 @@ func containsHash(list []downloads.Download, hash string) bool {
 // createDL inserts a download row owned by userID with the given infoHash/path.
 func (f *dlHiddenFixture) createDL(t *testing.T, userID int, hash, name, path string) {
 	t.Helper()
-	if _, err := f.dl.Create(downloads.Download{
+	if _, err := f.dl.Create(context.Background(), downloads.Download{
 		UserID:   userID,
 		InfoHash: hash,
 		Magnet:   "magnet:?xt=urn:btih:" + hash,

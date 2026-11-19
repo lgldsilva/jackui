@@ -122,7 +122,9 @@ func initDownloadsStore(deps *appDeps) {
 	// Wired BEFORE the per-file resolver: boot-time seeding gates on
 	// HasFilePathResolver, so the batch one must already be in place by then.
 	deps.streamSrv.SetFileLayoutResolver(func(h metainfo.Hash, relPaths []string) map[int]string {
-		paths, err := d.GetCompletedPathsRel(h.HexString(), relPaths, -1)
+		ctx, cancel := context.WithTimeout(context.Background(), resolverDBTimeout)
+		defer cancel()
+		paths, err := d.GetCompletedPathsRel(ctx, h.HexString(), relPaths, -1)
 		if err != nil {
 			return nil
 		}
@@ -132,7 +134,9 @@ func initDownloadsStore(deps *appDeps) {
 		// FileRelPath lets the store resolve files inside whole-torrent rows
 		// (file_path = destination DIRECTORY) without activating the torrent.
 		relPath := deps.streamSrv.FileRelPath(h, fileIdx)
-		path, err := d.GetCompletedPathRel(h.HexString(), fileIdx, relPath, -1)
+		ctx, cancel := context.WithTimeout(context.Background(), resolverDBTimeout)
+		defer cancel()
+		path, err := d.GetCompletedPathRel(ctx, h.HexString(), fileIdx, relPath, -1)
 		if err != nil || path == "" {
 			return "", false
 		}
@@ -230,7 +234,7 @@ func migrateUserSubpathMounts(deps *appDeps) {
 // its owner's username via the downloads store (file_path → user_id → username).
 func buildOwnerAttributor(deps *appDeps) func(abs string) (string, bool) {
 	return func(abs string) (string, bool) {
-		dls, err := deps.downloadsStore.FindByPathPrefix(abs)
+		dls, err := deps.downloadsStore.FindByPathPrefix(context.Background(), abs)
 		if err != nil || len(dls) == 0 {
 			return "", false
 		}
@@ -313,3 +317,7 @@ func initWatchlistStore(deps *appDeps) {
 	deps.addCleanup(worker.Stop)
 	log.Printf("Watchlist worker: per-item scheduling (default interval=%s) default_topic=%q", interval, deps.cfg.Notifications.NtfyDefaultTopic)
 }
+
+// resolverDBTimeout bounds the downloads lookups made by the streamer's
+// file-path resolvers, which run inside playback/seeding paths with no request.
+const resolverDBTimeout = 10 * time.Second

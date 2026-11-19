@@ -1,6 +1,9 @@
 package downloads
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 // GetCompletedPathRel resolves the on-disk path of ONE file from a completed
 // download. Per-file rows behave exactly like GetCompletedPath. When the
@@ -14,8 +17,8 @@ import "database/sql"
 // relPath is untrusted (it ultimately comes from torrent metadata): traversal
 // is rejected and the resolved path must be an existing regular file under the
 // destination directory. Empty relPath skips the whole-torrent fallback.
-func (s *Store) GetCompletedPathRel(infoHash string, fileIndex int, relPath string, userID int) (string, error) {
-	return s.GetCompletedPathRelFunc(infoHash, fileIndex, func() string { return relPath }, userID)
+func (s *Store) GetCompletedPathRel(ctx context.Context, infoHash string, fileIndex int, relPath string, userID int) (string, error) {
+	return s.GetCompletedPathRelFunc(ctx, infoHash, fileIndex, func() string { return relPath }, userID)
 }
 
 // GetCompletedPathRelFunc is GetCompletedPathRel with the relative path
@@ -24,8 +27,8 @@ func (s *Store) GetCompletedPathRel(infoHash string, fileIndex int, relPath stri
 // torrent's whole file list, which the stream endpoint used to pay on every
 // Range request even though most requests never need it (per-file row, or no
 // completed download at all).
-func (s *Store) GetCompletedPathRelFunc(infoHash string, fileIndex int, relPath func() string, userID int) (string, error) {
-	path, err := s.GetCompletedPath(infoHash, fileIndex, userID)
+func (s *Store) GetCompletedPathRelFunc(ctx context.Context, infoHash string, fileIndex int, relPath func() string, userID int) (string, error) {
+	path, err := s.GetCompletedPath(ctx, infoHash, fileIndex, userID)
 	if err != nil || path != "" {
 		return path, err
 	}
@@ -34,9 +37,9 @@ func (s *Store) GetCompletedPathRelFunc(infoHash string, fileIndex int, relPath 
 	}
 	var destDir, name string
 	if userID >= 0 {
-		err = s.db.QueryRow(sqlCompletedWholeForUser, infoHash, FileIndexWholeTorrent, userID).Scan(&destDir, &name)
+		err = s.db.QueryRowContext(ctx, sqlCompletedWholeForUser, infoHash, FileIndexWholeTorrent, userID).Scan(&destDir, &name)
 	} else {
-		err = s.db.QueryRow(sqlCompletedWholeAny, infoHash, FileIndexWholeTorrent).Scan(&destDir, &name)
+		err = s.db.QueryRowContext(ctx, sqlCompletedWholeAny, infoHash, FileIndexWholeTorrent).Scan(&destDir, &name)
 	}
 	if err == sql.ErrNoRows {
 		return "", nil

@@ -16,17 +16,17 @@ import (
 // unmarked.
 func TestStopSeedByInfoHash_MarksPausedRow(t *testing.T) {
 	s := newTestStore(t)
-	d, err := s.Create(Download{UserID: 1, InfoHash: testHashHex, Magnet: "magnet:?xt=urn:btih:" + testHashHex, Name: "Movie"})
+	d, err := s.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, Magnet: "magnet:?xt=urn:btih:" + testHashHex, Name: "Movie"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := s.SetStatus(1, d.ID, StatusPaused); err != nil {
+	if err := s.SetStatus(context.Background(), 1, d.ID, StatusPaused); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
-	if err := s.StopSeedByInfoHash(1, testHashHex); err != nil {
+	if err := s.StopSeedByInfoHash(context.Background(), 1, testHashHex); err != nil {
 		t.Fatalf("StopSeedByInfoHash: %v", err)
 	}
-	got, err := s.Get(1, d.ID)
+	got, err := s.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

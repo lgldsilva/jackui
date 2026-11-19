@@ -18,8 +18,11 @@ import (
 func DownloadsList(store *downloads.Store, streamer *streamer.Streamer, browser *local.Browser, authStore *auth.Store, downloadDir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
-		list, err := store.List(userID)
+		list, err := store.List(c.Request.Context(), userID)
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -44,7 +47,7 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer, 
 		sortCol := c.DefaultQuery("sort", "created_at")
 		sortDir := c.DefaultQuery("order", "desc")
 
-		list, err := store.ListFiltered(downloads.ListFilter{
+		list, err := store.ListFiltered(c.Request.Context(), downloads.ListFilter{
 			UserID:   userID,
 			Status:   status,
 			Tracker:  tracker,
@@ -54,6 +57,9 @@ func DownloadsListFiltered(store *downloads.Store, streamer *streamer.Streamer, 
 			SortDir:  sortDir,
 		})
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -77,7 +83,7 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 		sortDir := c.DefaultQuery("order", "desc")
 		userIDFilter := c.Query("userId")
 
-		list, err := dlStore.ListFilteredAll(downloads.ListFilter{
+		list, err := dlStore.ListFilteredAll(c.Request.Context(), downloads.ListFilter{
 			Status:       status,
 			Tracker:      tracker,
 			Category:     category,
@@ -87,6 +93,9 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 			SortDir:      sortDir,
 		})
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -107,8 +116,11 @@ func DownloadsListAll(dlStore *downloads.Store, authStore *auth.Store, streamer 
 // list of users that have downloads, for the filter dropdown.
 func DownloadsUsers(dlStore *downloads.Store, authStore *auth.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userIDs, err := dlStore.DistinctUsers()
+		userIDs, err := dlStore.DistinctUsers(c.Request.Context())
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -129,6 +141,8 @@ func DownloadsUsers(dlStore *downloads.Store, authStore *auth.Store) gin.Handler
 // download. Body: { infoHash, fileIndex, magnet, name, filePath, fileSize, tracker?, category? }
 func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		var req struct {
 			InfoHash   string `json:"infoHash"`
 			FileIndex  int    `json:"fileIndex"`
@@ -163,7 +177,7 @@ func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.Hand
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		d, err := store.Create(downloads.Download{
+		d, err := store.Create(wctx, downloads.Download{
 			UserID:     userID,
 			InfoHash:   req.InfoHash,
 			FileIndex:  req.FileIndex,
@@ -197,6 +211,8 @@ func DownloadsCreate(store *downloads.Store, dests *DestinationService) gin.Hand
 // existed (the row came back unchanged or re-queued rather than freshly inserted).
 func DownloadsBatchCreate(store *downloads.Store, dests *DestinationService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		var req struct {
 			InfoHash   string `json:"infoHash"`
 			Magnet     string `json:"magnet"`
@@ -246,7 +262,7 @@ func DownloadsBatchCreate(store *downloads.Store, dests *DestinationService) gin
 				DestSubdir: subdir,
 			})
 		}
-		res, err := store.BatchCreate(rows)
+		res, err := store.BatchCreate(wctx, rows)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -274,13 +290,15 @@ type DownloadRemover interface {
 // frontend swallowed, leaving the row to reappear on the next poll).
 func DownloadsDelete(store *downloads.Store, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		row, err := store.DeleteScoped(userID, id, isAdmin)
+		row, err := store.DeleteScoped(wctx, userID, id, isAdmin)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -309,6 +327,8 @@ func notifyRemoved(worker DownloadRemover, row *downloads.Download) {
 // (completed/failed) are rejected with 409 — see the guard below.
 func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
@@ -316,7 +336,7 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
 		// Ownership check first
-		row, err := store.Get(userID, id)
+		row, err := store.Get(wctx, userID, id)
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
@@ -329,7 +349,7 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusConflict, ErrNotPausable)
 			return
 		}
-		if err := store.SetStatus(userID, id, downloads.StatusPaused); err != nil {
+		if err := store.SetStatus(wctx, userID, id, downloads.StatusPaused); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -343,17 +363,19 @@ func DownloadsPause(store *downloads.Store) gin.HandlerFunc {
 // (honoring the active limit), instead of jumping straight past the queue.
 func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if _, err := store.Get(userID, id); err != nil {
+		if _, err := store.Get(wctx, userID, id); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
-		if err := store.Requeue(userID, id); err != nil {
+		if err := store.Requeue(wctx, userID, id); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -366,6 +388,8 @@ func DownloadsResume(store *downloads.Store) gin.HandlerFunc {
 // queue priority (high/normal/low). Takes effect on the next scheduler tick.
 func DownloadsSetPriority(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		id, err := strconv.Atoi(c.Param("id"))
 		if err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
@@ -379,11 +403,11 @@ func DownloadsSetPriority(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if _, err := store.Get(userID, id); err != nil {
+		if _, err := store.Get(wctx, userID, id); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
-		if err := store.SetPriority(userID, id, req.Priority); err != nil {
+		if err := store.SetPriority(wctx, userID, id, req.Priority); err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
@@ -402,12 +426,15 @@ func DownloadsSources(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if _, err := store.Get(userID, id); err != nil {
+		if _, err := store.Get(c.Request.Context(), userID, id); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, ErrNotFound)
 			return
 		}
-		sources, err := store.ListSources(id)
+		sources, err := store.ListSources(c.Request.Context(), id)
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -422,8 +449,11 @@ func DownloadsSources(store *downloads.Store) gin.HandlerFunc {
 func DownloadsTrackers(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
-		trackers, err := store.DistinctTrackers(userID)
+		trackers, err := store.DistinctTrackers(c.Request.Context(), userID)
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -435,8 +465,11 @@ func DownloadsTrackers(store *downloads.Store) gin.HandlerFunc {
 func DownloadsCategories(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, _, _ := auth.UserIDFromCtx(c)
-		cats, err := store.DistinctCategories(userID)
+		cats, err := store.DistinctCategories(c.Request.Context(), userID)
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -448,8 +481,10 @@ func DownloadsCategories(store *downloads.Store) gin.HandlerFunc {
 // non-terminal downloads for the current user.
 func DownloadsPauseAll(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		userID, _, _ := auth.UserIDFromCtx(c)
-		n, err := store.SetStatusForUser(userID, downloads.StatusPaused)
+		n, err := store.SetStatusForUser(wctx, userID, downloads.StatusPaused)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -462,8 +497,10 @@ func DownloadsPauseAll(store *downloads.Store) gin.HandlerFunc {
 // paused downloads for the current user (scheduler honors the active limit).
 func DownloadsResumeAll(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		userID, _, _ := auth.UserIDFromCtx(c)
-		n, err := store.RequeueForUser(userID)
+		n, err := store.RequeueForUser(wctx, userID)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return

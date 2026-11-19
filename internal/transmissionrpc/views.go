@@ -50,7 +50,7 @@ func (h *Handler) methodTorrentGet(args map[string]interface{}, ident rpcIdentit
 		return successResp(map[string]interface{}{"torrents": []interface{}{}})
 	}
 
-	all, err := h.store.ListAll()
+	all, err := h.store.ListAll(rpcCtx())
 	if err != nil {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}

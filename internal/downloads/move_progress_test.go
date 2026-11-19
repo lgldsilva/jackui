@@ -62,19 +62,19 @@ func TestMoveFileProgress_CopyFallbackReportsBytes(t *testing.T) {
 // `downloading` so the next tick re-dispatches the (idempotent) move.
 func TestRescueInterruptedMove_RequeuesMovingOnBoot(t *testing.T) {
 	store := dlwNewStore(t)
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "mv", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:mv", Name: "Pack", FileSize: 4,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := store.SetStatus(1, d.ID, StatusMoving); err != nil {
+	if err := store.SetStatus(context.Background(), 1, d.ID, StatusMoving); err != nil {
 		t.Fatalf("SetStatus moving: %v", err)
 	}
 	// NewWorker runs registerExistingDownloads → rescueInterruptedMove.
 	NewWorker(WorkerConfig{Store: store, Streamer: streamer.NewForTesting(), DataDir: t.TempDir(), DownloadDir: t.TempDir()})
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusDownloading {
 		t.Fatalf("status = %q, want downloading (rescued)", got.Status)
 	}
@@ -90,7 +90,7 @@ func TestRunCompletionMove_ReportsToTracker(t *testing.T) {
 	tr := transfer.New()
 	w := NewWorker(WorkerConfig{Store: store, Streamer: s, DataDir: dataDir, DownloadDir: downloadDir, Tracker: tr})
 	w.moveBackoff = time.Millisecond
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "tk", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:tk", Name: "Pack3", FileSize: 4,
 	})
@@ -105,7 +105,7 @@ func TestRunCompletionMove_ReportsToTracker(t *testing.T) {
 	job := tr.Start("Pack3", "download-move", 1, 4)
 	w.runCompletionMove(*d, "Pack3", []string{"Pack3/only.bin"}, true, 4, job)
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusCompleted {
 		t.Fatalf("status = %q, want completed", got.Status)
 	}

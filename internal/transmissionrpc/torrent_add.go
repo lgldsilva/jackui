@@ -119,7 +119,7 @@ func (h *Handler) finalizeTorrentAdd(userID int, infoHash, name, magnet string, 
 	// import broken if we only fetched the single "best file" (pickBestFile).
 	// The JackUI UI keeps single-file/streaming behavior via its own create path
 	// (handlers/downloads.go), which passes an explicit FileIndex.
-	d, err := h.store.Create(downloads.Download{
+	d, err := h.store.Create(rpcCtx(), downloads.Download{
 		UserID: userID, InfoHash: infoHash, FileIndex: downloads.FileIndexWholeTorrent,
 		Name: name, Magnet: magnet, Category: category, Source: downloads.SourceArr,
 	})
@@ -127,7 +127,7 @@ func (h *Handler) finalizeTorrentAdd(userID int, infoHash, name, magnet string, 
 		return failResp(fmt.Sprintf("failed to create download: %v", err))
 	}
 	if ta.paused {
-		_ = h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused)
+		_ = h.store.SetStatus(rpcCtx(), d.UserID, d.ID, downloads.StatusPaused)
 	}
 	h.applyAddPeerLimit(*d, ta.peerLimit)
 	h.applyAddPriority(*d, ta.bandwidthPriority)
@@ -209,7 +209,7 @@ func (h *Handler) applyAddPriority(d downloads.Download, priority float64) {
 	case 1:
 		label = downloads.PriorityHigh
 	}
-	_ = h.store.SetPriority(d.UserID, d.ID, label)
+	_ = h.store.SetPriority(rpcCtx(), d.UserID, d.ID, label)
 	if h.streamer == nil {
 		return
 	}

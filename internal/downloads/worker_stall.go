@@ -58,7 +58,7 @@ func (w *Worker) demoteStalledGroup(victims []*trackedDL, qs QueueSettings) {
 	for _, td := range victims {
 		ids = append(ids, td.id)
 	}
-	demoted, err := w.store.DemoteGroup(ids)
+	demoted, err := w.store.DemoteGroup(w.writeCtx(), ids)
 	if err != nil || len(demoted) == 0 {
 		return
 	}
@@ -76,7 +76,7 @@ func (w *Worker) demoteStalledGroup(victims []*trackedDL, qs QueueSettings) {
 	pause := qs.MaxStalls > 0 && stalls >= qs.MaxStalls
 	events.DownloadStalled(pause)
 	if pause {
-		if _, err := w.store.SetStatusByIDs(rep.userID, demoted, StatusPaused); err != nil {
+		if _, err := w.store.SetStatusByIDs(w.writeCtx(), rep.userID, demoted, StatusPaused); err != nil {
 			log.Printf("downloads: failed to pause stalled torrent %q: %v", rep.name, err)
 		}
 		log.Printf("downloads: torrent %q paused after %d no-seed stalls", rep.name, stalls)
@@ -88,7 +88,7 @@ func (w *Worker) demoteStalledGroup(victims []*trackedDL, qs QueueSettings) {
 func (w *Worker) maxStallCount(ids []int, userID int) int {
 	max := 0
 	for _, id := range ids {
-		if d, _ := w.store.Get(userID, id); d != nil && d.Stalls > max {
+		if d, _ := w.store.Get(w.writeCtx(), userID, id); d != nil && d.Stalls > max {
 			max = d.Stalls
 		}
 	}

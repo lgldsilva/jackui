@@ -39,7 +39,7 @@ func (w *Worker) run() {
 }
 
 func (w *Worker) tick() {
-	active, err := w.store.ListActive()
+	active, err := w.store.ListActive(w.tickCtx())
 	if err != nil {
 		log.Printf("downloads: list active failed: %v", err)
 		return
@@ -143,7 +143,7 @@ func (w *Worker) maybeSweepStuckMoving() {
 // reuses the boot rescue verbatim: re-register eviction protection, flip the
 // row back to `downloading`, let the next tick re-run the idempotent move.
 func (w *Worker) sweepStuckMoving() {
-	rows, err := w.store.ListMoving()
+	rows, err := w.store.ListMoving(w.tickCtx())
 	if err != nil {
 		log.Printf("downloads: stuck-moving sweep list failed: %v", err)
 		return

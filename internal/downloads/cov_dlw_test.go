@@ -43,11 +43,11 @@ func Test_dlw_FindByPathPrefix_ExactAndPrefix(t *testing.T) {
 	s := dlwNewStore(t)
 	// Three completed downloads with absolute file paths; one outside the dir.
 	mk := func(hash, path string) {
-		d, err := s.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "magnet:?xt=urn:btih:" + hash, Name: hash})
+		d, err := s.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "magnet:?xt=urn:btih:" + hash, Name: hash})
 		if err != nil {
 			t.Fatalf("Create %s: %v", hash, err)
 		}
-		if err := s.SetFilePath(1, d.ID, path); err != nil {
+		if err := s.SetFilePath(context.Background(), 1, d.ID, path); err != nil {
 			t.Fatalf("SetFilePath: %v", err)
 		}
 	}
@@ -56,7 +56,7 @@ func Test_dlw_FindByPathPrefix_ExactAndPrefix(t *testing.T) {
 	mk("h3", "/data/other/c.mkv")
 
 	// Prefix match: the directory should match both files beneath it.
-	under, err := s.FindByPathPrefix("/data/movies")
+	under, err := s.FindByPathPrefix(context.Background(), "/data/movies")
 	if err != nil {
 		t.Fatalf("FindByPathPrefix dir: %v", err)
 	}
@@ -65,7 +65,7 @@ func Test_dlw_FindByPathPrefix_ExactAndPrefix(t *testing.T) {
 	}
 
 	// Exact match: the file path itself.
-	exact, err := s.FindByPathPrefix("/data/other/c.mkv")
+	exact, err := s.FindByPathPrefix(context.Background(), "/data/other/c.mkv")
 	if err != nil {
 		t.Fatalf("FindByPathPrefix exact: %v", err)
 	}
@@ -74,7 +74,7 @@ func Test_dlw_FindByPathPrefix_ExactAndPrefix(t *testing.T) {
 	}
 
 	// A trailing-slash directory normalizes the same way.
-	trailing, err := s.FindByPathPrefix("/data/movies/")
+	trailing, err := s.FindByPathPrefix(context.Background(), "/data/movies/")
 	if err != nil {
 		t.Fatalf("FindByPathPrefix trailing: %v", err)
 	}
@@ -85,10 +85,10 @@ func Test_dlw_FindByPathPrefix_ExactAndPrefix(t *testing.T) {
 
 func Test_dlw_FindByPathPrefix_NoMatch(t *testing.T) {
 	s := dlwNewStore(t)
-	d, _ := s.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n"})
-	_ = s.SetFilePath(1, d.ID, "/srv/files/x.mkv")
+	d, _ := s.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n"})
+	_ = s.SetFilePath(context.Background(), 1, d.ID, "/srv/files/x.mkv")
 
-	out, err := s.FindByPathPrefix("/nothing/here")
+	out, err := s.FindByPathPrefix(context.Background(), "/nothing/here")
 	if err != nil {
 		t.Fatalf("FindByPathPrefix: %v", err)
 	}
@@ -100,13 +100,13 @@ func Test_dlw_FindByPathPrefix_NoMatch(t *testing.T) {
 func Test_dlw_FindByPathPrefix_EmptyAndNil(t *testing.T) {
 	s := dlwNewStore(t)
 	// Empty path → nil, no error.
-	out, err := s.FindByPathPrefix("")
+	out, err := s.FindByPathPrefix(context.Background(), "")
 	if err != nil || out != nil {
 		t.Fatalf("empty path: out=%v err=%v", out, err)
 	}
 	// Nil receiver → nil, no error.
 	var nilS *Store
-	out, err = nilS.FindByPathPrefix("/x")
+	out, err = nilS.FindByPathPrefix(context.Background(), "/x")
 	if err != nil || out != nil {
 		t.Fatalf("nil store: out=%v err=%v", out, err)
 	}
@@ -115,8 +115,8 @@ func Test_dlw_FindByPathPrefix_EmptyAndNil(t *testing.T) {
 func Test_dlw_FindByPathPrefix_SkipsEmptyFilePath(t *testing.T) {
 	s := dlwNewStore(t)
 	// A download with no file_path must never match a prefix query.
-	_, _ = s.Create(Download{UserID: 1, InfoHash: "nofp", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:nofp", Name: "n"})
-	out, err := s.FindByPathPrefix("/")
+	_, _ = s.Create(context.Background(), Download{UserID: 1, InfoHash: "nofp", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:nofp", Name: "n"})
+	out, err := s.FindByPathPrefix(context.Background(), "/")
 	if err != nil {
 		t.Fatalf("FindByPathPrefix: %v", err)
 	}
@@ -176,13 +176,13 @@ func Test_dlw_StartInit_InvalidMagnetRetries(t *testing.T) {
 	store := dlwNewStore(t)
 	// "m:hash" is not a valid magnet/URL → EnsureActive fails fast (no network),
 	// driving initDownload → failOrRetry on the transient-failure branch.
-	d, err := store.Create(Download{UserID: 1, InfoHash: "badhash", FileIndex: 0, Magnet: "m:hash", Name: "bad"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "badhash", FileIndex: 0, Magnet: "m:hash", Name: "bad"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	// init runs only on downloading rows — promote as the scheduler would.
-	_, _ = store.PromoteToDownloading(d.ID)
-	d, _ = store.Get(1, d.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
+	d, _ = store.Get(context.Background(), 1, d.ID)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
 
 	w.startInit(*d)
@@ -190,7 +190,7 @@ func Test_dlw_StartInit_InvalidMagnetRetries(t *testing.T) {
 	w.doneWG.Wait()
 
 	// First failure is transient: status stays downloading, retry count incremented.
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusDownloading {
 		t.Fatalf("expected downloading after first transient failure, got %q", got.Status)
 	}
@@ -208,7 +208,7 @@ func Test_dlw_StartInit_InvalidMagnetRetries(t *testing.T) {
 
 func Test_dlw_StartInit_InvalidMagnetReachesFailed(t *testing.T) {
 	store := dlwNewStore(t)
-	d, err := store.Create(Download{UserID: 1, InfoHash: "deadhash", FileIndex: 0, Magnet: "m:dead", Name: "dead"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "deadhash", FileIndex: 0, Magnet: "m:dead", Name: "dead"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -220,7 +220,7 @@ func Test_dlw_StartInit_InvalidMagnetReachesFailed(t *testing.T) {
 		w.doneWG.Wait()
 	}
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusFailed {
 		t.Fatalf("expected failed after %d retries, got %q (err=%q)", maxInitRetries, got.Status, got.Error)
 	}
@@ -235,10 +235,10 @@ func Test_dlw_SampleProgress_NilFileNoop(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
 	// Explicit nil-file trackedDL: must not panic and must not write progress.
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n"})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n"})
 	td := &trackedDL{id: d.ID, file: nil}
 	w.sampleProgress(*d, td)
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.BytesDownloaded != 0 {
 		t.Fatalf("expected no progress write, got %d", got.BytesDownloaded)
 	}
@@ -323,10 +323,10 @@ func Test_dlw_Stop_CancelsPending(t *testing.T) {
 func Test_dlw_CheckCompletion_NilFileNoop(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n"})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n"})
 	td := &trackedDL{id: d.ID, file: nil}
 	w.checkCompletion(*d, td)
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status == StatusCompleted {
 		t.Fatal("nil-file checkCompletion should not mark completed")
 	}
@@ -336,7 +336,7 @@ func Test_dlw_CheckCompletion_NilFileNoop(t *testing.T) {
 
 func Test_dlw_Delete_MissingRowIsIdempotent(t *testing.T) {
 	s := dlwNewStore(t)
-	if err := s.Delete(1, 999999); err != nil {
+	if err := s.Delete(context.Background(), 1, 999999); err != nil {
 		t.Fatalf("Delete of a missing row must be idempotent, got: %v", err)
 	}
 }
@@ -345,12 +345,12 @@ func Test_dlw_Delete_MissingRowIsIdempotent(t *testing.T) {
 
 func Test_dlw_ScanGeneric_ProgressClampedToOne(t *testing.T) {
 	s := dlwNewStore(t)
-	d, _ := s.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n", FileSize: 100})
+	d, _ := s.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:h", Name: "n", FileSize: 100})
 	// Persist more bytes than the file size (can happen if size metadata lags).
-	if err := s.UpdateProgress(1, d.ID, 250); err != nil {
+	if err := s.UpdateProgress(context.Background(), 1, d.ID, 250); err != nil {
 		t.Fatalf("UpdateProgress: %v", err)
 	}
-	got, _ := s.Get(1, d.ID)
+	got, _ := s.Get(context.Background(), 1, d.ID)
 	if got.Progress != 1 {
 		t.Fatalf("expected progress clamped to 1.0, got %v", got.Progress)
 	}
@@ -374,7 +374,7 @@ func Test_dlw_ResolveFileIndex(t *testing.T) {
 
 	// Case 2: index out of bounds, but pickBestFile returns -1 (empty slice)
 	d2 := Download{UserID: 1, ID: 102, FileIndex: -1, InfoHash: "h2", Magnet: "magnet:?xt=urn:btih:h2"}
-	createdD2, errCreate := store.Create(d2)
+	createdD2, errCreate := store.Create(context.Background(), d2)
 	if errCreate != nil {
 		t.Fatalf("Create: %v", errCreate)
 	}
@@ -382,7 +382,7 @@ func Test_dlw_ResolveFileIndex(t *testing.T) {
 	if ok || idx != -1 {
 		t.Fatalf("expected index -1 and ok=false for empty slice, got %d and %v", idx, ok)
 	}
-	got, _ := store.Get(1, createdD2.ID)
+	got, _ := store.Get(context.Background(), 1, createdD2.ID)
 	if got == nil {
 		t.Fatal("expected download to exist in store")
 	}
@@ -404,7 +404,7 @@ func Test_dlw_ResolveFileIndex_AutoPicksVideoOverNFO(t *testing.T) {
 	if len(files) < 2 {
 		t.Fatalf("need multi-file torrent, got %d files", len(files))
 	}
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "auto-nfo", FileIndex: FileIndexAuto,
 		Magnet: "magnet:?xt=urn:btih:autonfo", Name: "Scene",
 	})
@@ -421,7 +421,7 @@ func Test_dlw_ResolveFileIndex_AutoPicksVideoOverNFO(t *testing.T) {
 	if d.FileIndex != 1 {
 		t.Fatalf("resolved FileIndex on row = %d, want 1", d.FileIndex)
 	}
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got == nil || got.FileIndex != 1 {
 		t.Fatalf("persisted file_index = %+v, want 1", got)
 	}

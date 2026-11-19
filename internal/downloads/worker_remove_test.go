@@ -74,7 +74,7 @@ func (r *dropRecorder) calls() []metainfo.Hash {
 // torrent by its hash, and unregisters the streamer's eviction protection.
 func TestWorkerRemove_TrackedDropsTorrentAndUntracks(t *testing.T) {
 	w, store, rec := newRemoveWorker(t)
-	d, err := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Movie"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Movie"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestWorkerRemove_NoHashNoDrop(t *testing.T) {
 // exists, so ONLY the tombstone protects against resurrection.
 func TestWorkerInit_TombstonedRowNotPromoted(t *testing.T) {
 	w, store, _ := newRemoveWorker(t)
-	d, err := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Late"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Late"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestWorkerInit_TombstonedRowNotPromoted(t *testing.T) {
 // A normal (non-deleted) row IS promoted by promoteOrAbort.
 func TestWorkerInit_LivePromoted(t *testing.T) {
 	w, store, _ := newRemoveWorker(t)
-	d, err := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Live"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Live"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestWorkerInit_LivePromoted(t *testing.T) {
 // then a tick reconcile must not resurrect it (tombstone + store row gone).
 func TestWorkerRemove_ReconcileDoesNotResurrect(t *testing.T) {
 	w, store, _ := newRemoveWorker(t)
-	d, err := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Gone"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Gone"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestWorkerRemove_ReconcileDoesNotResurrect(t *testing.T) {
 	w.mu.Unlock()
 
 	// Authoritative delete: store + worker.
-	if _, err := store.DeleteScoped(1, d.ID, false); err != nil {
+	if _, err := store.DeleteScoped(context.Background(), 1, d.ID, false); err != nil {
 		t.Fatalf("DeleteScoped: %v", err)
 	}
 	w.Remove(d.ID, testHashHex)
@@ -252,7 +252,7 @@ func TestWorkerRemove_ReconcileDoesNotResurrect(t *testing.T) {
 		t.Error("removed download must not be tracked")
 	}
 	// The store row is gone — a tick's ListActive won't return it.
-	if got, _ := store.Get(1, d.ID); got != nil {
+	if got, _ := store.Get(context.Background(), 1, d.ID); got != nil {
 		t.Error("store row must be gone after DeleteScoped")
 	}
 }
@@ -274,7 +274,7 @@ func TestWorker_HashTrackedLocked_ZeroHash(t *testing.T) {
 func TestWorkerRemove_StopAfterRemove(t *testing.T) {
 	w, store, _ := newRemoveWorker(t)
 	w.interval = 20 * time.Millisecond
-	d, _ := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "x"})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "x"})
 	w.Remove(d.ID, testHashHex)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

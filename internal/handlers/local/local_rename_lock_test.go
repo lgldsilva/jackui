@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,7 +38,7 @@ func TestLocalRenameFileRelinksTorrent(t *testing.T) {
 	if err := os.WriteFile(old, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dls.Create(downloads.Download{
+	if _, err := dls.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: "aabbccddeeff00112233445566778899aabbccdd",
 		FileIndex: 0, FilePath: old, Name: "raw.name.mkv",
 		Magnet: "magnet:?xt=urn:btih:aabbccddeeff00112233445566778899aabbccdd",
@@ -56,7 +57,7 @@ func TestLocalRenameFileRelinksTorrent(t *testing.T) {
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Error("old file still present")
 	}
-	rows, _ := dls.List(1)
+	rows, _ := dls.List(context.Background(), 1)
 	if len(rows) != 1 || rows[0].FilePath != newPath {
 		t.Errorf("file_path not relinked: %+v", rows)
 	}

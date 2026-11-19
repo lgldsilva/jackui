@@ -26,7 +26,7 @@ const maxDiscovered = 5
 // torrent, point active_magnet at it; the next tick re-inits). Returns false when
 // no alternative is available, so the caller demotes to the back of the queue.
 func (w *Worker) tryRotate(td *trackedDL, _ QueueSettings) bool {
-	d, err := w.store.Get(td.userID, td.id)
+	d, err := w.store.Get(w.writeCtx(), td.userID, td.id)
 	if err != nil || d == nil {
 		return false
 	}
@@ -46,22 +46,22 @@ func (w *Worker) tryRotate(td *trackedDL, _ QueueSettings) bool {
 // parkCurrentSource registers the original source on first rotation, then marks
 // the currently-active source tried (→ cooldown, or failed past maxSourceTries).
 func (w *Worker) parkCurrentSource(d Download) {
-	if has, _ := w.store.HasSources(d.ID); !has {
-		_ = w.store.EnsureSource(Source{
+	if has, _ := w.store.HasSources(w.writeCtx(), d.ID); !has {
+		_ = w.store.EnsureSource(w.writeCtx(), Source{
 			DownloadID: d.ID, Magnet: d.Magnet, InfoHash: d.InfoHash,
 			Title: d.Name, Tracker: d.Tracker, Size: d.FileSize,
 		}, SourceActive)
 	}
-	sources, _ := w.store.ListSources(d.ID)
+	sources, _ := w.store.ListSources(w.writeCtx(), d.ID)
 	for _, s := range sources {
 		if s.Status == SourceActive {
-			_ = w.store.MarkSourceTried(s.ID, maxSourceTries)
+			_ = w.store.MarkSourceTried(w.writeCtx(), s.ID, maxSourceTries)
 		}
 	}
 }
 
 func (w *Worker) pickNextSource(downloadID int) *Source {
-	next, _ := w.store.NextSource(downloadID, sourceCooldownMin)
+	next, _ := w.store.NextSource(w.writeCtx(), downloadID, sourceCooldownMin)
 	return next
 }
 
@@ -78,7 +78,7 @@ func (w *Worker) discoverSources(d Download) {
 	}
 	matches := matchAlternatives(d, results, maxDiscovered)
 	for _, r := range matches {
-		_ = w.store.EnsureSource(Source{
+		_ = w.store.EnsureSource(w.writeCtx(), Source{
 			DownloadID: d.ID, Magnet: r.MagnetURI, InfoHash: r.InfoHash,
 			Title: r.Title, Tracker: r.Tracker, Seeders: r.Seeders, Size: r.Size,
 		}, SourceCandidate)
@@ -91,7 +91,7 @@ func (w *Worker) discoverSources(d Download) {
 // activateSource switches the download to `next`: persists active_magnet, drops
 // the dead torrent and untracks it so the next tick re-inits with the new magnet.
 func (w *Worker) activateSource(td *trackedDL, d Download, next Source) bool {
-	if err := w.store.ActivateSource(d.ID, next.ID, next.Magnet); err != nil {
+	if err := w.store.ActivateSource(w.writeCtx(), d.ID, next.ID, next.Magnet); err != nil {
 		return false
 	}
 	w.mu.Lock()

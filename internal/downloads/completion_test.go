@@ -125,13 +125,13 @@ func TestWorkerReconcilesOrphanOnBoot(t *testing.T) {
 	dataDir := t.TempDir()
 	downloadDir := t.TempDir()
 
-	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "MyTorrent"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "MyTorrent"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_ = store.SetStatus(1, d.ID, StatusCompleted)
+	_ = store.SetStatus(context.Background(), 1, d.ID, StatusCompleted)
 	// file_path points at a destination file that does NOT exist (move was interrupted)
-	_ = store.SetFilePath(1, d.ID, filepath.Join(downloadDir, "MyTorrent", "file.mkv"))
+	_ = store.SetFilePath(context.Background(), 1, d.ID, filepath.Join(downloadDir, "MyTorrent", "file.mkv"))
 	// but the source (a complete .part) is still in the cache
 	srcDir := filepath.Join(dataDir, "MyTorrent")
 	if err := os.MkdirAll(srcDir, 0o755); err != nil {
@@ -143,7 +143,7 @@ func TestWorkerReconcilesOrphanOnBoot(t *testing.T) {
 
 	_ = NewWorker(WorkerConfig{Store: store, Streamer: s, DataDir: dataDir, DownloadDir: downloadDir})
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusQueued {
 		t.Errorf("orphan should be re-queued on boot, got status %q", got.Status)
 	}
@@ -155,17 +155,17 @@ func TestWorkerKeepsCompletedWhenFilePresent(t *testing.T) {
 	store := newTestStore(t)
 	downloadDir := t.TempDir()
 
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Done"})
-	_ = store.SetStatus(1, d.ID, StatusCompleted)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Done"})
+	_ = store.SetStatus(context.Background(), 1, d.ID, StatusCompleted)
 	dst := filepath.Join(downloadDir, "file.mkv")
 	if err := os.WriteFile(dst, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_ = store.SetFilePath(1, d.ID, dst)
+	_ = store.SetFilePath(context.Background(), 1, d.ID, dst)
 
 	_ = NewWorker(WorkerConfig{Store: store, Streamer: s, DataDir: t.TempDir(), DownloadDir: downloadDir})
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusCompleted {
 		t.Errorf("present file should stay completed, got %q", got.Status)
 	}
@@ -178,14 +178,14 @@ func TestWorkerKeepsCompletedWhenNoCacheSource(t *testing.T) {
 	store := newTestStore(t)
 	downloadDir := t.TempDir()
 
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Gone"})
-	_ = store.SetStatus(1, d.ID, StatusCompleted)
-	_ = store.SetFilePath(1, d.ID, filepath.Join(downloadDir, "missing.mkv")) // does not exist
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Gone"})
+	_ = store.SetStatus(context.Background(), 1, d.ID, StatusCompleted)
+	_ = store.SetFilePath(context.Background(), 1, d.ID, filepath.Join(downloadDir, "missing.mkv")) // does not exist
 
 	// dataDir has no "Gone" folder → no cache source
 	_ = NewWorker(WorkerConfig{Store: store, Streamer: s, DataDir: t.TempDir(), DownloadDir: downloadDir})
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusCompleted {
 		t.Errorf("no cache source → must NOT re-queue, got %q", got.Status)
 	}
@@ -200,7 +200,7 @@ func TestMoveCompletedFile(t *testing.T) {
 		Store: store, Streamer: s, DataDir: dataDir, DownloadDir: downloadDir,
 		ResolveUsername: func(int) string { return "alice" },
 	})
-	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "T"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "T"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestMoveCompletedFile(t *testing.T) {
 	if !fileExists(want) {
 		t.Errorf("file should be moved to %q", want)
 	}
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.FilePath != want {
 		t.Errorf("file_path = %q, want %q", got.FilePath, want)
 	}

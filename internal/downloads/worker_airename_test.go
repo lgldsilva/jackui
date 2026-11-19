@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -65,7 +66,7 @@ func TestAIRenameCompleted(t *testing.T) {
 		DownloadDir: downloadDir,
 		AIClient:    aiClient,
 	})
-	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Inception"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Inception"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -77,7 +78,7 @@ func TestAIRenameCompleted(t *testing.T) {
 	if err := os.WriteFile(cur, []byte("movie"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetFilePath(1, d.ID, cur); err != nil {
+	if err := store.SetFilePath(context.Background(), 1, d.ID, cur); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,7 +90,7 @@ func TestAIRenameCompleted(t *testing.T) {
 	if fileExists(cur) {
 		t.Error("source should have been moved out of the per-torrent folder")
 	}
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.FilePath == cur || got.FilePath == "" {
 		t.Errorf("FilePath should point to the new organized path, got %q", got.FilePath)
 	}
@@ -123,7 +124,7 @@ func TestAIRenameCompleted_NoopReturnsEmpty(t *testing.T) {
 		DownloadDir: downloadDir,
 		AIClient:    aiClient,
 	})
-	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "x"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "x"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -164,7 +165,7 @@ func TestRunCompletionMove_RenamesBeforeReseed(t *testing.T) {
 
 	const hashHex = "00112233445566778899aabbccddeeff00112233"
 	const name = "Inception.2010.1080p.BluRay.x264.mkv"
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: hashHex, FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:" + hashHex, Name: name, FileSize: 5,
 	})
@@ -179,7 +180,7 @@ func TestRunCompletionMove_RenamesBeforeReseed(t *testing.T) {
 	job := tr.Start(name, "download-move", 1, 5)
 	w.runCompletionMove(*d, name, []string{name}, false, 5, job)
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusCompleted {
 		t.Fatalf("status = %q, want completed", got.Status)
 	}

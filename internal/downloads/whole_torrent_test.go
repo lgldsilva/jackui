@@ -23,12 +23,12 @@ func waitForStatus(t *testing.T, store *Store, userID, id int, want string, time
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if got, _ := store.Get(userID, id); got != nil && got.Status == want {
+		if got, _ := store.Get(context.Background(), userID, id); got != nil && got.Status == want {
 			return
 		}
 		<-time.After(2 * time.Millisecond) // yield the CPU to the async worker/move
 	}
-	got, _ := store.Get(userID, id)
+	got, _ := store.Get(context.Background(), userID, id)
 	status := "<nil>"
 	if got != nil {
 		status = got.Status
@@ -40,7 +40,7 @@ func waitForStatus(t *testing.T, store *Store, userID, id int, want string, time
 
 func TestStore_WholeTorrentSentinel_RoundTrip(t *testing.T) {
 	s := dlwNewStore(t)
-	d, err := s.Create(Download{
+	d, err := s.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "h1", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:h1", Name: "Whole", FileSize: 5000,
 	})
@@ -55,7 +55,7 @@ func TestStore_WholeTorrentSentinel_RoundTrip(t *testing.T) {
 	}
 	// The UNIQUE(user_id, info_hash, file_index) constraint dedupes: re-queueing
 	// the whole torrent returns the SAME row (no second item in the queue).
-	again, err := s.Create(Download{
+	again, err := s.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "h1", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:h1", Name: "Whole",
 	})
@@ -67,7 +67,7 @@ func TestStore_WholeTorrentSentinel_RoundTrip(t *testing.T) {
 	}
 	// A whole row and a per-file row for the same torrent can coexist (distinct
 	// file_index values) — old clients keep working.
-	perFile, err := s.Create(Download{
+	perFile, err := s.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "h1", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:h1", Name: "Whole",
 	})
@@ -84,7 +84,7 @@ func TestStore_WholeTorrentSentinel_RoundTrip(t *testing.T) {
 
 func TestStore_WholeTorrentSentinel_RejectsBelowMin(t *testing.T) {
 	s := dlwNewStore(t)
-	_, err := s.Create(Download{
+	_, err := s.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "h2", FileIndex: -3,
 		Magnet: "magnet:?xt=urn:btih:h2", Name: "Bad",
 	})
@@ -96,14 +96,14 @@ func TestStore_WholeTorrentSentinel_RejectsBelowMin(t *testing.T) {
 func TestStore_WholeTorrentSentinel_AutoStaysDistinct(t *testing.T) {
 	// -1 (auto-pick, Transmission RPC) and -2 (whole) must not collide.
 	s := dlwNewStore(t)
-	auto, err := s.Create(Download{
+	auto, err := s.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "h3", FileIndex: FileIndexAuto,
 		Magnet: "magnet:?xt=urn:btih:h3", Name: "Auto",
 	})
 	if err != nil {
 		t.Fatalf("Create auto: %v", err)
 	}
-	whole, err := s.Create(Download{
+	whole, err := s.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "h3", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:h3", Name: "Whole",
 	})
@@ -148,7 +148,7 @@ func TestTrackedDL_Progress_WholeAggregates(t *testing.T) {
 func TestInitTarget_WholeCallsDownloadAll(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "wh", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:wh", Name: "W",
 	})
@@ -174,13 +174,13 @@ func TestInitTarget_WholeCallsDownloadAll(t *testing.T) {
 func TestSampleProgress_WholePersistsAggregate(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "wp", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:wp", Name: "W", FileSize: 100,
 	})
 	td := &trackedDL{id: d.ID, userID: 1, whole: &fakeWhole{completed: 42, length: 100}}
 	w.sampleProgress(*d, td)
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.BytesDownloaded != 42 {
 		t.Fatalf("BytesDownloaded = %d, want 42 (aggregate)", got.BytesDownloaded)
 	}
@@ -189,13 +189,13 @@ func TestSampleProgress_WholePersistsAggregate(t *testing.T) {
 func TestCheckCompletion_WholeIncompleteNoop(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), t.TempDir())
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "wi", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:wi", Name: "W", FileSize: 100,
 	})
 	td := &trackedDL{id: d.ID, userID: 1, name: "W", whole: &fakeWhole{completed: 50, length: 100}}
 	w.checkCompletion(*d, td)
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status == StatusCompleted {
 		t.Fatal("incomplete whole torrent must not flip to completed")
 	}
@@ -258,7 +258,7 @@ func TestMoveCompletedTorrent_PreservesStructure(t *testing.T) {
 		Store: store, Streamer: s, DataDir: dataDir, DownloadDir: downloadDir,
 		ResolveUsername: func(int) string { return "alice" },
 	})
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "mt", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:mt", Name: "Pack",
 	})
@@ -297,7 +297,7 @@ func TestMoveCompletedTorrent_PreservesStructure(t *testing.T) {
 	if !fileExists(filepath.Join(wantDir, "b.bin")) {
 		t.Error("b.bin should exist at the destination (renamed from .part)")
 	}
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.FilePath != wantDir {
 		t.Fatalf("file_path = %q, want the torrent dest dir %q", got.FilePath, wantDir)
 	}
@@ -361,7 +361,7 @@ func TestCheckCompletion_WholeCompleteMovesAndFinishes(t *testing.T) {
 	dataDir := t.TempDir()
 	downloadDir := t.TempDir()
 	w := NewWorker(WorkerConfig{Store: store, Streamer: s, DataDir: dataDir, DownloadDir: downloadDir})
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "wc", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:wc", Name: "Pack2", FileSize: 4,
 	})
@@ -391,7 +391,7 @@ func TestCheckCompletion_WholeCompleteMovesAndFinishes(t *testing.T) {
 	if !fileExists(want) {
 		t.Errorf("file should be moved to %q", want)
 	}
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.FilePath != filepath.Join(downloadDir, "Pack2") {
 		t.Errorf("file_path = %q, want the torrent dest dir", got.FilePath)
 	}
@@ -400,7 +400,7 @@ func TestCheckCompletion_WholeCompleteMovesAndFinishes(t *testing.T) {
 func TestInitTarget_PerFilePicksRequestedFile(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "pf", FileIndex: 1,
 		Magnet: "magnet:?xt=urn:btih:pf", Name: "P",
 	})
@@ -425,7 +425,7 @@ func TestInitTarget_PerFilePicksRequestedFile(t *testing.T) {
 func TestInitTarget_PerFileNoFilesFails(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), "")
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "nf", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:nf", Name: "Empty",
 	})
@@ -436,7 +436,7 @@ func TestInitTarget_PerFileNoFilesFails(t *testing.T) {
 	if ok || f != nil || whole != nil {
 		t.Fatal("initTarget must fail when the torrent has no files")
 	}
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusFailed {
 		t.Fatalf("status = %q, want failed (no files in torrent)", got.Status)
 	}
@@ -462,7 +462,7 @@ func TestMoveCompletedTree_RejectsUnsafePath(t *testing.T) {
 func TestCheckCompletion_WholeMoveErrorMarksFailed(t *testing.T) {
 	store := dlwNewStore(t)
 	w := dlwNewWorker(t, store, t.TempDir(), t.TempDir())
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "we", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:we", Name: "PackErr", FileSize: 4,
 	})
@@ -477,7 +477,7 @@ func TestCheckCompletion_WholeMoveErrorMarksFailed(t *testing.T) {
 	w.tracked[d.ID] = td
 	w.checkCompletion(*d, td)
 	waitForStatus(t, store, 1, d.ID, StatusFailed, 2*time.Second)
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Error == "" {
 		t.Fatal("a failed move must capture the error message")
 	}
@@ -493,22 +493,22 @@ func TestSchedule_WholeTorrentCountsAsOneActive(t *testing.T) {
 			return QueueSettings{MaxActive: 2, StallThresholdMin: 30, MaxStalls: 3}
 		},
 	})
-	whole, _ := store.Create(Download{
+	whole, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "s1", FileIndex: FileIndexWholeTorrent,
 		Magnet: "magnet:?xt=urn:btih:s1", Name: "Whole",
 	})
-	one, _ := store.Create(Download{
+	one, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "s2", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:s2", Name: "One",
 	})
-	two, _ := store.Create(Download{
+	two, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "s3", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:s3", Name: "Two",
 	})
 	w.applySchedule(w.queueSettings())
 	statuses := map[int]string{}
 	for _, id := range []int{whole.ID, one.ID, two.ID} {
-		got, _ := store.Get(1, id)
+		got, _ := store.Get(context.Background(), 1, id)
 		statuses[id] = got.Status
 	}
 	active := 0

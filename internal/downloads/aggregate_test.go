@@ -99,7 +99,7 @@ func TestApplyFilePriorities_SelectedWantedRestCancelled(t *testing.T) {
 	tor := wholeSpecTorrent(t, "Pack", [][]string{{"a.bin"}, {"b.bin"}, {"c.bin"}, {"d.bin"}})
 	var members []Download
 	for _, idx := range []int{1, 3} {
-		d, err := store.Create(Download{
+		d, err := store.Create(context.Background(), Download{
 			UserID: 1, InfoHash: tor.InfoHash().HexString(), FileIndex: idx,
 			Magnet: "magnet:?xt=urn:btih:" + tor.InfoHash().HexString(), Name: "Pack",
 		})
@@ -140,8 +140,8 @@ func TestAdoptSiblings_ClaimsNewFileOnLiveTorrent(t *testing.T) {
 	w := dlwNewWorker(t, store, t.TempDir(), "")
 	tor := wholeSpecTorrent(t, "Pack", [][]string{{"a.bin"}, {"b.bin"}})
 	hash := tor.InfoHash()
-	d0, _ := store.Create(Download{UserID: 1, InfoHash: hash.HexString(), FileIndex: 0, Magnet: "m", Name: "Pack"})
-	d1, _ := store.Create(Download{UserID: 1, InfoHash: hash.HexString(), FileIndex: 1, Magnet: "m", Name: "Pack"})
+	d0, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash.HexString(), FileIndex: 0, Magnet: "m", Name: "Pack"})
+	d1, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash.HexString(), FileIndex: 1, Magnet: "m", Name: "Pack"})
 	// d0 already tracked on the live torrent; d1 not yet.
 	files := tor.Files()
 	files[0].Download()
@@ -175,11 +175,11 @@ func TestCompleteGroup_MovesOnceAllRowsCompleted(t *testing.T) {
 	w.moveBackoff = time.Millisecond
 	tor := wholeSpecTorrent(t, "Pack", [][]string{{"a.bin"}, {"b.bin"}})
 	hash := tor.InfoHash().HexString()
-	d0, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
-	d1, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
+	d0, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
+	d1, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
 	// MoveGroup is status-guarded (downloading→moving), so the rows must be active.
-	_, _ = store.PromoteToDownloading(d0.ID)
-	_, _ = store.PromoteToDownloading(d1.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d0.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d1.ID)
 	// Lay both files in the cache as anacrolix would.
 	if err := os.MkdirAll(filepath.Join(dataDir, "Pack"), 0o755); err != nil {
 		t.Fatal(err)
@@ -210,8 +210,8 @@ func TestCompleteGroup_MovesOnceAllRowsCompleted(t *testing.T) {
 		}
 	}
 	// Item 6: each member points at its OWN file, never the bare torrent dir.
-	g0, _ := store.Get(1, d0.ID)
-	g1, _ := store.Get(1, d1.ID)
+	g0, _ := store.Get(context.Background(), 1, d0.ID)
+	g1, _ := store.Get(context.Background(), 1, d1.ID)
 	if g0.FilePath != filepath.Join(downloadDir, "Pack", "a.bin") {
 		t.Errorf("member 0 file_path = %q, want its own file", g0.FilePath)
 	}
@@ -234,8 +234,8 @@ func TestCheckGroupCompletion_PartialNoMove(t *testing.T) {
 	w := dlwNewWorker(t, store, t.TempDir(), t.TempDir())
 	tor := wholeSpecTorrent(t, "Pack", [][]string{{"a.bin"}, {"b.bin"}})
 	hash := tor.InfoHash().HexString()
-	d0, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
-	d1, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
+	d0, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
+	d1, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
 	// d0 complete, d1 not — use fakeWhole-like targets via real files won't report
 	// completion; instead use a fake file target by wrapping progress in trackedDL.
 	td0 := &trackedDL{id: d0.ID, userID: 1, name: "Pack", whole: &fakeWhole{completed: 4, length: 4}}
@@ -249,7 +249,7 @@ func TestCheckGroupCompletion_PartialNoMove(t *testing.T) {
 
 	w.checkGroupCompletion(g, state)
 
-	got, _ := store.Get(1, d0.ID)
+	got, _ := store.Get(context.Background(), 1, d0.ID)
 	if got.Status == StatusMoving || got.Status == StatusCompleted {
 		t.Fatalf("partial group must not move; #%d status=%q", d0.ID, got.Status)
 	}
@@ -266,9 +266,9 @@ func TestGroupCompletionEligible_WaitsOnQueuedSibling(t *testing.T) {
 	w := dlwNewWorker(t, store, t.TempDir(), t.TempDir())
 	hash := "packhash"
 	// d0 is the active+complete member; d1 is a selected sibling still queued.
-	d0, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
-	d1, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
-	_, _ = store.PromoteToDownloading(d0.ID) // d1 stays queued
+	d0, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
+	d1, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
+	_, _ = store.PromoteToDownloading(context.Background(), d0.ID) // d1 stays queued
 	td0 := &trackedDL{id: d0.ID, userID: 1, name: "Pack", whole: &fakeWhole{completed: 4, length: 4}}
 	w.mu.Lock()
 	w.tracked[d0.ID] = td0
@@ -281,12 +281,12 @@ func TestGroupCompletionEligible_WaitsOnQueuedSibling(t *testing.T) {
 		t.Fatal("group must NOT be completion-eligible while a selected sibling is queued")
 	}
 	w.checkGroupCompletion(g, state)
-	if got, _ := store.Get(1, d0.ID); got.Status == StatusMoving || got.Status == StatusCompleted {
+	if got, _ := store.Get(context.Background(), 1, d0.ID); got.Status == StatusMoving || got.Status == StatusCompleted {
 		t.Fatalf("premature completion with a queued sibling; status=%q", got.Status)
 	}
 
 	// Once the sibling is gone (e.g. removed), the lone complete member CAN finish.
-	_ = store.Delete(1, d1.ID)
+	_ = store.Delete(context.Background(), 1, d1.ID)
 	if !w.groupCompletionEligible(g, state) {
 		t.Fatal("group should be eligible once no queued sibling remains")
 	}
@@ -300,9 +300,9 @@ func TestGroupCompletionEligible_WaitsOnQueuedSibling(t *testing.T) {
 func TestRemove_MemberInInitKeepsSharedTorrent(t *testing.T) {
 	w, store, rec := newRemoveWorker(t)
 	hash := hashFromHex(t, testHashHex)
-	d0, _ := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Pack"})
-	d1, _ := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 1, Magnet: "m", Name: "Pack"})
-	d2, _ := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 2, Magnet: "m", Name: "Pack"})
+	d0, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Pack"})
+	d1, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 1, Magnet: "m", Name: "Pack"})
+	d2, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 2, Magnet: "m", Name: "Pack"})
 	// All three are in a shared init: pending + pendingHash set, NONE tracked.
 	cancel := func() {}
 	w.mu.Lock()
@@ -337,7 +337,7 @@ func TestUpdateProgressBatch_PersistsAllInOneTx(t *testing.T) {
 	store := dlwNewStore(t)
 	var ids []int
 	for i := 0; i < 3; i++ {
-		d, _ := store.Create(Download{
+		d, _ := store.Create(context.Background(), Download{
 			UserID: 1, InfoHash: "h", FileIndex: i, Magnet: "m", Name: "Pack", FileSize: 100,
 		})
 		ids = append(ids, d.ID)
@@ -347,18 +347,18 @@ func TestUpdateProgressBatch_PersistsAllInOneTx(t *testing.T) {
 		{UserID: 1, ID: ids[1], Bytes: 20},
 		{UserID: 1, ID: ids[2], Bytes: 30},
 	}
-	if err := store.UpdateProgressBatch(batch); err != nil {
+	if err := store.UpdateProgressBatch(context.Background(), batch); err != nil {
 		t.Fatalf("UpdateProgressBatch: %v", err)
 	}
 	for i, id := range ids {
-		got, _ := store.Get(1, id)
+		got, _ := store.Get(context.Background(), 1, id)
 		want := int64((i + 1) * 10)
 		if got.BytesDownloaded != want {
 			t.Errorf("#%d bytes = %d, want %d", id, got.BytesDownloaded, want)
 		}
 	}
 	// Empty batch is a no-op (no error, no panic).
-	if err := store.UpdateProgressBatch(nil); err != nil {
+	if err := store.UpdateProgressBatch(context.Background(), nil); err != nil {
 		t.Errorf("empty batch should be a no-op, got %v", err)
 	}
 }
@@ -384,10 +384,10 @@ func TestRunGroupCompletionMove_SkipsAIRename(t *testing.T) {
 	w.moveBackoff = time.Millisecond
 	tor := wholeSpecTorrent(t, "Pack", [][]string{{"a.bin"}, {"b.bin"}})
 	hash := tor.InfoHash().HexString()
-	d0, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
-	d1, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
-	_, _ = store.PromoteToDownloading(d0.ID)
-	_, _ = store.PromoteToDownloading(d1.ID)
+	d0, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 0, Magnet: "m", Name: "Pack", FileSize: 4})
+	d1, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: 1, Magnet: "m", Name: "Pack", FileSize: 4})
+	_, _ = store.PromoteToDownloading(context.Background(), d0.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d1.ID)
 	if err := os.MkdirAll(filepath.Join(dataDir, "Pack"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -423,8 +423,8 @@ func TestRemove_OneFileKeepsTorrentLastDrops(t *testing.T) {
 	files := tor.Files()
 	files[0].Download()
 	files[1].Download()
-	d0, _ := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Pack"})
-	d1, _ := store.Create(Download{UserID: 1, InfoHash: testHashHex, FileIndex: 1, Magnet: "m", Name: "Pack"})
+	d0, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 0, Magnet: "m", Name: "Pack"})
+	d1, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: testHashHex, FileIndex: 1, Magnet: "m", Name: "Pack"})
 	w.streamer.RegisterDownload("Pack")
 	w.mu.Lock()
 	w.tracked[d0.ID] = &trackedDL{id: d0.ID, userID: 1, name: "Pack", hash: hash, file: files[0], torrent: tor}
@@ -464,8 +464,8 @@ func TestDetectStalls_GroupDemotesAllMembers(t *testing.T) {
 	hash := "packhash"
 	var ids []int
 	for i := 0; i < 3; i++ {
-		d, _ := store.Create(Download{UserID: 1, InfoHash: hash, FileIndex: i, Magnet: "m", Name: "Pack"})
-		_, _ = store.PromoteToDownloading(d.ID)
+		d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: hash, FileIndex: i, Magnet: "m", Name: "Pack"})
+		_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 		ids = append(ids, d.ID)
 	}
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 3, StallThresholdMin: 30, MaxStalls: 2})
@@ -483,7 +483,7 @@ func TestDetectStalls_GroupDemotesAllMembers(t *testing.T) {
 	w.detectStalls(w.queueSettings())
 	// All three rows demoted with exactly ONE stall each (one torrent stall cycle).
 	for _, id := range ids {
-		got, _ := store.Get(1, id)
+		got, _ := store.Get(context.Background(), 1, id)
 		if got.Status != StatusQueued || got.Stalls != 1 {
 			t.Fatalf("#%d after group stall: status=%q stalls=%d, want queued/1", id, got.Status, got.Stalls)
 		}
@@ -497,12 +497,12 @@ func TestDetectStalls_GroupDemotesAllMembers(t *testing.T) {
 
 	// Second cycle reaches MaxStalls=2 → the WHOLE group is paused.
 	for _, id := range ids {
-		_, _ = store.PromoteToDownloading(id)
+		_, _ = store.PromoteToDownloading(context.Background(), id)
 	}
 	inject()
 	w.detectStalls(w.queueSettings())
 	for _, id := range ids {
-		got, _ := store.Get(1, id)
+		got, _ := store.Get(context.Background(), 1, id)
 		if got.Status != StatusPaused {
 			t.Fatalf("#%d after reaching MaxStalls: status=%q, want paused", id, got.Status)
 		}
@@ -513,12 +513,12 @@ func TestGroupTransitions_PreserveStatusGuard(t *testing.T) {
 	store := dlwNewStore(t)
 	var ids []int
 	for i := 0; i < 3; i++ {
-		d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: i, Magnet: "m", Name: "P"})
+		d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: i, Magnet: "m", Name: "P"})
 		ids = append(ids, d.ID)
 	}
 	// One member is paused → PromoteGroup must skip it (guard on status=queued).
-	_ = store.SetStatus(1, ids[2], StatusPaused)
-	promoted, err := store.PromoteGroup(ids)
+	_ = store.SetStatus(context.Background(), 1, ids[2], StatusPaused)
+	promoted, err := store.PromoteGroup(context.Background(), ids)
 	if err != nil {
 		t.Fatalf("PromoteGroup: %v", err)
 	}
@@ -526,13 +526,13 @@ func TestGroupTransitions_PreserveStatusGuard(t *testing.T) {
 		t.Fatalf("promoted %v, want the 2 queued rows (paused skipped)", promoted)
 	}
 	for _, id := range promoted {
-		got, _ := store.Get(1, id)
+		got, _ := store.Get(context.Background(), 1, id)
 		if got.Status != StatusDownloading {
 			t.Errorf("#%d should be downloading, got %q", id, got.Status)
 		}
 	}
 	// DemoteGroup bumps stalls + requeues only the downloading rows.
-	demoted, err := store.DemoteGroup(ids)
+	demoted, err := store.DemoteGroup(context.Background(), ids)
 	if err != nil {
 		t.Fatalf("DemoteGroup: %v", err)
 	}
@@ -540,7 +540,7 @@ func TestGroupTransitions_PreserveStatusGuard(t *testing.T) {
 		t.Fatalf("demoted %v, want 2", demoted)
 	}
 	for _, id := range demoted {
-		got, _ := store.Get(1, id)
+		got, _ := store.Get(context.Background(), 1, id)
 		if got.Status != StatusQueued || got.Stalls != 1 {
 			t.Errorf("#%d after demote: status=%q stalls=%d", id, got.Status, got.Stalls)
 		}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -32,7 +33,7 @@ func TestDownloadsPause_RejectsCompleted(t *testing.T) {
 		t.Fatalf("status=%d want 409", w.Code)
 	}
 
-	got, err := store.Get(d.UserID, d.ID)
+	got, err := store.Get(context.Background(), d.UserID, d.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestDownloadsPause_AllowsDownloading(t *testing.T) {
 		t.Fatalf("status=%d want 204", w.Code)
 	}
 
-	got, _ := store.Get(d.UserID, d.ID)
+	got, _ := store.Get(context.Background(), d.UserID, d.ID)
 	if got.Status != downloads.StatusPaused {
 		t.Errorf("status=%q, want %q", got.Status, downloads.StatusPaused)
 	}
@@ -82,7 +83,7 @@ func TestDownloadsBatchPause_SkipsCompletedRows(t *testing.T) {
 		t.Errorf("affected=%d, want 1 — only the active row can be paused", resp.Affected)
 	}
 
-	gotCompleted, _ := store.Get(completed.UserID, completed.ID)
+	gotCompleted, _ := store.Get(context.Background(), completed.UserID, completed.ID)
 	if gotCompleted.Status != downloads.StatusCompleted {
 		t.Errorf("completed turned into %q on batch pause", gotCompleted.Status)
 	}

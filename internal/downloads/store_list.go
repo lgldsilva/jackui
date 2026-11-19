@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 )
@@ -13,8 +14,8 @@ const listLimitClause = " LIMIT 5000"
 
 // Reads / listings of the downloads store — extracted from store.go.
 // List returns all downloads for the user, newest first.
-func (s *Store) List(userID int) ([]Download, error) {
-	rows, err := s.db.Query(dlSelect+"WHERE user_id=? ORDER BY created_at DESC"+listLimitClause, userID)
+func (s *Store) List(ctx context.Context, userID int) ([]Download, error) {
+	rows, err := s.db.QueryContext(ctx, dlSelect+"WHERE user_id=? ORDER BY created_at DESC"+listLimitClause, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -24,7 +25,7 @@ func (s *Store) List(userID int) ([]Download, error) {
 
 // ListFiltered returns downloads for the user filtered by optional criteria.
 // Empty filters are ignored. Sort is "created_at" (default), "name", "size", "progress".
-func (s *Store) ListFiltered(f ListFilter) ([]Download, error) {
+func (s *Store) ListFiltered(ctx context.Context, f ListFilter) ([]Download, error) {
 	q := "WHERE user_id=?"
 	args := []any{f.UserID}
 	if f.Status != "" {
@@ -63,7 +64,7 @@ func (s *Store) ListFiltered(f ListFilter) ([]Download, error) {
 	if f.SortDir == "asc" {
 		dir = "ASC"
 	}
-	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir+listLimitClause, args...)
+	rows, err := s.db.QueryContext(ctx, dlSelect+q+" ORDER BY "+order+" "+dir+listLimitClause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +74,8 @@ func (s *Store) ListFiltered(f ListFilter) ([]Download, error) {
 
 // ListActive returns every download in `downloading` status across all users.
 // The worker uses this to schedule downloads each tick.
-func (s *Store) ListActive() ([]Download, error) {
-	rows, err := s.db.Query(dlSelect+"WHERE status=? ORDER BY id", StatusDownloading)
+func (s *Store) ListActive(ctx context.Context) ([]Download, error) {
+	rows, err := s.db.QueryContext(ctx, dlSelect+"WHERE status=? ORDER BY id", StatusDownloading)
 	if err != nil {
 		return nil, err
 	}
@@ -87,8 +88,8 @@ func (s *Store) ListActive() ([]Download, error) {
 // the status flip and the transfer submission, or a boot rescue that missed)
 // never appears in ListActive, so without this query no tick would look at it
 // again.
-func (s *Store) ListMoving() ([]Download, error) {
-	rows, err := s.db.Query(dlSelect+"WHERE status=? ORDER BY id", StatusMoving)
+func (s *Store) ListMoving(ctx context.Context) ([]Download, error) {
+	rows, err := s.db.QueryContext(ctx, dlSelect+"WHERE status=? ORDER BY id", StatusMoving)
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +104,11 @@ func (s *Store) ListMoving() ([]Download, error) {
 // (downloading) rows, so a queued sibling is invisible to GroupRows and would
 // otherwise let the move fire with a file missing. info_hash must be non-empty
 // (a hashless pre-metadata row has no siblings to speak of).
-func (s *Store) WantedRowsByHash(userID int, infoHash string) ([]Download, error) {
+func (s *Store) WantedRowsByHash(ctx context.Context, userID int, infoHash string) ([]Download, error) {
 	if s == nil || infoHash == "" {
 		return nil, nil
 	}
-	rows, err := s.db.Query(dlSelect+"WHERE user_id=? AND info_hash=? AND status IN (?, ?)",
+	rows, err := s.db.QueryContext(ctx, dlSelect+"WHERE user_id=? AND info_hash=? AND status IN (?, ?)",
 		userID, infoHash, StatusDownloading, StatusQueued)
 	if err != nil {
 		return nil, err
@@ -119,8 +120,8 @@ func (s *Store) WantedRowsByHash(userID int, infoHash string) ([]Download, error
 // ListAll returns every download — used by the streamer to compute the
 // "protected from eviction" set on startup (any non-final entry should keep
 // its torrent data on disk).
-func (s *Store) ListAll() ([]Download, error) {
-	rows, err := s.db.Query(dlSelect + "ORDER BY id")
+func (s *Store) ListAll(ctx context.Context) ([]Download, error) {
+	rows, err := s.db.QueryContext(ctx, dlSelect+"ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +131,7 @@ func (s *Store) ListAll() ([]Download, error) {
 
 // ListFilteredAll returns downloads across ALL users, filtered by optional
 // criteria. Used by admin listing. Empty filters are ignored.
-func (s *Store) ListFilteredAll(f ListFilter) ([]Download, error) {
+func (s *Store) ListFilteredAll(ctx context.Context, f ListFilter) ([]Download, error) {
 	q := "WHERE 1=1"
 	args := []any{}
 	if f.Status != "" {
@@ -175,7 +176,7 @@ func (s *Store) ListFilteredAll(f ListFilter) ([]Download, error) {
 	if f.SortDir == "asc" {
 		dir = "ASC"
 	}
-	rows, err := s.db.Query(dlSelect+q+" ORDER BY "+order+" "+dir+listLimitClause, args...)
+	rows, err := s.db.QueryContext(ctx, dlSelect+q+" ORDER BY "+order+" "+dir+listLimitClause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -184,8 +185,8 @@ func (s *Store) ListFilteredAll(f ListFilter) ([]Download, error) {
 }
 
 // DistinctUsers returns all distinct user_ids that have downloads.
-func (s *Store) DistinctUsers() ([]int, error) {
-	rows, err := s.db.Query("SELECT DISTINCT user_id FROM downloads ORDER BY user_id")
+func (s *Store) DistinctUsers(ctx context.Context) ([]int, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT DISTINCT user_id FROM downloads ORDER BY user_id")
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +202,8 @@ func (s *Store) DistinctUsers() ([]int, error) {
 }
 
 // DistinctTrackers returns all distinct tracker values for the user.
-func (s *Store) DistinctTrackers(userID int) ([]string, error) {
-	rows, err := s.db.Query("SELECT DISTINCT tracker FROM downloads WHERE user_id=? AND tracker!='' ORDER BY tracker", userID)
+func (s *Store) DistinctTrackers(ctx context.Context, userID int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT DISTINCT tracker FROM downloads WHERE user_id=? AND tracker!='' ORDER BY tracker", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -218,8 +219,8 @@ func (s *Store) DistinctTrackers(userID int) ([]string, error) {
 }
 
 // DistinctCategories returns all distinct category values for the user.
-func (s *Store) DistinctCategories(userID int) ([]string, error) {
-	rows, err := s.db.Query("SELECT DISTINCT category FROM downloads WHERE user_id=? AND category!='' ORDER BY category", userID)
+func (s *Store) DistinctCategories(ctx context.Context, userID int) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT DISTINCT category FROM downloads WHERE user_id=? AND category!='' ORDER BY category", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -252,12 +253,12 @@ func scanSlice(rows *sql.Rows) ([]Download, error) {
 
 // HashOwnerIDs returns the set of users holding ANY download row (any status)
 // for infoHash — the owners allowed to control that torrent's swarm state.
-func (s *Store) HashOwnerIDs(infoHash string) (map[int]bool, error) {
+func (s *Store) HashOwnerIDs(ctx context.Context, infoHash string) (map[int]bool, error) {
 	owners := map[int]bool{}
 	if s == nil || infoHash == "" {
 		return owners, nil
 	}
-	rows, err := s.db.Query(`SELECT DISTINCT user_id FROM downloads WHERE info_hash = ?`, strings.ToLower(infoHash))
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT user_id FROM downloads WHERE info_hash = ?`, strings.ToLower(infoHash))
 	if err != nil {
 		return nil, err
 	}

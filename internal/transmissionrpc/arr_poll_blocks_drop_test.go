@@ -1,6 +1,7 @@
 package transmissionrpc
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -87,7 +88,7 @@ func TestTorrentRemove_DeleteLocalData_DropsActiveTorrentAfterPoll(t *testing.T)
 	hash, cleanup := s.SeedActiveForTesting("arr-remove-me", time.Now().Add(-2*time.Hour))
 	defer cleanup()
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: hash.HexString(),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + hash.HexString(),
 	})
@@ -110,7 +111,7 @@ func TestTorrentRemove_DeleteLocalData_DropsActiveTorrentAfterPoll(t *testing.T)
 	if n := len(s.ActiveList()); n != 0 {
 		t.Fatalf("ActiveList = %d, want 0 — the explicit *arr remove must drop the torrent", n)
 	}
-	all, _ := st.ListAll()
+	all, _ := st.ListAll(context.Background())
 	if len(all) != 0 {
 		t.Fatalf("expected 0 downloads after remove, got %d", len(all))
 	}
@@ -127,7 +128,7 @@ func TestTorrentRemove_KeepLocalData_LeavesActiveTorrentAlone(t *testing.T) {
 	hash, cleanup := s.SeedActiveForTesting("arr-keep-me", time.Now().Add(-2*time.Hour))
 	defer cleanup()
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: hash.HexString(),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + hash.HexString(),
 	})
@@ -144,7 +145,7 @@ func TestTorrentRemove_KeepLocalData_LeavesActiveTorrentAlone(t *testing.T) {
 	if n := len(s.ActiveList()); n != 1 {
 		t.Fatalf("ActiveList = %d, want 1 — without delete-local-data the torrent stays", n)
 	}
-	all, _ := st.ListAll()
+	all, _ := st.ListAll(context.Background())
 	if len(all) != 0 {
 		t.Fatalf("expected 0 downloads after remove, got %d", len(all))
 	}

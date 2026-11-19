@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -59,7 +60,7 @@ func TestDownloadsDelete_AdminCrossUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
 	// Row owned by user 7.
-	d, err := store.Create(downloads.Download{UserID: 7, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Others"})
+	d, err := store.Create(context.Background(), downloads.Download{UserID: 7, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Others"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +78,7 @@ func TestDownloadsDelete_AdminCrossUser(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status=%d want 204; body=%s", w.Code, w.Body.String())
 	}
-	if got, _ := store.Get(7, d.ID); got != nil {
+	if got, _ := store.Get(context.Background(), 7, d.ID); got != nil {
 		t.Error("admin delete must remove another user's row")
 	}
 	if rm.count() != 1 {
@@ -94,7 +95,7 @@ func TestDownloadsDelete_AdminCrossUser(t *testing.T) {
 func TestDownloadsDelete_NonAdminCannotCrossUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	d, err := store.Create(downloads.Download{UserID: 7, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Others"})
+	d, err := store.Create(context.Background(), downloads.Download{UserID: 7, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Others"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestDownloadsDelete_NonAdminCannotCrossUser(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status=%d want 204; body=%s", w.Code, w.Body.String())
 	}
-	if got, _ := store.Get(7, d.ID); got == nil {
+	if got, _ := store.Get(context.Background(), 7, d.ID); got == nil {
 		t.Error("a non-owner's delete must NOT remove the owner's row")
 	}
 	if rm.count() != 0 {
@@ -123,7 +124,7 @@ func TestDownloadsDelete_NonAdminCannotCrossUser(t *testing.T) {
 func TestDownloadsDelete_OwnerHappyPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	d, err := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Mine"})
+	d, err := store.Create(context.Background(), downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Mine"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +141,7 @@ func TestDownloadsDelete_OwnerHappyPath(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status=%d want 204; body=%s", w.Code, w.Body.String())
 	}
-	if got, _ := store.Get(5, d.ID); got != nil {
+	if got, _ := store.Get(context.Background(), 5, d.ID); got != nil {
 		t.Error("owner delete must remove the row")
 	}
 	if rm.count() != 1 {
@@ -152,7 +153,7 @@ func TestDownloadsDelete_OwnerHappyPath(t *testing.T) {
 func TestDownloadsDelete_NilWorkerNoPanic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	d, _ := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Mine"})
+	d, _ := store.Create(context.Background(), downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "Mine"})
 
 	router := gin.New()
 	router.Use(claimsMW(&auth.Claims{UserID: 5, Role: auth.RoleUser}))
@@ -173,8 +174,8 @@ func TestDownloadsDelete_NilWorkerNoPanic(t *testing.T) {
 func TestDownloadsBatchDelete_AdminMixed(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	a, _ := store.Create(downloads.Download{UserID: 7, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "A"})
-	b, _ := store.Create(downloads.Download{UserID: 9, InfoHash: delTestHash, FileIndex: 1, Magnet: "m", Name: "B"})
+	a, _ := store.Create(context.Background(), downloads.Download{UserID: 7, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "A"})
+	b, _ := store.Create(context.Background(), downloads.Download{UserID: 9, InfoHash: delTestHash, FileIndex: 1, Magnet: "m", Name: "B"})
 	rm := &fakeRemover{}
 
 	router := gin.New()
@@ -204,10 +205,10 @@ func TestDownloadsBatchDelete_AdminMixed(t *testing.T) {
 	if rm.count() != 2 {
 		t.Errorf("worker.Remove calls=%d want 2", rm.count())
 	}
-	if got, _ := store.Get(7, a.ID); got != nil {
+	if got, _ := store.Get(context.Background(), 7, a.ID); got != nil {
 		t.Error("row A must be gone")
 	}
-	if got, _ := store.Get(9, b.ID); got != nil {
+	if got, _ := store.Get(context.Background(), 9, b.ID); got != nil {
 		t.Error("row B must be gone")
 	}
 }
@@ -221,7 +222,7 @@ func TestDownloadsDelete_StoreError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, _ := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "x"})
+	d, _ := store.Create(context.Background(), downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "x"})
 	pool.Close() // force the lookup/delete to error
 	rm := &fakeRemover{}
 
@@ -250,8 +251,8 @@ func TestDownloadsBatchDelete_AllFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, _ := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "a"})
-	b, _ := store.Create(downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 1, Magnet: "m", Name: "b"})
+	a, _ := store.Create(context.Background(), downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 0, Magnet: "m", Name: "a"})
+	b, _ := store.Create(context.Background(), downloads.Download{UserID: 5, InfoHash: delTestHash, FileIndex: 1, Magnet: "m", Name: "b"})
 	pool.Close()
 	rm := &fakeRemover{}
 

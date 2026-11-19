@@ -30,7 +30,7 @@ type Notifier interface {
 // downloads.(*Store).EnqueueMagnet. Kept as an interface so tests can record
 // calls without a real store.
 type Enqueuer interface {
-	EnqueueMagnet(userID int, infoHash, name, magnet, tracker string) error
+	EnqueueMagnet(ctx context.Context, userID int, infoHash, name, magnet, tracker string) error
 }
 
 // UserNotifier delivers a hit to the user's own channels (in-app feed + Web
@@ -347,14 +347,15 @@ func (w *Worker) maybeAutoDownload(ctx context.Context, wl *Watchlist, r jackett
 	if !wl.MatchesFilters(r.Title, r.Size) {
 		return false
 	}
-	if err := w.enqueuer.EnqueueMagnet(wl.UserID, r.InfoHash, r.Title, pickMagnet(r), r.Tracker); err != nil {
+	// The hit was already recorded as seen, so a cancelled enqueue would never be
+	// retried: enqueue and its queued-flag run on one ctx that survives a pass
+	// cancelled by shutdown.
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := w.enqueuer.EnqueueMagnet(fctx, wl.UserID, r.InfoHash, r.Title, pickMagnet(r), r.Tracker); err != nil {
 		log.Printf("watchlist[%d]: auto-download enqueue failed: %v", wl.ID, err)
 		return false
 	}
-	// The enqueue above is irreversible, so flag it even if the pass is being
-	// cancelled (shutdown); otherwise the UI would not show it as queued.
-	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-	defer cancel()
 	if err := w.store.MarkAutoDownloaded(fctx, wl.ID, r.InfoHash); err != nil {
 		log.Printf("watchlist[%d]: MarkAutoDownloaded failed: %v", wl.ID, err)
 	}

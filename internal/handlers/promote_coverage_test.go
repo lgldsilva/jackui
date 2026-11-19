@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,14 +27,14 @@ func Test_promoteBatch_AlreadyAtDestination(t *testing.T) {
 	if err := os.WriteFile(src, []byte("payload"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "inplace.mkv"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "inplace.mkv"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetFilePath(0, d.ID, src); err != nil {
+	if err := store.SetFilePath(context.Background(), 0, d.ID, src); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetStatus(0, d.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,7 +136,7 @@ func completedDownloadWithHash(t *testing.T, store *downloads.Store, srcDir, fil
 	if err := os.WriteFile(src, []byte("payload"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d, err := store.Create(downloads.Download{
+	d, err := store.Create(context.Background(), downloads.Download{
 		InfoHash: hashHex,
 		Name:     fileName,
 		Magnet:   MagnetPrefix + hashHex,
@@ -145,13 +146,13 @@ func completedDownloadWithHash(t *testing.T, store *downloads.Store, srcDir, fil
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetFilePath(0, d.ID, src); err != nil {
+	if err := store.SetFilePath(context.Background(), 0, d.ID, src); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetStatus(0, d.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.Get(0, d.ID)
+	got, err := store.Get(context.Background(), 0, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func Test_submitPromoteSerial_MultiItemLabelAndFailure(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(shared, "ok.mkv")); err != nil {
 		t.Errorf("healthy item not moved: %v", err)
 	}
-	updated, _ := store.Get(0, dOk.ID)
+	updated, _ := store.Get(context.Background(), 0, dOk.ID)
 	if updated.FilePath != filepath.Join(shared, "ok.mkv") {
 		t.Errorf("FilePath = %q, want the shared-dir destination", updated.FilePath)
 	}

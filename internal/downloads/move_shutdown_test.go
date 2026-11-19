@@ -2,6 +2,7 @@ package downloads
 
 import (
 	"bytes"
+	"context"
 	"log"
 	"strings"
 	"sync"
@@ -31,14 +32,14 @@ func TestRunCompletionMove_ShutdownDuringBackoffKeepsRowMoving(t *testing.T) {
 	// Long enough that the only way out of the backoff is the stop signal.
 	w.moveBackoff = time.Hour
 
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "halt", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:halt", Name: "Halt", FileSize: 4,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := store.SetStatus(1, d.ID, StatusMoving); err != nil {
+	if err := store.SetStatus(context.Background(), 1, d.ID, StatusMoving); err != nil {
 		t.Fatalf("SetStatus moving: %v", err)
 	}
 	s.RegisterDownload("Halt")
@@ -60,7 +61,7 @@ func TestRunCompletionMove_ShutdownDuringBackoffKeepsRowMoving(t *testing.T) {
 		t.Fatal("runCompletionMove did not return after w.stop was closed")
 	}
 
-	got, err := store.Get(1, d.ID)
+	got, err := store.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

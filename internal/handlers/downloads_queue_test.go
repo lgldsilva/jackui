@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +46,7 @@ func TestDownloadsSetPriority_NotFound(t *testing.T) {
 func TestDownloadsSetPriority_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	d, _ := store.Create(downloads.Download{UserID: 0, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
+	d, _ := store.Create(context.Background(), downloads.Download{UserID: 0, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
 
 	router := gin.New()
 	router.PATCH("/api/downloads/:id/priority", DownloadsSetPriority(store))
@@ -58,7 +59,7 @@ func TestDownloadsSetPriority_Success(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204; body: %s", w.Code, w.Body.String())
 	}
-	got, _ := store.Get(0, d.ID)
+	got, _ := store.Get(context.Background(), 0, d.ID)
 	if got.Priority != downloads.PriorityHigh {
 		t.Errorf("priority not persisted, got %q", got.Priority)
 	}
@@ -67,7 +68,7 @@ func TestDownloadsSetPriority_Success(t *testing.T) {
 func TestDownloadsSetPriority_InvalidValue(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	_, _ = store.Create(downloads.Download{UserID: 0, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
+	_, _ = store.Create(context.Background(), downloads.Download{UserID: 0, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
 
 	router := gin.New()
 	router.PATCH("/api/downloads/:id/priority", DownloadsSetPriority(store))
@@ -99,7 +100,7 @@ func TestDownloadsSources_NotFound(t *testing.T) {
 func TestDownloadsSources_EmptyArray(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	_, _ = store.Create(downloads.Download{UserID: 0, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
+	_, _ = store.Create(context.Background(), downloads.Download{UserID: 0, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
 	router := gin.New()
 	router.GET("/api/downloads/:id/sources", DownloadsSources(store))
 

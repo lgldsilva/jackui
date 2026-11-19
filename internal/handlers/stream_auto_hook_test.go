@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -159,16 +160,16 @@ func TestStreamFile_StoreServedDoesNotKick(t *testing.T) {
 	if err := os.WriteFile(filePath, []byte("AAAA"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d, err := store.Create(downloads.Download{
+	d, err := store.Create(context.Background(), downloads.Download{
 		UserID: 0, InfoHash: h.HexString(), FileIndex: 0, Magnet: "m", Name: "stream-open-hook",
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := store.UpdateMetadata(0, d.ID, "stream-open-hook", filePath, 4); err != nil {
+	if err := store.UpdateMetadata(context.Background(), 0, d.ID, "stream-open-hook", filePath, 4); err != nil {
 		t.Fatalf("UpdateMetadata: %v", err)
 	}
-	if err := store.SetStatus(0, d.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
 

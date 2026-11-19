@@ -86,7 +86,7 @@ func torrentIDs(t *testing.T, w *httptest.ResponseRecorder) []int {
 func mkUserRow(t *testing.T, st *downloads.Store, userID int, hashByte byte) *downloads.Download {
 	t.Helper()
 	hash := strings.Repeat(string(hashByte), 40)
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: userID, InfoHash: hash, FileIndex: -1,
 		Magnet: "magnet:?xt=urn:btih:" + hash,
 	})
@@ -201,12 +201,12 @@ func TestRPC_UserScoping_TorrentGetAndMutations(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("torrent-remove: HTTP %d", w.Code)
 	}
-	if _, err := st.Get(bobID, dBob.ID); err != nil {
+	if _, err := st.Get(context.Background(), bobID, dBob.ID); err != nil {
 		t.Fatalf("alice removed bob's download %d: %v", dBob.ID, err)
 	}
 
 	// torrent-stop as alice targeting bob's row → bob's status unchanged.
-	before, err := st.Get(bobID, dBob.ID)
+	before, err := st.Get(context.Background(), bobID, dBob.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestRPC_UserScoping_TorrentGetAndMutations(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("torrent-stop: HTTP %d", w.Code)
 	}
-	after, err := st.Get(bobID, dBob.ID)
+	after, err := st.Get(context.Background(), bobID, dBob.ID)
 	if err != nil {
 		t.Fatalf("bob's row vanished after alice's torrent-stop: %v", err)
 	}
@@ -297,14 +297,14 @@ func TestTorrentRemove_DeleteLocalData_RemovesConfinedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dIn, err := st.Create(downloads.Download{
+	dIn, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("1", 40), FileIndex: -1,
 		FilePath: inside, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("1", 40),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dOut, err := st.Create(downloads.Download{
+	dOut, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("2", 40), FileIndex: -1,
 		FilePath: outside, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("2", 40),
 	})
@@ -323,7 +323,7 @@ func TestTorrentRemove_DeleteLocalData_RemovesConfinedFiles(t *testing.T) {
 	}
 
 	// Both rows are gone.
-	all, _ := st.ListAll()
+	all, _ := st.ListAll(context.Background())
 	if len(all) != 0 {
 		t.Fatalf("expected 0 rows after remove, got %d", len(all))
 	}

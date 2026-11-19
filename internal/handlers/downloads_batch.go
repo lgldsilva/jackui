@@ -19,6 +19,8 @@ import (
 
 func DownloadsBatchPause(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		var req struct {
 			IDs []int `json:"ids"`
 		}
@@ -27,7 +29,7 @@ func DownloadsBatchPause(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		n, err := store.SetStatusByIDs(userID, req.IDs, downloads.StatusPaused)
+		n, err := store.SetStatusByIDs(wctx, userID, req.IDs, downloads.StatusPaused)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -41,6 +43,8 @@ func DownloadsBatchPause(store *downloads.Store) gin.HandlerFunc {
 // specific downloads by IDs. Body: { ids: [1, 2, 3] }
 func DownloadsBatchResume(store *downloads.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		var req struct {
 			IDs []int `json:"ids"`
 		}
@@ -49,7 +53,7 @@ func DownloadsBatchResume(store *downloads.Store) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		n, err := store.RequeueByIDs(userID, req.IDs)
+		n, err := store.RequeueByIDs(wctx, userID, req.IDs)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -68,6 +72,8 @@ func DownloadsBatchResume(store *downloads.Store) gin.HandlerFunc {
 // instead of silently leaving them to reappear on the next poll.
 func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		var req struct {
 			IDs []int `json:"ids"`
 		}
@@ -79,7 +85,7 @@ func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.Ha
 		deleted := 0
 		failed := make([]int, 0)
 		for _, id := range req.IDs {
-			row, err := store.DeleteScoped(userID, id, isAdmin)
+			row, err := store.DeleteScoped(wctx, userID, id, isAdmin)
 			if err != nil {
 				failed = append(failed, id)
 				continue
@@ -113,8 +119,13 @@ func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer, worker
 			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many ids")
 			return
 		}
+		// One detached block: each id is Get → DropSeed (persisted, irreversible) →
+		// DeleteScoped, so a disconnect must not stop between the seed drop and the
+		// row delete.
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		affected, failed, hashes := stopSeedBatch(store, s, worker, userID, isAdmin, req.IDs)
+		affected, failed, hashes := stopSeedBatch(wctx, store, s, worker, userID, isAdmin, req.IDs)
 		c.JSON(http.StatusOK, gin.H{
 			"affected": affected,
 			"total":    len(req.IDs),
@@ -127,11 +138,11 @@ func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer, worker
 // stopSeedBatch resolves each id, DropSeeds unique info_hashes once, deletes the
 // rows and collects missing IDs. Extracted so DownloadsBatchStopSeed stays under
 // S3776.
-func stopSeedBatch(store *downloads.Store, s *streamer.Streamer, worker DownloadRemover, userID int, isAdmin bool, ids []int) (affected int, failed []int, hashCount int) {
+func stopSeedBatch(ctx context.Context, store *downloads.Store, s *streamer.Streamer, worker DownloadRemover, userID int, isAdmin bool, ids []int) (affected int, failed []int, hashCount int) {
 	seen := make(map[string]struct{})
 	failed = make([]int, 0)
 	for _, id := range ids {
-		if !stopSeedOne(store, s, worker, userID, isAdmin, id, seen) {
+		if !stopSeedOne(ctx, store, s, worker, userID, isAdmin, id, seen) {
 			failed = append(failed, id)
 			continue
 		}
@@ -143,8 +154,8 @@ func stopSeedBatch(store *downloads.Store, s *streamer.Streamer, worker Download
 // stopSeedOne loads a download row, DropSeeds its info_hash if not yet seen and
 // deletes the row (any status) so the item leaves the downloads list.
 // Returns false when the row is missing (caller records failed).
-func stopSeedOne(store *downloads.Store, s *streamer.Streamer, worker DownloadRemover, userID int, isAdmin bool, id int, seen map[string]struct{}) bool {
-	d, err := store.Get(userID, id)
+func stopSeedOne(ctx context.Context, store *downloads.Store, s *streamer.Streamer, worker DownloadRemover, userID int, isAdmin bool, id int, seen map[string]struct{}) bool {
+	d, err := store.Get(ctx, userID, id)
 	if err != nil || d == nil {
 		return false
 	}
@@ -160,7 +171,7 @@ func stopSeedOne(store *downloads.Store, s *streamer.Streamer, worker DownloadRe
 			}
 		}
 	}
-	row, err := store.DeleteScoped(userID, id, isAdmin)
+	row, err := store.DeleteScoped(ctx, userID, id, isAdmin)
 	if err != nil {
 		return false
 	}
@@ -180,8 +191,11 @@ func stopSeedOne(store *downloads.Store, s *streamer.Streamer, worker DownloadRe
 // the error response itself and returns ok=false on failure.
 func recheckPrepare(c *gin.Context, store *downloads.Store, s *streamer.Streamer, userID, id int) (*downloads.Download, metainfo.Hash, bool) {
 	var h metainfo.Hash
-	d, err := store.Get(userID, id)
+	d, err := store.Get(c.Request.Context(), userID, id)
 	if err != nil || d == nil {
+		if httpshared.AbortIfClientGone(c, err) {
+			return nil, h, false
+		}
 		httpshared.RespondErrorMessage(c, http.StatusNotFound, errDownloadNotFound)
 		return nil, h, false
 	}
@@ -230,15 +244,20 @@ func DownloadsRecheck(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 		// Reset the row so the worker reconciles with reality after the hash check.
 		// It goes to the queue (not straight to downloading) so the scheduler
 		// respects the limit.
-		if err := store.UpdateProgress(userID, id, 0); err != nil {
+		// The re-hash above is done: the reset (progress 0 + queued) is a paired
+		// write after a long step, so it is detached as one block (a client that
+		// gave up during the recheck must not leave the old progress behind).
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.UpdateProgress(wctx, userID, id, 0); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		if err := store.SetStatus(userID, id, downloads.StatusQueued); err != nil {
+		if err := store.SetStatus(wctx, userID, id, downloads.StatusQueued); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		updated, err := store.Get(userID, id)
+		updated, err := store.Get(wctx, userID, id)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -311,7 +330,7 @@ func DownloadsPeers(store *downloads.Store, s *streamer.Streamer) gin.HandlerFun
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		d, err := store.Get(userID, id)
+		d, err := store.Get(c.Request.Context(), userID, id)
 		if err != nil || d == nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, errDownloadNotFound)
 			return
@@ -337,7 +356,7 @@ func DownloadsDetails(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		d, err := store.Get(userID, id)
+		d, err := store.Get(c.Request.Context(), userID, id)
 		if err != nil || d == nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, errDownloadNotFound)
 			return

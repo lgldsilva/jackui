@@ -90,7 +90,7 @@ func (d PreviewDeps) resolveTorrentSource(c *gin.Context) (*previewSrc, bool) {
 	// Completed download on disk → real file, free random access.
 	if d.Downloads != nil {
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if path, err := d.Downloads.GetCompletedPathRel(h.HexString(), idx, d.Streamer.FileRelPath(h, idx), userID); err == nil && path != "" {
+		if path, err := d.Downloads.GetCompletedPathRel(c.Request.Context(), h.HexString(), idx, d.Streamer.FileRelPath(h, idx), userID); err == nil && path != "" {
 			if st, err := os.Stat(path); err == nil && !st.IsDir() {
 				return openLocalPreviewFile(c, path)
 			}

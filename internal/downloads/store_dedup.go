@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -11,26 +12,26 @@ import (
 // instead of re-downloading it. The row is marked linked=1. Idempotent on the
 // (user, info_hash, file_index) key: an existing row is converted to the
 // linked/completed state instead of duplicated.
-func (s *Store) CreateLinked(d Download, externalPath string, fileSize int64) (*Download, error) {
+func (s *Store) CreateLinked(ctx context.Context, d Download, externalPath string, fileSize int64) (*Download, error) {
 	if d.InfoHash == "" || externalPath == "" {
 		return nil, errors.New("infoHash and externalPath are required")
 	}
 	if d.FileIndex < 0 {
 		return nil, fmt.Errorf("linked download requires a concrete file_index (>=0), got %d", d.FileIndex)
 	}
-	if existing, _ := s.GetByKey(d.UserID, d.InfoHash, d.FileIndex); existing != nil {
-		_, err := s.db.Exec(`
+	if existing, _ := s.GetByKey(ctx, d.UserID, d.InfoHash, d.FileIndex); existing != nil {
+		_, err := s.db.ExecContext(ctx, `
 			UPDATE downloads SET status=?, file_path=?, file_size=?, bytes_downloaded=?,
 				linked=1, error='', completed_at=CURRENT_TIMESTAMP
 			WHERE id=?`, StatusCompleted, externalPath, fileSize, fileSize, existing.ID)
 		if err != nil {
 			return nil, err
 		}
-		return s.Get(d.UserID, existing.ID)
+		return s.Get(ctx, d.UserID, existing.ID)
 	}
 	// PG driver has no LastInsertId → RETURNING id (mirrors createOne).
 	var id int64
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet,
 			tracker, category, status, priority, bytes_downloaded, linked, completed_at)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP) RETURNING id`,
@@ -39,18 +40,18 @@ func (s *Store) CreateLinked(d Download, externalPath string, fileSize int64) (*
 	if err != nil {
 		return nil, err
 	}
-	return s.Get(d.UserID, int(id))
+	return s.Get(ctx, d.UserID, int(id))
 }
 
 // CompletedBySize returns the user's completed single-file downloads whose
 // file_size equals size — the candidate set cross-torrent dedup (#23) checks a
 // new file against before downloading. Whole-torrent rows (file_index < 0) and
 // unfinished rows are excluded.
-func (s *Store) CompletedBySize(userID int, size int64) ([]Download, error) {
+func (s *Store) CompletedBySize(ctx context.Context, userID int, size int64) ([]Download, error) {
 	if s == nil || size <= 0 {
 		return nil, nil
 	}
-	rows, err := s.db.Query(dlSelect+"WHERE user_id=? AND status=? AND file_path != '' AND file_index >= 0 AND file_size=?",
+	rows, err := s.db.QueryContext(ctx, dlSelect+"WHERE user_id=? AND status=? AND file_path != '' AND file_index >= 0 AND file_size=?",
 		userID, StatusCompleted, size)
 	if err != nil {
 		return nil, err
@@ -62,9 +63,9 @@ func (s *Store) CompletedBySize(userID int, size int64) ([]Download, error) {
 // RefCountPath returns how many completed+linked downloads currently reference
 // a given external file path. Used to decide whether it is safe to garbage-
 // collect a file that no torrent relies on.
-func (s *Store) RefCountPath(path string) (int, error) {
+func (s *Store) RefCountPath(ctx context.Context, path string) (int, error) {
 	var n int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM downloads WHERE file_path=? AND linked=1 AND status=?",
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM downloads WHERE file_path=? AND linked=1 AND status=?",
 		path, StatusCompleted).Scan(&n)
 	return n, err
 }

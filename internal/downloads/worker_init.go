@@ -49,7 +49,7 @@ func (w *Worker) initDownload(ctx context.Context, d Download) {
 	// reflects the reality on disk.
 	initialBytes, totalBytes, _ := td.progress()
 	if initialBytes > 0 {
-		if err := w.store.UpdateProgress(d.UserID, d.ID, initialBytes); err != nil {
+		if err := w.store.UpdateProgress(w.writeCtx(), d.UserID, d.ID, initialBytes); err != nil {
 			log.Printf("downloads: failed to update initial progress for download %d: %v", d.ID, err)
 		}
 	}
@@ -98,7 +98,7 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 	// still be found in the cache by path. Whole-torrent: the torrent root in the
 	// cache and the aggregated size.
 	filePath, fileSize := w.initFilePath(d, t, f, name)
-	if err := w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize); err != nil {
+	if err := w.store.UpdateMetadata(w.writeCtx(), d.UserID, d.ID, name, filePath, fileSize); err != nil {
 		log.Printf("downloads: failed to update metadata for download %d: %v", d.ID, err)
 	}
 	// Freeze the destination dir now that the name is known — completionBaseDir's
@@ -106,7 +106,7 @@ func (w *Worker) resolveAndTrackDownload(ctx context.Context, d Download) (*trac
 	// drift there was what wedged in-flight rows in `moving` after category grouping
 	// shipped. The finalize prefers this frozen value over recomputing.
 	if dest := w.completionDest(d, name); dest != "" {
-		if err := w.store.SetCompletionDest(d.UserID, d.ID, dest); err != nil {
+		if err := w.store.SetCompletionDest(w.writeCtx(), d.UserID, d.ID, dest); err != nil {
 			log.Printf("downloads: failed to set completion_dest for download %d: %v", d.ID, err)
 		}
 	}
@@ -214,14 +214,14 @@ func (w *Worker) resolveFileIndex(d *Download, files []*torrent.File) (int, bool
 	// We prefer the largest video/media file, or fall back to the largest file overall.
 	fileIdx = pickBestFile(files)
 	if fileIdx < 0 {
-		if err := w.store.SetError(d.UserID, d.ID, "no files in torrent"); err != nil {
+		if err := w.store.SetError(w.writeCtx(), d.UserID, d.ID, "no files in torrent"); err != nil {
 			log.Printf("downloads: failed to set error status for download %d: %v", d.ID, err)
 		}
 		return -1, false
 	}
 	// Persist the resolved FileIndex so subsequent ticks don't re-pick.
 	if d.FileIndex != fileIdx {
-		if err := w.store.SetFileIndex(d.UserID, d.ID, fileIdx); err != nil {
+		if err := w.store.SetFileIndex(w.writeCtx(), d.UserID, d.ID, fileIdx); err != nil {
 			log.Printf("downloads: failed to set file index for download %d: %v", d.ID, err)
 		}
 		d.FileIndex = fileIdx
@@ -251,7 +251,7 @@ func (w *Worker) ensureActiveWithFallback(ctx context.Context, d *Download) (met
 	if err2 != nil {
 		return hash, fmt.Errorf("%v; info_hash fallback also failed: %w", err, err2)
 	}
-	if uerr := w.store.SetActiveMagnet(d.UserID, d.ID, alt); uerr != nil {
+	if uerr := w.store.SetActiveMagnet(w.writeCtx(), d.UserID, d.ID, alt); uerr != nil {
 		log.Printf("downloads: #%d persist fallback magnet failed: %v", d.ID, uerr)
 	} else {
 		d.ActiveMagnet = alt

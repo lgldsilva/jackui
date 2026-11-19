@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -72,7 +73,7 @@ func TestDownloadsCreate_WholeTorrentSentinel(t *testing.T) {
 func TestDownloadsPeers_InactiveTorrent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	d, err := store.Create(downloads.Download{
+	d, err := store.Create(context.Background(), downloads.Download{
 		InfoHash:  "cccccccccccccccccccccccccccccccccccccccc",
 		Magnet:    "magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc",
 		Name:      "Inactive",
@@ -133,14 +134,14 @@ func TestDownloadsRecheck_WholeTorrentUsesRecheckAllFiles(t *testing.T) {
 	hash := strings.Repeat("ab", 20)
 	// Magnet with an unsupported scheme: EnsureActive fails FAST (without touching
 	// the torrent client, which NewForTesting lacks) and the handler proceeds to the recheck.
-	whole, err := store.Create(downloads.Download{
+	whole, err := store.Create(context.Background(), downloads.Download{
 		InfoHash: hash, FileIndex: downloads.FileIndexWholeTorrent,
 		Magnet: "x-test://nope", Name: "W",
 	})
 	if err != nil {
 		t.Fatalf("Create whole: %v", err)
 	}
-	perFile, err := store.Create(downloads.Download{
+	perFile, err := store.Create(context.Background(), downloads.Download{
 		InfoHash: hash, FileIndex: 0, Magnet: "x-test://nope", Name: "W",
 	})
 	if err != nil {

@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -107,7 +108,7 @@ func BenchmarkStoreList(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				list, err := s.List(1)
+				list, err := s.List(context.Background(), 1)
 				if err != nil {
 					b.Fatalf("list: %v", err)
 				}
@@ -124,7 +125,7 @@ func BenchmarkStoreList(b *testing.B) {
 func BenchmarkMarshalDownloadsList(b *testing.B) {
 	s := benchSchema(b)
 	benchSeedRows(b, s, 5000)
-	list, err := s.List(1)
+	list, err := s.List(context.Background(), 1)
 	if err != nil {
 		b.Fatalf("list: %v", err)
 	}

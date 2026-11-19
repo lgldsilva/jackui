@@ -21,7 +21,7 @@ type fakeOwners struct {
 	err error
 }
 
-func (f fakeOwners) HashOwnerIDs(string) (map[int]bool, error) { return f.ids, f.err }
+func (f fakeOwners) HashOwnerIDs(context.Context, string) (map[int]bool, error) { return f.ids, f.err }
 
 type fakeLib map[int]bool
 

@@ -17,7 +17,7 @@ func prioPack(t *testing.T) (*torrent.Torrent, []*torrent.File, string) {
 
 func prioRow(t *testing.T, store *Store, userID int, hashHex string, idx int) Download {
 	t.Helper()
-	d, err := store.Create(Download{UserID: userID, InfoHash: hashHex, FileIndex: idx, Magnet: "m", Name: "Pack"})
+	d, err := store.Create(context.Background(), Download{UserID: userID, InfoHash: hashHex, FileIndex: idx, Magnet: "m", Name: "Pack"})
 	if err != nil {
 		t.Fatalf("Create user %d idx %d: %v", userID, idx, err)
 	}
@@ -90,7 +90,7 @@ func TestTick_PausedMemberStopsItsFileWhileSiblingContinues(t *testing.T) {
 	// Only `kept` and user 2's row stay active; `paused` and `shared` vanish
 	// from the active set the way a pause does.
 	for _, d := range []Download{kept, other} {
-		if ok, err := store.PromoteToDownloading(d.ID); err != nil || !ok {
+		if ok, err := store.PromoteToDownloading(context.Background(), d.ID); err != nil || !ok {
 			t.Fatalf("promote #%d: ok=%v err=%v", d.ID, ok, err)
 		}
 	}

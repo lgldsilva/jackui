@@ -15,7 +15,7 @@ func (h *Handler) methodTorrentSet(args map[string]interface{}, ident rpcIdentit
 	}
 	ids := parseIDs(args["ids"])
 
-	all, err := h.store.ListAll()
+	all, err := h.store.ListAll(rpcCtx())
 	if err != nil {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
@@ -62,11 +62,11 @@ func (h *Handler) applyPausedArg(d downloads.Download, raw interface{}) error {
 		return nil
 	}
 	if b {
-		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused); err != nil {
+		if err := h.store.SetStatus(rpcCtx(), d.UserID, d.ID, downloads.StatusPaused); err != nil {
 			return err
 		}
 	} else if d.Status == downloads.StatusPaused {
-		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusDownloading); err != nil {
+		if err := h.store.SetStatus(rpcCtx(), d.UserID, d.ID, downloads.StatusDownloading); err != nil {
 			return err
 		}
 	}
@@ -82,7 +82,7 @@ func (h *Handler) applyLabelsArg(d downloads.Download, raw interface{}) error {
 	if !ok {
 		return nil
 	}
-	if err := h.store.SetCategory(d.UserID, d.ID, cat); err != nil {
+	if err := h.store.SetCategory(rpcCtx(), d.UserID, d.ID, cat); err != nil {
 		return err
 	}
 	return nil
@@ -202,7 +202,7 @@ func (h *Handler) applyTrackerTiers(d downloads.Download, tiers [][]string) {
 		all = append(all, tier...)
 	}
 	if len(all) > 0 {
-		_ = h.store.SetCategory(d.UserID, d.ID, all[0])
+		_ = h.store.SetCategory(rpcCtx(), d.UserID, d.ID, all[0])
 	}
 }
 

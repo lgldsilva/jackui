@@ -31,7 +31,7 @@ func (h *Handler) methodTorrentStart(args map[string]interface{}, ident rpcIdent
 		}
 		// Re-queue (not straight to downloading) so the scheduler honors the
 		// active limit — a Transmission client must not bypass the queue.
-		if err := h.store.Requeue(d.UserID, d.ID); err != nil {
+		if err := h.store.Requeue(rpcCtx(), d.UserID, d.ID); err != nil {
 			return err
 		}
 		if h.streamer != nil {
@@ -48,7 +48,7 @@ func (h *Handler) methodTorrentStop(args map[string]interface{}, ident rpcIdenti
 		if d.Status == downloads.StatusCompleted || d.Status == downloads.StatusFailed {
 			return nil
 		}
-		if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusPaused); err != nil {
+		if err := h.store.SetStatus(rpcCtx(), d.UserID, d.ID, downloads.StatusPaused); err != nil {
 			return err
 		}
 		if h.streamer != nil {
@@ -197,7 +197,7 @@ func (h *Handler) methodTorrentRemove(args map[string]interface{}, ident rpcIden
 	}
 	deleteLocal, _ := args["delete-local-data"].(bool)
 
-	all, err := h.store.ListAll()
+	all, err := h.store.ListAll(rpcCtx())
 	if err != nil {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
@@ -224,10 +224,10 @@ func (h *Handler) removeDownload(d downloads.Download, deleteLocal bool) error {
 	if deleteLocal {
 		h.removeLocalData(d)
 	}
-	if err := h.store.SetStatus(d.UserID, d.ID, downloads.StatusFailed); err != nil {
+	if err := h.store.SetStatus(rpcCtx(), d.UserID, d.ID, downloads.StatusFailed); err != nil {
 		return err
 	}
-	return h.store.Delete(d.UserID, d.ID)
+	return h.store.Delete(rpcCtx(), d.UserID, d.ID)
 }
 
 // removeLocalData deletes the download's files from disk after a
@@ -272,7 +272,7 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}, ident rp
 		return successResp(nil)
 	}
 
-	all, err := h.store.ListAll()
+	all, err := h.store.ListAll(rpcCtx())
 	if err != nil {
 		return failResp(fmt.Sprintf(errListDownloads, err))
 	}
@@ -280,7 +280,7 @@ func (h *Handler) methodTorrentSetLocation(args map[string]interface{}, ident rp
 		if !ids[d.ID] || !ident.owns(d) {
 			continue
 		}
-		_ = h.store.SetFilePath(d.UserID, d.ID, cleanLoc)
+		_ = h.store.SetFilePath(rpcCtx(), d.UserID, d.ID, cleanLoc)
 		if move && h.streamer != nil {
 			if hh, herr := hashFromDownload(d); herr == nil {
 				h.streamer.Drop(hh)

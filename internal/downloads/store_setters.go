@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -9,20 +10,20 @@ import (
 // transitioning back to an active state. Scoped by user_id so a row can only be
 // mutated by its owner (defense-in-depth: handlers also check ownership, the
 // worker passes the row's own UserID).
-func (s *Store) SetStatus(userID, id int, status string) error {
+func (s *Store) SetStatus(ctx context.Context, userID, id int, status string) error {
 	if !validStatus(status) {
 		return fmt.Errorf(errInvalidStatus, status)
 	}
 	var err error
 	switch status {
 	case StatusDownloading:
-		_, err = s.db.Exec(`
+		_, err = s.db.ExecContext(ctx, `
 			UPDATE downloads SET status=?, error='',
 			started_at = COALESCE(started_at, CURRENT_TIMESTAMP)
 			WHERE id=? AND user_id=?`, status, id, userID)
 	case StatusCompleted:
 		// Reaching completed again (re-download / re-queue) re-enables auto-seeding.
-		_, err = s.db.Exec(`
+		_, err = s.db.ExecContext(ctx, `
 			UPDATE downloads SET status=?, completed_at=CURRENT_TIMESTAMP, seed_stopped_at=NULL WHERE id=? AND user_id=?`,
 			status, id, userID)
 	case StatusPaused:
@@ -32,22 +33,22 @@ func (s *Store) SetStatus(userID, id int, status string) error {
 		// actions (promote / stop-seed / open-local) — the item stayed in the list
 		// with no way to remove it while keeping the files. Same exclusion
 		// SetStatusForUser (pause-all) has always applied.
-		_, err = s.db.Exec(`
+		_, err = s.db.ExecContext(ctx, `
 			UPDATE downloads SET status=? WHERE id=? AND user_id=? AND status NOT IN (?, ?)`,
 			status, id, userID, StatusCompleted, StatusFailed)
 	default:
-		_, err = s.db.Exec(`UPDATE downloads SET status=? WHERE id=? AND user_id=?`, status, id, userID)
+		_, err = s.db.ExecContext(ctx, `UPDATE downloads SET status=? WHERE id=? AND user_id=?`, status, id, userID)
 	}
 	return err
 }
 
 // SetStatusForUser updates status for ALL non-terminal rows owned by userID.
 // Terminal statuses (completed, failed) are left unchanged.
-func (s *Store) SetStatusForUser(userID int, status string) (int64, error) {
+func (s *Store) SetStatusForUser(ctx context.Context, userID int, status string) (int64, error) {
 	if !validStatus(status) {
 		return 0, fmt.Errorf(errInvalidStatus, status)
 	}
-	res, err := s.db.Exec(`UPDATE downloads SET status=? WHERE user_id=? AND status NOT IN (?, ?)`,
+	res, err := s.db.ExecContext(ctx, `UPDATE downloads SET status=? WHERE user_id=? AND status NOT IN (?, ?)`,
 		status, userID, StatusCompleted, StatusFailed)
 	if err != nil {
 		return 0, err
@@ -56,7 +57,7 @@ func (s *Store) SetStatusForUser(userID int, status string) (int64, error) {
 }
 
 // SetStatusByIDs updates status for specific download IDs owned by userID.
-func (s *Store) SetStatusByIDs(userID int, ids []int, status string) (int64, error) {
+func (s *Store) SetStatusByIDs(ctx context.Context, userID int, ids []int, status string) (int64, error) {
 	if !validStatus(status) {
 		return 0, fmt.Errorf(errInvalidStatus, status)
 	}
@@ -80,7 +81,7 @@ func (s *Store) SetStatusByIDs(userID int, ids []int, status string) (int64, err
 		q += " AND status NOT IN (?, ?)"
 		args = append(args, StatusCompleted, StatusFailed)
 	}
-	res, err := s.db.Exec(q, args...)
+	res, err := s.db.ExecContext(ctx, q, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -89,8 +90,8 @@ func (s *Store) SetStatusByIDs(userID int, ids []int, status string) (int64, err
 
 // SetError flips a download into `failed` with a captured error message. Scoped
 // by user_id (the worker passes the row's own UserID).
-func (s *Store) SetError(userID, id int, msg string) error {
-	_, err := s.db.Exec(`UPDATE downloads SET status=?, error=? WHERE id=? AND user_id=?`,
+func (s *Store) SetError(ctx context.Context, userID, id int, msg string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET status=?, error=? WHERE id=? AND user_id=?`,
 		StatusFailed, msg, id, userID)
 	return err
 }
@@ -99,15 +100,15 @@ func (s *Store) SetError(userID, id int, msg string) error {
 // then prefers it). Used when the original source — typically an ephemeral
 // indexer .torrent URL — dies (404) and the worker falls back to a bare
 // info_hash magnet, so later retries/reboots skip the dead URL. Scoped by user_id.
-func (s *Store) SetActiveMagnet(userID, id int, magnet string) error {
-	_, err := s.db.Exec(`UPDATE downloads SET active_magnet=? WHERE id=? AND user_id=?`, magnet, id, userID)
+func (s *Store) SetActiveMagnet(ctx context.Context, userID, id int, magnet string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET active_magnet=? WHERE id=? AND user_id=?`, magnet, id, userID)
 	return err
 }
 
 // SetFilePath updates the on-disk path after the worker moves a completed file
 // to the download directory. Scoped by user_id (worker passes the row's own UserID).
-func (s *Store) SetFilePath(userID, id int, path string) error {
-	_, err := s.db.Exec(`UPDATE downloads SET file_path=? WHERE id=? AND user_id=?`, path, id, userID)
+func (s *Store) SetFilePath(ctx context.Context, userID, id int, path string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET file_path=? WHERE id=? AND user_id=?`, path, id, userID)
 	return err
 }
 
@@ -116,38 +117,38 @@ func (s *Store) SetFilePath(userID, id int, path string) error {
 // (t.Name()) is what the streamer registers for eviction protection — they
 // often differ. Persisting the real name keeps the boot-time RegisterDownload
 // in NewWorker consistent so a restart doesn't protect the wrong path.
-func (s *Store) UpdateName(userID, id int, name string) error {
-	_, err := s.db.Exec(`UPDATE downloads SET name=? WHERE id=? AND user_id=?`, name, id, userID)
+func (s *Store) UpdateName(ctx context.Context, userID, id int, name string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET name=? WHERE id=? AND user_id=?`, name, id, userID)
 	return err
 }
 
 // SetCategory updates the download's category/label. Used by the Transmission RPC
 // (torrent-set "labels"). Scoped by user_id.
-func (s *Store) SetCategory(userID, id int, category string) error {
-	_, err := s.db.Exec(`UPDATE downloads SET category=? WHERE id=? AND user_id=?`, category, id, userID)
+func (s *Store) SetCategory(ctx context.Context, userID, id int, category string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET category=? WHERE id=? AND user_id=?`, category, id, userID)
 	return err
 }
 
 // UpdateMetadata updates the resolved torrent name, file path inside the torrent, and file size in bytes.
 // Called by the background worker once torrent metadata is fully resolved.
-func (s *Store) UpdateMetadata(userID, id int, name string, filePath string, fileSize int64) error {
-	_, err := s.db.Exec(`UPDATE downloads SET name=?, file_path=?, file_size=? WHERE id=? AND user_id=?`, name, filePath, fileSize, id, userID)
+func (s *Store) UpdateMetadata(ctx context.Context, userID, id int, name string, filePath string, fileSize int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET name=?, file_path=?, file_size=? WHERE id=? AND user_id=?`, name, filePath, fileSize, id, userID)
 	return err
 }
 
 // SetCompletionDest freezes the per-torrent destination dir resolved once metadata
 // is known, so the completion finalize uses a stable path even if completionBaseDir's
 // inputs (category, auto-promote) change later. Non-fatal (next finalize falls back).
-func (s *Store) SetCompletionDest(userID, id int, dest string) error {
-	_, err := s.db.Exec(`UPDATE downloads SET completion_dest=? WHERE id=? AND user_id=?`, dest, id, userID)
+func (s *Store) SetCompletionDest(ctx context.Context, userID, id int, dest string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET completion_dest=? WHERE id=? AND user_id=?`, dest, id, userID)
 	return err
 }
 
 // UpdateProgress records the latest bytes_downloaded — called periodically
 // by the worker. Errors are non-fatal; the next tick will retry. Scoped by
 // user_id (worker passes the row's own UserID).
-func (s *Store) UpdateProgress(userID, id int, bytes int64) error {
-	_, err := s.db.Exec(`UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`, bytes, id, userID)
+func (s *Store) UpdateProgress(ctx context.Context, userID, id int, bytes int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`, bytes, id, userID)
 	return err
 }
 
@@ -163,8 +164,8 @@ type ProgressUpdate struct {
 // disk; this only stops the automatic swarm rejoin. Idempotent. Works for ANY
 // status — the old status='completed' guard made a paused row silently skip
 // the mark (pause→stop didn't stick).
-func (s *Store) StopSeed(userID, id int) error {
-	_, err := s.db.Exec(`
+func (s *Store) StopSeed(ctx context.Context, userID, id int) error {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE downloads SET seed_stopped_at=CURRENT_TIMESTAMP
 		WHERE id=? AND user_id=?`,
 		id, userID)
@@ -173,8 +174,8 @@ func (s *Store) StopSeed(userID, id int) error {
 
 // ResumeSeed clears the explicit seed-stop mark, re-enabling auto-seeding for
 // this completed row. Used when the user explicitly resumes seeding.
-func (s *Store) ResumeSeed(userID, id int) error {
-	_, err := s.db.Exec(`
+func (s *Store) ResumeSeed(ctx context.Context, userID, id int) error {
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE downloads SET seed_stopped_at=NULL
 		WHERE id=? AND user_id=?`,
 		id, userID)
@@ -186,11 +187,11 @@ func (s *Store) ResumeSeed(userID, id int) error {
 // handle and must also prevent the next boot's auto-seed from bringing the
 // same hash back. Any status: the completed-only guard let a paused row
 // resurrect on the next boot.
-func (s *Store) StopSeedByInfoHash(userID int, infoHash string) error {
+func (s *Store) StopSeedByInfoHash(ctx context.Context, userID int, infoHash string) error {
 	if infoHash == "" {
 		return nil
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE downloads SET seed_stopped_at=CURRENT_TIMESTAMP
 		WHERE user_id=? AND info_hash=?`,
 		userID, infoHash)
@@ -203,22 +204,22 @@ func (s *Store) StopSeedByInfoHash(userID int, infoHash string) error {
 // 389-file pack costs one tx instead of 389 separate UPDATEs (the I/O the OOM fix
 // targets). With MaxOpenConns(1) the single tx also serializes cleanly. A nil/
 // empty batch is a no-op.
-func (s *Store) UpdateProgressBatch(items []ProgressUpdate) error {
+func (s *Store) UpdateProgressBatch(ctx context.Context, items []ProgressUpdate) error {
 	if len(items) == 0 {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(`UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`)
+	stmt, err := tx.PrepareContext(ctx, `UPDATE downloads SET bytes_downloaded=? WHERE id=? AND user_id=?`)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 	defer stmt.Close()
 	for _, it := range items {
-		if _, err := stmt.Exec(it.Bytes, it.ID, it.UserID); err != nil {
+		if _, err := stmt.ExecContext(ctx, it.Bytes, it.ID, it.UserID); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
