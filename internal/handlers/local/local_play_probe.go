@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lgldsilva/jackui/internal/clientcaps"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -92,6 +93,18 @@ func probeLocalFile(ctx context.Context, path string) (localProbe, error) {
 		p.AudioCodec = strings.ToLower(res.Audio[0].Codec)
 	}
 	return p, nil
+}
+
+// localVideoDecision decides direct-play vs HLS for a probed local video.
+// nil caps keeps the legacy classifyForBrowser verdict; a non-nil set
+// (issue #201 ?caps=) lets the client's advertised tokens extend the
+// browser whitelist via clientcaps.Decide.
+func localVideoDecision(p localProbe, caps map[string]bool) (bool, string) {
+	if caps == nil {
+		return classifyForBrowser(p)
+	}
+	method, reason := clientcaps.Decide(p.Container, p.VideoCodec, p.AudioCodec, caps)
+	return method == clientcaps.PlayDirect, reason
 }
 
 // parseDurationSec parses ffprobe's format.duration (seconds as a string),

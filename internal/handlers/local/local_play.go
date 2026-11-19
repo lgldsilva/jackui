@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/clientcaps"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/library"
 	lb "github.com/lgldsilva/jackui/internal/local"
@@ -90,8 +91,8 @@ func appendTokenToURL(token, base string) string {
 // localPlayVideoResp takes ctx + the already-parsed forceHLS hint (not the
 // *gin.Context) so the batch handler can call it from goroutines without touching
 // the shared context concurrently. LocalPlay passes c.Request.Context() +
-// c.Query("transcode")=="hls".
-func localPlayVideoResp(ctx context.Context, forceHLS bool, abs, mount, path, token string) LocalPlayResp {
+// c.Query("transcode")=="hls" + the parsed ?caps= set (nil when absent).
+func localPlayVideoResp(ctx context.Context, forceHLS bool, abs, mount, path, token string, caps map[string]bool) LocalPlayResp {
 	// iOS/Safari WebKit stalls on progressive MP4 served over HTTP (parks at
 	// readyState 2). The iOS client asks for transcode=hls for local video; H264/AAC becomes
 	// REMUX only (no re-encode, cheap). That way local video goes through the SAME reliable HLS
@@ -119,7 +120,7 @@ func localPlayVideoResp(ctx context.Context, forceHLS bool, abs, mount, path, to
 			Reason: "probe_failed",
 		}
 	}
-	direct, reason := classifyForBrowser(probe)
+	direct, reason := localVideoDecision(probe, caps)
 	if direct {
 		return LocalPlayResp{
 			Kind:      "direct",
@@ -250,11 +251,17 @@ func LocalPlay(b *lb.Browser, lib *library.Store, fetcher ...subtitleAutoFetcher
 		token := localPlayToken(c)
 
 		isAudio := isAudioByExt(path)
+		// ?caps=<tokens> (issue #201): native clients advertise the codecs/
+		// containers they can direct-play; absent keeps the browser whitelist.
+		var caps map[string]bool
+		if strings.TrimSpace(c.Query("caps")) != "" {
+			caps = clientcaps.Parse(c.Query("caps"))
+		}
 		var resp LocalPlayResp
 		if isAudio {
 			resp = localPlayAudioResp(c.Request.Context(), abs, mount, path, token)
 		} else {
-			resp = localPlayVideoResp(c.Request.Context(), c.Query("transcode") == "hls", abs, mount, path, token)
+			resp = localPlayVideoResp(c.Request.Context(), c.Query("transcode") == "hls", abs, mount, path, token, caps)
 		}
 		// Track in the library so local media shows in Continue Watching and gets
 		// resume — same as torrents (StreamAdd). Best-effort; never blocks playback.
@@ -368,7 +375,7 @@ func resolveBatchItem(ctx context.Context, b *lb.Browser, mount, p, username, to
 	if isAudioByExt(p) {
 		resp = localPlayAudioResp(ctx, abs, mount, p, token)
 	} else {
-		resp = localPlayVideoResp(ctx, forceHLS, abs, mount, p, token)
+		resp = localPlayVideoResp(ctx, forceHLS, abs, mount, p, token, nil)
 	}
 	return LocalPlayBatchItem{
 		Path: p, Kind: resp.Kind, URL: resp.URL,
