@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"log"
 	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -47,11 +48,7 @@ func dropTorrentFromStreamer(ctx context.Context, s *streamer.Streamer, d downlo
 	}
 	_ = s.ClearEntry(d.Name) // wipe pieces from the cache (DataDir/<name>)
 	if favs := s.Favorites(); favs != nil {
-		// Not request-scoped: this teardown runs after the file is gone, so the
-		// favourite must not outlive it because a client hung up.
-		wctx, cancel := httpshared.DetachedCtx(context.Background())
-		defer cancel()
-		_ = favs.Remove(wctx, d.Name, d.UserID, true)
+		_ = favs.Remove(ctx, d.Name, d.UserID, true)
 	}
 }
 
@@ -72,7 +69,11 @@ func relinkMovedTorrents(dls *downloads.Store, s *streamer.Streamer, oldAbs, new
 	// so a hung-up client cannot leave rows pointing at the old location.
 	ctx, cancel := postOpCtx()
 	defer cancel()
-	linked, _ := dls.FindByPathPrefix(ctx, oldAbs)
+	linked, lerr := dls.FindByPathPrefix(ctx, oldAbs)
+	if lerr != nil {
+		// Best-effort by contract (the move already happened), but never silent.
+		log.Printf("local: relink lookup under %q failed: %v", oldAbs, lerr)
+	}
 	relinked := 0
 	for _, d := range linked {
 		newPath := newAbs + strings.TrimPrefix(d.FilePath, oldAbs)

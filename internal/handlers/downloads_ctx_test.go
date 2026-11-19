@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/streamer"
@@ -94,5 +95,36 @@ func TestDownloadsReads_ClientGone_499(t *testing.T) {
 	w = serveGone(DownloadsCategories(store), "GET", "/c", "/c", ``)
 	if w.Code != 499 || w.Body.Len() != 0 {
 		t.Errorf("categories: %d %q; want bodiless 499", w.Code, w.Body.String())
+	}
+}
+
+// slowRemover makes the first removed item consume the per-item budget.
+type slowRemover struct{ d time.Duration }
+
+func (r slowRemover) Remove(int, string) { time.Sleep(r.d) }
+
+// A slow item must not starve the items after it: each batch item gets a fresh
+// budget (a shared deadline expiring mid-list left later deletes failing).
+func TestDownloadsBatchDelete_PerItemBudget(t *testing.T) {
+	old := itemCtxTimeout
+	itemCtxTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { itemCtxTimeout = old })
+	store := newGoneDownloadsStore(t)
+	live := context.Background()
+	var ids []string
+	for i, h := range []string{"aa", "bb", "cc"} {
+		d, err := store.Create(live, downloads.Download{UserID: 0, InfoHash: h, FileIndex: i, Magnet: "m"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, itoa(d.ID))
+	}
+	w := serveGone(DownloadsBatchDelete(store, slowRemover{400 * time.Millisecond}), "POST", "/b", "/b",
+		`{"ids":[`+ids[0]+`,`+ids[1]+`,`+ids[2]+`]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	if all, _ := store.ListAll(live); len(all) != 0 {
+		t.Fatalf("%d rows left: a slow item starved the later ones (%s)", len(all), w.Body.String())
 	}
 }

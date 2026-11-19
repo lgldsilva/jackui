@@ -278,13 +278,14 @@ func DedupLink(dls *downloads.Store, b *local.Browser, sz linkFileSizer) gin.Han
 		userID, _, _ := auth.UserIDFromCtx(c)
 		// Each link row is persisted detached from the request: a client that hangs
 		// up mid-list must not leave an arbitrary prefix of the confirmed links.
-		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
-		defer cancel()
 		lk := dedupLinker{dls: dls, b: b, sz: sz, hash: hash, username: userFromCtx(c), userID: userID, req: req}
 		linked := 0
 		errs := []string{}
 		for _, it := range req.Items {
-			if err := lk.link(wctx, it); err != nil {
+			ictx, icancel := itemCtx(c.Request.Context())
+			err := lk.link(ictx, it)
+			icancel()
+			if err != nil {
 				errs = append(errs, err.Error())
 				continue
 			}

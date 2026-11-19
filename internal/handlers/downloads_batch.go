@@ -72,8 +72,6 @@ func DownloadsBatchResume(store *downloads.Store) gin.HandlerFunc {
 // instead of silently leaving them to reappear on the next poll.
 func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
-		defer cancel()
 		var req struct {
 			IDs []int `json:"ids"`
 		}
@@ -85,7 +83,9 @@ func DownloadsBatchDelete(store *downloads.Store, worker DownloadRemover) gin.Ha
 		deleted := 0
 		failed := make([]int, 0)
 		for _, id := range req.IDs {
-			row, err := store.DeleteScoped(wctx, userID, id, isAdmin)
+			ictx, icancel := itemCtx(c.Request.Context())
+			row, err := store.DeleteScoped(ictx, userID, id, isAdmin)
+			icancel()
 			if err != nil {
 				failed = append(failed, id)
 				continue
@@ -119,13 +119,11 @@ func DownloadsBatchStopSeed(store *downloads.Store, s *streamer.Streamer, worker
 			httpshared.RespondErrorMessage(c, http.StatusRequestEntityTooLarge, "too many ids")
 			return
 		}
-		// One detached block: each id is Get → DropSeed (persisted, irreversible) →
-		// DeleteScoped, so a disconnect must not stop between the seed drop and the
-		// row delete.
-		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
-		defer cancel()
+		// Each id is its own detached block (fresh budget per item): Get → DropSeed
+		// (persisted, irreversible) → DeleteScoped, so neither a disconnect nor an
+		// earlier slow item may stop between the seed drop and the row delete.
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		affected, failed, hashes := stopSeedBatch(wctx, store, s, worker, userID, isAdmin, req.IDs)
+		affected, failed, hashes := stopSeedBatch(c.Request.Context(), store, s, worker, userID, isAdmin, req.IDs)
 		c.JSON(http.StatusOK, gin.H{
 			"affected": affected,
 			"total":    len(req.IDs),
@@ -142,7 +140,10 @@ func stopSeedBatch(ctx context.Context, store *downloads.Store, s *streamer.Stre
 	seen := make(map[string]struct{})
 	failed = make([]int, 0)
 	for _, id := range ids {
-		if !stopSeedOne(ctx, store, s, worker, userID, isAdmin, id, seen) {
+		ictx, icancel := itemCtx(ctx)
+		ok := stopSeedOne(ictx, store, s, worker, userID, isAdmin, id, seen)
+		icancel()
+		if !ok {
 			failed = append(failed, id)
 			continue
 		}
@@ -371,4 +372,15 @@ func DownloadsDetails(store *downloads.Store, s *streamer.Streamer) gin.HandlerF
 			"torrent":  info,
 		})
 	}
+}
+
+// itemCtxTimeout bounds ONE item of a batch. A variable only so a test can
+// shrink it.
+var itemCtxTimeout = httpshared.DetachedWriteTimeout
+
+// itemCtx is a fresh detached budget for one item of a batch loop, so a slow item
+// cannot starve the ones after it (a shared deadline expiring mid-list could cut
+// stop-seed between its irreversible seed drop and the row delete).
+func itemCtx(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), itemCtxTimeout)
 }

@@ -471,7 +471,14 @@ func failResp(msg string) rpcResponse {
 // (pause + persist, remove + delete): a client that hangs up mid-request must
 // not leave that sequence half applied, so these calls deliberately do not take
 // the request ctx. Every call is a single short statement.
-func rpcCtx() context.Context { return context.Background() }
+func rpcCtx() context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), rpcCallTimeout)
+	_ = cancel // released by the timeout; there is no request to hand it back to
+	return ctx
+}
+
+// rpcCallTimeout bounds one RPC store call (they are single short statements).
+const rpcCallTimeout = 30 * time.Second
 
 // forEachDownload applies fn to every download matching ids within the
 // caller's scope (non-admins only ever see their own rows). When ids is nil

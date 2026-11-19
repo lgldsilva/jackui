@@ -234,7 +234,9 @@ func migrateUserSubpathMounts(deps *appDeps) {
 // its owner's username via the downloads store (file_path → user_id → username).
 func buildOwnerAttributor(deps *appDeps) func(abs string) (string, bool) {
 	return func(abs string) (string, bool) {
-		dls, err := deps.downloadsStore.FindByPathPrefix(context.Background(), abs)
+		ctx, cancel := context.WithTimeout(context.Background(), resolverDBTimeout)
+		defer cancel()
+		dls, err := deps.downloadsStore.FindByPathPrefix(ctx, abs)
 		if err != nil || len(dls) == 0 {
 			return "", false
 		}

@@ -70,7 +70,7 @@ func buildEnricher(parent context.Context, favs *streamer.FavoritesStore, dls *d
 		}
 	}
 	if dls != nil {
-		if m, err := dls.HashSetForUser(ctx, userID, includeAll); err == nil {
+		if m, err := dls.HashSetForUser(parent, userID, includeAll); err == nil {
 			e.dlHashes = m
 		}
 	}
