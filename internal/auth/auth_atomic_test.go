@@ -74,3 +74,55 @@ func TestCreateUserWithInvite_InvalidInvite(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInviteInvalid", err)
 	}
 }
+
+// With the request already cancelled, every transactional entry point must
+// refuse before touching state (BeginTx fails).
+func TestAtomicMethods_CancelledContext(t *testing.T) {
+	s := newTestStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := s.VerifyEmailWithToken(ctx, "x"); err == nil {
+		t.Error("VerifyEmailWithToken: want error")
+	}
+	if _, err := s.CreateUserWithInvite(ctx, "x", "u", "e@x.io", "pw-123456", RoleUser); err == nil {
+		t.Error("CreateUserWithInvite: want error")
+	}
+	if _, err := s.EnableTOTPWithBackupCodes(ctx, 1, 5); err == nil {
+		t.Error("EnableTOTPWithBackupCodes: want error")
+	}
+	if _, err := s.GenerateBackupCodes(ctx, 1, 5); err == nil {
+		t.Error("GenerateBackupCodes: want error")
+	}
+}
+
+func TestCreateUserWithInvite_HashFailureAndSuccess(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	long := string(make([]byte, 100))
+	if _, err := s.CreateUserWithInvite(ctx, "x", "u", "e@x.io", long, RoleUser); err == nil {
+		t.Error("over-long password must be rejected")
+	}
+	inv, _ := s.CreateToken(ctx, TokenInvite, 0, "", 3600e9)
+	id, err := s.CreateUserWithInvite(ctx, inv, "invok", "ok@x.io", "pw-123456", RoleUser)
+	if err != nil || id == 0 {
+		t.Fatalf("id=%d err=%v", id, err)
+	}
+	// Same username again with a fresh invite: insert fails, invite survives.
+	inv2, _ := s.CreateToken(ctx, TokenInvite, 0, "", 3600e9)
+	if _, err := s.CreateUserWithInvite(ctx, inv2, "invok", "o2@x.io", "pw-123456", RoleUser); err == nil {
+		t.Fatal("duplicate username must fail")
+	}
+	if _, err := s.ConsumeToken(ctx, inv2, TokenInvite); err != nil {
+		t.Errorf("invite must survive a failed insert: %v", err)
+	}
+}
+
+func TestGenerateBackupCodes_CodeFailure(t *testing.T) {
+	s := newTestStore(t)
+	orig := randomCode
+	randomCode = func(int, string) (string, error) { return "", errors.New("injected") }
+	t.Cleanup(func() { randomCode = orig })
+	if _, err := s.GenerateBackupCodes(context.Background(), 1, 3); err == nil {
+		t.Fatal("want injected failure")
+	}
+}

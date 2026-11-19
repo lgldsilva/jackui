@@ -98,3 +98,8 @@ func TestPersistCredential_ClientGone_AdvancesCounter(t *testing.T) {
 		t.Fatalf("credentials = %+v, want sign count 7", got)
 	}
 }
+
+// A failing store must only be logged, never crash the login.
+func TestPersistCredential_StoreErrorIsLogged(t *testing.T) {
+	persistCredential(context.Background(), closedAuthStore(t), &webauthn.Credential{ID: []byte("x")})
+}
