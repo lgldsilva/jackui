@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log"
@@ -89,7 +90,11 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 		httpshared.RespondErrorMessage(c, http.StatusBadRequest, "username, email and password (≥6) are required")
 		return
 	}
-	taken, err := store.Exists(c.Request.Context(), req.Username, req.Email)
+	// Account creation (and, with an invite, its redemption) plus the verify
+	// token must not depend on the client staying connected.
+	ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	defer cancel()
+	taken, err := store.Exists(ctx, req.Username, req.Email)
 	if err != nil {
 		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
@@ -99,19 +104,24 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 		return
 	}
 
-	status, invited, ierr := resolveInviteStatus(c.Request.Context(), store, req.Invite)
-	if ierr != nil {
-		httpshared.RespondError(c, http.StatusBadRequest, ierr)
+	status, invited := auth.StatusPending, req.Invite != ""
+	var uid int
+	if invited {
+		status = auth.StatusActive
+		uid, err = store.CreateUserWithInvite(ctx, req.Invite, req.Username, req.Email, req.Password, auth.RoleUser)
+	} else {
+		uid, err = store.CreateUserFull(ctx, req.Username, req.Email, req.Password, auth.RoleUser, status)
+	}
+	if errors.Is(err, auth.ErrInviteInvalid) {
+		httpshared.RespondError(c, http.StatusBadRequest, err)
 		return
 	}
-
-	uid, err := store.CreateUserFull(c.Request.Context(), req.Username, req.Email, req.Password, auth.RoleUser, status)
 	if err != nil {
 		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 
-	sendVerifyEmail(store, mlr, c, cfgBaseURL, uid, req.Email)
+	sendVerifyEmail(ctx, store, mlr, c, cfgBaseURL, uid, req.Email)
 
 	msg := "Account created. Confirm your email and wait for an admin's approval."
 	if invited {
@@ -120,22 +130,12 @@ func registerHandler(c *gin.Context, store *auth.Store, mlr *mailer.Mailer, cfgB
 	c.JSON(http.StatusOK, gin.H{"status": string(status), "invited": invited, "message": msg})
 }
 
-func resolveInviteStatus(ctx context.Context, store *auth.Store, inviteToken string) (auth.Status, bool, error) {
-	if inviteToken == "" {
-		return auth.StatusPending, false, nil
-	}
-	if _, terr := store.ConsumeToken(ctx, inviteToken, auth.TokenInvite); terr != nil {
-		return auth.StatusPending, false, fmt.Errorf("invalid or expired invite")
-	}
-	return auth.StatusActive, true, nil
-}
-
-func sendVerifyEmail(store *auth.Store, mlr *mailer.Mailer, c *gin.Context, cfgBaseURL string, id int, email string) {
+func sendVerifyEmail(ctx context.Context, store *auth.Store, mlr *mailer.Mailer, c *gin.Context, cfgBaseURL string, id int, email string) {
 	base := baseURL(c, cfgBaseURL)
 	if base == "" {
 		return
 	}
-	if tok, terr := store.CreateToken(c.Request.Context(), auth.TokenVerifyEmail, id, email, verifyTTL); terr == nil {
+	if tok, terr := store.CreateToken(ctx, auth.TokenVerifyEmail, id, email, verifyTTL); terr == nil {
 		link := base + "/verify-email?token=" + tok
 		notify(mlr, email, "JackUI — confirm your email", "Confirm your email to finish signing up:", link)
 	}
@@ -179,13 +179,12 @@ func VerifyEmail(store *auth.Store) gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "token required")
 			return
 		}
-		ti, err := store.ConsumeToken(c.Request.Context(), req.Token, auth.TokenVerifyEmail)
-		if err != nil {
+		// Spending the token and flipping the flag are one transactional action,
+		// detached so a dropped client cannot interrupt it.
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := store.VerifyEmailWithToken(ctx, req.Token); err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
-			return
-		}
-		if err := store.SetEmailVerified(c.Request.Context(), ti.UserID, ""); err != nil {
-			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "email confirmed"})

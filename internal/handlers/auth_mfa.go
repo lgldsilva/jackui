@@ -141,8 +141,5 @@ func MFADisable(store *auth.Store) gin.HandlerFunc {
 func enableMFAWithBackupCodes(parent context.Context, store *auth.Store, userID int) ([]string, error) {
 	ctx, cancel := httpshared.DetachedCtx(parent)
 	defer cancel()
-	if err := store.EnableTOTP(ctx, userID); err != nil {
-		return nil, err
-	}
-	return store.GenerateBackupCodes(ctx, userID, backupCodeCount)
+	return store.EnableTOTPWithBackupCodes(ctx, userID, backupCodeCount)
 }
