@@ -728,11 +728,15 @@ func torrentControlGuard(deps *appDeps) gin.HandlerFunc {
 
 // corsMiddleware is the router-wide CORS policy (any origin, no credentials).
 // Handlers must not set Access-Control-* themselves.
+// PATCH and the X-JackUI-* family exist for native clients (issue #201); the
+// two concrete headers are the ones already sent today (incognito tagging in
+// web/src/api/http.ts, reveal-hidden gate) — browsers don't suffix-expand
+// Access-Control-Allow-Headers, so the pattern alone wouldn't cover them.
 func corsMiddleware() gin.HandlerFunc {
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowAllOrigins = true
-	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range", middleware.HeaderRequestID}
+	corsConfig.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	corsConfig.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization", "Range", middleware.HeaderRequestID, "X-JackUI-*", "X-JackUI-Incognito", "X-JackUI-Reveal-Hidden"}
 	corsConfig.ExposeHeaders = []string{"Content-Length", "Content-Range", "Accept-Ranges", middleware.HeaderRequestID}
 	return cors.New(corsConfig)
 }
