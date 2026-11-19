@@ -481,27 +481,8 @@ func (f *FavoritesStore) MoveFolder(ctx context.Context, userID, id int, newPare
 		return nil
 	}
 	if newParent != nil {
-		// Walk up the chain from newParent and ensure we never see `id`.
-		// Tree depth in practice is small (~5); linear walk is fine.
-		cur := *newParent
-		for hops := 0; hops < 64; hops++ {
-			if cur == id {
-				return fmt.Errorf("cannot move folder into one of its descendants")
-			}
-			var p sql.NullInt64
-			row := f.db.QueryRowContext(ctx, `SELECT parent_id FROM favorite_folders WHERE id = ? AND user_id = ?`, cur, userID)
-			if err := row.Scan(&p); err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					break
-				}
-				// A failed/cancelled read must not be taken for "chain ended":
-				// that would skip the cycle check and still write the move.
-				return err
-			}
-			if !p.Valid {
-				break
-			}
-			cur = int(p.Int64)
+		if err := f.rejectFolderCycle(ctx, userID, id, *newParent); err != nil {
+			return err
 		}
 	}
 	var parent interface{}
@@ -510,6 +491,32 @@ func (f *FavoritesStore) MoveFolder(ctx context.Context, userID, id int, newPare
 	}
 	_, err := f.db.ExecContext(ctx, `UPDATE favorite_folders SET parent_id = ? WHERE id = ? AND user_id = ?`, parent, id, userID)
 	return err
+}
+
+// rejectFolderCycle walks up the chain from newParent and fails if it ever meets
+// `id`. Tree depth in practice is small (~5); a linear walk is fine. Only
+// ErrNoRows ends the walk early: a failed/cancelled read must not be taken for
+// "chain ended", which would skip the check and still write the move.
+func (f *FavoritesStore) rejectFolderCycle(ctx context.Context, userID, id, newParent int) error {
+	cur := newParent
+	for hops := 0; hops < 64; hops++ {
+		if cur == id {
+			return fmt.Errorf("cannot move folder into one of its descendants")
+		}
+		var p sql.NullInt64
+		row := f.db.QueryRowContext(ctx, `SELECT parent_id FROM favorite_folders WHERE id = ? AND user_id = ?`, cur, userID)
+		if err := row.Scan(&p); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		if !p.Valid {
+			return nil
+		}
+		cur = int(p.Int64)
+	}
+	return nil
 }
 
 // DeleteFolder removes a folder. ON DELETE CASCADE removes subfolders too;

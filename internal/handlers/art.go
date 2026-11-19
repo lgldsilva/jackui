@@ -46,10 +46,7 @@ func StreamArt(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		art := cache.GetArt(c.Request.Context(), h.HexString())
 		if art == nil {
-			if httpshared.AbortIfClientGone(c, c.Request.Context().Err()) {
-				return
-			}
-			c.Status(http.StatusNoContent)
+			respondNoArt(c)
 			return
 		}
 		if art.Source == "tmdb" && art.PosterURL != "" {
@@ -215,6 +212,15 @@ func resolveArtBatchOne(rctx context.Context, env *artResolver, h metainfo.Hash,
 		return cap.Body
 	}
 	return gin.H{"resolved": false}
+}
+
+// respondNoArt answers "no art": 204, or a bodiless 499 when the read that found
+// nothing was really a cancelled one (the client is gone).
+func respondNoArt(c *gin.Context) {
+	if httpshared.AbortIfClientGone(c, c.Request.Context().Err()) {
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // artCaptureResponder records the last JSON/Status written by the resolve chain.
