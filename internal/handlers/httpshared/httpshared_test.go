@@ -146,16 +146,16 @@ func TestEnsureVODSegment_NonVODNoop(t *testing.T) {
 func TestRespondError(t *testing.T) {
 	c, w := testCtx("")
 	RespondError(c, 422, errors.New("bad input"))
-	if w.Code != 422 || w.Body.String() != `{"error":"bad input"}` {
-		t.Fatalf("status/body = %d/%s, want 422/{\"error\":\"bad input\"}", w.Code, w.Body.String())
+	if w.Code != 422 || w.Body.String() != `{"code":"unprocessable_entity","error":"bad input"}` {
+		t.Fatalf("status/body = %d/%s", w.Code, w.Body.String())
 	}
 }
 
 func TestRespondErrorMessage(t *testing.T) {
 	c, w := testCtx("")
 	RespondErrorMessage(c, 400, "invalid request")
-	if w.Code != 400 || w.Body.String() != `{"error":"invalid request"}` {
-		t.Fatalf("status/body = %d/%s, want 400/{\"error\":\"invalid request\"}", w.Code, w.Body.String())
+	if w.Code != 400 || w.Body.String() != `{"code":"bad_request","error":"invalid request"}` {
+		t.Fatalf("status/body = %d/%s", w.Code, w.Body.String())
 	}
 }
 
@@ -165,7 +165,7 @@ func TestRespondErrorFields(t *testing.T) {
 	if w.Code != 409 {
 		t.Fatalf("status = %d, want 409", w.Code)
 	}
-	want := `{"error":"busy","retryAfter":30}`
+	want := `{"code":"conflict","error":"busy","retryAfter":30}`
 	if w.Body.String() != want {
 		t.Fatalf("body = %s, want %s", w.Body.String(), want)
 	}
@@ -177,7 +177,7 @@ func TestRespondErrorMessageFields(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
-	want := `{"error":"invalid","field":"email"}`
+	want := `{"code":"bad_request","error":"invalid","field":"email"}`
 	if w.Body.String() != want {
 		t.Fatalf("body = %s, want %s", w.Body.String(), want)
 	}

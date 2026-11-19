@@ -2,10 +2,66 @@ package httpshared
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+// CodeField is the stable machine-readable error-code member of the JSON
+// error envelope (issue #201): {"error": "...", "code": "..."}. Native
+// clients branch on `code` — never on the prose or on stringified statuses.
+const CodeField = "code"
+
+// ErrorCodeForStatus maps an HTTP status onto the stable slug carried in
+// every error response. Handlers may override it per-response by passing
+// CodeField inside the optional fields (e.g. "invalid_device_key"); the
+// status-derived default keeps the contract total without touching every
+// call site.
+func ErrorCodeForStatus(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "bad_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusMethodNotAllowed:
+		return "method_not_allowed"
+	case http.StatusConflict:
+		return "conflict"
+	case http.StatusGone:
+		return "gone"
+	case http.StatusUnprocessableEntity:
+		return "unprocessable_entity"
+	case http.StatusTooManyRequests:
+		return "rate_limited"
+	case StatusClientClosedRequest:
+		return "client_closed_request"
+	case http.StatusBadGateway:
+		return "bad_gateway"
+	case http.StatusServiceUnavailable:
+		return "service_unavailable"
+	case http.StatusGatewayTimeout:
+		return "gateway_timeout"
+	}
+	if status >= 500 {
+		return "internal_error"
+	}
+	return "error"
+}
+
+// errorFieldOverride reads an explicit CodeField override out of the optional
+// fields, returning "" when absent.
+func errorCodeOverride(fields gin.H) string {
+	if fields == nil {
+		return ""
+	}
+	code, _ := fields[CodeField].(string)
+	return code
+}
 
 // RespondError writes the standard JSON error response used by HTTP handlers.
 func RespondError(c *gin.Context, status int, err error) {
@@ -25,8 +81,14 @@ func RespondErrorFields(c *gin.Context, status int, err error, fields gin.H) {
 }
 
 // RespondErrorMessageFields is RespondErrorMessage with optional fields.
+// Every response carries CodeField: an explicit fields override or the
+// status-derived default (see ErrorCodeForStatus).
 func RespondErrorMessageFields(c *gin.Context, status int, message string, fields gin.H) {
-	body := gin.H{ErrorField: message}
+	code := errorCodeOverride(fields)
+	if code == "" {
+		code = ErrorCodeForStatus(status)
+	}
+	body := gin.H{ErrorField: message, CodeField: code}
 	for key, value := range fields {
 		body[key] = value
 	}
