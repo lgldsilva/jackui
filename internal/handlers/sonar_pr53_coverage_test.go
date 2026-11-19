@@ -116,7 +116,7 @@ func TestDownloadsRecheckInvalidInfoHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("downloads.New: %v", err)
 	}
-	d, err := store.Create(downloads.Download{UserID: 0, InfoHash: "not-a-hex-hash", FileIndex: 0, Name: "x", Magnet: "magnet:?xt=urn:btih:nothex"})
+	d, err := store.Create(context.Background(), downloads.Download{UserID: 0, InfoHash: "not-a-hex-hash", FileIndex: 0, Name: "x", Magnet: "magnet:?xt=urn:btih:nothex"})
 	if err != nil {
 		t.Fatalf("store.Create: %v", err)
 	}

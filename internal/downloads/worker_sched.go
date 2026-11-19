@@ -13,7 +13,7 @@ import (
 // batch store helpers so a multi-file pack flips in one transaction per group;
 // the in-memory teardown of a preempted group is per member (preemptActive).
 func (w *Worker) applySchedule(qs QueueSettings) {
-	schedulable, err := w.store.ListSchedulable()
+	schedulable, err := w.store.ListSchedulable(w.tickCtx())
 	if err != nil {
 		log.Printf("downloads: list schedulable failed: %v", err)
 		return
@@ -40,7 +40,7 @@ func (w *Worker) applyGroupSchedule(g Group, plan map[int]bool) {
 		}
 	}
 	if ids := downloadIDs(promote); len(ids) > 0 {
-		if got, _ := w.store.PromoteGroup(ids); len(got) > 0 {
+		if got, _ := w.store.PromoteGroup(w.writeCtx(), ids); len(got) > 0 {
 			log.Printf("downloads: promoted torrent %q (%d row(s)) → downloading", g.Members[0].Name, len(got))
 		}
 	}
@@ -54,7 +54,7 @@ func (w *Worker) applyGroupSchedule(g Group, plan map[int]bool) {
 // in-memory tracking. No stall is counted. Delegates the per-member teardown to
 // preemptActive's logic via preemptTeardown so the proven path stays shared.
 func (w *Worker) preemptGroup(members []Download) {
-	demoted, err := w.store.PreemptGroup(downloadIDs(members))
+	demoted, err := w.store.PreemptGroup(w.writeCtx(), downloadIDs(members))
 	if err != nil || len(demoted) == 0 {
 		return
 	}
@@ -84,7 +84,7 @@ func downloadIDs(ds []Download) []int {
 // callers/tests; the tick's group path uses preemptGroup (batch DB) + the shared
 // preemptTeardown.
 func (w *Worker) preemptActive(d Download) {
-	if ok, _ := w.store.PreemptToQueued(d.ID); !ok {
+	if ok, _ := w.store.PreemptToQueued(w.writeCtx(), d.ID); !ok {
 		return
 	}
 	w.preemptTeardown(d)

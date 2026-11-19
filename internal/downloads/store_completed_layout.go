@@ -1,5 +1,7 @@
 package downloads
 
+import "context"
+
 // Static queries (no concatenation), one per ownership scope — same convention
 // as the single-file lookups in store.go. ORDER BY id makes the pick among
 // several owners' rows deterministic.
@@ -33,11 +35,11 @@ type completedRows struct {
 //
 // userID follows GetCompletedPath: >= 0 scopes to that owner, < 0 is only for
 // trusted internal callers.
-func (s *Store) GetCompletedPathsRel(infoHash string, relPaths []string, userID int) (map[int]string, error) {
+func (s *Store) GetCompletedPathsRel(ctx context.Context, infoHash string, relPaths []string, userID int) (map[int]string, error) {
 	if s == nil || len(relPaths) == 0 {
 		return map[int]string{}, nil
 	}
-	rows, err := s.completedRows(infoHash, userID)
+	rows, err := s.completedRows(ctx, infoHash, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,13 +52,13 @@ func (s *Store) GetCompletedPathsRel(infoHash string, relPaths []string, userID 
 	return out, nil
 }
 
-func (s *Store) completedRows(infoHash string, userID int) (completedRows, error) {
+func (s *Store) completedRows(ctx context.Context, infoHash string, userID int) (completedRows, error) {
 	res := completedRows{perFile: map[int]string{}}
 	query, args := sqlCompletedRowsAny, []any{infoHash}
 	if userID >= 0 {
 		query, args = sqlCompletedRowsForUser, []any{infoHash, userID}
 	}
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return res, err
 	}

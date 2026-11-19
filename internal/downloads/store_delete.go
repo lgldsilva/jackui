@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 )
@@ -16,8 +17,8 @@ import (
 // the user saw "clicked Remove, nothing happened". The DELETE is now
 // authoritative: once it returns, the row does not exist, whether we removed it
 // now or it was already gone.
-func (s *Store) Delete(userID, id int) error {
-	_, err := s.deleteScoped(id, userID, false)
+func (s *Store) Delete(ctx context.Context, userID, id int) error {
+	_, err := s.deleteScoped(ctx, id, userID, false)
 	return err
 }
 
@@ -29,12 +30,12 @@ func (s *Store) Delete(userID, id int) error {
 // any row. Without this, store.Delete(adminID, otherUsersRowID) matched 0 rows
 // and the row survived — the confirmed root cause of the intermittent
 // "sometimes Remove doesn't remove" (it depended on whose row you clicked).
-func (s *Store) DeleteScoped(userID, id int, isAdmin bool) (*Download, error) {
-	return s.deleteScoped(id, userID, isAdmin)
+func (s *Store) DeleteScoped(ctx context.Context, userID, id int, isAdmin bool) (*Download, error) {
+	return s.deleteScoped(ctx, id, userID, isAdmin)
 }
 
-func (s *Store) deleteScoped(id, userID int, isAdmin bool) (*Download, error) {
-	row, err := s.lookupForDelete(id, userID, isAdmin)
+func (s *Store) deleteScoped(ctx context.Context, id, userID int, isAdmin bool) (*Download, error) {
+	row, err := s.lookupForDelete(ctx, id, userID, isAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func (s *Store) deleteScoped(id, userID int, isAdmin bool) (*Download, error) {
 		q += ` AND user_id=?`
 		args = append(args, userID)
 	}
-	if _, err := s.db.Exec(q, args...); err != nil {
+	if _, err := s.db.ExecContext(ctx, q, args...); err != nil {
 		return nil, err
 	}
 	return row, nil
@@ -56,14 +57,14 @@ func (s *Store) deleteScoped(id, userID int, isAdmin bool) (*Download, error) {
 // lookupForDelete fetches the row a delete is about to remove, honoring the
 // same ownership scope as the delete itself. Returns (nil, nil) when no row
 // matches — keeping delete idempotent.
-func (s *Store) lookupForDelete(id, userID int, isAdmin bool) (*Download, error) {
+func (s *Store) lookupForDelete(ctx context.Context, id, userID int, isAdmin bool) (*Download, error) {
 	q := dlSelect + "WHERE id=?"
 	args := []any{id}
 	if !isAdmin {
 		q += " AND user_id=?"
 		args = append(args, userID)
 	}
-	d, err := scanRow(s.db.QueryRow(q, args...))
+	d, err := scanRow(s.db.QueryRowContext(ctx, q, args...))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

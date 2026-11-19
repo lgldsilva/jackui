@@ -987,14 +987,14 @@ func Test_hgB_LocalSubtitleExtract_BadTrack(t *testing.T) {
 
 func Test_hgC_DropTorrentFromStreamer_NilStreamer(t *testing.T) {
 	// Must be a no-op (no panic) when the streamer is nil.
-	dropTorrentFromStreamer(nil, downloads.Download{InfoHash: "abc", Name: "x"})
+	dropTorrentFromStreamer(context.Background(), nil, downloads.Download{InfoHash: "abc", Name: "x"})
 }
 
 func Test_hgC_DropTorrentFromStreamer_InvalidHashNoName(t *testing.T) {
 	s := streamer.NewForTesting()
 	// Invalid (non-hex / wrong length) hash skips Drop; empty name returns early
 	// before touching favorites.
-	dropTorrentFromStreamer(s, downloads.Download{InfoHash: "not-a-real-hash", Name: ""})
+	dropTorrentFromStreamer(context.Background(), s, downloads.Download{InfoHash: "not-a-real-hash", Name: ""})
 }
 
 func Test_hgC_DropTorrentFromStreamer_WithNameAndFavorites(t *testing.T) {
@@ -1014,7 +1014,7 @@ func Test_hgC_DropTorrentFromStreamer_WithNameAndFavorites(t *testing.T) {
 		InfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Name:     "My Torrent",
 	}
-	dropTorrentFromStreamer(s, d)
+	dropTorrentFromStreamer(context.Background(), s, d)
 
 	if favs.IsFavorite(context.Background(), "My Torrent") {
 		t.Error("expected favorite to be removed after drop")

@@ -59,7 +59,7 @@ func reconcilePromote(pending *transfer.Store, tr *transfer.Tracker, store *down
 		// to be removed) or it was lost. If the destination exists, treat as done
 		// and re-point the download row; either way clear the pending entry.
 		if _, dstErr := os.Stat(pt.Dst); dstErr == nil && pl.DownloadID > 0 {
-			_ = store.SetFilePath(pl.UserID, pl.DownloadID, pt.Dst)
+			_ = store.SetFilePath(pendingCtx(), pl.UserID, pl.DownloadID, pt.Dst)
 		}
 		_ = pending.Remove(pendingCtx(), pt.ID)
 		return
@@ -67,7 +67,7 @@ func reconcilePromote(pending *transfer.Store, tr *transfer.Tracker, store *down
 
 	// Rebuild the download (for InfoHash → re-seed) when still present; fall back
 	// to a bare row so the copy + SetFilePath still run without re-seeding.
-	d, _ := store.Get(pl.UserID, pl.DownloadID)
+	d, _ := store.Get(pendingCtx(), pl.UserID, pl.DownloadID)
 	if d == nil {
 		d = &downloads.Download{ID: pl.DownloadID}
 	}

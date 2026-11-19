@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +32,7 @@ func TestLocalDeleteRemovesLinkedTorrent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := dls.Create(downloads.Download{
+	if _, err := dls.Create(context.Background(), downloads.Download{
 		UserID:    1,
 		InfoHash:  "aabbccddeeff00112233445566778899aabbccdd",
 		FileIndex: 0,
@@ -62,7 +63,7 @@ func TestLocalDeleteRemovesLinkedTorrent(t *testing.T) {
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Error("file was not deleted from disk")
 	}
-	rows, _ := dls.List(1)
+	rows, _ := dls.List(context.Background(), 1)
 	if len(rows) != 0 {
 		t.Errorf("download row still present (%d), linked torrent not removed", len(rows))
 	}

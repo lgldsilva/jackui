@@ -84,7 +84,7 @@ func TestStats_AggregatesSeededStores(t *testing.T) {
 	if err := lib.UpdateResume(context.Background(), e.ID, 1, 95, 100, -1, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dl.Create(downloads.Download{UserID: 1, InfoHash: hgEHash, Magnet: "m"}); err != nil {
+	if _, err := dl.Create(context.Background(), downloads.Download{UserID: 1, InfoHash: hgEHash, Magnet: "m"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := hist.Save(context.Background(), "matrix", []jackett.Result{{Title: "X", InfoHash: hgEHash}}, 1, false); err != nil {

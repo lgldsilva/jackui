@@ -26,7 +26,7 @@ func (w *Worker) sampleProgress(d Download, td *trackedDL) {
 		log.Printf("downloads: ignoring transient regression #%d %q completed %d → %d (keeping DB) — peers=%d",
 			d.ID, td.name, d.BytesDownloaded, completed, peerCount(td.torrent))
 	} else if completed != d.BytesDownloaded {
-		if err := w.store.UpdateProgress(d.UserID, d.ID, completed); err != nil {
+		if err := w.store.UpdateProgress(w.writeCtx(), d.UserID, d.ID, completed); err != nil {
 			log.Printf("downloads: failed to update progress for download %d: %v", d.ID, err)
 		}
 	}
@@ -69,7 +69,7 @@ func (w *Worker) checkCompletion(d Download, td *trackedDL) {
 	// the next ListActive excludes the row — no double-dispatch), then drop the
 	// tracked entry WITHOUT unregisterLocked (keep eviction protection alive for
 	// the copy; the move goroutine calls UnregisterDownload when it lands).
-	if err := w.store.SetStatus(d.UserID, d.ID, StatusMoving); err != nil {
+	if err := w.store.SetStatus(w.writeCtx(), d.UserID, d.ID, StatusMoving); err != nil {
 		log.Printf("downloads: failed to set status moving #%d: %v", d.ID, err)
 		return // stays downloading; the next tick retries the hand-off
 	}
@@ -117,7 +117,7 @@ func (w *Worker) applyInitFailure(ctx context.Context, d Download, msg string) i
 		delete(w.retries, d.ID)
 		w.mu.Unlock()
 		log.Printf("downloads: init #%d (%s) failed after %d tries: %s", d.ID, d.InfoHash, n, msg)
-		if err := w.store.SetError(d.UserID, d.ID, msg); err != nil {
+		if err := w.store.SetError(w.writeCtx(), d.UserID, d.ID, msg); err != nil {
 			log.Printf("downloads: failed to set error for download %d: %v", d.ID, err)
 		}
 		name := d.Name

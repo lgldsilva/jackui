@@ -41,7 +41,7 @@ func (w *Worker) tryLinkExisting(d *Download, hash metainfo.Hash, fileIdx int, f
 // the link is a logical pointer (no bytes touched, fully reversible), so a wrong
 // guess just plays the wrong file, recoverable by removing the download.
 func (w *Worker) linkMatch(d *Download, size int64, pc contentid.PieceCheck) bool {
-	candidates, err := w.store.CompletedBySize(d.UserID, size)
+	candidates, err := w.store.CompletedBySize(w.readCtx(), d.UserID, size)
 	if err != nil || len(candidates) == 0 {
 		return false
 	}
@@ -52,7 +52,7 @@ func (w *Worker) linkMatch(d *Download, size int64, pc contentid.PieceCheck) boo
 		if !certainFileMatch(cand.FilePath, pc) {
 			continue
 		}
-		if _, err := w.store.CreateLinked(*d, cand.FilePath, size); err != nil {
+		if _, err := w.store.CreateLinked(w.writeCtx(), *d, cand.FilePath, size); err != nil {
 			log.Printf("downloads: dedup link failed for #%d: %v", d.ID, err)
 			return false
 		}

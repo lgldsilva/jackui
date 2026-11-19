@@ -41,7 +41,7 @@ func (w *Worker) groupCompletionEligible(g Group, state groupState) bool {
 	if hash == "" {
 		return true // hashless pre-metadata row: no siblings to wait on
 	}
-	siblings, err := w.store.WantedRowsByHash(g.Members[0].UserID, hash)
+	siblings, err := w.store.WantedRowsByHash(w.readCtx(), g.Members[0].UserID, hash)
 	if err != nil {
 		log.Printf("downloads: completion sibling check for %s failed: %v", g.Key, err)
 		return false // be conservative — don't finalize on a read error
@@ -99,7 +99,7 @@ func (w *Worker) completeGroup(g Group, state groupState) {
 		w.checkCompletion(g.Members[0], state.tracked[g.Members[0].ID])
 		return
 	}
-	moved, err := w.store.MoveGroup(g.memberIDs())
+	moved, err := w.store.MoveGroup(w.writeCtx(), g.memberIDs())
 	if err != nil {
 		log.Printf("downloads: set group %s moving: %v", g.Key, err)
 		return // stays downloading; next tick retries the hand-off
@@ -168,7 +168,7 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 	}
 	if err != nil {
 		for _, mv := range movers {
-			if e := w.store.SetError(mv.row.UserID, mv.row.ID, "move failed: "+err.Error()); e != nil {
+			if e := w.store.SetError(w.writeCtx(), mv.row.UserID, mv.row.ID, "move failed: "+err.Error()); e != nil {
 				log.Printf("downloads: mark group move-failed #%d: %v", mv.row.ID, e)
 			}
 		}
@@ -184,7 +184,7 @@ func (w *Worker) runGroupCompletionMove(g Group, name string, movers []groupMove
 	for _, mv := range movers {
 		ids = append(ids, mv.row.ID)
 	}
-	if _, err := w.store.CompleteGroup(ids); err != nil {
+	if _, err := w.store.CompleteGroup(w.writeCtx(), ids); err != nil {
 		log.Printf("downloads: set group %s completed: %v", g.Key, err)
 	}
 	w.releaseProtection(name, parseHash(g.Members[0].InfoHash), -1)
@@ -225,7 +225,7 @@ func (w *Worker) moveGroupFiles(g Group, name string, movers []groupMover, job *
 		if err != nil {
 			return err
 		}
-		if e := w.store.SetFilePath(mv.row.UserID, mv.row.ID, dst); e != nil {
+		if e := w.store.SetFilePath(w.writeCtx(), mv.row.UserID, mv.row.ID, dst); e != nil {
 			log.Printf("downloads: set file_path #%d: %v", mv.row.ID, e)
 		}
 		job.FileDone()

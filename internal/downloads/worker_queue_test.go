@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,13 +21,13 @@ func newQueueWorker(t *testing.T, store *Store, qs QueueSettings) *Worker {
 func TestApplySchedule_PromotesUpToMaxActive(t *testing.T) {
 	store := newTestStore(t)
 	for i := 0; i < 5; i++ {
-		_, _ = store.Create(Download{UserID: 1, InfoHash: string(rune('a' + i)), FileIndex: 0, Magnet: "m", Name: "d"})
+		_, _ = store.Create(context.Background(), Download{UserID: 1, InfoHash: string(rune('a' + i)), FileIndex: 0, Magnet: "m", Name: "d"})
 	}
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 2})
 
 	w.applySchedule(w.queueSettings())
 
-	sched, _ := store.ListSchedulable()
+	sched, _ := store.ListSchedulable(context.Background())
 	downloading := 0
 	for _, d := range sched {
 		if d.Status == StatusDownloading {
@@ -40,15 +41,15 @@ func TestApplySchedule_PromotesUpToMaxActive(t *testing.T) {
 
 func TestApplySchedule_PreemptsLowerPriorityOverLimit(t *testing.T) {
 	store := newTestStore(t)
-	low, _ := store.Create(Download{UserID: 1, InfoHash: "low", FileIndex: 0, Magnet: "m", Name: "low", Priority: PriorityLow})
-	_, _ = store.PromoteToDownloading(low.ID) // simulate it already running
-	high, _ := store.Create(Download{UserID: 1, InfoHash: "high", FileIndex: 0, Magnet: "m", Name: "high", Priority: PriorityHigh})
+	low, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "low", FileIndex: 0, Magnet: "m", Name: "low", Priority: PriorityLow})
+	_, _ = store.PromoteToDownloading(context.Background(), low.ID) // simulate it already running
+	high, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "high", FileIndex: 0, Magnet: "m", Name: "high", Priority: PriorityHigh})
 
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 1})
 	w.applySchedule(w.queueSettings())
 
-	gotLow, _ := store.Get(1, low.ID)
-	gotHigh, _ := store.Get(1, high.ID)
+	gotLow, _ := store.Get(context.Background(), 1, low.ID)
+	gotHigh, _ := store.Get(context.Background(), 1, high.ID)
 	if gotHigh.Status != StatusDownloading {
 		t.Errorf("high should be promoted, got %q", gotHigh.Status)
 	}
@@ -63,10 +64,10 @@ func TestApplySchedule_PreemptsLowerPriorityOverLimit(t *testing.T) {
 
 func TestApplySchedule_NoOpWhenUnderLimit(t *testing.T) {
 	store := newTestStore(t)
-	a, _ := store.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "a"})
+	a, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "a"})
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 3})
 	w.applySchedule(w.queueSettings())
-	got, _ := store.Get(1, a.ID)
+	got, _ := store.Get(context.Background(), 1, a.ID)
 	if got.Status != StatusDownloading {
 		t.Fatalf("single queued under limit should be promoted, got %q", got.Status)
 	}
@@ -105,8 +106,8 @@ func TestDetectStalls_DisabledWhenThresholdZero(t *testing.T) {
 
 func TestDetectStalls_DemotesThenPausesAtMaxStalls(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
-	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 3, StallThresholdMin: 30, MaxStalls: 2})
 
 	// Inject a tracked download with stale progress and a nil torrent (nil torrent
@@ -120,7 +121,7 @@ func TestDetectStalls_DemotesThenPausesAtMaxStalls(t *testing.T) {
 
 	inject()
 	w.detectStalls(w.queueSettings())
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusQueued || got.Stalls != 1 {
 		t.Fatalf("after 1st stall: status=%q stalls=%d, want queued/1", got.Status, got.Stalls)
 	}
@@ -132,10 +133,10 @@ func TestDetectStalls_DemotesThenPausesAtMaxStalls(t *testing.T) {
 	}
 
 	// Second stall reaches MaxStalls=2 → paused (not failed, per the user's choice).
-	_, _ = store.PromoteToDownloading(d.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	inject()
 	w.detectStalls(w.queueSettings())
-	got, _ = store.Get(1, d.ID)
+	got, _ = store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusPaused {
 		t.Fatalf("after reaching MaxStalls: status=%q, want paused", got.Status)
 	}
@@ -143,8 +144,8 @@ func TestDetectStalls_DemotesThenPausesAtMaxStalls(t *testing.T) {
 
 func TestDetectStalls_SkipsRecentlyProgressed(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
-	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 3, StallThresholdMin: 30, MaxStalls: 3})
 
 	// Progressed just now → must NOT be demoted.
@@ -152,7 +153,7 @@ func TestDetectStalls_SkipsRecentlyProgressed(t *testing.T) {
 	w.tracked[d.ID] = &trackedDL{id: d.ID, userID: 1, name: "A", lastProgressAt: time.Now()}
 	w.mu.Unlock()
 	w.detectStalls(w.queueSettings())
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusDownloading {
 		t.Fatalf("recently-progressed download should stay downloading, got %q", got.Status)
 	}
@@ -160,8 +161,8 @@ func TestDetectStalls_SkipsRecentlyProgressed(t *testing.T) {
 
 func TestPreemptActive_TearsDownTracking(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
-	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "a", FileIndex: 0, Magnet: "m", Name: "A"})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 3})
 
 	cancelled := false
@@ -171,10 +172,10 @@ func TestPreemptActive_TearsDownTracking(t *testing.T) {
 	w.retries[d.ID] = 2
 	w.mu.Unlock()
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	w.preemptActive(*got)
 
-	gotAfter, _ := store.Get(1, d.ID)
+	gotAfter, _ := store.Get(context.Background(), 1, d.ID)
 	if gotAfter.Status != StatusQueued {
 		t.Errorf("preempted row should be queued, got %q", gotAfter.Status)
 	}

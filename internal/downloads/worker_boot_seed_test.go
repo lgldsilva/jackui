@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -13,14 +14,14 @@ import (
 func TestDropCompletedNonSeedHandles(t *testing.T) {
 	store := newTestStore(t)
 	hashHex := "aabbccddeeff00112233445566778899aabbccdd"
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: hashHex, FileIndex: 0, FilePath: "x.mkv",
 		FileSize: 1, Name: "x", Magnet: "magnet:?xt=urn:btih:" + hashHex,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetStatus(1, d.ID, StatusCompleted); err != nil {
+	if err := store.SetStatus(context.Background(), 1, d.ID, StatusCompleted); err != nil {
 		t.Fatal(err)
 	}
 

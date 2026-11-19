@@ -1,11 +1,1 @@
 # Ctx-less database calls per file (see noctx_ratchet_test.go). Only ever lower these.
-downloads/completed_path_rel.go 2
-downloads/sources.go 10
-downloads/store.go 7
-downloads/store_completed_layout.go 1
-downloads/store_create.go 4
-downloads/store_dedup.go 4
-downloads/store_delete.go 2
-downloads/store_groups.go 13
-downloads/store_list.go 11
-downloads/store_setters.go 20

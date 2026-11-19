@@ -413,7 +413,7 @@ func openCompletedFile(hc *hlsCtx) (io.ReadSeekCloser, int64, bool) {
 	}
 	relPath := hc.s.FileRelPath(hc.h, hc.fileIdx)
 	userID, _, _ := auth.UserIDFromCtx(hc.c)
-	path, err := hc.store.GetCompletedPathRel(hc.h.HexString(), hc.fileIdx, relPath, userID)
+	path, err := hc.store.GetCompletedPathRel(hc.c.Request.Context(), hc.h.HexString(), hc.fileIdx, relPath, userID)
 	if err != nil || path == "" {
 		return nil, 0, false
 	}

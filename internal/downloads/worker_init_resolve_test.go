@@ -48,14 +48,14 @@ func TestWorker_ResolveAndTrackDownload_Promotes(t *testing.T) {
 	t.Fatal("torrent metadata not resolved in streamer client")
 
 metadataReady:
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: hash.HexString(), FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:" + hash.HexString(), Name: "Movie",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, _ = store.PromoteToDownloading(d.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 
 	w := NewWorker(WorkerConfig{
 		Store:    store,
@@ -164,14 +164,14 @@ func TestWorker_InitDownload_PromotesAndCleansUp(t *testing.T) {
 	t.Fatal("torrent metadata not resolved in streamer client")
 
 metadataReady:
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: hash.HexString(), FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:" + hash.HexString(), Name: "Series",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	_, _ = store.PromoteToDownloading(d.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 
 	w := NewWorker(WorkerConfig{
 		Store:    store,

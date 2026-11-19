@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,17 +37,17 @@ func TestStreamHLSMaster_CompletedDownloadUsesFile(t *testing.T) {
 	if err := os.WriteFile(media, []byte("not-really-media"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 0, InfoHash: hash, FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:" + hash, Name: "video",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := st.SetFilePath(0, d.ID, media); err != nil {
+	if err := st.SetFilePath(context.Background(), 0, d.ID, media); err != nil {
 		t.Fatalf("SetFilePath: %v", err)
 	}
-	if _, err := st.SetStatusForUser(0, downloads.StatusCompleted); err != nil {
+	if _, err := st.SetStatusForUser(context.Background(), 0, downloads.StatusCompleted); err != nil {
 		t.Fatalf("SetStatusForUser: %v", err)
 	}
 

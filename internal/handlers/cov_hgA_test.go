@@ -87,7 +87,7 @@ func hgACompletedDownload(t *testing.T, store *downloads.Store, srcDir, fileName
 	if err := os.WriteFile(src, []byte("payload"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d, err := store.Create(downloads.Download{
+	d, err := store.Create(context.Background(), downloads.Download{
 		InfoHash: hgAValidHash,
 		Name:     fileName,
 		Magnet:   MagnetPrefix + hgAValidHash,
@@ -97,13 +97,13 @@ func hgACompletedDownload(t *testing.T, store *downloads.Store, srcDir, fileName
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetFilePath(0, d.ID, src); err != nil {
+	if err := store.SetFilePath(context.Background(), 0, d.ID, src); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetStatus(0, d.ID, downloads.StatusCompleted); err != nil {
+	if err := store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted); err != nil {
 		t.Fatal(err)
 	}
-	got, err := store.Get(0, d.ID)
+	got, err := store.Get(context.Background(), 0, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +436,7 @@ func Test_hgA_promotePrepare_NotFound(t *testing.T) {
 func Test_hgA_promotePrepare_NotCompleted(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,7 @@ func Test_hgA_promotePlan_Success(t *testing.T) {
 	if err := runPromotePlan(o, plan, nil); err != nil {
 		t.Fatalf("runPromotePlan: %v", err)
 	}
-	updated, _ := store.Get(0, d.ID)
+	updated, _ := store.Get(context.Background(), 0, d.ID)
 	if updated.FilePath != filepath.Join(shared, "movie.mkv") {
 		t.Errorf("FilePath=%q", updated.FilePath)
 	}
@@ -479,11 +479,11 @@ func Test_hgA_promotePrepare_MissingSrc(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
 	// Create completed row pointing at a file that doesn't exist on disk.
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "gone.mkv", FilePath: "/nonexistent/gone.mkv"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "gone.mkv", FilePath: "/nonexistent/gone.mkv"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.SetStatus(0, d.ID, downloads.StatusCompleted)
+	_ = store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted)
 	_, err = promotePreparePlan(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: d.ID})
 	if err == nil {
 		t.Fatal("expected error for missing source file")
@@ -685,7 +685,7 @@ func Test_hgA_previewOneDownload_Errors(t *testing.T) {
 	}
 
 	// Empty file_path.
-	created, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
+	created, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +797,7 @@ func Test_hgA_DownloadsStopSeed_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -911,7 +911,7 @@ func Test_hgA_DownloadsPause_NotFound(t *testing.T) {
 func Test_hgA_DownloadsPause_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := hgAStore(t)
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -937,7 +937,7 @@ func Test_hgA_DownloadsResume_NotFound(t *testing.T) {
 func Test_hgA_DownloadsBatchPause_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := hgAStore(t)
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -953,11 +953,11 @@ func Test_hgA_DownloadsBatchPause_Success(t *testing.T) {
 func Test_hgA_DownloadsBatchResume_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := hgAStore(t)
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.SetStatus(0, d.ID, downloads.StatusPaused)
+	_ = store.SetStatus(context.Background(), 0, d.ID, downloads.StatusPaused)
 	router := gin.New()
 	router.PATCH("/api/downloads/batch/resume", DownloadsBatchResume(store))
 	body, _ := json.Marshal(map[string][]int{"ids": {d.ID}})
@@ -970,7 +970,7 @@ func Test_hgA_DownloadsBatchResume_Success(t *testing.T) {
 func Test_hgA_DownloadsBatchDelete_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := hgAStore(t)
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -60,7 +60,7 @@ func buildUserStats(ctx context.Context, userID int, lib *library.Store, dl *dow
 	if err := fillLibraryStats(ctx, &out, lib, userID); err != nil {
 		return out, err
 	}
-	if err := fillDownloadStats(&out, dl, userID); err != nil {
+	if err := fillDownloadStats(ctx, &out, dl, userID); err != nil {
 		return out, err
 	}
 	fillActivityStats(ctx, &out, hist, wl, userID)
@@ -79,11 +79,11 @@ func fillLibraryStats(ctx context.Context, out *userStats, lib *library.Store, u
 	return nil
 }
 
-func fillDownloadStats(out *userStats, dl *downloads.Store, userID int) error {
+func fillDownloadStats(ctx context.Context, out *userStats, dl *downloads.Store, userID int) error {
 	if dl == nil {
 		return nil
 	}
-	total, completed, bytes, err := dl.UserStats(userID)
+	total, completed, bytes, err := dl.UserStats(ctx, userID)
 	if err != nil {
 		return err
 	}

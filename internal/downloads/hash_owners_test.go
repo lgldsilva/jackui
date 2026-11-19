@@ -1,5 +1,7 @@
 package downloads
 
+import "context"
+
 import "testing"
 
 func TestHashOwnerIDs(t *testing.T) {
@@ -11,22 +13,22 @@ func TestHashOwnerIDs(t *testing.T) {
 		{UserID: 2, InfoHash: h, FileIndex: 0, Name: "A", Magnet: "m"},
 		{UserID: 3, InfoHash: "ffffffffffffffffffffffffffffffffffffffff", FileIndex: 0, Name: "B", Magnet: "m"},
 	} {
-		if _, err := s.Create(d); err != nil {
+		if _, err := s.Create(context.Background(), d); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 	}
-	got, err := s.HashOwnerIDs("0123456789ABCDEF0123456789ABCDEF01234567") // case-insensitive input
+	got, err := s.HashOwnerIDs(context.Background(), "0123456789ABCDEF0123456789ABCDEF01234567") // case-insensitive input
 	if err != nil {
 		t.Fatalf("HashOwnerIDs: %v", err)
 	}
 	if len(got) != 2 || !got[1] || !got[2] {
 		t.Fatalf("owners = %v, want {1,2}", got)
 	}
-	if got, _ := s.HashOwnerIDs("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"); len(got) != 0 {
+	if got, _ := s.HashOwnerIDs(context.Background(), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"); len(got) != 0 {
 		t.Fatalf("unknown hash owners = %v, want empty", got)
 	}
 	var nilStore *Store
-	if got, err := nilStore.HashOwnerIDs(h); err != nil || len(got) != 0 {
+	if got, err := nilStore.HashOwnerIDs(context.Background(), h); err != nil || len(got) != 0 {
 		t.Fatalf("nil store = %v,%v", got, err)
 	}
 }

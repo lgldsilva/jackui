@@ -1,5 +1,7 @@
 package downloads
 
+import "context"
+
 import "testing"
 
 // BatchCreate inserts every file of one torrent in a single transaction and
@@ -11,7 +13,7 @@ func TestBatchCreate_AllNew(t *testing.T) {
 		{UserID: 1, InfoHash: "abc", FileIndex: 1, FilePath: "S01/E02.mkv", FileSize: 200, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"},
 		{UserID: 1, InfoHash: "abc", FileIndex: 2, FilePath: "S01/E03.mkv", FileSize: 300, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"},
 	}
-	res, err := s.BatchCreate(rows)
+	res, err := s.BatchCreate(context.Background(), rows)
 	if err != nil {
 		t.Fatalf("BatchCreate: %v", err)
 	}
@@ -28,7 +30,7 @@ func TestBatchCreate_AllNew(t *testing.T) {
 		}
 	}
 	// All three live in the DB.
-	all, err := s.List(1)
+	all, err := s.List(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -41,10 +43,10 @@ func TestBatchCreate_AllNew(t *testing.T) {
 // duplicated and is counted as requeued, not created.
 func TestBatchCreate_Idempotent(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.Create(Download{UserID: 1, InfoHash: "abc", FileIndex: 0, FilePath: "E01.mkv", FileSize: 100, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"}); err != nil {
+	if _, err := s.Create(context.Background(), Download{UserID: 1, InfoHash: "abc", FileIndex: 0, FilePath: "E01.mkv", FileSize: 100, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"}); err != nil {
 		t.Fatalf("seed Create: %v", err)
 	}
-	res, err := s.BatchCreate([]Download{
+	res, err := s.BatchCreate(context.Background(), []Download{
 		{UserID: 1, InfoHash: "abc", FileIndex: 0, FilePath: "E01.mkv", FileSize: 100, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"},
 		{UserID: 1, InfoHash: "abc", FileIndex: 1, FilePath: "E02.mkv", FileSize: 200, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"},
 	})
@@ -54,7 +56,7 @@ func TestBatchCreate_Idempotent(t *testing.T) {
 	if res.Created != 1 || res.Requeued != 1 {
 		t.Fatalf("created=%d requeued=%d, want 1/1", res.Created, res.Requeued)
 	}
-	all, _ := s.List(1)
+	all, _ := s.List(context.Background(), 1)
 	if len(all) != 2 {
 		t.Fatalf("List returned %d rows, want 2 (no dup)", len(all))
 	}
@@ -64,14 +66,14 @@ func TestBatchCreate_Idempotent(t *testing.T) {
 // the shared createOne).
 func TestBatchCreate_RequeuesPaused(t *testing.T) {
 	s := newTestStore(t)
-	seed, err := s.Create(Download{UserID: 1, InfoHash: "abc", FileIndex: 0, FilePath: "E01.mkv", FileSize: 100, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"})
+	seed, err := s.Create(context.Background(), Download{UserID: 1, InfoHash: "abc", FileIndex: 0, FilePath: "E01.mkv", FileSize: 100, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"})
 	if err != nil {
 		t.Fatalf("seed Create: %v", err)
 	}
-	if err := s.SetStatus(1, seed.ID, StatusPaused); err != nil {
+	if err := s.SetStatus(context.Background(), 1, seed.ID, StatusPaused); err != nil {
 		t.Fatalf("SetStatus paused: %v", err)
 	}
-	res, err := s.BatchCreate([]Download{
+	res, err := s.BatchCreate(context.Background(), []Download{
 		{UserID: 1, InfoHash: "abc", FileIndex: 0, FilePath: "E01.mkv", FileSize: 100, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"},
 	})
 	if err != nil {
@@ -80,7 +82,7 @@ func TestBatchCreate_RequeuesPaused(t *testing.T) {
 	if res.Created != 0 || res.Requeued != 1 {
 		t.Fatalf("created=%d requeued=%d, want 0/1", res.Created, res.Requeued)
 	}
-	got, _ := s.Get(1, seed.ID)
+	got, _ := s.Get(context.Background(), 1, seed.ID)
 	if got.Status != StatusQueued {
 		t.Fatalf("paused row not re-queued: status=%q", got.Status)
 	}
@@ -90,7 +92,7 @@ func TestBatchCreate_RequeuesPaused(t *testing.T) {
 // batch would have inserted survives.
 func TestBatchCreate_AtomicRollback(t *testing.T) {
 	s := newTestStore(t)
-	res, err := s.BatchCreate([]Download{
+	res, err := s.BatchCreate(context.Background(), []Download{
 		{UserID: 1, InfoHash: "abc", FileIndex: 0, FilePath: "E01.mkv", FileSize: 100, Name: "Show", Magnet: "magnet:?xt=urn:btih:abc"},
 		// Missing magnet → createOne returns an error mid-batch.
 		{UserID: 1, InfoHash: "abc", FileIndex: 1, FilePath: "E02.mkv", FileSize: 200, Name: "Show", Magnet: ""},
@@ -98,7 +100,7 @@ func TestBatchCreate_AtomicRollback(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error, got res=%+v", res)
 	}
-	all, _ := s.List(1)
+	all, _ := s.List(context.Background(), 1)
 	if len(all) != 0 {
 		t.Fatalf("rollback failed: %d rows persisted, want 0", len(all))
 	}
@@ -106,7 +108,7 @@ func TestBatchCreate_AtomicRollback(t *testing.T) {
 
 func TestBatchCreate_Empty(t *testing.T) {
 	s := newTestStore(t)
-	if _, err := s.BatchCreate(nil); err == nil {
+	if _, err := s.BatchCreate(context.Background(), nil); err == nil {
 		t.Fatal("expected error for empty batch")
 	}
 }

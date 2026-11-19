@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"crypto/sha1"
 	"os"
 	"path/filepath"
@@ -72,7 +73,7 @@ func TestLinkMatch_LinksByteIdenticalCandidate(t *testing.T) {
 	size := int64(len(data))
 
 	// Seed a completed file for user 1 (a different torrent) pointing at `path`.
-	if _, err := s.CreateLinked(Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "m", Name: "Orig"}, path, size); err != nil {
+	if _, err := s.CreateLinked(context.Background(), Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "m", Name: "Orig"}, path, size); err != nil {
 		t.Fatalf("seed candidate: %v", err)
 	}
 
@@ -82,7 +83,7 @@ func TestLinkMatch_LinksByteIdenticalCandidate(t *testing.T) {
 		t.Fatal("a byte-identical candidate must be linked")
 	}
 	// The new download is now a completed link pointing at the existing file.
-	got, err := s.GetByKey(1, "newhash", 0)
+	got, err := s.GetByKey(context.Background(), 1, "newhash", 0)
 	if err != nil || got == nil {
 		t.Fatalf("linked row not found: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestLinkMatch_SkipsSameTorrentAndMismatch(t *testing.T) {
 	w := &Worker{store: s}
 
 	// User 2: the only candidate of this size is from the SAME torrent → skipped.
-	if _, err := s.CreateLinked(Download{UserID: 2, InfoHash: "h", FileIndex: 0, Magnet: "m"}, writeTmp(t, data), size); err != nil {
+	if _, err := s.CreateLinked(context.Background(), Download{UserID: 2, InfoHash: "h", FileIndex: 0, Magnet: "m"}, writeTmp(t, data), size); err != nil {
 		t.Fatalf("seed same-torrent: %v", err)
 	}
 	if w.linkMatch(&Download{UserID: 2, InfoHash: "h", FileIndex: 0}, size, pc) {
@@ -112,7 +113,7 @@ func TestLinkMatch_SkipsSameTorrentAndMismatch(t *testing.T) {
 	// User 3: a same-size candidate with DIFFERENT content → not a certain match.
 	diff := append([]byte(nil), data...)
 	diff[100] ^= 0xFF
-	if _, err := s.CreateLinked(Download{UserID: 3, InfoHash: "orig", FileIndex: 0, Magnet: "m"}, writeTmp(t, diff), size); err != nil {
+	if _, err := s.CreateLinked(context.Background(), Download{UserID: 3, InfoHash: "orig", FileIndex: 0, Magnet: "m"}, writeTmp(t, diff), size); err != nil {
 		t.Fatalf("seed mismatch: %v", err)
 	}
 	if w.linkMatch(&Download{UserID: 3, InfoHash: "newhash", FileIndex: 0, Magnet: "m"}, size, pc) {

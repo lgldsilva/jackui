@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -19,10 +20,10 @@ func newEnqStore(t *testing.T) *Store {
 
 func TestEnqueueMagnet(t *testing.T) {
 	s := newEnqStore(t)
-	if err := s.EnqueueMagnet(3, "ABCDEF1234", "Show.S01E02.1080p", "magnet:?xt=urn:btih:abcdef1234", "trk"); err != nil {
+	if err := s.EnqueueMagnet(context.Background(), 3, "ABCDEF1234", "Show.S01E02.1080p", "magnet:?xt=urn:btih:abcdef1234", "trk"); err != nil {
 		t.Fatal(err)
 	}
-	list, err := s.List(3)
+	list, err := s.List(context.Background(), 3)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("List: %v %v", list, err)
 	}
@@ -37,10 +38,10 @@ func TestEnqueueMagnet(t *testing.T) {
 		t.Fatalf("row mismatch: %+v", d)
 	}
 	// Idempotent: a second enqueue of the same hash adds nothing.
-	if err := s.EnqueueMagnet(3, "abcdef1234", "Show.S01E02.1080p", "magnet:?xt=urn:btih:abcdef1234", "trk"); err != nil {
+	if err := s.EnqueueMagnet(context.Background(), 3, "abcdef1234", "Show.S01E02.1080p", "magnet:?xt=urn:btih:abcdef1234", "trk"); err != nil {
 		t.Fatal(err)
 	}
-	list, _ = s.List(3)
+	list, _ = s.List(context.Background(), 3)
 	if len(list) != 1 {
 		t.Fatalf("enqueue must be idempotent, got %d rows", len(list))
 	}
@@ -48,10 +49,10 @@ func TestEnqueueMagnet(t *testing.T) {
 
 func TestEnqueueMagnet_RequiresHashAndMagnet(t *testing.T) {
 	s := newEnqStore(t)
-	if err := s.EnqueueMagnet(1, "", "name", "magnet:x", ""); err == nil {
+	if err := s.EnqueueMagnet(context.Background(), 1, "", "name", "magnet:x", ""); err == nil {
 		t.Fatal("expected error without infoHash")
 	}
-	if err := s.EnqueueMagnet(1, "hash", "name", "", ""); err == nil {
+	if err := s.EnqueueMagnet(context.Background(), 1, "hash", "name", "", ""); err == nil {
 		t.Fatal("expected error without magnet")
 	}
 }

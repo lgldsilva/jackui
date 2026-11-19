@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/jackett"
@@ -34,13 +35,13 @@ func newRotationWorker(t *testing.T, store *Store, search sourceSearcher) *Worke
 
 func TestParkCurrentSource_RegistersOriginalThenCooldowns(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Orig 2020 1080p", FileSize: 1000})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Orig 2020 1080p", FileSize: 1000})
 	w := newRotationWorker(t, store, &fakeSearcher{})
 
-	full, _ := store.Get(1, d.ID)
+	full, _ := store.Get(context.Background(), 1, d.ID)
 	w.parkCurrentSource(*full)
 
-	list, _ := store.ListSources(d.ID)
+	list, _ := store.ListSources(context.Background(), d.ID)
 	if len(list) != 1 || list[0].InfoHash != "orig" {
 		t.Fatalf("original should be registered, got %+v", list)
 	}
@@ -52,20 +53,20 @@ func TestParkCurrentSource_RegistersOriginalThenCooldowns(t *testing.T) {
 
 func TestDiscoverSources_PersistsMatches(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Show S01E01 1080p", FileSize: 1_000_000_000})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Show S01E01 1080p", FileSize: 1_000_000_000})
 	search := &fakeSearcher{results: []jackett.Result{
 		{Title: "Show S01E01 1080p WEB", InfoHash: "altA", MagnetURI: "magnet:A", Size: 1_020_000_000, Seeders: 30},
 		{Title: "Show S01E09 1080p", InfoHash: "altB", MagnetURI: "magnet:B", Size: 1_000_000_000, Seeders: 99}, // wrong episode
 	}}
 	w := newRotationWorker(t, store, search)
 
-	full, _ := store.Get(1, d.ID)
+	full, _ := store.Get(context.Background(), 1, d.ID)
 	w.discoverSources(*full)
 
 	if search.calls != 1 {
 		t.Errorf("expected 1 Jackett search, got %d", search.calls)
 	}
-	list, _ := store.ListSources(d.ID)
+	list, _ := store.ListSources(context.Background(), d.ID)
 	if len(list) != 1 || list[0].InfoHash != "altA" {
 		t.Fatalf("only the matching alternative should persist, got %+v", list)
 	}
@@ -76,19 +77,19 @@ func TestDiscoverSources_PersistsMatches(t *testing.T) {
 
 func TestDiscoverSources_NoJackettIsNoOp(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "m", Name: "X", FileSize: 1000})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "m", Name: "X", FileSize: 1000})
 	w := newRotationWorker(t, store, nil) // no searcher
-	full, _ := store.Get(1, d.ID)
+	full, _ := store.Get(context.Background(), 1, d.ID)
 	w.discoverSources(*full) // must not panic
-	if has, _ := store.HasSources(d.ID); has {
+	if has, _ := store.HasSources(context.Background(), d.ID); has {
 		t.Error("no sources should be discovered without a Jackett client")
 	}
 }
 
 func TestTryRotate_SwitchesToAlternative(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Show S01E01 1080p", FileSize: 1_000_000_000})
-	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Show S01E01 1080p", FileSize: 1_000_000_000})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	search := &fakeSearcher{results: []jackett.Result{
 		{Title: "Show S01E01 1080p REPACK", InfoHash: "altA", MagnetURI: "magnet:A", Size: 1_010_000_000, Seeders: 40},
 	}}
@@ -100,12 +101,12 @@ func TestTryRotate_SwitchesToAlternative(t *testing.T) {
 		t.Fatal("expected rotation to an alternative source")
 	}
 	// active_magnet now points at the discovered alternative.
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.EffectiveMagnet() != "magnet:A" {
 		t.Errorf("expected active magnet magnet:A, got %q", got.EffectiveMagnet())
 	}
 	// The original is parked (cooldown), the alternative is active.
-	list, _ := store.ListSources(d.ID)
+	list, _ := store.ListSources(context.Background(), d.ID)
 	var origStatus, altStatus string
 	for _, s := range list {
 		if s.InfoHash == "orig" {
@@ -125,8 +126,8 @@ func TestTryRotate_SwitchesToAlternative(t *testing.T) {
 
 func TestTryRotate_NoAlternativeReturnsFalse(t *testing.T) {
 	store := newTestStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Obscure 2020 1080p", FileSize: 1_000_000_000})
-	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "orig", FileIndex: 0, Magnet: "magnet:orig", Name: "Obscure 2020 1080p", FileSize: 1_000_000_000})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	// Jackett returns nothing usable.
 	w := newRotationWorker(t, store, &fakeSearcher{results: nil})
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -34,12 +35,12 @@ func stopSeedRouter(store *downloads.Store, remover *stopSeedRecorder) *gin.Engi
 
 func mustCreateDownload(t *testing.T, store *downloads.Store, infoHash, status string) downloads.Download {
 	t.Helper()
-	d, err := store.Create(downloads.Download{InfoHash: infoHash, Magnet: MagnetPrefix + infoHash, Name: "x"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: infoHash, Magnet: MagnetPrefix + infoHash, Name: "x"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if status != "" {
-		if err := store.SetStatus(d.UserID, d.ID, status); err != nil {
+		if err := store.SetStatus(context.Background(), d.UserID, d.ID, status); err != nil {
 			t.Fatalf("SetStatus(%s): %v", status, err)
 		}
 	}
@@ -60,10 +61,10 @@ func TestDownloadsStopSeed_CompletedRowRemovedFromList(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status=%d want 204", w.Code)
 	}
-	if _, err := store.Get(d.UserID, d.ID); err == nil {
+	if _, err := store.Get(context.Background(), d.UserID, d.ID); err == nil {
 		t.Error("completed row must be deleted from the downloads list after stop-seed")
 	}
-	rows, err := store.List(d.UserID)
+	rows, err := store.List(context.Background(), d.UserID)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestDownloadsStopSeed_PausedRowRemovedFromList(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status=%d want 204", w.Code)
 	}
-	if _, err := store.Get(d.UserID, d.ID); err == nil {
+	if _, err := store.Get(context.Background(), d.UserID, d.ID); err == nil {
 		t.Error("paused row must be deleted from the downloads list after stop-seed")
 	}
 }
@@ -118,7 +119,7 @@ func TestDownloadsBatchStopSeed_RemovesRows(t *testing.T) {
 	if resp.Affected != 2 || len(resp.Failed) != 0 {
 		t.Errorf("affected=%d failed=%v, want affected=2 failed=[]", resp.Affected, resp.Failed)
 	}
-	rows, err := store.List(d1.UserID)
+	rows, err := store.List(context.Background(), d1.UserID)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}

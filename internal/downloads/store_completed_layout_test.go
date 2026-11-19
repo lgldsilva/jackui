@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,14 +13,14 @@ import (
 // seedFileCompleted creates a completed per-file row owned by userID.
 func seedFileCompleted(t *testing.T, s *Store, userID int, hash string, idx int, path string) {
 	t.Helper()
-	d, err := s.Create(Download{
+	d, err := s.Create(context.Background(), Download{
 		UserID: userID, InfoHash: hash, FileIndex: idx,
 		Magnet: "magnet:?xt=urn:btih:" + hash, Name: "Pack", FilePath: path,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := s.SetStatus(userID, d.ID, StatusCompleted); err != nil {
+	if err := s.SetStatus(context.Background(), userID, d.ID, StatusCompleted); err != nil {
 		t.Fatalf("SetStatus: %v", err)
 	}
 }
@@ -50,12 +51,12 @@ func TestGetCompletedPathsRel_MatchesPerFileLookup(t *testing.T) {
 		"",                   // no metainfo
 	}
 	for _, userID := range []int{-1, 1, 2, 3} {
-		got, err := s.GetCompletedPathsRel("lay1", relPaths, userID)
+		got, err := s.GetCompletedPathsRel(context.Background(), "lay1", relPaths, userID)
 		if err != nil {
 			t.Fatalf("user %d: %v", userID, err)
 		}
 		for i, rel := range relPaths {
-			want, err := s.GetCompletedPathRel("lay1", i, rel, userID)
+			want, err := s.GetCompletedPathRel(context.Background(), "lay1", i, rel, userID)
 			if err != nil {
 				t.Fatalf("user %d idx %d: %v", userID, i, err)
 			}
@@ -65,7 +66,7 @@ func TestGetCompletedPathsRel_MatchesPerFileLookup(t *testing.T) {
 		}
 	}
 	// Sanity on the fixture, so the equivalence above is not vacuous.
-	got, _ := s.GetCompletedPathsRel("lay1", relPaths, -1)
+	got, _ := s.GetCompletedPathsRel(context.Background(), "lay1", relPaths, -1)
 	if len(got) != 2 || got[0] != filepath.Join(destDir, "Sub", "a.mkv") || got[1] != "/dl/renamed/b.mkv" {
 		t.Fatalf("any-owner layout = %v", got)
 	}
@@ -82,7 +83,7 @@ func TestGetCompletedPathsRel_ManyPerFileRows(t *testing.T) {
 			seedFileCompleted(t, s, 1, "lay2", i, fmt.Sprintf("/dl/Pack/f%02d.bin", i))
 		}
 	}
-	got, err := s.GetCompletedPathsRel("lay2", relPaths, -1)
+	got, err := s.GetCompletedPathsRel(context.Background(), "lay2", relPaths, -1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,7 @@ func TestGetCompletedPathsRel_ManyPerFileRows(t *testing.T) {
 
 func TestGetCompletedPathsRel_GuardsAndErrors(t *testing.T) {
 	var nilS *Store
-	if got, err := nilS.GetCompletedPathsRel("h", []string{"a"}, -1); err != nil || len(got) != 0 {
+	if got, err := nilS.GetCompletedPathsRel(context.Background(), "h", []string{"a"}, -1); err != nil || len(got) != 0 {
 		t.Fatalf("nil store: got (%v, %v), want empty", got, err)
 	}
 
@@ -108,18 +109,18 @@ func TestGetCompletedPathsRel_GuardsAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.GetCompletedPathsRel("h", nil, -1); err != nil || len(got) != 0 {
+	if got, err := s.GetCompletedPathsRel(context.Background(), "h", nil, -1); err != nil || len(got) != 0 {
 		t.Fatalf("no files: got (%v, %v), want empty", got, err)
 	}
-	if got, err := s.GetCompletedPathsRel("unknown", []string{"Pack/a.mkv"}, -1); err != nil || len(got) != 0 {
+	if got, err := s.GetCompletedPathsRel(context.Background(), "unknown", []string{"Pack/a.mkv"}, -1); err != nil || len(got) != 0 {
 		t.Fatalf("unknown hash: got (%v, %v), want empty", got, err)
 	}
 	// A failing query surfaces as an error, never as a silently empty layout.
 	_ = pool.Close()
-	if _, err := s.GetCompletedPathsRel("h", []string{"Pack/a.mkv"}, -1); err == nil {
+	if _, err := s.GetCompletedPathsRel(context.Background(), "h", []string{"Pack/a.mkv"}, -1); err == nil {
 		t.Fatal("closed pool: want an error")
 	}
-	if _, err := s.GetCompletedPathsRel("h", []string{"Pack/a.mkv"}, 1); err == nil {
+	if _, err := s.GetCompletedPathsRel(context.Background(), "h", []string{"Pack/a.mkv"}, 1); err == nil {
 		t.Fatal("closed pool (user-scoped): want an error")
 	}
 }

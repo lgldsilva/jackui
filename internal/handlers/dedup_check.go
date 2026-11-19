@@ -100,7 +100,7 @@ func (d dedupDeps) findMatches(ctx context.Context, hash metainfo.Hash, info *st
 		return matches
 	}
 	idx := map[int64][]catalogCand{}
-	addDownloadCandidates(idx, d.dls, userID, sizes)
+	addDownloadCandidates(ctx, idx, d.dls, userID, sizes)
 	addMountCandidates(ctx, idx, d.b, username, sizes)
 	for _, f := range info.Files {
 		if ctx.Err() != nil {
@@ -116,12 +116,12 @@ func (d dedupDeps) findMatches(ctx context.Context, hash metainfo.Hash, info *st
 }
 
 // addDownloadCandidates adds the user's completed downloads of the wanted sizes.
-func addDownloadCandidates(idx map[int64][]catalogCand, dls *downloads.Store, userID int, sizes map[int64]bool) {
+func addDownloadCandidates(ctx context.Context, idx map[int64][]catalogCand, dls *downloads.Store, userID int, sizes map[int64]bool) {
 	if dls == nil {
 		return
 	}
 	for size := range sizes {
-		rows, err := dls.CompletedBySize(userID, size)
+		rows, err := dls.CompletedBySize(ctx, userID, size)
 		if err != nil {
 			continue
 		}
@@ -276,11 +276,16 @@ func DedupLink(dls *downloads.Store, b *local.Browser, sz linkFileSizer) gin.Han
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
+		// Each link row is persisted detached from the request: a client that hangs
+		// up mid-list must not leave an arbitrary prefix of the confirmed links.
 		lk := dedupLinker{dls: dls, b: b, sz: sz, hash: hash, username: userFromCtx(c), userID: userID, req: req}
 		linked := 0
 		errs := []string{}
 		for _, it := range req.Items {
-			if err := lk.link(it); err != nil {
+			ictx, icancel := itemCtx(c.Request.Context())
+			err := lk.link(ictx, it)
+			icancel()
+			if err != nil {
 				errs = append(errs, err.Error())
 				continue
 			}
@@ -305,7 +310,7 @@ type dedupLinker struct {
 // file must be known to the cached metadata and the on-disk size must match:
 // completed rows are served (and seeded) for every user of the torrent, so a
 // mismatched link would hand out — or let anacrolix overwrite — foreign bytes.
-func (lk dedupLinker) link(it dedupLinkItem) error {
+func (lk dedupLinker) link(ctx context.Context, it dedupLinkItem) error {
 	abs, err := resolveLinkTarget(lk.b, lk.username, it)
 	if err != nil {
 		return err
@@ -321,7 +326,7 @@ func (lk dedupLinker) link(it dedupLinkItem) error {
 	if st.Size() != want {
 		return fmt.Errorf("%s: size %d does not match torrent file size %d", it.RelPath, st.Size(), want)
 	}
-	_, err = lk.dls.CreateLinked(downloads.Download{
+	_, err = lk.dls.CreateLinked(ctx, downloads.Download{
 		UserID: lk.userID, InfoHash: lk.hash.HexString(), FileIndex: it.FileIndex,
 		Magnet: lk.req.Magnet, Name: lk.req.Name,
 	}, abs, st.Size())

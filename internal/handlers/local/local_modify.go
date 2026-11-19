@@ -15,6 +15,21 @@ import (
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
+// linkedBeforeDelete looks up the torrents linked to abs. A failed lookup must
+// abort BEFORE the irreversible delete: reading it as "nothing linked" would
+// remove the file and leave its rows dangling. It answers the error itself.
+func linkedBeforeDelete(c *gin.Context, dls *downloads.Store, abs string) ([]downloads.Download, bool) {
+	linked, err := dls.FindByPathPrefix(c.Request.Context(), abs)
+	if err != nil {
+		if httpshared.AbortIfClientGone(c, err) {
+			return nil, false
+		}
+		httpshared.RespondError(c, http.StatusInternalServerError, err)
+		return nil, false
+	}
+	return linked, true
+}
+
 func LocalDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mount := c.Query("mount")
@@ -42,7 +57,10 @@ func LocalDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer) gin.
 		// matches on the on-disk file_path). Deleting a local file/folder must
 		// also tear down its torrent so it doesn't linger in Downloads, in the
 		// piece cache or as a favorite.
-		linked, _ := dls.FindByPathPrefix(abs)
+		linked, ok := linkedBeforeDelete(c, dls, abs)
+		if !ok {
+			return
+		}
 		if err := os.RemoveAll(abs); err != nil {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, fmt.Sprintf("failed to delete: %s", err.Error()))
 			return

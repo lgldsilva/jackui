@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"database/sql"
 	"time"
 )
@@ -51,8 +52,8 @@ func scanSource(rows interface{ Scan(...any) error }) (*Source, error) {
 // (download_id, info_hash): an existing row keeps its status/tries but refreshes
 // seeders (the swarm health changes over time). status is the initial status for
 // a NEW row (e.g. SourceActive for the original, SourceCandidate for discovered).
-func (s *Store) EnsureSource(src Source, status string) error {
-	_, err := s.db.Exec(`
+func (s *Store) EnsureSource(ctx context.Context, src Source, status string) error {
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO download_sources(download_id, magnet, info_hash, title, tracker, seeders, size, status)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(download_id, info_hash) DO UPDATE SET seeders=excluded.seeders`,
@@ -61,8 +62,8 @@ func (s *Store) EnsureSource(src Source, status string) error {
 }
 
 // ListSources returns all known sources for a download, active first then by seeders.
-func (s *Store) ListSources(downloadID int) ([]Source, error) {
-	rows, err := s.db.Query(srcSelect+`WHERE download_id=?
+func (s *Store) ListSources(ctx context.Context, downloadID int) ([]Source, error) {
+	rows, err := s.db.QueryContext(ctx, srcSelect+`WHERE download_id=?
 		ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, seeders DESC, id ASC`, downloadID)
 	if err != nil {
 		return nil, err
@@ -81,9 +82,9 @@ func (s *Store) ListSources(downloadID int) ([]Source, error) {
 
 // HasSources reports whether any source row exists for the download (used to
 // decide whether to seed the original source lazily).
-func (s *Store) HasSources(downloadID int) (bool, error) {
+func (s *Store) HasSources(ctx context.Context, downloadID int) (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM download_sources WHERE download_id=?`, downloadID).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM download_sources WHERE download_id=?`, downloadID).Scan(&n)
 	return n > 0, err
 }
 
@@ -91,8 +92,8 @@ func (s *Store) HasSources(downloadID int) (bool, error) {
 // active one, with cooldown elapsed (or never tried). Highest seeders first.
 // cooldownMin gates how long a tried-and-stalled source waits before reuse.
 // Returns nil when no source is ready.
-func (s *Store) NextSource(downloadID, cooldownMin int) (*Source, error) {
-	rows, err := s.db.Query(srcSelect+`WHERE download_id=? AND status!='failed' AND status!='active'
+func (s *Store) NextSource(ctx context.Context, downloadID, cooldownMin int) (*Source, error) {
+	rows, err := s.db.QueryContext(ctx, srcSelect+`WHERE download_id=? AND status!='failed' AND status!='active'
 		ORDER BY seeders DESC, last_tried ASC NULLS FIRST, id ASC`, downloadID)
 	if err != nil {
 		return nil, err
@@ -115,35 +116,35 @@ func (s *Store) NextSource(downloadID, cooldownMin int) (*Source, error) {
 
 // ActivateSource marks sourceID as the active source (others → candidate) and
 // points the download's active_magnet at it. Worker re-inits with this magnet.
-func (s *Store) ActivateSource(downloadID, sourceID int, magnet string) error {
-	if _, err := s.db.Exec(`UPDATE download_sources SET status=? WHERE download_id=? AND status=?`,
+func (s *Store) ActivateSource(ctx context.Context, downloadID, sourceID int, magnet string) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE download_sources SET status=? WHERE download_id=? AND status=?`,
 		SourceCandidate, downloadID, SourceActive); err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(`UPDATE download_sources SET status=? WHERE id=?`, SourceActive, sourceID); err != nil {
+	if _, err := s.db.ExecContext(ctx, `UPDATE download_sources SET status=? WHERE id=?`, SourceActive, sourceID); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`UPDATE downloads SET active_magnet=? WHERE id=?`, magnet, downloadID)
+	_, err := s.db.ExecContext(ctx, `UPDATE downloads SET active_magnet=? WHERE id=?`, magnet, downloadID)
 	return err
 }
 
 // MarkSourceTried bumps the try counter and parks the source in cooldown (or
 // failed once it exceeds maxTries). Called when a source stalls.
-func (s *Store) MarkSourceTried(sourceID, maxTries int) error {
+func (s *Store) MarkSourceTried(ctx context.Context, sourceID, maxTries int) error {
 	status := SourceCooldown
 	var tries int
-	_ = s.db.QueryRow(`SELECT tries FROM download_sources WHERE id=?`, sourceID).Scan(&tries)
+	_ = s.db.QueryRowContext(ctx, `SELECT tries FROM download_sources WHERE id=?`, sourceID).Scan(&tries)
 	if maxTries > 0 && tries+1 >= maxTries {
 		status = SourceFailed
 	}
-	_, err := s.db.Exec(`UPDATE download_sources SET tries=tries+1, last_tried=CURRENT_TIMESTAMP, status=? WHERE id=?`,
+	_, err := s.db.ExecContext(ctx, `UPDATE download_sources SET tries=tries+1, last_tried=CURRENT_TIMESTAMP, status=? WHERE id=?`,
 		status, sourceID)
 	return err
 }
 
 // SourceByInfoHash returns the source row for (download, info_hash), or nil.
-func (s *Store) SourceByInfoHash(downloadID int, infoHash string) (*Source, error) {
-	row := s.db.QueryRow(srcSelect+`WHERE download_id=? AND info_hash=?`, downloadID, infoHash)
+func (s *Store) SourceByInfoHash(ctx context.Context, downloadID int, infoHash string) (*Source, error) {
+	row := s.db.QueryRowContext(ctx, srcSelect+`WHERE download_id=? AND info_hash=?`, downloadID, infoHash)
 	src, err := scanSource(row)
 	if err != nil {
 		return nil, nil //nolint:nilerr // no row → no source, not an error for callers

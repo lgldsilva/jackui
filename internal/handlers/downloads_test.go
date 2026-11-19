@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -551,7 +552,7 @@ func TestDownloadsBatchCreate_Success(t *testing.T) {
 func TestDownloadsResume_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store := newDownloadsStore(t)
-	d, err := store.Create(downloads.Download{
+	d, err := store.Create(context.Background(), downloads.Download{
 		InfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Magnet:   "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Name:     "Test Torrent",
@@ -559,7 +560,7 @@ func TestDownloadsResume_Success(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetStatus(0, d.ID, downloads.StatusPaused); err != nil {
+	if err := store.SetStatus(context.Background(), 0, d.ID, downloads.StatusPaused); err != nil {
 		t.Fatal(err)
 	}
 

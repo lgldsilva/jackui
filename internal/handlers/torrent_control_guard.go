@@ -16,7 +16,7 @@ import (
 // Interfaces so tests need no live streamer; Library may be nil.
 type TorrentControlAuthz struct {
 	Downloads interface {
-		HashOwnerIDs(infoHash string) (map[int]bool, error)
+		HashOwnerIDs(ctx context.Context, infoHash string) (map[int]bool, error)
 	}
 	Library interface {
 		GetByHash(ctx context.Context, userID int, infoHash string) (*library.Entry, error)
@@ -56,6 +56,9 @@ func TorrentControlGuard(a TorrentControlAuthz) gin.HandlerFunc {
 		}
 		allowed, err := a.userMayControl(c, h, claims.UserID)
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			c.Abort()
 			return
@@ -71,7 +74,7 @@ func TorrentControlGuard(a TorrentControlAuthz) gin.HandlerFunc {
 
 func (a TorrentControlAuthz) userMayControl(c *gin.Context, h metainfo.Hash, userID int) (bool, error) {
 	hex := h.HexString()
-	owners, err := a.Downloads.HashOwnerIDs(hex)
+	owners, err := a.Downloads.HashOwnerIDs(c.Request.Context(), hex)
 	if err != nil {
 		return false, err
 	}

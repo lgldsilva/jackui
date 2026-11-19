@@ -8,6 +8,7 @@
 package downloads
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -187,8 +188,8 @@ func New(pool *sql.DB) (*Store, error) {
 // Close is a no-op: the shared pool's lifecycle is owned by main.
 
 // UserStats aggregates the user's download history for the stats endpoint.
-func (s *Store) UserStats(userID int) (total, completed int, bytes int64, err error) {
-	row := s.db.QueryRow(`
+func (s *Store) UserStats(ctx context.Context, userID int) (total, completed int, bytes int64, err error) {
+	row := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*),
 		       COALESCE(SUM(CASE WHEN status=? THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(bytes_downloaded), 0)
@@ -199,27 +200,27 @@ func (s *Store) UserStats(userID int) (total, completed int, bytes int64, err er
 }
 
 // Get returns one download owned by userID.
-func (s *Store) Get(userID, id int) (*Download, error) {
-	return s.getWith(s.db, userID, id)
+func (s *Store) Get(ctx context.Context, userID, id int) (*Download, error) {
+	return s.getWith(ctx, s.db, userID, id)
 }
 
 // getWith reads a row through `x`. createOne passes the open Tx so a batch's
 // idempotency read sees rows inserted earlier in the SAME transaction — reading
 // off s.db (a separate connection) wouldn't see those uncommitted writes.
-func (s *Store) getWith(x execer, userID, id int) (*Download, error) {
-	row := x.QueryRow(dlSelect+"WHERE id=? AND user_id=?", id, userID)
+func (s *Store) getWith(ctx context.Context, x execer, userID, id int) (*Download, error) {
+	row := x.QueryRowContext(ctx, dlSelect+"WHERE id=? AND user_id=?", id, userID)
 	return scanRow(row)
 }
 
 // GetByKey looks up a download by its uniqueness tuple. Used by Create() to
 // dedupe and by the worker when reconciling state.
-func (s *Store) GetByKey(userID int, infoHash string, fileIndex int) (*Download, error) {
-	return s.getByKeyWith(s.db, userID, infoHash, fileIndex)
+func (s *Store) GetByKey(ctx context.Context, userID int, infoHash string, fileIndex int) (*Download, error) {
+	return s.getByKeyWith(ctx, s.db, userID, infoHash, fileIndex)
 }
 
 // getByKeyWith is GetByKey through an explicit execer (see getWith for why).
-func (s *Store) getByKeyWith(x execer, userID int, infoHash string, fileIndex int) (*Download, error) {
-	row := x.QueryRow(dlSelect+"WHERE user_id=? AND info_hash=? AND file_index=?", userID, infoHash, fileIndex)
+func (s *Store) getByKeyWith(ctx context.Context, x execer, userID int, infoHash string, fileIndex int) (*Download, error) {
+	row := x.QueryRowContext(ctx, dlSelect+"WHERE user_id=? AND info_hash=? AND file_index=?", userID, infoHash, fileIndex)
 	return scanRow(row)
 }
 
@@ -250,16 +251,16 @@ const (
 // userID scopes the lookup to that owner (multi-tenant isolation). Pass
 // userID < 0 only for trusted internal callers (streamer FilePathResolver /
 // re-seed) that must resolve any owner's completed row by hash.
-func (s *Store) GetCompletedPath(infoHash string, fileIndex int, userID int) (string, error) {
+func (s *Store) GetCompletedPath(ctx context.Context, infoHash string, fileIndex int, userID int) (string, error) {
 	if s == nil {
 		return "", nil
 	}
 	var filePath string
 	var err error
 	if userID >= 0 {
-		err = s.db.QueryRow(sqlCompletedPathForUser, infoHash, fileIndex, userID).Scan(&filePath)
+		err = s.db.QueryRowContext(ctx, sqlCompletedPathForUser, infoHash, fileIndex, userID).Scan(&filePath)
 	} else {
-		err = s.db.QueryRow(sqlCompletedPathAny, infoHash, fileIndex).Scan(&filePath)
+		err = s.db.QueryRowContext(ctx, sqlCompletedPathAny, infoHash, fileIndex).Scan(&filePath)
 	}
 	if err == sql.ErrNoRows {
 		return "", nil
@@ -304,7 +305,7 @@ const dlSelect = `SELECT id, user_id, info_hash, file_index, file_path, file_siz
 // (admin "all=1"). Includes any status (queued/downloading/completed/failed) —
 // once the user started it, "already downloaded this" keeps applying to the UI
 // filter.
-func (s *Store) HashSetForUser(userID int, includeAll bool) (map[string]bool, error) {
+func (s *Store) HashSetForUser(ctx context.Context, userID int, includeAll bool) (map[string]bool, error) {
 	if s == nil {
 		return map[string]bool{}, nil
 	}
@@ -314,7 +315,7 @@ func (s *Store) HashSetForUser(userID int, includeAll bool) (map[string]bool, er
 		q += ` AND user_id = ?`
 		args = append(args, userID)
 	}
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -334,11 +335,11 @@ func (s *Store) HashSetForUser(userID int, includeAll bool) (map[string]bool, er
 // linked to a local file/folder when it's deleted from "Meus downloads".
 // Filtering happens in Go to avoid LIKE-escaping issues with special chars in
 // paths; the downloads table is small.
-func (s *Store) FindByPathPrefix(absPath string) ([]Download, error) {
+func (s *Store) FindByPathPrefix(ctx context.Context, absPath string) ([]Download, error) {
 	if s == nil || absPath == "" {
 		return nil, nil
 	}
-	rows, err := s.db.Query(dlSelect + "WHERE file_path != ''")
+	rows, err := s.db.QueryContext(ctx, dlSelect+"WHERE file_path != ''")
 	if err != nil {
 		return nil, err
 	}

@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -25,7 +26,7 @@ func TestRunCompletionMove_ErrorReleasesEvictionProtection(t *testing.T) {
 	})
 	w.moveBackoff = time.Millisecond
 
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "ghost", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:ghost", Name: "Ghost", FileSize: 4,
 	})
@@ -46,7 +47,7 @@ func TestRunCompletionMove_ErrorReleasesEvictionProtection(t *testing.T) {
 	if s.IsDownloadProtected("Ghost") {
 		t.Fatal("failed completion move must release the streamer eviction protection")
 	}
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusFailed {
 		t.Fatalf("status = %q, want failed", got.Status)
 	}
@@ -67,7 +68,7 @@ func TestRunCompletionMove_ErrorKeepsProtectionWhileSiblingTracked(t *testing.T)
 	})
 	w.moveBackoff = time.Millisecond
 
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "pack", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:pack", Name: "Pack", FileSize: 4,
 	})
@@ -96,7 +97,7 @@ func TestRunCompletionMove_ErrorKeepsProtectionWhileSiblingTracked(t *testing.T)
 	w.mu.Lock()
 	delete(w.tracked, d.ID+1)
 	w.mu.Unlock()
-	d2, err := store.Create(Download{
+	d2, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "pack2", FileIndex: 0,
 		Magnet: "magnet:?xt=urn:btih:pack2", Name: "Pack", FileSize: 4,
 	})

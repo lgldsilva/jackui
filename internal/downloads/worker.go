@@ -144,6 +144,12 @@ type Worker struct {
 
 	stop   chan struct{}
 	doneWG sync.WaitGroup
+	// life is the worker's own context, cancelled only by Stop(). Reads use it
+	// (a read cut short at shutdown just skips the pass); status WRITES use
+	// writeCtx, which keeps the values but not the cancellation, so a transition
+	// in flight when Stop() lands is never dropped or left half-applied.
+	life       context.Context
+	cancelLife context.CancelFunc
 
 	// ntfy notification config
 	ntfyBaseURL string // default https://ntfy.sh
@@ -241,7 +247,10 @@ func NewWorker(cfg WorkerConfig) *Worker {
 	if cfg.NtfyBaseURL == "" {
 		cfg.NtfyBaseURL = "https://ntfy.sh"
 	}
+	life, cancelLife := context.WithCancel(context.Background())
 	w := &Worker{
+		life:            life,
+		cancelLife:      cancelLife,
 		store:           cfg.Store,
 		streamer:        cfg.Streamer,
 		dataDir:         cfg.DataDir,
@@ -288,7 +297,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 // so DataDir pieces can be LRU-freed — except orphans whose move was interrupted
 // (isOrphanedCompletion), which are re-queued so the worker re-moves them.
 func registerExistingDownloads(cfg WorkerConfig) {
-	all, err := cfg.Store.ListAll()
+	all, err := cfg.Store.ListAll(context.Background())
 	if err != nil {
 		return
 	}
@@ -314,7 +323,7 @@ func rescueOrphanCompletion(cfg WorkerConfig, d Download) {
 	if !isOrphanedCompletion(d, cfg.DataDir) {
 		return
 	}
-	if err := cfg.Store.SetStatus(d.UserID, d.ID, StatusQueued); err != nil {
+	if err := cfg.Store.SetStatus(context.Background(), d.UserID, d.ID, StatusQueued); err != nil {
 		log.Printf("downloads: failed to set status queued for existing download %d: %v", d.ID, err)
 	}
 	cfg.Streamer.RegisterDownload(d.Name)
@@ -329,7 +338,7 @@ func rescueOrphanCompletion(cfg WorkerConfig, d Download) {
 // safely without re-downloading. This is the "retoma no restart" guarantee.
 func rescueInterruptedMove(cfg WorkerConfig, d Download) {
 	cfg.Streamer.RegisterDownload(d.Name)
-	if err := cfg.Store.SetStatus(d.UserID, d.ID, StatusDownloading); err != nil {
+	if err := cfg.Store.SetStatus(context.Background(), d.UserID, d.ID, StatusDownloading); err != nil {
 		log.Printf("downloads: failed to rescue interrupted move #%d: %v", d.ID, err)
 		return
 	}
@@ -357,7 +366,7 @@ func (w *Worker) reconcileCompletedSeeding() {
 // download that is NOT a configured seed-tracker. Survives upgrades where
 // download-to-bulk left the torrent open (and UI polls kept lastAccess warm).
 func (w *Worker) dropCompletedNonSeedHandles() {
-	all, err := w.store.ListAll()
+	all, err := w.store.ListAll(w.readCtx())
 	if err != nil {
 		return
 	}
@@ -393,7 +402,7 @@ func (w *Worker) autoSeedCompleted() {
 }
 
 func (w *Worker) autoSeedCompletedWithContext(ctx context.Context) {
-	all, err := w.store.ListAll()
+	all, err := w.store.ListAll(w.readCtx())
 	if err != nil {
 		return
 	}
@@ -442,6 +451,9 @@ func shouldAutoSeed(d Download, matches func(metainfo.Hash) bool) bool {
 // otherwise close-of-closed-channel will panic.
 func (w *Worker) Stop() {
 	close(w.stop)
+	if w.cancelLife != nil {
+		w.cancelLife()
+	}
 	// Cancel any in-flight init goroutines so Stop doesn't block up to 90s
 	// waiting on a slow EnsureActive/GotInfo.
 	w.mu.Lock()
@@ -544,3 +556,25 @@ func (w *Worker) pendingSiblingLocked(hash metainfo.Hash, excludeID int) bool {
 	}
 	return false
 }
+
+// readCtx is the ctx for the worker's store reads: cancelled by Stop() only.
+// Nil-safe for Workers built without NewWorker (tests).
+func (w *Worker) readCtx() context.Context {
+	if w == nil || w.life == nil {
+		return context.Background()
+	}
+	return w.life
+}
+
+// writeCtx is the ctx for the worker's store writes: it survives Stop(), so a
+// status transition (completion, move, demote, error) is applied whole or not at
+// all by the database, never dropped between two paired steps by a shutdown.
+func (w *Worker) writeCtx() context.Context {
+	return context.WithoutCancel(w.readCtx())
+}
+
+// tickCtx is the ctx for the per-tick scans (active/moving/schedulable). Stop()
+// joins run() AFTER the tick in flight, and that tick must complete (untrack
+// removed rows, finish a completion) rather than abort on its first read, so the
+// scans survive Stop() like the writes do; the loop itself ends via w.stop.
+func (w *Worker) tickCtx() context.Context { return w.writeCtx() }

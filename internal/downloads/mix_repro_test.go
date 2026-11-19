@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"testing"
 )
 
@@ -18,14 +19,14 @@ func TestMix_WholeAndPerFile_DrivenAsWhole(t *testing.T) {
 	tor := wholeSpecTorrent(t, "Pack", [][]string{{"a.bin"}, {"b.bin"}, {"c.bin"}, {"d.bin"}})
 	hash := tor.InfoHash().HexString()
 
-	whole, err := store.Create(Download{
+	whole, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: hash, FileIndex: FileIndexWholeTorrent,
 		Magnet: "m", Name: "Pack",
 	})
 	if err != nil {
 		t.Fatalf("create whole: %v", err)
 	}
-	perFile, err := store.Create(Download{
+	perFile, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: hash, FileIndex: 1,
 		Magnet: "m", Name: "Pack",
 	})
@@ -51,7 +52,7 @@ func TestMix_WholeAndPerFile_DrivenAsWhole(t *testing.T) {
 	// And the per-file priority path is NEVER taken for this group (reconcileGroup
 	// short-circuits to reconcile(wholeMember)). The sentinel row is untouched in
 	// the DB: file_index stays -2.
-	after, err := store.Get(1, whole.ID)
+	after, err := store.Get(context.Background(), 1, whole.ID)
 	if err != nil {
 		t.Fatalf("get whole after: %v", err)
 	}

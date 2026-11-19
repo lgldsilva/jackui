@@ -114,7 +114,7 @@ func TestHgEHistoryResults_EnrichesFavAndDownload(t *testing.T) {
 	if err := favs.Add(context.Background(), "The Matrix 1080p", hgEHash, MagnetPrefix+hgEHash, "", 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dls.Create(downloads.Download{
+	if _, err := dls.Create(context.Background(), downloads.Download{
 		UserID:   1,
 		InfoHash: hgEHash,
 		Name:     "The Matrix 1080p",

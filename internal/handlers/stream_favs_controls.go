@@ -68,7 +68,7 @@ func StreamDrop(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager, store
 		}
 		if store != nil {
 			userID, _, _ := auth.UserIDFromCtx(c)
-			_ = store.StopSeedByInfoHash(userID, h.HexString())
+			stopSeedDetached(store, userID, h.HexString())
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "dropped"})
 	}
@@ -138,7 +138,7 @@ func dropStreamHashRow(s *streamer.Streamer, hlsMgr *transcode.HLSSessionManager
 		return false
 	}
 	if store != nil {
-		_ = store.StopSeedByInfoHash(userID, h.HexString())
+		stopSeedDetached(store, userID, h.HexString())
 	}
 	return true
 }
@@ -501,4 +501,13 @@ func StreamSetLimits(s *streamer.Streamer) gin.HandlerFunc {
 		s.SetRateLimits(req.Down, req.Up)
 		c.JSON(http.StatusOK, gin.H{"down": req.Down, "up": req.Up})
 	}
+}
+
+// stopSeedDetached marks the completed rows of a hash seed-stopped AFTER the
+// torrent was dropped (irreversible), so a request that ended meanwhile must not
+// leave the row to be re-seeded on the next boot.
+func stopSeedDetached(store *downloads.Store, userID int, hashHex string) {
+	ctx, cancel := httpshared.DetachedCtx(context.Background())
+	defer cancel()
+	_ = store.StopSeedByInfoHash(ctx, userID, hashHex)
 }

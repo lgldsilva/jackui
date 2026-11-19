@@ -33,11 +33,11 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 	if err := os.WriteFile(src, []byte("movie-content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "movie.mkv", FilePath: src})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "movie.mkv", FilePath: src})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.SetStatus(0, d.ID, downloads.StatusCompleted)
+	_ = store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted)
 
 	payload, _ := json.Marshal(promotePayload{DownloadID: d.ID, UserID: 0, KeepSeeding: false})
 	if _, err := pending.Add(context.Background(), transfer.Pending{Kind: "promote", Src: src, Dst: dst, Payload: string(payload)}); err != nil {
@@ -73,7 +73,7 @@ func Test_ReconcilePromote_ResumesCopy(t *testing.T) {
 	if l, _ := pending.List(context.Background()); len(l) != 0 {
 		t.Errorf("pending should be empty, got %d", len(l))
 	}
-	if up, _ := store.Get(0, d.ID); up == nil || up.FilePath != dst {
+	if up, _ := store.Get(context.Background(), 0, d.ID); up == nil || up.FilePath != dst {
 		t.Errorf("file_path not updated: %+v", up)
 	}
 }
@@ -92,11 +92,11 @@ func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 	if err := os.WriteFile(dst, []byte("ja-copiado"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "done.mkv", FilePath: "/gone/done.mkv"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "done.mkv", FilePath: "/gone/done.mkv"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.SetStatus(0, d.ID, downloads.StatusCompleted)
+	_ = store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted)
 	payload, _ := json.Marshal(promotePayload{DownloadID: d.ID, UserID: 0})
 	_, _ = pending.Add(context.Background(), transfer.Pending{Kind: "promote", Src: "/gone/done.mkv", Dst: dst, Payload: string(payload)})
 
@@ -105,7 +105,7 @@ func Test_ReconcilePromote_SrcGoneDstPresent(t *testing.T) {
 	if l, _ := pending.List(context.Background()); len(l) != 0 {
 		t.Errorf("pending should be cleared, got %d", len(l))
 	}
-	if up, _ := store.Get(0, d.ID); up == nil || up.FilePath != dst {
+	if up, _ := store.Get(context.Background(), 0, d.ID); up == nil || up.FilePath != dst {
 		t.Errorf("file_path should point at the existing destination: %+v", up)
 	}
 }

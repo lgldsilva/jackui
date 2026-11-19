@@ -1,6 +1,8 @@
 package local
 
 import (
+	"context"
+	"github.com/lgldsilva/jackui/internal/downloads"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -189,7 +191,7 @@ func TestDeleteDuplicates_RejectsBadPaths(t *testing.T) {
 	}
 	baseAbs, _ := filepath.Abs(dir)
 
-	deleted, errs := deleteDuplicates(b, nil, s, "Downloads", baseAbs, []string{
+	deleted, errs := deleteDuplicates(context.Background(), b, nil, s, "Downloads", baseAbs, []string{
 		"../escape.txt", // ResolvePath rejects the traversal
 		"",              // resolves to the mount root itself
 		"folder",        // a directory
@@ -209,5 +211,30 @@ func TestDeleteDuplicates_RejectsBadPaths(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "dup.txt")); !os.IsNotExist(err) {
 		t.Errorf("dup.txt should have been removed, stat err=%v", err)
+	}
+}
+
+// A failed (here: cancelled) lookup of the torrents linked to a file must stop
+// the delete BEFORE it happens: reading it as "nothing linked" would remove the
+// file and leave its download rows dangling.
+func TestDeleteDuplicates_FailedLinkLookup_KeepsFile(t *testing.T) {
+	b, dir := testDedupBrowser(t)
+	s := streamer.NewForTesting()
+	dls, err := downloads.New(seededPool(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "dup.txt")
+	writeFile(t, target, []byte("x"))
+	baseAbs, _ := filepath.Abs(dir)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deleted, errs := deleteDuplicates(ctx, b, dls, s, "Downloads", baseAbs, []string{"dup.txt"})
+	if deleted != 0 || len(errs) != 1 {
+		t.Fatalf("deleted=%d errs=%v; want the delete refused", deleted, errs)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("file was deleted despite a failed link lookup: %v", err)
 	}
 }

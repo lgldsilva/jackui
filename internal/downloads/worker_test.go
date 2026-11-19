@@ -121,7 +121,7 @@ func TestWorkerNewRegistersExistingDownloads(t *testing.T) {
 	store := newTestStore(t)
 
 	// Create a download first
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID:    1,
 		InfoHash:  "testhash",
 		FileIndex: 0,
@@ -146,19 +146,19 @@ func TestWorkerNewSkipsFailedAndCompleted(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	_, _ = store.Create(Download{
+	_, _ = store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "act", FileIndex: 0, Magnet: "m", Name: "active",
 	})
 
-	failed, _ := store.Create(Download{
+	failed, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "fail", FileIndex: 0, Magnet: "m", Name: "failed",
 	})
-	_ = store.SetError(1, failed.ID, "oops")
+	_ = store.SetError(context.Background(), 1, failed.ID, "oops")
 
-	completed, _ := store.Create(Download{
+	completed, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "comp", FileIndex: 0, Magnet: "m", Name: "completed",
 	})
-	_ = store.SetStatus(1, completed.ID, StatusCompleted)
+	_ = store.SetStatus(context.Background(), 1, completed.ID, StatusCompleted)
 
 	_ = NewWorker(WorkerConfig{
 		Store:       store,
@@ -243,12 +243,12 @@ func TestWorker_FailOrRetryBelowMax(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "test", FileIndex: 0, Magnet: "m:test", Name: "test",
 	})
 	// init runs only on downloading rows — promote as the scheduler would.
-	_, _ = store.PromoteToDownloading(d.ID)
-	d, _ = store.Get(1, d.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
+	d, _ = store.Get(context.Background(), 1, d.ID)
 
 	w := NewWorker(WorkerConfig{
 		Store:    store,
@@ -271,7 +271,7 @@ func TestWorker_FailOrRetryBelowMax(t *testing.T) {
 	}
 
 	// Status should still be downloading (not failed)
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusDownloading {
 		t.Errorf("expected downloading after retry, got %q", got.Status)
 	}
@@ -281,7 +281,7 @@ func TestWorker_FailOrRetryAtMax(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "test", FileIndex: 0, Magnet: "m:test", Name: "test",
 	})
 
@@ -298,7 +298,7 @@ func TestWorker_FailOrRetryAtMax(t *testing.T) {
 
 	w.failOrRetry(context.Background(), *d, "final error")
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusFailed {
 		t.Errorf("expected failed after max retries, got %q", got.Status)
 	}
@@ -315,12 +315,12 @@ func TestWorker_FailOrRetryCancelled(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "test", FileIndex: 0, Magnet: "m:test", Name: "test",
 	})
 	// init runs only on downloading rows — promote as the scheduler would.
-	_, _ = store.PromoteToDownloading(d.ID)
-	d, _ = store.Get(1, d.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
+	d, _ = store.Get(context.Background(), 1, d.ID)
 
 	w := NewWorker(WorkerConfig{
 		Store:    store,
@@ -331,7 +331,7 @@ func TestWorker_FailOrRetryCancelled(t *testing.T) {
 	// No pending entry => cancelled
 	w.failOrRetry(context.Background(), *d, "cancelled error")
 
-	got, _ := store.Get(1, d.ID)
+	got, _ := store.Get(context.Background(), 1, d.ID)
 	if got.Status != StatusDownloading {
 		t.Errorf("expected status unchanged after cancelled retry, got %q", got.Status)
 	}
@@ -355,7 +355,7 @@ func TestWorkerReconcile_StartsInitForNewDownload(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID:    1,
 		InfoHash:  "testhash",
 		FileIndex: 0,
@@ -394,7 +394,7 @@ func TestWorkerReconcile_SkipsWhenPending(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
 	})
 
@@ -461,7 +461,7 @@ func TestWorkerStartInit_CreatesPending(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
 	})
 	if err != nil {
@@ -495,7 +495,7 @@ func TestWorkerReconcile_DetectsInactiveTorrent(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
 	})
 
@@ -526,7 +526,7 @@ func TestWorkerReconcile_SamplesProgress(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "hash", FileIndex: 0, Magnet: "m:hash", Name: "name",
 	})
 
@@ -649,7 +649,7 @@ func TestWorkerTick_CleansUpPendingRemoved(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, _ := store.Create(Download{
+	d, _ := store.Create(context.Background(), Download{
 		UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m:h", Name: "n",
 	})
 
@@ -665,7 +665,7 @@ func TestWorkerTick_CleansUpPendingRemoved(t *testing.T) {
 	w.mu.Unlock()
 
 	// Remove from store so tick cleans up pending
-	_ = store.Delete(1, d.ID)
+	_ = store.Delete(context.Background(), 1, d.ID)
 
 	// Stop joins run() after the bootstrap tick, which does the pending cleanup —
 	// deterministically complete before we assert (no sleep-and-hope).
@@ -684,7 +684,7 @@ func TestWorkerTick_CleansUpRemovedDownloads(t *testing.T) {
 	s := streamer.NewForTesting()
 	store := newTestStore(t)
 
-	d, err := store.Create(Download{
+	d, err := store.Create(context.Background(), Download{
 		UserID:    1,
 		InfoHash:  "testhash",
 		FileIndex: 0,

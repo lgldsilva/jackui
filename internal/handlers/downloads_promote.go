@@ -98,7 +98,7 @@ func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 		}
 
 		userID, _, _ := auth.UserIDFromCtx(c)
-		o := &promoteOpts{store: d.Store, s: d.Streamer, aiClient: d.AIClient, tmdbClient: d.TMDBClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: d.Tracker, pending: d.Pending, concMode: transferMode(d.Cfg)}
+		o := &promoteOpts{reqCtx: c.Request.Context(), store: d.Store, s: d.Streamer, aiClient: d.AIClient, tmdbClient: d.TMDBClient, sharedDir: base, userID: userID, id: id, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: d.Tracker, pending: d.Pending, concMode: transferMode(d.Cfg)}
 		plan, err := promotePreparePlan(o)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusBadRequest, err)
@@ -110,7 +110,7 @@ func DownloadsPromote(d PromoteDeps) gin.HandlerFunc {
 		}
 		// Optimistic return: file_path still points at the original until the copy
 		// finishes (the list reflects the destination once the dock job completes).
-		updated, _ := d.Store.Get(userID, id)
+		updated, _ := d.Store.Get(c.Request.Context(), userID, id)
 		c.JSON(http.StatusOK, updated)
 	}
 }
@@ -133,7 +133,7 @@ func DownloadsPromoteBatch(d PromoteDeps) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		promoted, failed := promoteBatchItems(&promoteOpts{store: d.Store, s: d.Streamer, aiClient: d.AIClient, tmdbClient: d.TMDBClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: d.Tracker, pending: d.Pending, concMode: transferMode(d.Cfg)}, req, d.Tracker)
+		promoted, failed := promoteBatchItems(&promoteOpts{reqCtx: c.Request.Context(), store: d.Store, s: d.Streamer, aiClient: d.AIClient, tmdbClient: d.TMDBClient, sharedDir: base, userID: userID, targetSubdir: req.TargetSubdir, keepSeeding: req.KeepSeeding, renameIA: req.RenameIA, tracker: d.Tracker, pending: d.Pending, concMode: transferMode(d.Cfg)}, req, d.Tracker)
 		c.JSON(http.StatusOK, gin.H{"promoted": promoted, "failed": failed})
 	}
 }
@@ -173,7 +173,7 @@ func promoteBatchItems(o *promoteOpts, req *promoteReq, tr *transfer.Tracker) ([
 			continue
 		}
 		if plan == nil { // already at the destination — immediate success, no copy
-			if d, _ := o.store.Get(o.userID, id); d != nil {
+			if d, _ := o.store.Get(o.readCtx(), o.userID, id); d != nil {
 				promoted = append(promoted, *d)
 			}
 			continue
@@ -222,7 +222,7 @@ func buildDownloadPreviews(d *previewDeps, ids []int) []gin.H {
 }
 
 func previewOneDownload(d *previewDeps, id int) gin.H {
-	dl, err := d.store.Get(d.userID, id)
+	dl, err := d.store.Get(d.readCtx(), d.userID, id)
 	if err != nil || dl == nil {
 		return gin.H{"id": id, httpshared.ErrorField: errDownloadNotFound}
 	}
@@ -297,6 +297,11 @@ type previewDeps struct {
 }
 
 type promoteOpts struct {
+	// reqCtx is the request ctx, used ONLY for the synchronous validation reads
+	// (a dead client may abort those). The follow-ups that run after the file is
+	// moved (SetFilePath, StopSeed) use pendingCtx() and never inherit it. Nil
+	// (tests, boot reconcile) falls back to Background.
+	reqCtx       context.Context
 	store        *downloads.Store
 	s            *streamer.Streamer
 	aiClient     *ai.Client
@@ -366,7 +371,7 @@ type promotePlan struct {
 // the handler reply right away and push the copy (slow for large files) to the
 // transfer pool, avoiding the reverse proxy's 504 on a long synchronous copy.
 func promotePreparePlan(o *promoteOpts) (*promotePlan, error) {
-	d, err := o.store.Get(o.userID, o.id)
+	d, err := o.store.Get(o.readCtx(), o.userID, o.id)
 	if err != nil || d == nil {
 		return nil, errors.New(errDownloadNotFound)
 	}
@@ -414,7 +419,7 @@ func runPromotePlan(o *promoteOpts, p *promotePlan, job *transfer.Job) error {
 	if err := lh.MovePathJob(p.src, p.dst, p.srcInfo, job, p.files, p.bytes); err != nil {
 		return errors.New("move file: " + err.Error())
 	}
-	_ = o.store.SetFilePath(o.userID, p.d.ID, p.dst)
+	_ = o.store.SetFilePath(pendingCtx(), o.userID, p.d.ID, p.dst)
 	applySeedingAfterPromote(o, p.d)
 	return nil
 }
@@ -571,7 +576,7 @@ func applySeedingAfterPromote(o *promoteOpts, d *downloads.Download) {
 		// outcome does not depend on the seed teardown.
 		_ = o.s.DropSeed(h)
 		if d.Status == downloads.StatusCompleted {
-			_ = o.store.StopSeed(d.UserID, d.ID)
+			_ = o.store.StopSeed(pendingCtx(), d.UserID, d.ID)
 		}
 		return
 	}
@@ -608,8 +613,11 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer, worker Down
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInvalidID)
 			return
 		}
+		// One detached block: Get → DropSeed (persisted, irreversible) → delete row.
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
-		d, err := store.Get(userID, id)
+		d, err := store.Get(wctx, userID, id)
 		if err != nil || d == nil {
 			httpshared.RespondErrorMessage(c, http.StatusNotFound, errDownloadNotFound)
 			return
@@ -626,7 +634,7 @@ func DownloadsStopSeed(store *downloads.Store, s *streamer.Streamer, worker Down
 		// Any status (completed, paused, …): the row leaves the list. The old
 		// status='completed' guard made the pause→stop flow have no effect at all
 		// on the listing.
-		row, err := store.DeleteScoped(userID, id, isAdmin)
+		row, err := store.DeleteScoped(wctx, userID, id, isAdmin)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -648,4 +656,21 @@ func pendingCtx() context.Context {
 	ctx, cancel := httpshared.DetachedCtx(context.Background())
 	_ = cancel // bounded by DetachedWriteTimeout; no request to release on
 	return ctx
+}
+
+// readCtx is the promote's validation-read ctx (the request's, else Background).
+func (o *promoteOpts) readCtx() context.Context {
+	if o == nil || o.reqCtx == nil {
+		return context.Background()
+	}
+	return o.reqCtx
+}
+
+// readCtx is the preview's request ctx (Background when a caller built the deps
+// without one).
+func (d *previewDeps) readCtx() context.Context {
+	if d == nil || d.ctx == nil {
+		return context.Background()
+	}
+	return d.ctx
 }

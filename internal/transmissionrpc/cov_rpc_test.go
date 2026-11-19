@@ -17,7 +17,7 @@ import (
 // mkDownload cria um download num status específico (cobre mapJackUIStatusToTR).
 func mkDownload(t *testing.T, st *downloads.Store, hash, status string) int {
 	t.Helper()
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: hash, FileIndex: -1,
 		Magnet: "magnet:?xt=urn:btih:" + hash,
 	})
@@ -25,7 +25,7 @@ func mkDownload(t *testing.T, st *downloads.Store, hash, status string) int {
 		t.Fatal(err)
 	}
 	if status != downloads.StatusDownloading {
-		_ = st.SetStatus(1, d.ID, status)
+		_ = st.SetStatus(context.Background(), 1, d.ID, status)
 	}
 	return d.ID
 }
@@ -80,7 +80,7 @@ func TestRPC_TorrentRemove(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("torrent-remove: %q", resp.Result)
 	}
-	all, _ := st.ListAll()
+	all, _ := st.ListAll(context.Background())
 	if len(all) != 0 {
 		t.Errorf("download não foi removido: %d restantes", len(all))
 	}
@@ -96,12 +96,12 @@ func TestRPC_TorrentSet_Paused(t *testing.T) {
 	id := mkDownload(t, st, strings.Repeat("a", 40), downloads.StatusDownloading)
 	// pausa
 	h.dispatch(rpcRequest{Method: "torrent-set", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "paused": true}}, sysIdent)
-	if d, _ := st.Get(1, id); d.Status != downloads.StatusPaused {
+	if d, _ := st.Get(context.Background(), 1, id); d.Status != downloads.StatusPaused {
 		t.Errorf("esperava paused, got %s", d.Status)
 	}
 	// retoma
 	h.dispatch(rpcRequest{Method: "torrent-set", Arguments: map[string]interface{}{"ids": []interface{}{float64(id)}, "paused": false}}, sysIdent)
-	if d, _ := st.Get(1, id); d.Status != downloads.StatusDownloading {
+	if d, _ := st.Get(context.Background(), 1, id); d.Status != downloads.StatusDownloading {
 		t.Errorf("esperava downloading, got %s", d.Status)
 	}
 }

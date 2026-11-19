@@ -163,7 +163,7 @@ func tryServeFromCompleted(c *gin.Context, store *downloads.Store, hashHex strin
 	if store == nil {
 		return false
 	}
-	path, err := store.GetCompletedPathRel(hashHex, fileIdx, relPath, userID)
+	path, err := store.GetCompletedPathRel(c.Request.Context(), hashHex, fileIdx, relPath, userID)
 	if err != nil || path == "" {
 		return false
 	}

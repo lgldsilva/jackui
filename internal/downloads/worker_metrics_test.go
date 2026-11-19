@@ -29,9 +29,9 @@ func moveFailures(kind string) float64 {
 // retry, and once more as failed when the retries run out.
 func TestDownloadMetrics_InitFailures(t *testing.T) {
 	store := dlwNewStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "initm", FileIndex: 0, Magnet: "m:initm", Name: "x"})
-	_, _ = store.PromoteToDownloading(d.ID)
-	d, _ = store.Get(1, d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "initm", FileIndex: 0, Magnet: "m:initm", Name: "x"})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
+	d, _ = store.Get(context.Background(), 1, d.ID)
 	w := NewWorker(WorkerConfig{Store: store, Streamer: streamer.NewForTesting(), DataDir: t.TempDir()})
 
 	retry, failed := initFailures("retry"), initFailures("failed")
@@ -55,8 +55,8 @@ func TestDownloadMetrics_InitFailures(t *testing.T) {
 // Stall detection counts every demotion and, at MaxStalls, the pause.
 func TestDownloadMetrics_StallsAndPause(t *testing.T) {
 	store := dlwNewStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "stallm", FileIndex: 0, Magnet: "m", Name: "S"})
-	_, _ = store.PromoteToDownloading(d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "stallm", FileIndex: 0, Magnet: "m", Name: "S"})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	w := newQueueWorker(t, store, QueueSettings{MaxActive: 3, StallThresholdMin: 30, MaxStalls: 2})
 	inject := func() {
 		w.mu.Lock()
@@ -68,7 +68,7 @@ func TestDownloadMetrics_StallsAndPause(t *testing.T) {
 
 	inject()
 	w.detectStalls(w.queueSettings())
-	_, _ = store.PromoteToDownloading(d.ID)
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
 	inject()
 	w.detectStalls(w.queueSettings())
 
@@ -103,14 +103,14 @@ func TestDownloadMetrics_SingleCompletionMove(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, "Ok", "f.mkv"), []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ok, _ := store.Create(Download{UserID: 1, InfoHash: "okm", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:okm", Name: "Ok", FileSize: 4})
+	ok, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "okm", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:okm", Name: "Ok", FileSize: 4})
 	before := completions(events.DownloadKindSingle)
 	w.runCompletionMove(*ok, "Ok", []string{"Ok/f.mkv"}, false, 4, w.tracker.Start("Ok", "download-move", 1, 4))
 	if got := completions(events.DownloadKindSingle) - before; got != 1 {
 		t.Errorf("completions{single} delta = %v, want 1", got)
 	}
 
-	bad, _ := store.Create(Download{UserID: 1, InfoHash: "badm", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:badm", Name: "Bad", FileSize: 4})
+	bad, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "badm", FileIndex: 0, Magnet: "magnet:?xt=urn:btih:badm", Name: "Bad", FileSize: 4})
 	beforeFail := moveFailures(events.DownloadKindSingle)
 	w.runCompletionMove(*bad, "Bad", []string{"Bad/missing.mkv"}, false, 4, w.tracker.Start("Bad", "download-move", 1, 4))
 	if got := moveFailures(events.DownloadKindSingle) - beforeFail; got != 1 {
@@ -124,8 +124,8 @@ func TestDownloadMetrics_GroupCompletionMove(t *testing.T) {
 	store := dlwNewStore(t)
 	// No destination configured: the group finalizes in place (legacy mode).
 	w := metricsMoveWorker(t, store, t.TempDir(), "")
-	a, _ := store.Create(Download{UserID: 1, InfoHash: "grpm", FileIndex: 0, Magnet: "m", Name: "G"})
-	b, _ := store.Create(Download{UserID: 1, InfoHash: "grpm", FileIndex: 1, Magnet: "m", Name: "G"})
+	a, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "grpm", FileIndex: 0, Magnet: "m", Name: "G"})
+	b, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "grpm", FileIndex: 1, Magnet: "m", Name: "G"})
 	g := Group{Key: "1|grpm", UserID: 1, Members: []Download{*a, *b}}
 	movers := []groupMover{{row: *a, relPath: "G/a.mkv", length: 1}, {row: *b, relPath: "G/b.mkv", length: 1}}
 
@@ -153,9 +153,9 @@ func TestDownloadMetrics_GroupInitFailureCountsOncePerTorrent(t *testing.T) {
 	w := NewWorker(WorkerConfig{Store: store, Streamer: streamer.NewForTesting(), DataDir: t.TempDir()})
 	var members []Download
 	for i := 0; i < 3; i++ {
-		d, _ := store.Create(Download{UserID: 1, InfoHash: "grpinit", FileIndex: i, Magnet: "m", Name: "G"})
-		_, _ = store.PromoteToDownloading(d.ID)
-		d, _ = store.Get(1, d.ID)
+		d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "grpinit", FileIndex: i, Magnet: "m", Name: "G"})
+		_, _ = store.PromoteToDownloading(context.Background(), d.ID)
+		d, _ = store.Get(context.Background(), 1, d.ID)
 		members = append(members, *d)
 	}
 	g := Group{Key: "1|grpinit", UserID: 1, Members: members}
@@ -185,9 +185,9 @@ func TestDownloadMetrics_GroupInitFailureCountsOncePerTorrent(t *testing.T) {
 // Worker.Stop cancels in-flight inits; that shutdown is not an init failure.
 func TestDownloadMetrics_CancelledInitNotCounted(t *testing.T) {
 	store := dlwNewStore(t)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "cancelinit", FileIndex: 0, Magnet: "m", Name: "c"})
-	_, _ = store.PromoteToDownloading(d.ID)
-	d, _ = store.Get(1, d.ID)
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "cancelinit", FileIndex: 0, Magnet: "m", Name: "c"})
+	_, _ = store.PromoteToDownloading(context.Background(), d.ID)
+	d, _ = store.Get(context.Background(), 1, d.ID)
 	w := NewWorker(WorkerConfig{Store: store, Streamer: streamer.NewForTesting(), DataDir: t.TempDir()})
 	w.mu.Lock()
 	w.pending[d.ID] = func() {}

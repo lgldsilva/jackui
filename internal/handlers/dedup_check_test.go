@@ -138,11 +138,11 @@ func TestPickMatch_NoCertainWhenContentDiffers(t *testing.T) {
 
 func TestAddDownloadCandidates(t *testing.T) {
 	s := dedupStore(t)
-	if _, err := s.CreateLinked(downloads.Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m"}, "/lib/a.mkv", 5000); err != nil {
+	if _, err := s.CreateLinked(context.Background(), downloads.Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m"}, "/lib/a.mkv", 5000); err != nil {
 		t.Fatal(err)
 	}
 	idx := map[int64][]catalogCand{}
-	addDownloadCandidates(idx, s, 1, map[int64]bool{5000: true})
+	addDownloadCandidates(context.Background(), idx, s, 1, map[int64]bool{5000: true})
 	if len(idx[5000]) != 1 || idx[5000][0].absPath != "/lib/a.mkv" || idx[5000][0].source != "download" {
 		t.Fatalf("download candidate not indexed: %+v", idx[5000])
 	}
@@ -195,7 +195,7 @@ func TestFindDedupMatches_EmptyWhenNoActiveTorrent(t *testing.T) {
 	// error → no match surfaces even when a same-size candidate exists.
 	s := streamer.NewForTesting()
 	st := dedupStore(t)
-	if _, err := st.CreateLinked(downloads.Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m"}, "/lib/a.mkv", 1234); err != nil {
+	if _, err := st.CreateLinked(context.Background(), downloads.Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m"}, "/lib/a.mkv", 1234); err != nil {
 		t.Fatal(err)
 	}
 	info := &streamer.TorrentInfo{InfoHash: "00", Files: []streamer.FileInfo{{Index: 0, Path: "a.mkv", Size: 1234}}}
@@ -254,7 +254,7 @@ func TestDedupLink_Endpoint(t *testing.T) {
 	if resp.Linked != 1 {
 		t.Fatalf("linked=%d errors=%v", resp.Linked, resp.Errors)
 	}
-	got, err := st.GetByKey(1, linkHashHex, 0)
+	got, err := st.GetByKey(context.Background(), 1, linkHashHex, 0)
 	if err != nil || got == nil || !got.Linked || got.Status != downloads.StatusCompleted {
 		t.Fatalf("linked row not created correctly: %+v err=%v", got, err)
 	}
@@ -348,7 +348,7 @@ func TestDedupLink_RejectsUnverifiableLinks(t *testing.T) {
 			if w.Code != http.StatusOK || resp.Linked != 0 || len(resp.Errors) != 1 {
 				t.Fatalf("status=%d linked=%d errors=%v", w.Code, resp.Linked, resp.Errors)
 			}
-			if got, _ := st.GetByKey(1, linkHashHex, tc.index); got != nil {
+			if got, _ := st.GetByKey(context.Background(), 1, linkHashHex, tc.index); got != nil {
 				t.Fatalf("unverifiable link must not create a row: %+v", got)
 			}
 		})

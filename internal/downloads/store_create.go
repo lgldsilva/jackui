@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,8 +13,8 @@ import (
 // insert logic — no duplicated SQL, and a partial failure inside a batch can roll
 // the whole thing back (all-or-nothing).
 type execer interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	QueryRow(query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // createOne runs the idempotent enqueue for a single row against `x` (a DB or a
@@ -23,7 +24,7 @@ type execer interface {
 // writes go through `x`: in a batch (x is an open Tx) the idempotency read must
 // SEE the rows inserted earlier in the SAME transaction, so it can't read off
 // s.db (a different connection that wouldn't see the uncommitted writes).
-func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, err error) {
+func (s *Store) createOne(ctx context.Context, x execer, d Download) (row *Download, inserted bool, err error) {
 	if d.InfoHash == "" || d.Magnet == "" {
 		return nil, false, errors.New("infoHash and magnet are required")
 	}
@@ -35,7 +36,7 @@ func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, e
 		priority = PriorityNormal
 	}
 	// Try to fetch existing first — idempotent enqueue.
-	existing, err := s.getByKeyWith(x, d.UserID, d.InfoHash, d.FileIndex)
+	existing, err := s.getByKeyWith(ctx, x, d.UserID, d.InfoHash, d.FileIndex)
 	if errors.Is(err, sql.ErrNoRows) {
 		existing, err = nil, nil
 	}
@@ -43,20 +44,20 @@ func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, e
 		return nil, false, err
 	}
 	if existing != nil {
-		if err := requeueExisting(x, existing, d); err != nil {
+		if err := requeueExisting(ctx, x, existing, d); err != nil {
 			return nil, false, err
 		}
 		return existing, false, nil
 	}
 	var id int64
-	err = x.QueryRow(`
+	err = x.QueryRowContext(ctx, `
 		INSERT INTO downloads(user_id, info_hash, file_index, file_path, file_size, name, magnet, tracker, category, status, priority, source, dest_base, dest_subdir, queued_since)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) RETURNING id
 	`, d.UserID, d.InfoHash, d.FileIndex, d.FilePath, d.FileSize, d.Name, d.Magnet, d.Tracker, d.Category, StatusQueued, priority, d.Source, d.DestBase, d.DestSubdir).Scan(&id)
 	if err != nil {
 		return nil, false, err
 	}
-	got, err := s.getWith(x, d.UserID, int(id))
+	got, err := s.getWith(ctx, x, d.UserID, int(id))
 	return got, true, err
 }
 
@@ -64,16 +65,16 @@ func (s *Store) createOne(x execer, d Download) (row *Download, inserted bool, e
 // (mutating `existing` in place to match): a paused/failed row goes back to the
 // queue, and the tracker/category from the new request override. The scheduler
 // honors the active limit, so a re-queue never jumps straight to downloading.
-func requeueExisting(x execer, existing *Download, d Download) error {
+func requeueExisting(ctx context.Context, x execer, existing *Download, d Download) error {
 	if existing.Status == StatusPaused || existing.Status == StatusFailed {
-		if _, err := x.Exec(`UPDATE downloads SET status=?, error='', queued_since=CURRENT_TIMESTAMP WHERE id=?`, StatusQueued, existing.ID); err != nil {
+		if _, err := x.ExecContext(ctx, `UPDATE downloads SET status=?, error='', queued_since=CURRENT_TIMESTAMP WHERE id=?`, StatusQueued, existing.ID); err != nil {
 			return err
 		}
 		existing.Status = StatusQueued
 		existing.Error = ""
 	}
 	if d.Tracker != "" || d.Category != "" {
-		if _, err := x.Exec(`UPDATE downloads SET tracker=?, category=? WHERE id=?`, d.Tracker, d.Category, existing.ID); err != nil {
+		if _, err := x.ExecContext(ctx, `UPDATE downloads SET tracker=?, category=? WHERE id=?`, d.Tracker, d.Category, existing.ID); err != nil {
 			return err
 		}
 		existing.Tracker = d.Tracker
@@ -86,8 +87,8 @@ func requeueExisting(x execer, existing *Download, d Download) error {
 // to `downloading` once a slot is free (active limit). If a row already exists
 // for the (user, info_hash, file_index) tuple, returns it unchanged — re-queueing
 // an existing download is idempotent.
-func (s *Store) Create(d Download) (*Download, error) {
-	row, _, err := s.createOne(s.db, d)
+func (s *Store) Create(ctx context.Context, d Download) (*Download, error) {
+	row, _, err := s.createOne(ctx, s.db, d)
 	return row, err
 }
 
@@ -103,17 +104,17 @@ type BatchResult struct {
 // a SINGLE transaction: either all rows land or none do. It reuses Create's
 // idempotent logic (re-queue paused/failed, dedupe on the UNIQUE key) via
 // createOne against the Tx. A failure on any row rolls the whole batch back.
-func (s *Store) BatchCreate(rows []Download) (*BatchResult, error) {
+func (s *Store) BatchCreate(ctx context.Context, rows []Download) (*BatchResult, error) {
 	if len(rows) == 0 {
 		return nil, errors.New("no rows to create")
 	}
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	res := &BatchResult{Rows: make([]*Download, 0, len(rows))}
 	for _, d := range rows {
-		created, inserted, err := s.createOne(tx, d)
+		created, inserted, err := s.createOne(ctx, tx, d)
 		if err != nil {
 			_ = tx.Rollback()
 			return nil, err
@@ -135,8 +136,8 @@ func (s *Store) BatchCreate(rows []Download) (*BatchResult, error) {
 // torrent metadata is known. FileIndex -1 means "pick the best file" — the
 // worker resolves it after GotInfo (same contract as the Transmission RPC
 // shim). Used by automation (watchlist auto-download); idempotent via Create.
-func (s *Store) EnqueueMagnet(userID int, infoHash, name, magnet, tracker string) error {
-	_, err := s.Create(Download{
+func (s *Store) EnqueueMagnet(ctx context.Context, userID int, infoHash, name, magnet, tracker string) error {
+	_, err := s.Create(ctx, Download{
 		UserID:   userID,
 		InfoHash: strings.ToLower(infoHash),
 		// FileIndex -1: best-file sentinel (see resolveFileIndex in worker.go)

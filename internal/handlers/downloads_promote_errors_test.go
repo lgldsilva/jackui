@@ -18,11 +18,11 @@ import (
 func Test_promotePrepare_EmptyFilePath(t *testing.T) {
 	store := hgAStore(t)
 	s := streamer.NewForTesting()
-	d, err := store.Create(downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "nofile"})
+	d, err := store.Create(context.Background(), downloads.Download{InfoHash: hgAValidHash, Magnet: MagnetPrefix + hgAValidHash, Name: "nofile"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = store.SetStatus(0, d.ID, downloads.StatusCompleted)
+	_ = store.SetStatus(context.Background(), 0, d.ID, downloads.StatusCompleted)
 
 	plan, err := promotePreparePlan(&promoteOpts{store: store, s: s, sharedDir: t.TempDir(), userID: 0, id: d.ID})
 	if err == nil || !strings.Contains(err.Error(), "file_path empty") {

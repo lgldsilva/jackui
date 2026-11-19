@@ -62,7 +62,7 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 		// release it either, because nothing tracks it anymore. Sibling-aware:
 		// a still-tracked row of the same torrent keeps its protection.
 		w.unregisterByName(name)
-		if e := w.store.SetError(d.UserID, d.ID, "move failed: "+err.Error()); e != nil {
+		if e := w.store.SetError(w.writeCtx(), d.UserID, d.ID, "move failed: "+err.Error()); e != nil {
 			log.Printf("downloads: failed to mark move-failed #%d: %v", d.ID, e)
 		}
 		job.Fail(err)
@@ -70,7 +70,7 @@ func (w *Worker) runCompletionMove(d Download, name string, relPaths []string, w
 		events.DownloadMoveFailed(events.DownloadKindSingle)
 		return
 	}
-	if err := w.store.SetStatus(d.UserID, d.ID, StatusCompleted); err != nil {
+	if err := w.store.SetStatus(w.writeCtx(), d.UserID, d.ID, StatusCompleted); err != nil {
 		log.Printf("downloads: failed to set status completed for download %d: %v", d.ID, err)
 	}
 	job.Done()
@@ -217,7 +217,7 @@ func (w *Worker) tryFinalizeBulk(d Download, name string, relPaths []string, who
 				continue
 			}
 		}
-		if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
+		if err := w.store.SetFilePath(w.writeCtx(), d.UserID, d.ID, dst); err != nil {
 			log.Printf(logFmtSetFilePathFailed, d.ID, err)
 		}
 		w.releaseProtection(name, parseHash(d.InfoHash), d.ID)
@@ -332,7 +332,7 @@ func (w *Worker) moveCompletedFile(d Download, relPath, torrentName string, job 
 		return "", err
 	}
 	job.FileDone()
-	if err := w.store.SetFilePath(d.UserID, d.ID, dst); err != nil {
+	if err := w.store.SetFilePath(w.writeCtx(), d.UserID, d.ID, dst); err != nil {
 		log.Printf(logFmtSetFilePathFailed, d.ID, err)
 	}
 	w.releaseProtection(torrentName, parseHash(d.InfoHash), d.ID)
@@ -362,7 +362,7 @@ func (w *Worker) moveCompletedTorrentFiles(d Download, torrentName string, relPa
 	if err := moveCompletedTree(job.Context(), w.dataDir, destDir, torrentName, relPaths, job.AddBytesFunc(), job.FileDone); err != nil {
 		return "", err
 	}
-	if err := w.store.SetFilePath(d.UserID, d.ID, destDir); err != nil {
+	if err := w.store.SetFilePath(w.writeCtx(), d.UserID, d.ID, destDir); err != nil {
 		log.Printf(logFmtSetFilePathFailed, d.ID, err)
 	}
 	w.releaseProtection(torrentName, parseHash(d.InfoHash), d.ID)
@@ -508,7 +508,7 @@ func (w *Worker) aiRenameCompleted(d Download, currentPath string) string {
 	}
 	job.FileDone()
 	job.Done()
-	if err := w.store.SetFilePath(d.UserID, d.ID, newDst); err != nil {
+	if err := w.store.SetFilePath(w.writeCtx(), d.UserID, d.ID, newDst); err != nil {
 		log.Printf("downloads: AI-rename set path #%d: %v", d.ID, err)
 		return ""
 	}

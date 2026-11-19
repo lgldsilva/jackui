@@ -280,7 +280,7 @@ func (w *Worker) sampleGroup(g Group, state groupState) {
 		}
 	}
 	w.mu.Unlock()
-	if err := w.store.UpdateProgressBatch(updates); err != nil {
+	if err := w.store.UpdateProgressBatch(w.writeCtx(), updates); err != nil {
 		log.Printf("downloads: batch progress for group %s: %v", g.Key, err)
 	}
 }

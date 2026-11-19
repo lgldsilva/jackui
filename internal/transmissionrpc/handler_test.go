@@ -2,6 +2,7 @@ package transmissionrpc
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -232,7 +233,7 @@ func TestTorrentAdd_SetsUserID(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("torrent-add falhou: %q", resp.Result)
 	}
-	all, err := st.ListAll()
+	all, err := st.ListAll(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +255,7 @@ func TestTorrentAdd_CreatesWholeTorrent(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("torrent-add falhou: %q", resp.Result)
 	}
-	all, err := st.ListAll()
+	all, err := st.ListAll(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +275,7 @@ func TestTorrentAdd_CreatesWholeTorrent(t *testing.T) {
 func TestTorrentSet_Labels_UpdatesCategory(t *testing.T) {
 	st := newTestStore(t)
 	hash := strings.Repeat("b", 40)
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 3, InfoHash: hash, FileIndex: -1,
 		Magnet: "magnet:?xt=urn:btih:" + hash,
 	})
@@ -289,7 +290,7 @@ func TestTorrentSet_Labels_UpdatesCategory(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("torrent-set: %q", resp.Result)
 	}
-	got, err := st.Get(3, d.ID)
+	got, err := st.Get(context.Background(), 3, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,14 +472,14 @@ func TestTorrentStart_ChangesStatus(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("c", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("c", 40),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = st.SetStatus(1, d.ID, downloads.StatusPaused)
+	_ = st.SetStatus(context.Background(), 1, d.ID, downloads.StatusPaused)
 
 	resp := h.methodTorrentStart(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
@@ -486,7 +487,7 @@ func TestTorrentStart_ChangesStatus(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
-	got, err := st.Get(1, d.ID)
+	got, err := st.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +502,7 @@ func TestTorrentStop_ChangesStatus(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("d", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("d", 40),
 	})
@@ -515,7 +516,7 @@ func TestTorrentStop_ChangesStatus(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
-	got, err := st.Get(1, d.ID)
+	got, err := st.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,20 +530,20 @@ func TestTorrentStartNow_SameAsStart(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("e", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("e", 40),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = st.SetStatus(1, d.ID, downloads.StatusPaused)
+	_ = st.SetStatus(context.Background(), 1, d.ID, downloads.StatusPaused)
 
 	_ = h.methodTorrentStartNow(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
 	}, sysIdent)
 
-	got, err := st.Get(1, d.ID)
+	got, err := st.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,14 +557,14 @@ func TestTorrentStart_OmitsCompleted(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("f", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("f", 40),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = st.SetStatus(1, d.ID, downloads.StatusCompleted)
+	_ = st.SetStatus(context.Background(), 1, d.ID, downloads.StatusCompleted)
 
 	resp := h.methodTorrentStart(map[string]interface{}{
 		"ids": []interface{}{float64(d.ID)},
@@ -571,7 +572,7 @@ func TestTorrentStart_OmitsCompleted(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
-	got, err := st.Get(1, d.ID)
+	got, err := st.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,19 +586,19 @@ func TestTorrentStart_AllWhenNoIDs(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	_, _ = st.Create(downloads.Download{
+	_, _ = st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("g", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("g", 40),
 	})
-	d2, _ := st.Create(downloads.Download{
+	d2, _ := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("h", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("h", 40),
 	})
-	_ = st.SetStatus(1, d2.ID, downloads.StatusPaused)
+	_ = st.SetStatus(context.Background(), 1, d2.ID, downloads.StatusPaused)
 
 	_ = h.methodTorrentStart(nil, sysIdent)
 
-	all, _ := st.ListAll()
+	all, _ := st.ListAll(context.Background())
 	paused := 0
 	for _, d := range all {
 		if d.Status == downloads.StatusPaused {
@@ -730,11 +731,11 @@ func TestForEachDownload_WithStore(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	_, _ = st.Create(downloads.Download{
+	_, _ = st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("i", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("i", 40),
 	})
-	_, _ = st.Create(downloads.Download{
+	_, _ = st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("j", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("j", 40),
 	})
@@ -1088,7 +1089,7 @@ func TestTorrentSet_TrackerListOld(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("k", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("k", 40),
 	})
@@ -1505,7 +1506,7 @@ func TestTorrentRemove_DeleteLocalData_NoStreamer(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("z", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("z", 40),
 	})
@@ -1520,7 +1521,7 @@ func TestTorrentRemove_DeleteLocalData_NoStreamer(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
-	all, _ := st.ListAll()
+	all, _ := st.ListAll(context.Background())
 	if len(all) != 0 {
 		t.Errorf("expected 0 downloads after remove, got %d", len(all))
 	}
@@ -1531,7 +1532,7 @@ func TestTorrentRemove_DeleteLocalData_False(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("y", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("y", 40),
 	})
@@ -1545,7 +1546,7 @@ func TestTorrentRemove_DeleteLocalData_False(t *testing.T) {
 	if resp.Result != "success" {
 		t.Fatalf("expected success, got %q", resp.Result)
 	}
-	all, _ := st.ListAll()
+	all, _ := st.ListAll(context.Background())
 	if len(all) != 0 {
 		t.Errorf("expected 0 downloads, got %d", len(all))
 	}
@@ -1558,7 +1559,7 @@ func TestTorrentSetLocation_WithPath(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("w", 40),
 		FileIndex: -1, Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("w", 40),
 	})
@@ -1574,7 +1575,7 @@ func TestTorrentSetLocation_WithPath(t *testing.T) {
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
-	got, err := st.Get(1, d.ID)
+	got, err := st.Get(context.Background(), 1, d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1590,7 +1591,7 @@ func TestTorrentSetLocation_RejectsTraversal(t *testing.T) {
 	h := NewHandler(st, nil, nil, "/data", "/data", "", nil)
 	gin.SetMode(gin.ReleaseMode)
 
-	d, err := st.Create(downloads.Download{
+	d, err := st.Create(context.Background(), downloads.Download{
 		UserID: 1, InfoHash: strings.Repeat("x", 40),
 		FileIndex: -1, FilePath: "/data/orig",
 		Magnet: "magnet:?xt=urn:btih:" + strings.Repeat("x", 40),
@@ -1607,7 +1608,7 @@ func TestTorrentSetLocation_RejectsTraversal(t *testing.T) {
 			t.Errorf("location %q deveria ser rejeitada (fora do downloadDir)", loc)
 		}
 	}
-	got, _ := st.Get(1, d.ID)
+	got, _ := st.Get(context.Background(), 1, d.ID)
 	if got.FilePath != "/data/orig" {
 		t.Errorf("file_path foi alterado por path traversal: %q", got.FilePath)
 	}
@@ -1746,7 +1747,7 @@ func TestTorrentAdd_PeerLimitAndPriority(t *testing.T) {
 	if resp.Result != "success" {
 		t.Errorf("expected success, got %q", resp.Result)
 	}
-	all, err := st.ListAll()
+	all, err := st.ListAll(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

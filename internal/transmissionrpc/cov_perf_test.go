@@ -1,6 +1,7 @@
 package transmissionrpc
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -137,7 +138,7 @@ func TestTorrentSet_AcceptsAllArgs(t *testing.T) {
 		t.Fatalf("torrent-set: %q", resp.Result)
 	}
 	// paused=true aplicou no store (observável)
-	got, err := st.Get(1, id)
+	got, err := st.Get(context.Background(), 1, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,17 +342,17 @@ func TestMethodTorrentStartStop(t *testing.T) {
 	if r := h.methodTorrentStop(ids, sysIdent); r.Result != "success" {
 		t.Fatalf("stop: %q", r.Result)
 	}
-	if got, _ := st.Get(1, dl); got.Status != downloads.StatusPaused {
+	if got, _ := st.Get(context.Background(), 1, dl); got.Status != downloads.StatusPaused {
 		t.Errorf("dl status = %q, want paused", got.Status)
 	}
-	if got, _ := st.Get(1, done); got.Status != downloads.StatusCompleted {
+	if got, _ := st.Get(context.Background(), 1, done); got.Status != downloads.StatusCompleted {
 		t.Errorf("completed deveria ser pulado, status = %q", got.Status)
 	}
 	if r := h.methodTorrentStart(ids, sysIdent); r.Result != "success" {
 		t.Fatalf("start: %q", r.Result)
 	}
 	// torrent-start re-queues; scheduler promotes later (active limit).
-	if got, _ := st.Get(1, dl); got.Status != downloads.StatusQueued {
+	if got, _ := st.Get(context.Background(), 1, dl); got.Status != downloads.StatusQueued {
 		t.Errorf("dl status após start = %q, want queued", got.Status)
 	}
 }

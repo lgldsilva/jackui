@@ -1,6 +1,7 @@
 package downloads
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -153,7 +154,7 @@ func TestCleanDestSubdir(t *testing.T) {
 func TestFinalizeBulkCompletion_SingleFile(t *testing.T) {
 	dl := t.TempDir()
 	w, store := newBulkWorker(t, dl, "", false)
-	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +174,7 @@ func TestFinalizeBulkCompletion_SingleFile(t *testing.T) {
 	if got != want {
 		t.Errorf("dst = %q, want %q", got, want)
 	}
-	row, _ := store.Get(1, d.ID)
+	row, _ := store.Get(context.Background(), 1, d.ID)
 	if row.FilePath != want {
 		t.Errorf("file_path = %q, want %q", row.FilePath, want)
 	}
@@ -184,10 +185,10 @@ func TestFinalizeBulkCompletion_SingleFile(t *testing.T) {
 func TestFinalizeBulk_PrefersFrozenCompletionDest(t *testing.T) {
 	dl := t.TempDir()
 	w, store := newBulkWorker(t, dl, "", false)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv", Category: "Movies"})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv", Category: "Movies"})
 	// Freeze a dir that differs from the current completionDest (category drift).
 	frozen := filepath.Join(dl, "frozen", "Movie.mkv")
-	if err := store.SetCompletionDest(1, d.ID, frozen); err != nil {
+	if err := store.SetCompletionDest(context.Background(), 1, d.ID, frozen); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(frozen, 0o755); err != nil {
@@ -197,7 +198,7 @@ func TestFinalizeBulk_PrefersFrozenCompletionDest(t *testing.T) {
 	if err := os.WriteFile(want, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	row, _ := store.Get(1, d.ID) // re-load so CompletionDest is populated
+	row, _ := store.Get(context.Background(), 1, d.ID) // re-load so CompletionDest is populated
 	got, ok := w.tryFinalizeBulk(*row, "Movie.mkv", []string{"Movie.mkv"}, false)
 	if !ok || got != want {
 		t.Fatalf("frozen dest not preferred: ok=%v got=%q want=%q", ok, got, want)
@@ -211,7 +212,7 @@ func TestFinalizeBulk_PrefersFrozenCompletionDest(t *testing.T) {
 func TestFinalizeBulk_FallbackCategoryLessForWedgedRow(t *testing.T) {
 	dl := t.TempDir()
 	w, store := newBulkWorker(t, dl, "", false)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv", Category: "Movies"})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Movie.mkv", Category: "Movies"})
 	legacy := filepath.Join(dl, "alice", "Movie.mkv") // no "Movies" segment
 	if err := os.MkdirAll(legacy, 0o755); err != nil {
 		t.Fatal(err)
@@ -233,7 +234,7 @@ func TestFinalizeBulk_FallbackCategoryLessForWedgedRow(t *testing.T) {
 func TestFinalizeBulkCompletion_SelectedFileInMulti(t *testing.T) {
 	dl := t.TempDir()
 	w, store := newBulkWorker(t, dl, "", false)
-	d, err := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 2, Magnet: "m", Name: "Pack"})
+	d, err := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 2, Magnet: "m", Name: "Pack"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestFinalizeBulkCompletion_SelectedFileInMulti(t *testing.T) {
 func TestFinalizeBulkCompletion_WholeTorrent(t *testing.T) {
 	dl := t.TempDir()
 	w, store := newBulkWorker(t, dl, "", false)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: -2, Magnet: "m", Name: "Pack"})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: -2, Magnet: "m", Name: "Pack"})
 	destDir := filepath.Join(dl, "alice", "Pack")
 	if err := os.MkdirAll(filepath.Join(destDir, "S01"), 0o755); err != nil {
 		t.Fatal(err)
@@ -277,7 +278,7 @@ func TestFinalizeBulkCompletion_WholeTorrent(t *testing.T) {
 func TestFinalizeBulkCompletion_MissingErrors(t *testing.T) {
 	dl := t.TempDir()
 	w, store := newBulkWorker(t, dl, "", false)
-	d, _ := store.Create(Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Gone.mkv"})
+	d, _ := store.Create(context.Background(), Download{UserID: 1, InfoHash: "h", FileIndex: 0, Magnet: "m", Name: "Gone.mkv"})
 	if _, ok := w.tryFinalizeBulk(*d, "Gone.mkv", []string{"Gone.mkv"}, false); ok {
 		t.Error("expected ok=false when the bulk file is missing (falls back to move)")
 	}

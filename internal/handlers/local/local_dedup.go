@@ -222,7 +222,7 @@ func LocalDuplicatesDelete(b *lb.Browser, dls *downloads.Store, s *streamer.Stre
 			httpshared.RespondError(c, http.StatusBadRequest, err)
 			return
 		}
-		deleted, errs := deleteDuplicates(b, dls, s, req.Mount, baseAbs, visible)
+		deleted, errs := deleteDuplicates(c.Request.Context(), b, dls, s, req.Mount, baseAbs, visible)
 		c.JSON(http.StatusOK, gin.H{"deleted": deleted, "errors": errs})
 	}
 }
@@ -253,7 +253,7 @@ func filterVisibleDedupPaths(c *gin.Context, s *streamer.Streamer, mount string,
 	return out
 }
 
-func deleteDuplicates(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer, mount, baseAbs string, paths []string) (int, []string) {
+func deleteDuplicates(ctx context.Context, b *lb.Browser, dls *downloads.Store, s *streamer.Streamer, mount, baseAbs string, paths []string) (int, []string) {
 	deleted := 0
 	errs := []string{}
 	for _, p := range paths {
@@ -269,7 +269,12 @@ func deleteDuplicates(b *lb.Browser, dls *downloads.Store, s *streamer.Streamer,
 		}
 		var linked []downloads.Download
 		if dls != nil {
-			linked, _ = dls.FindByPathPrefix(abs)
+			var lerr error
+			if linked, lerr = dls.FindByPathPrefix(ctx, abs); lerr != nil {
+				// Never delete on a failed lookup (it would orphan the rows).
+				errs = append(errs, p+": "+lerr.Error())
+				continue
+			}
 		}
 		if rmErr := os.Remove(abs); rmErr != nil {
 			errs = append(errs, p+": "+rmErr.Error())

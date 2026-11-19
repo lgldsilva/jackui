@@ -117,11 +117,11 @@ func (w *Worker) applyFilePriorities(ctx context.Context, g Group, hash metainfo
 // its completion destination (mirrors initDownload's persistence for one row).
 func (w *Worker) persistMemberMetadata(d Download, t *torrent.Torrent, f *torrent.File, name string) {
 	filePath, fileSize := w.initFilePath(d, t, f, name)
-	if err := w.store.UpdateMetadata(d.UserID, d.ID, name, filePath, fileSize); err != nil {
+	if err := w.store.UpdateMetadata(w.writeCtx(), d.UserID, d.ID, name, filePath, fileSize); err != nil {
 		log.Printf("downloads: update metadata #%d: %v", d.ID, err)
 	}
 	if dest := w.completionDest(d, name); dest != "" {
-		if err := w.store.SetCompletionDest(d.UserID, d.ID, dest); err != nil {
+		if err := w.store.SetCompletionDest(w.writeCtx(), d.UserID, d.ID, dest); err != nil {
 			log.Printf("downloads: set completion_dest #%d: %v", d.ID, err)
 		}
 	}
@@ -182,7 +182,7 @@ func (w *Worker) trackMember(d Download, t *torrent.Torrent, f *torrent.File, wh
 	delete(w.retries, d.ID)
 	w.mu.Unlock()
 	if b, _, _ := td.progress(); b > 0 {
-		if err := w.store.UpdateProgress(d.UserID, d.ID, b); err != nil {
+		if err := w.store.UpdateProgress(w.writeCtx(), d.UserID, d.ID, b); err != nil {
 			log.Printf("downloads: initial progress #%d: %v", d.ID, err)
 		}
 	}
