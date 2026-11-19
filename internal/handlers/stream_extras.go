@@ -9,13 +9,35 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/lgldsilva/jackui/internal/clientcaps"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 	"github.com/lgldsilva/jackui/internal/subtitles"
 )
 
+// streamProbeResponse is the probe body: the ffprobe facts, plus — when the
+// client passed ?caps= (issue #201) — the caps-aware play decision.
+type streamProbeResponse struct {
+	streamer.ProbeResult
+	PlayMethod string `json:"playMethod,omitempty"` // direct | transcode
+	Reason     string `json:"reason,omitempty"`     // first blocking dimension when transcode
+}
+
+// streamProbeResponseFor applies the caps query: blank/absent keeps the
+// legacy body (no playMethod member at all, so old clients see no diff).
+func streamProbeResponseFor(probe streamer.ProbeResult, capsQuery string) streamProbeResponse {
+	if strings.TrimSpace(capsQuery) == "" {
+		return streamProbeResponse{ProbeResult: probe}
+	}
+	method, reason := clientcaps.Decide(probe.Container, probe.VideoCodec, probe.AudioCodec, clientcaps.Parse(capsQuery))
+	return streamProbeResponse{ProbeResult: probe, PlayMethod: method, Reason: reason}
+}
+
 // StreamProbe handles GET /api/stream/probe/:hash/:file — runs ffprobe on the
-// selected file and returns codec/resolution/duration metadata.
+// selected file and returns codec/resolution/duration metadata. Native
+// clients (issue #201) pass ?caps=<comma-separated codecs/containers they can
+// direct-play> to also receive playMethod=direct|transcode + reason instead
+// of having to re-implement the browser whitelist.
 func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, ok := bindHash(c)
@@ -34,7 +56,7 @@ func StreamProbe(s *streamer.Streamer) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusBadGateway, err)
 			return
 		}
-		c.JSON(http.StatusOK, probe)
+		c.JSON(http.StatusOK, streamProbeResponseFor(probe, c.Query("caps")))
 	}
 }
 
