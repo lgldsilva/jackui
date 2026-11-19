@@ -115,6 +115,9 @@ func (s *Store) DisableTOTP(ctx context.Context, userID int) error {
 	return tx.Commit()
 }
 
+// randomCode is a seam so tests can fail the code-minting step.
+var randomCode = randomFromAlphabet
+
 // GenerateBackupCodes replaces a user's backup codes with n fresh ones and
 // returns the PLAINTEXT (formatted "xxxx-xxxx") — shown once, never recoverable.
 func (s *Store) GenerateBackupCodes(ctx context.Context, userID, n int) ([]string, error) {
@@ -123,26 +126,55 @@ func (s *Store) GenerateBackupCodes(ctx context.Context, userID, n int) ([]strin
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, "DELETE FROM mfa_backup_codes WHERE user_id = ?", userID); err != nil {
+	out, err := replaceBackupCodes(ctx, tx, userID, n)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// EnableTOTPWithBackupCodes turns MFA on and mints the recovery codes in ONE
+// transaction: both apply or neither does, so a failure while minting codes can
+// never leave MFA enabled with nothing to recover with.
+func (s *Store) EnableTOTPWithBackupCodes(ctx context.Context, userID, n int) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET totp_enabled = 1 WHERE id = ?", userID); err != nil {
+		return nil, err
+	}
+	out, err := replaceBackupCodes(ctx, tx, userID, n)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func replaceBackupCodes(ctx context.Context, q dbQuerier, userID, n int) ([]string, error) {
+	if _, err := q.ExecContext(ctx, "DELETE FROM mfa_backup_codes WHERE user_id = ?", userID); err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, n)
 	for i := 0; i < n; i++ {
-		raw, err := randomFromAlphabet(8, backupCodeAlphabet)
+		raw, err := randomCode(8, backupCodeAlphabet)
 		if err != nil {
 			return nil, err
 		}
-		formatted := raw[:4] + "-" + raw[4:]
-		if _, err := tx.ExecContext(ctx,
+		if _, err := q.ExecContext(ctx,
 			"INSERT INTO mfa_backup_codes(code_hash, user_id) VALUES(?, ?)",
 			sha256Hex(normalizeBackupCode(raw)), userID,
 		); err != nil {
 			return nil, err
 		}
-		out = append(out, formatted)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
+		out = append(out, raw[:4]+"-"+raw[4:])
 	}
 	return out, nil
 }

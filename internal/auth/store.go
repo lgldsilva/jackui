@@ -153,13 +153,17 @@ func (s *Store) CreateUserFull(ctx context.Context, username, email, password st
 	if err != nil {
 		return 0, fmt.Errorf(errHashPassword, err)
 	}
+	return insertUserFull(ctx, s.db, username, email, string(hash), role, status)
+}
+
+func insertUserFull(ctx context.Context, q dbQuerier, username, email, hash string, role Role, status Status) (int, error) {
 	if role != RoleAdmin && role != RoleUser && role != RoleGuest {
 		role = RoleUser
 	}
 	var id int64
-	err = s.db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		"INSERT INTO users(username, email, password_hash, role, status, email_verified) VALUES(?, ?, ?, ?, ?, 0) RETURNING id",
-		username, email, string(hash), string(role), string(status),
+		username, email, hash, string(role), string(status),
 	).Scan(&id)
 	if err != nil {
 		return 0, err
@@ -198,11 +202,15 @@ func (s *Store) SetNtfyTopic(ctx context.Context, userID int, topic string) erro
 // confirmation link). Optionally promotes the account to a new status (an
 // invited user becomes active on confirmation).
 func (s *Store) SetEmailVerified(ctx context.Context, userID int, promoteTo Status) error {
+	return setEmailVerified(ctx, s.db, userID, promoteTo)
+}
+
+func setEmailVerified(ctx context.Context, q dbQuerier, userID int, promoteTo Status) error {
 	if promoteTo != "" {
-		_, err := s.db.ExecContext(ctx, "UPDATE users SET email_verified = 1, status = ? WHERE id = ?", string(promoteTo), userID)
+		_, err := q.ExecContext(ctx, "UPDATE users SET email_verified = 1, status = ? WHERE id = ?", string(promoteTo), userID)
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, "UPDATE users SET email_verified = 1 WHERE id = ?", userID)
+	_, err := q.ExecContext(ctx, "UPDATE users SET email_verified = 1 WHERE id = ?", userID)
 	return err
 }
 

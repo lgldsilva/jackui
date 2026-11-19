@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
@@ -128,7 +131,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 			return
 		}
 		// Persist the advanced sign counter (clone-detection state).
-		_ = store.UpdateCredential(c.Request.Context(), cred)
+		persistCredential(c.Request.Context(), store, cred)
 
 		access, exp, err := tm.SignAccess(user)
 		if err != nil {
@@ -179,5 +182,16 @@ func PasskeyDelete(store *auth.Store) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "passkey removida"})
+	}
+}
+
+// persistCredential stores the advanced sign counter (clone detection). It is
+// detached from the request: FinishLogin already accepted the assertion, so a
+// client that drops now must not skip the counter advance.
+func persistCredential(parent context.Context, store *auth.Store, cred *webauthn.Credential) {
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
+	if err := store.UpdateCredential(ctx, cred); err != nil {
+		log.Printf("auth: passkey sign-counter update failed: %v", err)
 	}
 }

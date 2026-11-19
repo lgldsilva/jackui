@@ -42,12 +42,23 @@ func (s *Store) CreateToken(ctx context.Context, purpose string, userID int, ema
 // ConsumeToken validates a token for the given purpose (exists, right purpose,
 // not used, not expired) and marks it used (single-use). Returns its payload.
 func (s *Store) ConsumeToken(ctx context.Context, plain, purpose string) (*TokenInfo, error) {
+	return consumeToken(ctx, s.db, plain, purpose)
+}
+
+// dbQuerier is the subset of *sql.DB / *sql.Tx the shared helpers need, so the
+// same statement runs standalone or inside a caller's transaction.
+type dbQuerier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func consumeToken(ctx context.Context, q dbQuerier, plain, purpose string) (*TokenInfo, error) {
 	hash := sha256Hex(plain)
 	var uid sql.NullInt64
 	var email string
 	var exp time.Time
 	var used sql.NullTime
-	err := s.db.QueryRowContext(ctx,
+	err := q.QueryRowContext(ctx,
 		`SELECT user_id, email, expires_at, used_at FROM auth_tokens WHERE token_hash = ? AND purpose = ?`,
 		hash, purpose,
 	).Scan(&uid, &email, &exp, &used)
@@ -68,7 +79,7 @@ func (s *Store) ConsumeToken(ctx context.Context, plain, purpose string) (*Token
 	// on one statement and only the winner's RowsAffected is 1 (the same
 	// pattern as ConsumeBackupCode). A plain unconditional UPDATE here let both
 	// racers succeed — the SELECTs above had both seen the row as unused.
-	res, err := s.db.ExecContext(ctx,
+	res, err := q.ExecContext(ctx,
 		`UPDATE auth_tokens SET used_at = CURRENT_TIMESTAMP WHERE token_hash = ? AND used_at IS NULL`,
 		hash,
 	)

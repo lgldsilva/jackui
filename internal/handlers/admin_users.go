@@ -177,7 +177,7 @@ func ChangeEmail(store *auth.Store, mlr *mailer.Mailer, cfgBaseURL string) gin.H
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		sendVerifyEmail(store, mlr, c, cfgBaseURL, claims.UserID, email)
+		sendVerifyEmail(c.Request.Context(), store, mlr, c, cfgBaseURL, claims.UserID, email)
 		c.JSON(http.StatusOK, gin.H{"message": "email updated — confirm it via the sent link"})
 	}
 }

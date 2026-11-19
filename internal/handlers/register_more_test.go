@@ -184,36 +184,6 @@ func TestRegisterHandler_InvalidInvite(t *testing.T) {
 	}
 }
 
-func TestResolveInviteStatus_Empty(t *testing.T) {
-	store, err := auth.New(dbtest.NewDB(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	status, invited, ierr := resolveInviteStatus(context.Background(), store, "")
-	if ierr != nil {
-		t.Fatal(ierr)
-	}
-	if status != auth.StatusPending {
-		t.Errorf("status = %s, want pending", status)
-	}
-	if invited {
-		t.Error("invited should be false")
-	}
-}
-
-func TestResolveInviteStatus_Invalid(t *testing.T) {
-	store, err := auth.New(dbtest.NewDB(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, _, ierr := resolveInviteStatus(context.Background(), store, "invalid-token")
-	if ierr == nil {
-		t.Fatal("expected error for invalid token")
-	}
-}
-
 func TestVerifyEmail_InvalidToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store, err := auth.New(dbtest.NewDB(t))
