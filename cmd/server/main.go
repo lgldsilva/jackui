@@ -249,9 +249,10 @@ func main() {
 	// made explicit). IdleTimeout recycles keep-alive connections gone silent.
 	// ReadTimeout/WriteTimeout deliberately stay 0: media streaming, SSE and
 	// long transcode responses legitimately run for minutes.
+	// WithAPIv1Alias serves the /api/v1 prefix native clients pin (issue #201).
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           router,
+		Handler:           WithAPIv1Alias(router),
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		MaxHeaderBytes:    1 << 20,

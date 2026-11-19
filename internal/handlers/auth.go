@@ -80,7 +80,7 @@ func respondIfLocked(c *gin.Context, lockout *auth.Lockout, username string) boo
 		return false
 	}
 	c.Header("Retry-After", strconv.Itoa(int(rem.Seconds())+1))
-	httpshared.RespondErrorMessage(c, http.StatusTooManyRequests, "muitas tentativas — tente novamente em "+rem.Round(time.Second).String())
+	httpshared.RespondErrorMessage(c, http.StatusTooManyRequests, "too many attempts — retry in "+rem.Round(time.Second).String())
 	return true
 }
 
@@ -184,7 +184,7 @@ func refreshOutcomeOK(ctx context.Context, c *gin.Context, store *auth.Store, us
 	// Disabled/pending accounts must not keep renewing access.
 	if user.Status != auth.StatusActive && user.Status != "" {
 		_ = store.RevokeAllSessions(ctx, user.ID)
-		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "conta inativa", gin.H{"status": string(user.Status)})
+		httpshared.RespondErrorMessageFields(c, http.StatusForbidden, "account inactive", gin.H{"status": string(user.Status)})
 		return false
 	}
 	return true
