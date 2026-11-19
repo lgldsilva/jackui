@@ -310,7 +310,7 @@ func SearchSSE(client *jackett.Client, store *history.Store, favs *streamer.Favo
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
 		opts := parseDualOpts(c)
-		enricher := buildEnricher(favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
+		enricher := buildEnricher(c.Request.Context(), favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
 
 		cachedSeen, cachedCount := emitCachedResults(c, store, query, userID, includeAll, indexers, enricher, opts)
 		writeSSE(c, "progress", gin.H{"phase": "live", "cached": cachedCount})

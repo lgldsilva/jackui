@@ -43,14 +43,14 @@ func hiddenIdentityEnv(t *testing.T, favHash, libHash string) (*library.Store, *
 	s.SetFavorites(fav)
 
 	const uid = 7
-	folder, err := fav.CreateFolder(uid, "Vault", nil, true)
+	folder, err := fav.CreateFolder(context.Background(), uid, "Vault", nil, true)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
-	if err := fav.Add(favName, favHash, "", "manual", uid); err != nil {
+	if err := fav.Add(context.Background(), favName, favHash, "", "manual", uid); err != nil {
 		t.Fatalf("fav.Add: %v", err)
 	}
-	if err := fav.MoveFavoriteToFolder(uid, favName, &folder.ID); err != nil {
+	if err := fav.MoveFavoriteToFolder(context.Background(), uid, favName, &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 	// The watched rows: same title, different hash (the release the user ended
@@ -254,7 +254,7 @@ func TestStreamFavorite_NormalizesInfoHash(t *testing.T) {
 		t.Fatalf("garbage hash POST: status = %d, body %s", w.Code, w.Body.String())
 	}
 
-	favs, err := fav.List(3, false, true)
+	favs, err := fav.List(context.Background(), 3, false, true)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -280,22 +280,22 @@ func TestBuildEnricher_SubtractsHiddenFavorites(t *testing.T) {
 	}
 	t.Cleanup(func() { fav.Close() })
 	const h = "abcdef0123456789abcdef0123456789abcdef01"
-	if err := fav.Add("Hidden Heart", h, "", "manual", 5); err != nil {
+	if err := fav.Add(context.Background(), "Hidden Heart", h, "", "manual", 5); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	folder, err := fav.CreateFolder(5, "Vault", nil, true)
+	folder, err := fav.CreateFolder(context.Background(), 5, "Vault", nil, true)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
-	if err := fav.MoveFavoriteToFolder(5, "Hidden Heart", &folder.ID); err != nil {
+	if err := fav.MoveFavoriteToFolder(context.Background(), 5, "Hidden Heart", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
 
-	closed := buildEnricher(fav, nil, 5, false, false)
+	closed := buildEnricher(context.Background(), fav, nil, 5, false, false)
 	if closed.favHashes[h] {
 		t.Error("curtain closed: hidden favourite must not flag isFavorited")
 	}
-	open := buildEnricher(fav, nil, 5, false, true)
+	open := buildEnricher(context.Background(), fav, nil, 5, false, true)
 	if !open.favHashes[h] {
 		t.Error("curtain open: favourite should flag isFavorited again")
 	}

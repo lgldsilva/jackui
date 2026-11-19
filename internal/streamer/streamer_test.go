@@ -499,7 +499,7 @@ func TestClearAll_WithFavorites(t *testing.T) {
 	s := NewForTesting()
 	s.cfg.DataDir = t.TempDir()
 	fav := newTestFavorites(t)
-	fav.Add("fav-entry", "hash", "magnet", "manual", 1)
+	fav.Add(context.Background(), "fav-entry", "hash", "magnet", "manual", 1)
 	s.SetFavorites(fav)
 
 	favDir := filepath.Join(s.cfg.DataDir, "fav-entry")
@@ -544,7 +544,7 @@ func TestClearEntry_Favorited(t *testing.T) {
 	s := NewForTesting()
 	s.cfg.DataDir = t.TempDir()
 	fav := newTestFavorites(t)
-	fav.Add("fav-item", "hash", "magnet", "manual", 1)
+	fav.Add(context.Background(), "fav-item", "hash", "magnet", "manual", 1)
 	s.SetFavorites(fav)
 
 	err := s.ClearEntry("fav-item")

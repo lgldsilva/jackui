@@ -44,9 +44,9 @@ func StreamArt(s *streamer.Streamer) gin.HandlerFunc {
 			c.Status(http.StatusNoContent)
 			return
 		}
-		art := cache.GetArt(h.HexString())
+		art := cache.GetArt(c.Request.Context(), h.HexString())
 		if art == nil {
-			c.Status(http.StatusNoContent)
+			respondNoArt(c)
 			return
 		}
 		if art.Source == "tmdb" && art.PosterURL != "" {
@@ -214,6 +214,15 @@ func resolveArtBatchOne(rctx context.Context, env *artResolver, h metainfo.Hash,
 	return gin.H{"resolved": false}
 }
 
+// respondNoArt answers "no art": 204, or a bodiless 499 when the read that found
+// nothing was really a cancelled one (the client is gone).
+func respondNoArt(c *gin.Context) {
+	if httpshared.AbortIfClientGone(c, c.Request.Context().Err()) {
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // artCaptureResponder records the last JSON/Status written by the resolve chain.
 type artCaptureResponder struct {
 	Code int
@@ -244,7 +253,13 @@ func runArtResolve(
 	nameOverride string,
 ) {
 	hash := h.HexString()
-	existing := env.cache.GetArt(hash)
+	existing := env.cache.GetArt(rctx, hash)
+	if rctx.Err() != nil {
+		// The read above may have been cut short: do not mistake that for "no art
+		// yet" and run a chain whose results would be persisted over the real one.
+		resp.Status(http.StatusNoContent)
+		return
+	}
 	existingRank := 0
 	if existing != nil {
 		existingRank = streamer.ArtSourceRank(existing.Source)
@@ -253,7 +268,7 @@ func runArtResolve(
 		resp.JSON(http.StatusOK, gin.H{"source": existing.Source, "reused": true})
 		return
 	}
-	if env.cache.ArtNegativeFresh(hash, artNegativeTTL) {
+	if env.cache.ArtNegativeFresh(rctx, hash, artNegativeTTL) {
 		resp.Status(http.StatusNoContent)
 		return
 	}
@@ -299,12 +314,12 @@ func runArtResolve(
 		resp.Status(http.StatusNoContent)
 		return
 	}
-	_ = env.cache.SetArt(hash, &streamer.CachedArt{Source: streamer.ArtSourceNone})
+	persistArt(ctx, env.cache, hash, &streamer.CachedArt{Source: streamer.ArtSourceNone})
 	resp.Status(http.StatusNoContent)
 }
 
 func buildArtQuery(a *artResolveCtx) {
-	if meta := a.cache.Get(a.hash); meta != nil {
+	if meta := a.cache.Get(a.ctx, a.hash); meta != nil {
 		a.rawName = meta.Name
 		a.isAudio = isAudioOnlyMeta(meta)
 	}
@@ -353,7 +368,7 @@ func resolveTorrentArt(a *artResolveCtx) bool {
 	if a.existing != nil {
 		art.TmdbID, art.ImdbID = a.existing.TmdbID, a.existing.ImdbID
 	}
-	_ = a.cache.SetArt(a.hash, art)
+	persistArt(a.ctx, a.cache, a.hash, art)
 	a.resp.JSON(http.StatusOK, gin.H{"source": "torrent"})
 	return true
 }
@@ -366,7 +381,7 @@ func resolveTMDBArt(a *artResolveCtx) bool {
 	if merr != nil || m == nil || m.PosterURL == "" {
 		return false
 	}
-	_ = a.cache.SetArt(a.hash, &streamer.CachedArt{
+	persistArt(a.ctx, a.cache, a.hash, &streamer.CachedArt{
 		Source:    "tmdb",
 		PosterURL: m.PosterURL,
 		TmdbID:    m.TmdbID,
@@ -397,7 +412,7 @@ func resolveWebArt(a *artResolveCtx) bool {
 	if serr != nil {
 		return false
 	}
-	_ = a.cache.SetArt(a.hash, &streamer.CachedArt{Source: "web", Path: rel})
+	persistArt(a.ctx, a.cache, a.hash, &streamer.CachedArt{Source: "web", Path: rel})
 	a.resp.JSON(http.StatusOK, gin.H{"source": "web", "via": src})
 	return true
 }
@@ -423,11 +438,21 @@ func resolveFrameCapture(a *artResolveCtx) bool {
 				continue
 			}
 			if rel, serr := a.s.SaveArtBytes(a.h, data); serr == nil {
-				_ = a.cache.SetArt(a.hash, &streamer.CachedArt{Source: "frame", Path: rel})
+				persistArt(context.Background(), a.cache, a.hash, &streamer.CachedArt{Source: "frame", Path: rel})
 			}
 			return
 		}
 	}()
 	a.resp.JSON(http.StatusAccepted, gin.H{"source": "frame", "status": "processing"})
 	return true
+}
+
+// persistArt saves a resolved thumbnail on a ctx detached from the resolve
+// chain's own deadline and from the request: a step that already produced (and,
+// for byte-backed art, wrote) the image must not lose its row because the 25s
+// budget or the client ran out an instant later.
+func persistArt(parent context.Context, cache *streamer.MetadataCache, hash string, art *streamer.CachedArt) {
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
+	_ = cache.SetArt(ctx, hash, art)
 }

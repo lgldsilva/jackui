@@ -111,7 +111,7 @@ func TestHgEHistoryResults_EnrichesFavAndDownload(t *testing.T) {
 	}, 1, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := favs.Add("The Matrix 1080p", hgEHash, MagnetPrefix+hgEHash, "", 1); err != nil {
+	if err := favs.Add(context.Background(), "The Matrix 1080p", hgEHash, MagnetPrefix+hgEHash, "", 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dls.Create(downloads.Download{
@@ -167,7 +167,7 @@ func TestHgESearchCache_EnrichesWithEnricher(t *testing.T) {
 	}, 1, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := favs.Add("Inception 2010 1080p", hgEHash, MagnetPrefix+hgEHash, "", 1); err != nil {
+	if err := favs.Add(context.Background(), "Inception 2010 1080p", hgEHash, MagnetPrefix+hgEHash, "", 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -386,14 +386,14 @@ func TestHgELibraryGetByHash_AdminKeepsOwnWhenOthersHid(t *testing.T) {
 	lib := hgELibrary(t)
 	id := hgESeedLibrary(t, lib, 1)
 	s, fav := newCurtainStreamer(t)
-	hidden, err := fav.CreateFolder(2, "Secret", nil, true)
+	hidden, err := fav.CreateFolder(context.Background(), 2, "Secret", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fav.Add("secret", hgEHash, MagnetPrefix+hgEHash, "manual", 2); err != nil {
+	if err := fav.Add(context.Background(), "secret", hgEHash, MagnetPrefix+hgEHash, "manual", 2); err != nil {
 		t.Fatal(err)
 	}
-	if err := fav.MoveFavoriteToFolder(2, "secret", &hidden.ID); err != nil {
+	if err := fav.MoveFavoriteToFolder(context.Background(), 2, "secret", &hidden.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -420,14 +420,14 @@ func TestHgELibraryGetByHash_OwnHiddenFolder404(t *testing.T) {
 	lib := hgELibrary(t)
 	hgESeedLibrary(t, lib, 1)
 	s, fav := newCurtainStreamer(t)
-	hidden, err := fav.CreateFolder(1, "Secret", nil, true)
+	hidden, err := fav.CreateFolder(context.Background(), 1, "Secret", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fav.Add("secret", hgEHash, MagnetPrefix+hgEHash, "manual", 1); err != nil {
+	if err := fav.Add(context.Background(), "secret", hgEHash, MagnetPrefix+hgEHash, "manual", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := fav.MoveFavoriteToFolder(1, "secret", &hidden.ID); err != nil {
+	if err := fav.MoveFavoriteToFolder(context.Background(), 1, "secret", &hidden.ID); err != nil {
 		t.Fatal(err)
 	}
 

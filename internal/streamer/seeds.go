@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"time"
@@ -38,11 +39,11 @@ func (s *SeedsStore) Close() error { return nil }
 
 // Add upserts a seed entry. Idempotent — re-adding the same hash refreshes the
 // magnet/name without disturbing added_at. Nil-safe receiver.
-func (s *SeedsStore) Add(infoHash, magnet, name string) error {
+func (s *SeedsStore) Add(ctx context.Context, infoHash, magnet, name string) error {
 	if s == nil || s.db == nil || infoHash == "" {
 		return nil
 	}
-	_, err := s.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO seeds (info_hash, magnet, name) VALUES (?, ?, ?)
 		ON CONFLICT(info_hash) DO UPDATE SET magnet=excluded.magnet, name=excluded.name
 	`, infoHash, magnet, name)
@@ -50,20 +51,20 @@ func (s *SeedsStore) Add(infoHash, magnet, name string) error {
 }
 
 // Remove deletes a seed entry. Nil-safe receiver.
-func (s *SeedsStore) Remove(infoHash string) error {
+func (s *SeedsStore) Remove(ctx context.Context, infoHash string) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	_, err := s.db.Exec(`DELETE FROM seeds WHERE info_hash = ?`, infoHash)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM seeds WHERE info_hash = ?`, infoHash)
 	return err
 }
 
 // List returns all persisted seed entries, newest first. Nil-safe receiver.
-func (s *SeedsStore) List() ([]SeedEntry, error) {
+func (s *SeedsStore) List(ctx context.Context) ([]SeedEntry, error) {
 	if s == nil || s.db == nil {
 		return nil, nil
 	}
-	rows, err := s.db.Query(`SELECT info_hash, magnet, name, added_at FROM seeds ORDER BY added_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT info_hash, magnet, name, added_at FROM seeds ORDER BY added_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -80,12 +81,12 @@ func (s *SeedsStore) List() ([]SeedEntry, error) {
 }
 
 // Has reports whether a hash is already persisted. Nil-safe receiver.
-func (s *SeedsStore) Has(infoHash string) bool {
+func (s *SeedsStore) Has(ctx context.Context, infoHash string) bool {
 	if s == nil || s.db == nil {
 		return false
 	}
 	var one int
-	err := s.db.QueryRow(`SELECT 1 FROM seeds WHERE info_hash = ?`, infoHash).Scan(&one)
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM seeds WHERE info_hash = ?`, infoHash).Scan(&one)
 	return err == nil
 }
 

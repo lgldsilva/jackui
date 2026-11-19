@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 func TestHealthSnapshot_NoCache(t *testing.T) {
 	s := NewForTesting()
 	h := metainfo.Hash{}
-	health, active := s.HealthSnapshot(h)
+	health, active := s.HealthSnapshot(context.Background(), h)
 	if active {
 		t.Error("expected active=false for empty streamer")
 	}
@@ -32,10 +33,10 @@ func TestHealthSnapshot_WithCache(t *testing.T) {
 	s := NewForTesting()
 	s.cache = c
 
-	_ = c.SetHealth("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 5, 10)
+	_ = c.SetHealth(context.Background(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 5, 10)
 
 	h := metainfo.Hash{0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA}
-	health, active := s.HealthSnapshot(h)
+	health, active := s.HealthSnapshot(context.Background(), h)
 	if active {
 		t.Error("expected active=false for non-loaded torrent")
 	}
@@ -62,7 +63,7 @@ func TestHealthSnapshot_NoMatchInCache(t *testing.T) {
 
 	var h metainfo.Hash
 	h[0] = 0x01
-	health, active := s.HealthSnapshot(h)
+	health, active := s.HealthSnapshot(context.Background(), h)
 	if active {
 		t.Error("expected active=false")
 	}
@@ -96,7 +97,7 @@ func TestHealthFreshForConst(t *testing.T) {
 func TestHealthSnapshot_WithNilCache(t *testing.T) {
 	s := NewForTesting()
 	var h metainfo.Hash
-	health, active := s.HealthSnapshot(h)
+	health, active := s.HealthSnapshot(context.Background(), h)
 	if active {
 		t.Error("expected active=false")
 	}

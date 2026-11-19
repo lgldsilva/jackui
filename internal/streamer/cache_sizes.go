@@ -124,7 +124,11 @@ func (s *Streamer) favoriteLookup() func(name string) bool {
 		if s.favs == nil {
 			return func(string) bool { return false }
 		}
-		load = s.favs.Names
+		load = func() (map[string]bool, error) {
+			ctx, cancel := dbCtx()
+			defer cancel()
+			return s.favs.Names(ctx)
+		}
 	}
 	names, err := load()
 	if err != nil {

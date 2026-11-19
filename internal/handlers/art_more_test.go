@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -23,7 +24,7 @@ func TestBuildArtQuery_FromCache(t *testing.T) {
 	defer cache.Close()
 	s.SetMetadataCache(cache)
 
-	_ = cache.Set(&streamer.TorrentInfo{
+	_ = cache.Set(context.Background(), &streamer.TorrentInfo{
 		InfoHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Name:     "Test Movie 2024",
 	})
@@ -33,6 +34,7 @@ func TestBuildArtQuery_FromCache(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/resolve", nil)
 
 	a := &artResolveCtx{
+		ctx:   context.Background(),
 		resp:  cGin,
 		s:     s,
 		cache: cache,
@@ -62,6 +64,7 @@ func TestBuildArtQuery_FallbackToNameParam(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/hash/resolve?name=User+Supplied", nil)
 
 	a := &artResolveCtx{
+		ctx:          context.Background(),
 		resp:         cGin,
 		s:            s,
 		cache:        cache,
@@ -119,6 +122,7 @@ func TestBuildArtQuery_NilAIClient(t *testing.T) {
 	cGin.Request = httptest.NewRequest("GET", "/api/stream/art/hash/resolve?name=Test+Movie", nil)
 
 	a := &artResolveCtx{
+		ctx:          context.Background(),
 		resp:         cGin,
 		s:            s,
 		cache:        cache,
@@ -174,7 +178,7 @@ func TestResolveArt_AlreadyHasTorrentArt(t *testing.T) {
 	defer cache.Close()
 	s.SetMetadataCache(cache)
 
-	_ = cache.SetArt("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &streamer.CachedArt{
+	_ = cache.SetArt(context.Background(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &streamer.CachedArt{
 		Source: "torrent",
 		Path:   "some/path.jpg",
 	})
@@ -211,7 +215,7 @@ func TestStreamArt_TMDBRedirect(t *testing.T) {
 	defer cache.Close()
 	s.SetMetadataCache(cache)
 
-	_ = cache.SetArt("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &streamer.CachedArt{
+	_ = cache.SetArt(context.Background(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &streamer.CachedArt{
 		Source:    "tmdb",
 		PosterURL: "https://image.tmdb.org/poster.jpg",
 	})
@@ -290,6 +294,7 @@ func TestResolveTorrentArt_ExistingRankTooHigh(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
+		ctx:          context.Background(),
 		resp:         cGin,
 		s:            s,
 		cache:        cache,
@@ -340,6 +345,7 @@ func TestResolveTMDBArt_NilClient(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
+		ctx:          context.Background(),
 		resp:         cGin,
 		s:            s,
 		cache:        cache,
@@ -367,6 +373,7 @@ func TestResolveTMDBArt_ExistingRankTooHigh(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
+		ctx:          context.Background(),
 		resp:         cGin,
 		s:            s,
 		cache:        cache,
@@ -394,6 +401,7 @@ func TestResolveWebArt_NilSearch(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
+		ctx:          context.Background(),
 		resp:         cGin,
 		s:            s,
 		cache:        cache,
@@ -421,6 +429,7 @@ func TestResolveWebArt_ExistingRankTooHigh(t *testing.T) {
 	cGin.Request = httptest.NewRequest("POST", "/", nil)
 
 	a := &artResolveCtx{
+		ctx:          context.Background(),
 		resp:         cGin,
 		s:            s,
 		cache:        cache,

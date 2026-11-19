@@ -257,7 +257,7 @@ func Test_str2_MetadataCache_Get_CorruptFilesJSON(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed corrupt row: %v", err)
 	}
-	if got := c.Get("corrupt"); got != nil {
+	if got := c.Get(context.Background(), "corrupt"); got != nil {
 		t.Fatalf("expected nil on corrupt files JSON, got %+v", got)
 	}
 }
@@ -276,10 +276,10 @@ func Test_str2_MetadataCache_SetGet_RoundTrip(t *testing.T) {
 			{Index: 1, Path: "movie.mkv", Size: 40, IsVideo: true},
 		},
 	}
-	if err := c.Set(info); err != nil {
+	if err := c.Set(context.Background(), info); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got := c.Get("abc123")
+	got := c.Get(context.Background(), "abc123")
 	if got == nil {
 		t.Fatal("Get returned nil after Set")
 	}
@@ -303,18 +303,18 @@ func Test_str2_MetadataCache_WritesAfterClose_Error(t *testing.T) {
 		t.Fatalf("NewMetadataCache: %v", err)
 	}
 	_ = pool.Close()
-	if err := c.Set(&TorrentInfo{InfoHash: "h", Name: "n"}); err == nil {
+	if err := c.Set(context.Background(), &TorrentInfo{InfoHash: "h", Name: "n"}); err == nil {
 		t.Error("expected Set to error after Close")
 	}
-	if err := c.SetArt("h", &CachedArt{Source: "torrent", Path: ".art/h.jpg"}); err == nil {
+	if err := c.SetArt(context.Background(), "h", &CachedArt{Source: "torrent", Path: ".art/h.jpg"}); err == nil {
 		t.Error("expected SetArt to error after Close")
 	}
-	if err := c.SetHealth("h", 1, 2); err == nil {
+	if err := c.SetHealth(context.Background(), "h", 1, 2); err == nil {
 		t.Error("expected SetHealth to error after Close")
 	}
 	// Reads after Close must stay nil-safe (no panic), exercising the scan-error
 	// branch of Get/GetArt/GetHealth.
-	if c.Get("h") != nil || c.GetArt("h") != nil || c.GetHealth("h") != nil {
+	if c.Get(context.Background(), "h") != nil || c.GetArt(context.Background(), "h") != nil || c.GetHealth(context.Background(), "h") != nil {
 		t.Error("expected nil reads after Close")
 	}
 }
@@ -362,25 +362,25 @@ func Test_str2_Favorites_OpsAfterClose_Error(t *testing.T) {
 	}
 	_ = pool.Close()
 
-	if _, err := f.List(1, false, false); err == nil {
+	if _, err := f.List(context.Background(), 1, false, false); err == nil {
 		t.Error("expected List to error after Close")
 	}
-	if _, err := f.ListFolders(1, false); err == nil {
+	if _, err := f.ListFolders(context.Background(), 1, false); err == nil {
 		t.Error("expected ListFolders to error after Close")
 	}
-	if _, err := f.CreateFolder(1, "x", nil, false); err == nil {
+	if _, err := f.CreateFolder(context.Background(), 1, "x", nil, false); err == nil {
 		t.Error("expected CreateFolder to error after Close")
 	}
-	if err := f.RenameFolder(1, 1, "x"); err == nil {
+	if err := f.RenameFolder(context.Background(), 1, 1, "x"); err == nil {
 		t.Error("expected RenameFolder to error after Close")
 	}
-	if err := f.MoveFolder(1, 1, nil); err == nil {
+	if err := f.MoveFolder(context.Background(), 1, 1, nil); err == nil {
 		t.Error("expected MoveFolder to error after Close")
 	}
-	if err := f.DeleteFolder(1, 1); err == nil {
+	if err := f.DeleteFolder(context.Background(), 1, 1); err == nil {
 		t.Error("expected DeleteFolder to error after Close")
 	}
-	if _, err := f.GetFolder(1, 1); err == nil {
+	if _, err := f.GetFolder(context.Background(), 1, 1); err == nil {
 		t.Error("expected GetFolder to error after Close")
 	}
 }
@@ -389,23 +389,23 @@ func Test_str2_Favorites_OpsAfterClose_Error(t *testing.T) {
 
 func Test_str2_MoveFolder_CycleAndRoot(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, err := f.CreateFolder(1, "parent", nil, false)
+	parent, err := f.CreateFolder(context.Background(), 1, "parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(1, "child", &parent.ID, false)
+	child, err := f.CreateFolder(context.Background(), 1, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
 	// Moving parent under its own descendant must be rejected (cycle walk).
-	if err := f.MoveFolder(1, parent.ID, &child.ID); err == nil {
+	if err := f.MoveFolder(context.Background(), 1, parent.ID, &child.ID); err == nil {
 		t.Fatal("expected cycle rejection moving parent under child")
 	}
 	// Moving the child to root (nil parent) must succeed and clear ParentID.
-	if err := f.MoveFolder(1, child.ID, nil); err != nil {
+	if err := f.MoveFolder(context.Background(), 1, child.ID, nil); err != nil {
 		t.Fatalf("MoveFolder to root: %v", err)
 	}
-	got, err := f.GetFolder(1, child.ID)
+	got, err := f.GetFolder(context.Background(), 1, child.ID)
 	if err != nil {
 		t.Fatalf("GetFolder: %v", err)
 	}

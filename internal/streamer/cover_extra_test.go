@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -164,7 +165,7 @@ func TestEnforceCacheLimit_FavoritesEvictedLast_Extra(t *testing.T) {
 	s.cfg.MaxCacheSize = 1
 
 	f := newTestFavorites(t)
-	f.Add("fav-entry", "hash", "magnet", "manual", 1)
+	f.Add(context.Background(), "fav-entry", "hash", "magnet", "manual", 1)
 	s.SetFavorites(f)
 
 	s.enforceCacheLimit()
@@ -285,7 +286,7 @@ func TestPrefetch_NonExistent_Extra(t *testing.T) {
 
 func TestHealthSnapshot_NoCache_Extra(t *testing.T) {
 	s := NewForTesting()
-	health, active := s.HealthSnapshot(metainfo.Hash{})
+	health, active := s.HealthSnapshot(context.Background(), metainfo.Hash{})
 	if active {
 		t.Error("expected active=false")
 	}
@@ -342,10 +343,10 @@ func TestMetadataCacheGetSetHealth_Extra(t *testing.T) {
 	}
 	defer mc.Close()
 
-	if err := mc.SetHealth("hash1", 5, 10); err != nil {
+	if err := mc.SetHealth(context.Background(), "hash1", 5, 10); err != nil {
 		t.Fatalf("SetHealth: %v", err)
 	}
-	h := mc.GetHealth("hash1")
+	h := mc.GetHealth(context.Background(), "hash1")
 	if h == nil {
 		t.Fatal("expected health, got nil")
 	}
@@ -362,10 +363,10 @@ func TestMetadataCacheGetSetArt_Extra(t *testing.T) {
 	defer mc.Close()
 
 	art := &CachedArt{Source: "tmdb", PosterURL: "https://example.com/poster.jpg", TmdbID: 123}
-	if err := mc.SetArt("hash2", art); err != nil {
+	if err := mc.SetArt(context.Background(), "hash2", art); err != nil {
 		t.Fatalf("SetArt: %v", err)
 	}
-	got := mc.GetArt("hash2")
+	got := mc.GetArt(context.Background(), "hash2")
 	if got == nil {
 		t.Fatal("expected art, got nil")
 	}
@@ -383,25 +384,25 @@ func TestDrop_NotProtected_Extra(t *testing.T) {
 
 func TestMetadataCache_NilGetters_Extra(t *testing.T) {
 	var m *MetadataCache
-	if got := m.Get("test"); got != nil {
+	if got := m.Get(context.Background(), "test"); got != nil {
 		t.Error("expected nil from nil cache")
 	}
-	if got := m.GetArt("test"); got != nil {
+	if got := m.GetArt(context.Background(), "test"); got != nil {
 		t.Error("expected nil from nil cache")
 	}
-	if got := m.GetHealth("test"); got != nil {
+	if got := m.GetHealth(context.Background(), "test"); got != nil {
 		t.Error("expected nil from nil cache")
 	}
-	if err := m.Set(nil); err != nil {
+	if err := m.Set(context.Background(), nil); err != nil {
 		t.Error(err)
 	}
-	if err := m.Set(&TorrentInfo{}); err != nil {
+	if err := m.Set(context.Background(), &TorrentInfo{}); err != nil {
 		t.Error(err)
 	}
-	if err := m.SetArt("test", nil); err != nil {
+	if err := m.SetArt(context.Background(), "test", nil); err != nil {
 		t.Error(err)
 	}
-	if err := m.SetHealth("test", 0, 0); err != nil {
+	if err := m.SetHealth(context.Background(), "test", 0, 0); err != nil {
 		t.Error(err)
 	}
 	if err := m.Close(); err != nil {

@@ -132,11 +132,11 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 		// local pass a watched file under a hidden local folder still seeded
 		// recs and surfaced its title via BecauseOf.
 		if !reveal {
-			entries = dropHiddenLibrary(entries, recHiddenCurtain(s, userID))
+			entries = dropHiddenLibrary(entries, recHiddenCurtain(ctx.Request.Context(), s, userID))
 			entries = dropHiddenLocalLibrary(ctx, s, entries, userID)
 		}
 		// Favorites first, audio dropped, capped — see seedCandidates.
-		candidates := seedCandidates(favoriteSeedEntries(s, userID, reveal), entries)
+		candidates := seedCandidates(favoriteSeedEntries(ctx.Request.Context(), s, userID, reveal), entries)
 
 		dismissed, derr := dismissedSet(ctx.Request.Context(), lib, userID)
 		if derr != nil {
@@ -159,11 +159,11 @@ func Recommendations(lib *library.Store, s *streamer.Streamer, tc *tmdb.Client) 
 // included only when the curtain is open. Best-effort: a nil store / error → no
 // favourite seeds (recs fall back to the watched library). Kind is left empty so
 // buildSeeds' audio skip doesn't apply — a music favourite simply fails to match.
-func favoriteSeedEntries(s *streamer.Streamer, userID int, reveal bool) []library.Entry {
+func favoriteSeedEntries(ctx context.Context, s *streamer.Streamer, userID int, reveal bool) []library.Entry {
 	if s == nil || s.Favorites() == nil {
 		return nil
 	}
-	favs, err := s.Favorites().List(userID, false, reveal)
+	favs, err := s.Favorites().List(ctx, userID, false, reveal)
 	if err != nil {
 		return nil
 	}
@@ -226,11 +226,15 @@ func DismissRecommendation(lib *library.Store) gin.HandlerFunc {
 // names), bypassing the reveal curtain on purpose: recommendations must never
 // be seeded from hidden content regardless of X-JackUI-Reveal-Hidden. Zero
 // curtain ⇒ "filter nothing".
-func recHiddenCurtain(s *streamer.Streamer, userID int) streamer.HiddenCurtain {
+func recHiddenCurtain(parent context.Context, s *streamer.Streamer, userID int) streamer.HiddenCurtain {
 	if s == nil || s.Favorites() == nil {
 		return streamer.HiddenCurtain{}
 	}
-	curtain, err := s.Favorites().HiddenFavorites(userID, false)
+	// Detached: whether the curtain holds must not depend on the request staying
+	// connected (a cancelled read used to read as "nothing hidden").
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
+	curtain, err := s.Favorites().HiddenFavorites(ctx, userID, false)
 	if err != nil {
 		log.Printf("recommendations: hidden curtain query failed (failing open): %v", err)
 		return streamer.HiddenCurtain{}

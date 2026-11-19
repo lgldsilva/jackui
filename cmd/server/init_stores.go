@@ -56,7 +56,7 @@ func initLibraryStore(deps *appDeps) {
 	log.Printf("Library: PostgreSQL")
 	if mc := deps.streamSrv.MetadataCache(); mc != nil {
 		n, mErr := l.RefreshStalePrimary(context.Background(), func(hash string) (int, bool) {
-			meta := mc.Get(hash)
+			meta := mc.Get(context.Background(), hash)
 			if meta == nil {
 				return 0, false
 			}

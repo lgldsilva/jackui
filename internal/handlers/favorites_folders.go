@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -25,8 +26,11 @@ func FoldersList(s *streamer.Streamer) gin.HandlerFunc {
 		userID, _, _ := auth.UserIDFromCtx(c)
 		// The global reveal curtain (X-JackUI-Reveal-Hidden, the easter egg) or the
 		// legacy ?includeHidden=1 reveal hidden folders.
-		folders, err := fs.ListFolders(userID, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
+		folders, err := fs.ListFolders(c.Request.Context(), userID, middleware.IsRevealHidden(c) || c.Query("includeHidden") == "1")
 		if err != nil {
+			if httpshared.AbortIfClientGone(c, err) {
+				return
+			}
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -53,7 +57,9 @@ func FolderCreate(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		f, err := fs.CreateFolder(userID, body.Name, body.ParentID, body.Hidden)
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		f, err := fs.CreateFolder(wctx, userID, body.Name, body.ParentID, body.Hidden)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -92,16 +98,24 @@ func folderPatchHandler(c *gin.Context, s *streamer.Streamer) {
 		return
 	}
 	userID, _, _ := auth.UserIDFromCtx(c)
-	if err := applyFolderPatch(fs, userID, id, &body); err != nil {
+	// Rename + move + hide are applied as one detached block so a disconnect
+	// cannot leave the folder renamed but still visible/unmoved.
+	wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	defer cancel()
+	if err := applyFolderPatch(wctx, fs, folderKey{userID, id}, &body); err != nil {
 		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
-func applyFolderPatch(fs *streamer.FavoritesStore, userID, id int, body *folderPatchBody) error {
+// folderKey identifies one user's folder (keeps applyFolderPatch within 4 params).
+type folderKey struct{ userID, id int }
+
+func applyFolderPatch(ctx context.Context, fs *streamer.FavoritesStore, k folderKey, body *folderPatchBody) error {
+	userID, id := k.userID, k.id
 	if body.Name != nil && *body.Name != "" {
-		if err := fs.RenameFolder(userID, id, *body.Name); err != nil {
+		if err := fs.RenameFolder(ctx, userID, id, *body.Name); err != nil {
 			return err
 		}
 	}
@@ -110,12 +124,12 @@ func applyFolderPatch(fs *streamer.FavoritesStore, userID, id int, body *folderP
 		if !body.ParentToRoot {
 			newParent = body.ParentID
 		}
-		if err := fs.MoveFolder(userID, id, newParent); err != nil {
+		if err := fs.MoveFolder(ctx, userID, id, newParent); err != nil {
 			return err
 		}
 	}
 	if body.Hidden != nil {
-		if err := fs.SetFolderHidden(userID, id, *body.Hidden); err != nil {
+		if err := fs.SetFolderHidden(ctx, userID, id, *body.Hidden); err != nil {
 			return err
 		}
 	}
@@ -135,7 +149,9 @@ func FolderDelete(s *streamer.Streamer) gin.HandlerFunc {
 			return
 		}
 		userID, _, _ := auth.UserIDFromCtx(c)
-		if err := fs.DeleteFolder(userID, id); err != nil {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := fs.DeleteFolder(wctx, userID, id); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
@@ -164,7 +180,9 @@ func FavoriteMoveToFolder(s *streamer.Streamer) gin.HandlerFunc {
 		if !body.ToRoot {
 			folder = body.FolderID
 		}
-		if err := fs.MoveFavoriteToFolder(userID, name, folder); err != nil {
+		wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		if err := fs.MoveFavoriteToFolder(wctx, userID, name, folder); err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}

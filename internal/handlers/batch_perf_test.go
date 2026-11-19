@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -187,7 +188,7 @@ func TestStreamMetadataBatch_CacheHit(t *testing.T) {
 	}
 	s.SetMetadataCache(mc)
 	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	if err := mc.Set(&streamer.TorrentInfo{
+	if err := mc.Set(context.Background(), &streamer.TorrentInfo{
 		InfoHash: hash, Name: "Batch Test", TotalSize: 42,
 		Files: []streamer.FileInfo{{Index: 0, Path: "x.mkv", Size: 42, IsVideo: true}},
 	}); err != nil {

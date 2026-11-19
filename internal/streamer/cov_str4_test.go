@@ -53,7 +53,7 @@ func Test_str4_MetadataCache_Get_CorruptFilesJSON(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed corrupt row: %v", err)
 	}
-	if got := c.Get(hash); got != nil {
+	if got := c.Get(context.Background(), hash); got != nil {
 		t.Fatalf("expected nil on corrupt files JSON, got %+v", got)
 	}
 }
@@ -61,7 +61,7 @@ func Test_str4_MetadataCache_Get_CorruptFilesJSON(t *testing.T) {
 // Get of a missing hash → nil (Scan errs).
 func Test_str4_MetadataCache_Get_Missing(t *testing.T) {
 	c := str4NewCache(t)
-	if got := c.Get("str4nope"); got != nil {
+	if got := c.Get(context.Background(), "str4nope"); got != nil {
 		t.Fatalf("expected nil for missing hash, got %+v", got)
 	}
 }
@@ -78,10 +78,10 @@ func Test_str4_MetadataCache_SetThenGet(t *testing.T) {
 			{Index: 0, Path: "a.mkv", Size: 42, IsVideo: true},
 		},
 	}
-	if err := c.Set(info); err != nil {
+	if err := c.Set(context.Background(), info); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	got := c.Get("str4sethash")
+	got := c.Get(context.Background(), "str4sethash")
 	if got == nil || got.Name != "str4 name" || len(got.Files) != 1 || !got.Files[0].IsVideo {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
@@ -90,11 +90,11 @@ func Test_str4_MetadataCache_SetThenGet(t *testing.T) {
 // GetSortMeta: nil receiver and empty list return an empty map (no panic).
 func Test_str4_MetadataCache_GetSortMeta_Empty(t *testing.T) {
 	var nilCache *MetadataCache
-	if got := nilCache.GetSortMeta([]string{"x"}); len(got) != 0 {
+	if got := nilCache.GetSortMeta(context.Background(), []string{"x"}); len(got) != 0 {
 		t.Fatalf("nil cache: expected empty map, got %+v", got)
 	}
 	c := str4NewCache(t)
-	if got := c.GetSortMeta(nil); len(got) != 0 {
+	if got := c.GetSortMeta(context.Background(), nil); len(got) != 0 {
 		t.Fatalf("empty hashes: expected empty map, got %+v", got)
 	}
 }
@@ -103,17 +103,17 @@ func Test_str4_MetadataCache_GetSortMeta_Empty(t *testing.T) {
 // never-probed hash keeps seeders=-1 (default) and missing ones stay out of the map.
 func Test_str4_MetadataCache_GetSortMeta_Batch(t *testing.T) {
 	c := str4NewCache(t)
-	if err := c.Set(&TorrentInfo{InfoHash: "str4sortA", Name: "A", TotalSize: 100, PrimaryFile: -1}); err != nil {
+	if err := c.Set(context.Background(), &TorrentInfo{InfoHash: "str4sortA", Name: "A", TotalSize: 100, PrimaryFile: -1}); err != nil {
 		t.Fatalf("Set A: %v", err)
 	}
-	if err := c.SetHealth("str4sortA", 7, 3); err != nil {
+	if err := c.SetHealth(context.Background(), "str4sortA", 7, 3); err != nil {
 		t.Fatalf("SetHealth A: %v", err)
 	}
 	// B: metadata only, never probed → seeders stays -1 (column default).
-	if err := c.Set(&TorrentInfo{InfoHash: "str4sortB", Name: "B", TotalSize: 50, PrimaryFile: -1}); err != nil {
+	if err := c.Set(context.Background(), &TorrentInfo{InfoHash: "str4sortB", Name: "B", TotalSize: 50, PrimaryFile: -1}); err != nil {
 		t.Fatalf("Set B: %v", err)
 	}
-	got := c.GetSortMeta([]string{"str4sortA", "str4sortB", "str4sortMissing"})
+	got := c.GetSortMeta(context.Background(), []string{"str4sortA", "str4sortB", "str4sortMissing"})
 	if len(got) != 2 {
 		t.Fatalf("expected 2 entries, got %d (%+v)", len(got), got)
 	}
@@ -133,10 +133,10 @@ func Test_str4_MetadataCache_GetSortMeta_Batch(t *testing.T) {
 func Test_str4_MetadataCache_GetHealth_NeverProbed(t *testing.T) {
 	c := str4NewCache(t)
 	const hash = "str4healthnone"
-	if err := c.SetArt(hash, &CachedArt{Source: "tmdb", PosterURL: "http://x/y.jpg"}); err != nil {
+	if err := c.SetArt(context.Background(), hash, &CachedArt{Source: "tmdb", PosterURL: "http://x/y.jpg"}); err != nil {
 		t.Fatalf("SetArt: %v", err)
 	}
-	if got := c.GetHealth(hash); got != nil {
+	if got := c.GetHealth(context.Background(), hash); got != nil {
 		t.Fatalf("expected nil health for never-probed row, got %+v", got)
 	}
 }
@@ -144,7 +144,7 @@ func Test_str4_MetadataCache_GetHealth_NeverProbed(t *testing.T) {
 // GetHealth of a missing hash → nil.
 func Test_str4_MetadataCache_GetHealth_Missing(t *testing.T) {
 	c := str4NewCache(t)
-	if got := c.GetHealth("str4missinghealth"); got != nil {
+	if got := c.GetHealth(context.Background(), "str4missinghealth"); got != nil {
 		t.Fatalf("expected nil, got %+v", got)
 	}
 }
@@ -153,10 +153,10 @@ func Test_str4_MetadataCache_GetHealth_Missing(t *testing.T) {
 func Test_str4_MetadataCache_SetHealth_RoundTrip(t *testing.T) {
 	c := str4NewCache(t)
 	const hash = "str4healthok"
-	if err := c.SetHealth(hash, 5, 2); err != nil {
+	if err := c.SetHealth(context.Background(), hash, 5, 2); err != nil {
 		t.Fatalf("SetHealth: %v", err)
 	}
-	got := c.GetHealth(hash)
+	got := c.GetHealth(context.Background(), hash)
 	if got == nil || got.Seeders != 5 || got.Peers != 2 || !got.Available {
 		t.Fatalf("health round-trip mismatch: %+v", got)
 	}
@@ -166,10 +166,10 @@ func Test_str4_MetadataCache_SetHealth_RoundTrip(t *testing.T) {
 func Test_str4_MetadataCache_GetArt_EmptySource(t *testing.T) {
 	c := str4NewCache(t)
 	const hash = "str4artnone"
-	if err := c.SetHealth(hash, 1, 1); err != nil { // creates row without art_source
+	if err := c.SetHealth(context.Background(), hash, 1, 1); err != nil { // creates row without art_source
 		t.Fatalf("SetHealth: %v", err)
 	}
-	if got := c.GetArt(hash); got != nil {
+	if got := c.GetArt(context.Background(), hash); got != nil {
 		t.Fatalf("expected nil art for unresolved row, got %+v", got)
 	}
 }
@@ -177,22 +177,22 @@ func Test_str4_MetadataCache_GetArt_EmptySource(t *testing.T) {
 // Nil-receiver: all methods must be safe no-ops.
 func Test_str4_MetadataCache_NilReceiver(t *testing.T) {
 	var c *MetadataCache
-	if c.Get("h") != nil {
+	if c.Get(context.Background(), "h") != nil {
 		t.Error("nil Get should be nil")
 	}
-	if c.GetArt("h") != nil {
+	if c.GetArt(context.Background(), "h") != nil {
 		t.Error("nil GetArt should be nil")
 	}
-	if c.GetHealth("h") != nil {
+	if c.GetHealth(context.Background(), "h") != nil {
 		t.Error("nil GetHealth should be nil")
 	}
-	if err := c.Set(&TorrentInfo{}); err != nil {
+	if err := c.Set(context.Background(), &TorrentInfo{}); err != nil {
 		t.Errorf("nil Set: %v", err)
 	}
-	if err := c.SetArt("h", &CachedArt{}); err != nil {
+	if err := c.SetArt(context.Background(), "h", &CachedArt{}); err != nil {
 		t.Errorf("nil SetArt: %v", err)
 	}
-	if err := c.SetHealth("h", 0, 0); err != nil {
+	if err := c.SetHealth(context.Background(), "h", 0, 0); err != nil {
 		t.Errorf("nil SetHealth: %v", err)
 	}
 	if err := c.Close(); err != nil {
@@ -223,7 +223,7 @@ func Test_str4_ArtSourceRank(t *testing.T) {
 // List on a nil store → ErrFavoritesUnavail error.
 func Test_str4_Favorites_List_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if _, err := f.List(0, false, false); err == nil || err.Error() != ErrFavoritesUnavail {
+	if _, err := f.List(context.Background(), 0, false, false); err == nil || err.Error() != ErrFavoritesUnavail {
 		t.Fatalf("expected %q, got %v", ErrFavoritesUnavail, err)
 	}
 }
@@ -231,13 +231,13 @@ func Test_str4_Favorites_List_NilStore(t *testing.T) {
 // List with includeAll returns favorites from all users.
 func Test_str4_Favorites_List_IncludeAll(t *testing.T) {
 	f := str4NewFavorites(t)
-	if err := f.Add("a", "h1", "magnet:?xt=urn:btih:h1", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "a", "h1", "magnet:?xt=urn:btih:h1", "manual", 1); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if err := f.Add("b", "h2", "", "manual", 2); err != nil {
+	if err := f.Add(context.Background(), "b", "h2", "", "manual", 2); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	all, err := f.List(0, true, false)
+	all, err := f.List(context.Background(), 0, true, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -249,7 +249,7 @@ func Test_str4_Favorites_List_IncludeAll(t *testing.T) {
 // ListFolders on nil store → (nil, nil).
 func Test_str4_Favorites_ListFolders_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	got, err := f.ListFolders(1, false)
+	got, err := f.ListFolders(context.Background(), 1, false)
 	if err != nil || got != nil {
 		t.Fatalf("nil ListFolders: got=%v err=%v", got, err)
 	}
@@ -258,14 +258,14 @@ func Test_str4_Favorites_ListFolders_NilStore(t *testing.T) {
 // ListFolders returns a tree with a subfolder — exercises the scan + valid parent_id.
 func Test_str4_Favorites_ListFolders_WithTree(t *testing.T) {
 	f := str4NewFavorites(t)
-	root, err := f.CreateFolder(1, "root", nil, false)
+	root, err := f.CreateFolder(context.Background(), 1, "root", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder root: %v", err)
 	}
-	if _, err := f.CreateFolder(1, "child", &root.ID, false); err != nil {
+	if _, err := f.CreateFolder(context.Background(), 1, "child", &root.ID, false); err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
-	folders, err := f.ListFolders(1, false)
+	folders, err := f.ListFolders(context.Background(), 1, false)
 	if err != nil {
 		t.Fatalf("ListFolders: %v", err)
 	}
@@ -289,7 +289,7 @@ func Test_str4_Favorites_ListFolders_WithTree(t *testing.T) {
 // CreateFolder on nil store → error.
 func Test_str4_Favorites_CreateFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if _, err := f.CreateFolder(1, "x", nil, false); err == nil {
+	if _, err := f.CreateFolder(context.Background(), 1, "x", nil, false); err == nil {
 		t.Fatal("expected error from nil-store CreateFolder")
 	}
 }
@@ -298,20 +298,20 @@ func Test_str4_Favorites_CreateFolder_NilStore(t *testing.T) {
 // parent-chain walk detects the cycle).
 func Test_str4_Favorites_MoveFolder_RejectsCycle(t *testing.T) {
 	f := str4NewFavorites(t)
-	parent, err := f.CreateFolder(7, "parent", nil, false)
+	parent, err := f.CreateFolder(context.Background(), 7, "parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(7, "child", &parent.ID, false)
+	child, err := f.CreateFolder(context.Background(), 7, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
 	// Move `parent` into `child` (its descendant) → cycle.
-	if err := f.MoveFolder(7, parent.ID, &child.ID); err == nil {
+	if err := f.MoveFolder(context.Background(), 7, parent.ID, &child.ID); err == nil {
 		t.Fatal("expected cycle rejection moving parent into its child")
 	}
 	// Confirm nothing changed: parent is still root.
-	got, err := f.GetFolder(7, parent.ID)
+	got, err := f.GetFolder(context.Background(), 7, parent.ID)
 	if err != nil {
 		t.Fatalf("GetFolder: %v", err)
 	}
@@ -323,18 +323,18 @@ func Test_str4_Favorites_MoveFolder_RejectsCycle(t *testing.T) {
 // MoveFolder to root (newParent nil) is valid and doesn't trigger the cycle check.
 func Test_str4_Favorites_MoveFolder_ToRoot(t *testing.T) {
 	f := str4NewFavorites(t)
-	parent, err := f.CreateFolder(8, "parent", nil, false)
+	parent, err := f.CreateFolder(context.Background(), 8, "parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(8, "child", &parent.ID, false)
+	child, err := f.CreateFolder(context.Background(), 8, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
-	if err := f.MoveFolder(8, child.ID, nil); err != nil {
+	if err := f.MoveFolder(context.Background(), 8, child.ID, nil); err != nil {
 		t.Fatalf("MoveFolder to root: %v", err)
 	}
-	got, err := f.GetFolder(8, child.ID)
+	got, err := f.GetFolder(context.Background(), 8, child.ID)
 	if err != nil {
 		t.Fatalf("GetFolder: %v", err)
 	}
@@ -346,7 +346,7 @@ func Test_str4_Favorites_MoveFolder_ToRoot(t *testing.T) {
 // MoveFolder on nil store → nil no-op.
 func Test_str4_Favorites_MoveFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if err := f.MoveFolder(1, 1, nil); err != nil {
+	if err := f.MoveFolder(context.Background(), 1, 1, nil); err != nil {
 		t.Fatalf("nil MoveFolder: %v", err)
 	}
 }
@@ -354,7 +354,7 @@ func Test_str4_Favorites_MoveFolder_NilStore(t *testing.T) {
 // HashSetForUser on nil store → empty map without error (nil branch).
 func Test_str4_Favorites_HashSetForUser_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	set, err := f.HashSetForUser(1, false)
+	set, err := f.HashSetForUser(context.Background(), 1, false)
 	if err != nil || len(set) != 0 {
 		t.Fatalf("nil HashSetForUser: set=%v err=%v", set, err)
 	}
@@ -372,27 +372,27 @@ func Test_str4_DefaultFavoritesPath(t *testing.T) {
 // then back to root (nil) — covers both interface{} branches.
 func Test_str4_Favorites_MoveFavoriteToFolder(t *testing.T) {
 	f := str4NewFavorites(t)
-	if err := f.Add("movie", "h9", "", "manual", 3); err != nil {
+	if err := f.Add(context.Background(), "movie", "h9", "", "manual", 3); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	folder, err := f.CreateFolder(3, "box", nil, false)
+	folder, err := f.CreateFolder(context.Background(), 3, "box", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
-	if err := f.MoveFavoriteToFolder(3, "movie", &folder.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 3, "movie", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder into folder: %v", err)
 	}
-	favs, err := f.List(3, false, false)
+	favs, err := f.List(context.Background(), 3, false, false)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(favs) != 1 || favs[0].FolderID == nil || *favs[0].FolderID != folder.ID {
 		t.Fatalf("expected favorite inside folder %d, got %+v", folder.ID, favs)
 	}
-	if err := f.MoveFavoriteToFolder(3, "movie", nil); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 3, "movie", nil); err != nil {
 		t.Fatalf("MoveFavoriteToFolder to root: %v", err)
 	}
-	favs, _ = f.List(3, false, false)
+	favs, _ = f.List(context.Background(), 3, false, false)
 	if len(favs) != 1 || favs[0].FolderID != nil {
 		t.Fatalf("expected favorite back at root, got %+v", favs)
 	}
@@ -401,7 +401,7 @@ func Test_str4_Favorites_MoveFavoriteToFolder(t *testing.T) {
 // MoveFavoriteToFolder on nil store → no-op.
 func Test_str4_Favorites_MoveFavoriteToFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if err := f.MoveFavoriteToFolder(1, "x", nil); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "x", nil); err != nil {
 		t.Fatalf("nil MoveFavoriteToFolder: %v", err)
 	}
 }
@@ -409,10 +409,10 @@ func Test_str4_Favorites_MoveFavoriteToFolder_NilStore(t *testing.T) {
 // RenameFolder / DeleteFolder on nil store → no-ops.
 func Test_str4_Favorites_FolderMutators_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if err := f.RenameFolder(1, 1, "x"); err != nil {
+	if err := f.RenameFolder(context.Background(), 1, 1, "x"); err != nil {
 		t.Fatalf("nil RenameFolder: %v", err)
 	}
-	if err := f.DeleteFolder(1, 1); err != nil {
+	if err := f.DeleteFolder(context.Background(), 1, 1); err != nil {
 		t.Fatalf("nil DeleteFolder: %v", err)
 	}
 }

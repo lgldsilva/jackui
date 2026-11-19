@@ -59,12 +59,16 @@ func streamImportHandler(c *gin.Context, s *streamer.Streamer) {
 	}
 
 	userID, _, _ := auth.UserIDFromCtx(c)
-	if err := favs.Add(name, hash, magnet, "import", userID); err != nil {
+	// Add + folder move are paired and survive a client disconnect: one detached
+	// block, so an import is never left without its folder or without the row.
+	wctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	defer cancel()
+	if err := favs.Add(wctx, name, hash, magnet, "import", userID); err != nil {
 		httpshared.RespondError(c, http.StatusInternalServerError, err)
 		return
 	}
 	if req.FolderID != nil {
-		_ = favs.MoveFavoriteToFolder(userID, name, req.FolderID)
+		_ = favs.MoveFavoriteToFolder(wctx, userID, name, req.FolderID)
 	}
 
 	// %q in the verbs: the Go log-injection query only accepts %q or ReplaceAll

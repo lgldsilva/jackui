@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -20,10 +21,10 @@ func newTestFavorites(t *testing.T) *FavoritesStore {
 
 func TestFavoritesAddAndList(t *testing.T) {
 	f := newTestFavorites(t)
-	if err := f.Add("movie A", "hashA", "magnet:A", "manual", 1); err != nil {
+	if err := f.Add(context.Background(), "movie A", "hashA", "magnet:A", "manual", 1); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	list, _ := f.List(1, false, false)
+	list, _ := f.List(context.Background(), 1, false, false)
 	if len(list) != 1 {
 		t.Fatalf("expected 1, got %d", len(list))
 	}
@@ -37,18 +38,18 @@ func TestFavoritesAddAndList(t *testing.T) {
 
 func TestFavoritesPerUserIsolation(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("A's movie", "hA", "magnet:A", "manual", 1)
-	f.Add("B's movie", "hB", "magnet:B", "manual", 2)
+	f.Add(context.Background(), "A's movie", "hA", "magnet:A", "manual", 1)
+	f.Add(context.Background(), "B's movie", "hB", "magnet:B", "manual", 2)
 
-	listA, _ := f.List(1, false, false)
+	listA, _ := f.List(context.Background(), 1, false, false)
 	if len(listA) != 1 || listA[0].UserID != 1 {
 		t.Errorf("user 1 leak: %v", listA)
 	}
-	listB, _ := f.List(2, false, false)
+	listB, _ := f.List(context.Background(), 2, false, false)
 	if len(listB) != 1 || listB[0].UserID != 2 {
 		t.Errorf("user 2 leak: %v", listB)
 	}
-	listAll, _ := f.List(0, true, false)
+	listAll, _ := f.List(context.Background(), 0, true, false)
 	if len(listAll) != 2 {
 		t.Errorf("admin: expected 2, got %d", len(listAll))
 	}
@@ -56,25 +57,25 @@ func TestFavoritesPerUserIsolation(t *testing.T) {
 
 func TestFavoritesIsFavoriteAnyVsOf(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("movie", "h1", "m:1", "manual", 1)
+	f.Add(context.Background(), "movie", "h1", "m:1", "manual", 1)
 
-	if !f.IsFavorite("movie") {
+	if !f.IsFavorite(context.Background(), "movie") {
 		t.Error("IsFavorite (any) should be true")
 	}
-	if !f.IsFavoriteOf("movie", 1) {
+	if !f.IsFavoriteOf(context.Background(), "movie", 1) {
 		t.Error("IsFavoriteOf user 1 should be true")
 	}
-	if f.IsFavoriteOf("movie", 2) {
+	if f.IsFavoriteOf(context.Background(), "movie", 2) {
 		t.Error("IsFavoriteOf user 2 should be false")
 	}
 }
 
 func TestFavoritesUpsertOnConflict(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("movie", "h1", "magnet:OLD", "manual", 1)
-	f.Add("movie", "h1", "magnet:NEW", "auto-5min", 1)
+	f.Add(context.Background(), "movie", "h1", "magnet:OLD", "manual", 1)
+	f.Add(context.Background(), "movie", "h1", "magnet:NEW", "auto-5min", 1)
 
-	list, _ := f.List(1, false, false)
+	list, _ := f.List(context.Background(), 1, false, false)
 	if len(list) != 1 {
 		t.Fatalf("expected 1 row after upsert, got %d", len(list))
 	}
@@ -88,28 +89,28 @@ func TestFavoritesUpsertOnConflict(t *testing.T) {
 
 func TestFavoritesRemoveRespectUser(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("m", "h", "magnet", "manual", 1)
+	f.Add(context.Background(), "m", "h", "magnet", "manual", 1)
 
 	// User 2 tries to remove user 1's favorite — should not affect it
-	f.Remove("m", 2, false)
-	if !f.IsFavorite("m") {
+	f.Remove(context.Background(), "m", 2, false)
+	if !f.IsFavorite(context.Background(), "m") {
 		t.Error("favorite should still exist after other user tries to remove")
 	}
 
 	// User 1 removes — gone
-	f.Remove("m", 1, false)
-	if f.IsFavorite("m") {
+	f.Remove(context.Background(), "m", 1, false)
+	if f.IsFavorite(context.Background(), "m") {
 		t.Error("favorite should be gone after owner removes")
 	}
 }
 
 func TestFavoritesHashSetForUser(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("a", "hashA", "magnet:A", "manual", 1)
-	f.Add("b", "hashB", "magnet:B", "manual", 1)
-	f.Add("c", "hashC", "magnet:C", "manual", 2)
+	f.Add(context.Background(), "a", "hashA", "magnet:A", "manual", 1)
+	f.Add(context.Background(), "b", "hashB", "magnet:B", "manual", 1)
+	f.Add(context.Background(), "c", "hashC", "magnet:C", "manual", 2)
 
-	set, err := f.HashSetForUser(1, false)
+	set, err := f.HashSetForUser(context.Background(), 1, false)
 	if err != nil {
 		t.Fatalf("HashSetForUser: %v", err)
 	}
@@ -126,10 +127,10 @@ func TestFavoritesHashSetForUser(t *testing.T) {
 
 func TestFavoritesHashSetForUser_IncludeAll(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("a", "hashA", "magnet:A", "manual", 1)
-	f.Add("b", "hashB", "magnet:B", "manual", 2)
+	f.Add(context.Background(), "a", "hashA", "magnet:A", "manual", 1)
+	f.Add(context.Background(), "b", "hashB", "magnet:B", "manual", 2)
 
-	set, err := f.HashSetForUser(0, true)
+	set, err := f.HashSetForUser(context.Background(), 0, true)
 	if err != nil {
 		t.Fatalf("HashSetForUser all: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestFavoritesHashSetForUser_IncludeAll(t *testing.T) {
 
 func TestFavoritesHashSetForUser_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	set, err := f.HashSetForUser(1, false)
+	set, err := f.HashSetForUser(context.Background(), 1, false)
 	if err != nil {
 		t.Fatalf("HashSetForUser nil: %v", err)
 	}
@@ -151,7 +152,7 @@ func TestFavoritesHashSetForUser_NilStore(t *testing.T) {
 
 func TestFavoritesCreateFolder(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, err := f.CreateFolder(1, "My Folder", nil, false)
+	folder, err := f.CreateFolder(context.Background(), 1, "My Folder", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder: %v", err)
 	}
@@ -168,11 +169,11 @@ func TestFavoritesCreateFolder(t *testing.T) {
 
 func TestFavoritesCreateFolder_Subfolder(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, err := f.CreateFolder(1, "Parent", nil, false)
+	parent, err := f.CreateFolder(context.Background(), 1, "Parent", nil, false)
 	if err != nil {
 		t.Fatalf("CreateFolder parent: %v", err)
 	}
-	child, err := f.CreateFolder(1, "Child", &parent.ID, false)
+	child, err := f.CreateFolder(context.Background(), 1, "Child", &parent.ID, false)
 	if err != nil {
 		t.Fatalf("CreateFolder child: %v", err)
 	}
@@ -183,11 +184,11 @@ func TestFavoritesCreateFolder_Subfolder(t *testing.T) {
 
 func TestFavoritesListFolders(t *testing.T) {
 	f := newTestFavorites(t)
-	f.CreateFolder(1, "Folder A", nil, false)
-	f.CreateFolder(1, "Folder B", nil, false)
-	f.CreateFolder(2, "Other User", nil, false)
+	f.CreateFolder(context.Background(), 1, "Folder A", nil, false)
+	f.CreateFolder(context.Background(), 1, "Folder B", nil, false)
+	f.CreateFolder(context.Background(), 2, "Other User", nil, false)
 
-	folders, err := f.ListFolders(1, false)
+	folders, err := f.ListFolders(context.Background(), 1, false)
 	if err != nil {
 		t.Fatalf("ListFolders: %v", err)
 	}
@@ -198,7 +199,7 @@ func TestFavoritesListFolders(t *testing.T) {
 
 func TestFavoritesListFolders_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	folders, err := f.ListFolders(1, false)
+	folders, err := f.ListFolders(context.Background(), 1, false)
 	if err != nil {
 		t.Fatalf("ListFolders nil: %v", err)
 	}
@@ -209,11 +210,11 @@ func TestFavoritesListFolders_NilStore(t *testing.T) {
 
 func TestFavoritesRenameFolder(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, _ := f.CreateFolder(1, "Old Name", nil, false)
-	if err := f.RenameFolder(1, folder.ID, "New Name"); err != nil {
+	folder, _ := f.CreateFolder(context.Background(), 1, "Old Name", nil, false)
+	if err := f.RenameFolder(context.Background(), 1, folder.ID, "New Name"); err != nil {
 		t.Fatalf("RenameFolder: %v", err)
 	}
-	got, err := f.GetFolder(1, folder.ID)
+	got, err := f.GetFolder(context.Background(), 1, folder.ID)
 	if err != nil {
 		t.Fatalf("GetFolder: %v", err)
 	}
@@ -224,21 +225,21 @@ func TestFavoritesRenameFolder(t *testing.T) {
 
 func TestFavoritesDeleteFolder(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, _ := f.CreateFolder(1, "Delete Me", nil, false)
-	if err := f.DeleteFolder(1, folder.ID); err != nil {
+	folder, _ := f.CreateFolder(context.Background(), 1, "Delete Me", nil, false)
+	if err := f.DeleteFolder(context.Background(), 1, folder.ID); err != nil {
 		t.Fatalf("DeleteFolder: %v", err)
 	}
-	if _, err := f.GetFolder(1, folder.ID); err == nil {
+	if _, err := f.GetFolder(context.Background(), 1, folder.ID); err == nil {
 		t.Fatal("expected error after DeleteFolder")
 	}
 }
 
 func TestFavoritesMoveFolder_CyclePrevention(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, _ := f.CreateFolder(1, "Parent", nil, false)
-	child, _ := f.CreateFolder(1, "Child", &parent.ID, false)
+	parent, _ := f.CreateFolder(context.Background(), 1, "Parent", nil, false)
+	child, _ := f.CreateFolder(context.Background(), 1, "Child", &parent.ID, false)
 	// Trying to move parent into child should reject (cycle)
-	err := f.MoveFolder(1, parent.ID, &child.ID)
+	err := f.MoveFolder(context.Background(), 1, parent.ID, &child.ID)
 	if err == nil {
 		t.Fatal("expected error when moving parent into child (cycle)")
 	}
@@ -246,12 +247,12 @@ func TestFavoritesMoveFolder_CyclePrevention(t *testing.T) {
 
 func TestFavoritesMoveFolder_ToRoot(t *testing.T) {
 	f := newTestFavorites(t)
-	parent, _ := f.CreateFolder(1, "Parent", nil, false)
-	child, _ := f.CreateFolder(1, "Child", &parent.ID, false)
-	if err := f.MoveFolder(1, child.ID, nil); err != nil {
+	parent, _ := f.CreateFolder(context.Background(), 1, "Parent", nil, false)
+	child, _ := f.CreateFolder(context.Background(), 1, "Child", &parent.ID, false)
+	if err := f.MoveFolder(context.Background(), 1, child.ID, nil); err != nil {
 		t.Fatalf("MoveFolder to root: %v", err)
 	}
-	got, _ := f.GetFolder(1, child.ID)
+	got, _ := f.GetFolder(context.Background(), 1, child.ID)
 	if got.ParentID != nil {
 		t.Errorf("expected root after move, got parentID=%v", *got.ParentID)
 	}
@@ -259,13 +260,13 @@ func TestFavoritesMoveFolder_ToRoot(t *testing.T) {
 
 func TestFavoritesMoveFavoriteToFolder(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("movie", "h1", "magnet:1", "manual", 1)
-	folder, _ := f.CreateFolder(1, "My Folder", nil, false)
+	f.Add(context.Background(), "movie", "h1", "magnet:1", "manual", 1)
+	folder, _ := f.CreateFolder(context.Background(), 1, "My Folder", nil, false)
 
-	if err := f.MoveFavoriteToFolder(1, "movie", &folder.ID); err != nil {
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "movie", &folder.ID); err != nil {
 		t.Fatalf("MoveFavoriteToFolder: %v", err)
 	}
-	list, _ := f.List(1, false, false)
+	list, _ := f.List(context.Background(), 1, false, false)
 	if len(list) != 1 || list[0].FolderID == nil || *list[0].FolderID != folder.ID {
 		t.Fatalf("folder assignment not persisted: %+v", list[0])
 	}
@@ -273,13 +274,13 @@ func TestFavoritesMoveFavoriteToFolder(t *testing.T) {
 
 func TestFavoritesMoveFavoriteToRoot(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("movie", "h1", "magnet:1", "manual", 1)
-	folder, _ := f.CreateFolder(1, "F", nil, false)
-	f.MoveFavoriteToFolder(1, "movie", &folder.ID)
-	if err := f.MoveFavoriteToFolder(1, "movie", nil); err != nil {
+	f.Add(context.Background(), "movie", "h1", "magnet:1", "manual", 1)
+	folder, _ := f.CreateFolder(context.Background(), 1, "F", nil, false)
+	f.MoveFavoriteToFolder(context.Background(), 1, "movie", &folder.ID)
+	if err := f.MoveFavoriteToFolder(context.Background(), 1, "movie", nil); err != nil {
 		t.Fatalf("MoveFavoriteToFolder to root: %v", err)
 	}
-	list, _ := f.List(1, false, false)
+	list, _ := f.List(context.Background(), 1, false, false)
 	if list[0].FolderID != nil {
 		t.Fatal("folder should be nil after moving to root")
 	}
@@ -287,37 +288,37 @@ func TestFavoritesMoveFavoriteToRoot(t *testing.T) {
 
 func TestFavoritesIsFavoriteByHash(t *testing.T) {
 	f := newTestFavorites(t)
-	if f.IsFavoriteByHash("") {
+	if f.IsFavoriteByHash(context.Background(), "") {
 		t.Error("empty hash should not be favorited")
 	}
-	if f.IsFavoriteByHash("nonexistent") {
+	if f.IsFavoriteByHash(context.Background(), "nonexistent") {
 		t.Error("nonexistent hash should not be favorited")
 	}
-	f.Add("m", "knownHash", "magnet", "manual", 1)
-	if !f.IsFavoriteByHash("knownHash") {
+	f.Add(context.Background(), "m", "knownHash", "magnet", "manual", 1)
+	if !f.IsFavoriteByHash(context.Background(), "knownHash") {
 		t.Error("known hash should be favorited")
 	}
 }
 
 func TestFavoritesIsFavorite_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if f.IsFavorite("anything") {
+	if f.IsFavorite(context.Background(), "anything") {
 		t.Error("nil store should not report as favorite")
 	}
 }
 
 func TestFavoritesIsFavoriteOf_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	if f.IsFavoriteOf("anything", 1) {
+	if f.IsFavoriteOf(context.Background(), "anything", 1) {
 		t.Error("nil store should not report as favorite of anyone")
 	}
 }
 
 func TestFavoritesList_IncludeAll(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("a", "ha", "ma", "manual", 1)
-	f.Add("b", "hb", "mb", "manual", 2)
-	all, err := f.List(0, true, false)
+	f.Add(context.Background(), "a", "ha", "ma", "manual", 1)
+	f.Add(context.Background(), "b", "hb", "mb", "manual", 2)
+	all, err := f.List(context.Background(), 0, true, false)
 	if err != nil {
 		t.Fatalf("List all: %v", err)
 	}
@@ -328,10 +329,10 @@ func TestFavoritesList_IncludeAll(t *testing.T) {
 
 func TestFavoritesList_UsesFolderID(t *testing.T) {
 	f := newTestFavorites(t)
-	folder, _ := f.CreateFolder(1, "F", nil, false)
-	f.Add("a", "ha", "ma", "manual", 1)
-	f.MoveFavoriteToFolder(1, "a", &folder.ID)
-	list, _ := f.List(1, false, false)
+	folder, _ := f.CreateFolder(context.Background(), 1, "F", nil, false)
+	f.Add(context.Background(), "a", "ha", "ma", "manual", 1)
+	f.MoveFavoriteToFolder(context.Background(), 1, "a", &folder.ID)
+	list, _ := f.List(context.Background(), 1, false, false)
 	if len(list) != 1 || list[0].FolderID == nil || *list[0].FolderID != folder.ID {
 		t.Fatalf("folder_id not present: %+v", list[0])
 	}
@@ -339,7 +340,7 @@ func TestFavoritesList_UsesFolderID(t *testing.T) {
 
 func TestFavoritesAdd_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.Add("name", "hash", "magnet", "manual", 1)
+	err := f.Add(context.Background(), "name", "hash", "magnet", "manual", 1)
 	if err != nil {
 		t.Fatalf("Add nil store should not error: %v", err)
 	}
@@ -347,7 +348,7 @@ func TestFavoritesAdd_NilStore(t *testing.T) {
 
 func TestFavoritesRemove_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.Remove("name", 1, false)
+	err := f.Remove(context.Background(), "name", 1, false)
 	if err != nil {
 		t.Fatalf("Remove nil store should not error: %v", err)
 	}
@@ -355,7 +356,7 @@ func TestFavoritesRemove_NilStore(t *testing.T) {
 
 func TestFavoritesCreateFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	_, err := f.CreateFolder(1, "name", nil, false)
+	_, err := f.CreateFolder(context.Background(), 1, "name", nil, false)
 	if err == nil {
 		t.Fatal("expected error from nil store")
 	}
@@ -363,7 +364,7 @@ func TestFavoritesCreateFolder_NilStore(t *testing.T) {
 
 func TestFavoritesRenameFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.RenameFolder(1, 1, "name")
+	err := f.RenameFolder(context.Background(), 1, 1, "name")
 	if err != nil {
 		t.Fatalf("RenameFolder nil store should not error: %v", err)
 	}
@@ -371,7 +372,7 @@ func TestFavoritesRenameFolder_NilStore(t *testing.T) {
 
 func TestFavoritesMoveFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.MoveFolder(1, 1, nil)
+	err := f.MoveFolder(context.Background(), 1, 1, nil)
 	if err != nil {
 		t.Fatalf("MoveFolder nil store should not error: %v", err)
 	}
@@ -379,7 +380,7 @@ func TestFavoritesMoveFolder_NilStore(t *testing.T) {
 
 func TestFavoritesDeleteFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.DeleteFolder(1, 1)
+	err := f.DeleteFolder(context.Background(), 1, 1)
 	if err != nil {
 		t.Fatalf("DeleteFolder nil store should not error: %v", err)
 	}
@@ -387,7 +388,7 @@ func TestFavoritesDeleteFolder_NilStore(t *testing.T) {
 
 func TestFavoritesMoveFavoriteToFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.MoveFavoriteToFolder(1, "name", nil)
+	err := f.MoveFavoriteToFolder(context.Background(), 1, "name", nil)
 	if err != nil {
 		t.Fatalf("MoveFavoriteToFolder nil store should not error: %v", err)
 	}
@@ -402,10 +403,10 @@ func TestFavoritesDefaultPath(t *testing.T) {
 
 func TestFavoritesRemove_IncludeAll(t *testing.T) {
 	f := newTestFavorites(t)
-	f.Add("movie", "h1", "magnet:1", "manual", 1)
-	f.Add("movie", "h1", "magnet:1", "manual", 2)
-	f.Remove("movie", 0, true)
-	if f.IsFavorite("movie") {
+	f.Add(context.Background(), "movie", "h1", "magnet:1", "manual", 1)
+	f.Add(context.Background(), "movie", "h1", "magnet:1", "manual", 2)
+	f.Remove(context.Background(), "movie", 0, true)
+	if f.IsFavorite(context.Background(), "movie") {
 		t.Error("expected movie removed after includeAll=true")
 	}
 }
@@ -420,7 +421,7 @@ func TestFavoritesIsFavoriteOf_FailClosed(t *testing.T) {
 	}
 	_ = pool.Close()
 	// On a closed DB, IsFavoriteOf should return true (fail-closed)
-	if !f.IsFavoriteOf("anything", 1) {
+	if !f.IsFavoriteOf(context.Background(), "anything", 1) {
 		t.Error("expected fail-closed (true) for closed DB")
 	}
 }
@@ -433,7 +434,7 @@ func TestFavoritesIsFavorite_FailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = pool.Close()
-	if !f.IsFavorite("anything") {
+	if !f.IsFavorite(context.Background(), "anything") {
 		t.Error("expected fail-closed (true) for closed DB")
 	}
 }
@@ -446,14 +447,14 @@ func TestFavoritesIsFavoriteByHash_FailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = pool.Close()
-	if !f.IsFavoriteByHash("anything") {
+	if !f.IsFavoriteByHash(context.Background(), "anything") {
 		t.Error("expected fail-closed (true) for closed DB")
 	}
 }
 
 func TestFavoritesList_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	_, err := f.List(1, false, false)
+	_, err := f.List(context.Background(), 1, false, false)
 	if err == nil {
 		t.Error("expected error for nil store")
 	}
@@ -461,7 +462,7 @@ func TestFavoritesList_NilStore(t *testing.T) {
 
 func TestListFolders_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	folders, err := f.ListFolders(1, false)
+	folders, err := f.ListFolders(context.Background(), 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +473,7 @@ func TestListFolders_NilStore(t *testing.T) {
 
 func TestListFolders_Empty(t *testing.T) {
 	f := newTestFavorites(t)
-	folders, err := f.ListFolders(1, false)
+	folders, err := f.ListFolders(context.Background(), 1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +484,7 @@ func TestListFolders_Empty(t *testing.T) {
 
 func TestMoveFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.MoveFolder(1, 42, nil)
+	err := f.MoveFolder(context.Background(), 1, 42, nil)
 	if err != nil {
 		t.Fatal("expected nil error for nil store")
 	}
@@ -492,17 +493,17 @@ func TestMoveFolder_NilStore(t *testing.T) {
 func TestMoveFolder_CycleDetection(t *testing.T) {
 	f := newTestFavorites(t)
 
-	parent, err := f.CreateFolder(1, "parent", nil, false)
+	parent, err := f.CreateFolder(context.Background(), 1, "parent", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	child, err := f.CreateFolder(1, "child", &parent.ID, false)
+	child, err := f.CreateFolder(context.Background(), 1, "child", &parent.ID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Moving parent into child should fail (cycle)
 	newParent := child.ID
-	err = f.MoveFolder(1, parent.ID, &newParent)
+	err = f.MoveFolder(context.Background(), 1, parent.ID, &newParent)
 	if err == nil {
 		t.Fatal("expected cycle error")
 	}
@@ -511,15 +512,15 @@ func TestMoveFolder_CycleDetection(t *testing.T) {
 func TestMoveFolder_MoveToSameParent(t *testing.T) {
 	f := newTestFavorites(t)
 
-	folder, err := f.CreateFolder(1, "folder", nil, false)
+	folder, err := f.CreateFolder(context.Background(), 1, "folder", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = f.MoveFolder(1, folder.ID, nil)
+	err = f.MoveFolder(context.Background(), 1, folder.ID, nil)
 	if err != nil {
 		t.Fatalf("MoveFolder to root: %v", err)
 	}
-	got, err := f.GetFolder(1, folder.ID)
+	got, err := f.GetFolder(context.Background(), 1, folder.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +531,7 @@ func TestMoveFolder_MoveToSameParent(t *testing.T) {
 
 func TestCreateFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	_, err := f.CreateFolder(1, "test", nil, false)
+	_, err := f.CreateFolder(context.Background(), 1, "test", nil, false)
 	if err == nil {
 		t.Error("expected error for nil store")
 	}
@@ -538,7 +539,7 @@ func TestCreateFolder_NilStore(t *testing.T) {
 
 func TestRenameFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.RenameFolder(1, 42, "new")
+	err := f.RenameFolder(context.Background(), 1, 42, "new")
 	if err != nil {
 		t.Fatal("expected nil error for nil store")
 	}
@@ -546,7 +547,7 @@ func TestRenameFolder_NilStore(t *testing.T) {
 
 func TestDeleteFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.DeleteFolder(1, 42)
+	err := f.DeleteFolder(context.Background(), 1, 42)
 	if err != nil {
 		t.Fatal("expected nil error for nil store")
 	}
@@ -554,7 +555,7 @@ func TestDeleteFolder_NilStore(t *testing.T) {
 
 func TestMoveFavoriteToFolder_NilStore(t *testing.T) {
 	var f *FavoritesStore
-	err := f.MoveFavoriteToFolder(1, "movie", nil)
+	err := f.MoveFavoriteToFolder(context.Background(), 1, "movie", nil)
 	if err != nil {
 		t.Fatal("expected nil error for nil store")
 	}

@@ -254,7 +254,9 @@ func (s *Streamer) registerTorrent(t *torrent.Torrent) *TorrentInfo {
 	s.maybePersistSeed(t)
 	info := s.buildInfo(e, true)
 	if s.cache != nil {
-		_ = s.cache.Set(info)
+		dbc, cancel := dbCtx()
+		_ = s.cache.Set(dbc, info)
+		cancel()
 	}
 	return info
 }

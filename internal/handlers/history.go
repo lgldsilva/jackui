@@ -90,7 +90,7 @@ func GetHistoryResults(store *history.Store, favs *streamer.FavoritesStore, dls 
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		e := buildEnricher(favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
+		e := buildEnricher(c.Request.Context(), favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
 		c.JSON(http.StatusOK, enrichCached(results, e))
 	}
 }
@@ -111,7 +111,7 @@ func SearchCache(store *history.Store, favs *streamer.FavoritesStore, dls *downl
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		e := buildEnricher(favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
+		e := buildEnricher(c.Request.Context(), favs, dls, userID, includeAll, middleware.IsRevealHidden(c))
 		c.JSON(http.StatusOK, enrichCached(results, e))
 	}
 }

@@ -1,6 +1,7 @@
 package streamer
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func ahNewStreamer(t *testing.T) (*Streamer, *MetadataCache) {
 // keeps maybeScrapeActive a no-op (no goroutine in this test).
 func TestActiveHealth_LiveOnly(t *testing.T) {
 	s, _ := ahNewStreamer(t)
-	h := s.activeHealth(scrapeTestHash(), 3, 5, nil)
+	h := s.activeHealth(context.Background(), scrapeTestHash(), 3, 5, nil)
 	if h.Seeders != 3 || h.Peers != 5 || !h.Available {
 		t.Fatalf("got %+v, want seeders=3 peers=5 available", h)
 	}
@@ -34,10 +35,10 @@ func TestActiveHealth_LiveOnly(t *testing.T) {
 func TestActiveHealth_ScrapeBeatsLive(t *testing.T) {
 	s, mc := ahNewStreamer(t)
 	hash := scrapeTestHash()
-	if err := mc.SetHealth(hash.HexString(), 50, 2); err != nil {
+	if err := mc.SetHealth(context.Background(), hash.HexString(), 50, 2); err != nil {
 		t.Fatal(err)
 	}
-	h := s.activeHealth(hash, 0, 1, nil) // nil trackers → no scrape kicked
+	h := s.activeHealth(context.Background(), hash, 0, 1, nil) // nil trackers → no scrape kicked
 	if h.Seeders != 50 {
 		t.Fatalf("got seeders=%d, want 50 (cached scrape)", h.Seeders)
 	}
@@ -51,7 +52,7 @@ func TestMaybeScrapeActive_NoOps(t *testing.T) {
 	srv := fakeScrapeTracker(t, hash, 99, 9)
 	s.maybeScrapeActive(hash, []string{srv.URL + "/announce"}, &CachedHealth{Seeders: 1, CheckedAt: time.Now()})
 	// Neither call should have scraped/persisted anything.
-	if h := mc.GetHealth(hash.HexString()); h != nil {
+	if h := mc.GetHealth(context.Background(), hash.HexString()); h != nil {
 		t.Fatalf("expected no persisted health, got %+v", h)
 	}
 }
@@ -68,7 +69,7 @@ func TestMaybeScrapeActive_Scrapes(t *testing.T) {
 	var got *CachedHealth
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if h := mc.GetHealth(hash.HexString()); h != nil && h.Seeders == 33 {
+		if h := mc.GetHealth(context.Background(), hash.HexString()); h != nil && h.Seeders == 33 {
 			got = h
 			break
 		}

@@ -1,10 +1,12 @@
 package local
 
 import (
+	"context"
 	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/lgldsilva/jackui/internal/downloads"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"github.com/lgldsilva/jackui/internal/streamer"
 )
 
@@ -41,7 +43,11 @@ func dropTorrentFromStreamer(s *streamer.Streamer, d downloads.Download) {
 	}
 	_ = s.ClearEntry(d.Name) // wipe pieces from the cache (DataDir/<name>)
 	if favs := s.Favorites(); favs != nil {
-		_ = favs.Remove(d.Name, d.UserID, true)
+		// Not request-scoped: this teardown runs after the file is gone, so the
+		// favourite must not outlive it because a client hung up.
+		wctx, cancel := httpshared.DetachedCtx(context.Background())
+		defer cancel()
+		_ = favs.Remove(wctx, d.Name, d.UserID, true)
 	}
 }
 

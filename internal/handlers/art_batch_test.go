@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -57,7 +58,7 @@ func TestResolveArtBatch_ReusedArt(t *testing.T) {
 	s.SetMetadataCache(cache)
 
 	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	_ = cache.SetArt(hash, &streamer.CachedArt{Source: "torrent", Path: "art.jpg"})
+	_ = cache.SetArt(context.Background(), hash, &streamer.CachedArt{Source: "torrent", Path: "art.jpg"})
 
 	router := gin.New()
 	router.POST("/api/stream/art/resolve/batch", ResolveArtBatch(s, nil, nil, nil))

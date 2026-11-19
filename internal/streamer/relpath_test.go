@@ -2,6 +2,7 @@ package streamer
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func TestFileRelPath_FromMetadataCache(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = mc.Close() })
 	s.SetMetadataCache(mc)
-	if err := mc.Set(&TorrentInfo{
+	if err := mc.Set(context.Background(), &TorrentInfo{
 		InfoHash: hex, Name: "Pack",
 		Files: []FileInfo{
 			{Index: 0, Path: "Pack/Sub/a.mkv", Size: 4},
@@ -146,7 +147,7 @@ func TestCachedFileSize_BothSources(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = mc.Close() })
 	s.SetMetadataCache(mc)
-	if err := mc.Set(&TorrentInfo{InfoHash: hex, Name: "P", Files: []FileInfo{{Index: 0, Path: "P/a.mkv", Size: 1234}}}); err != nil {
+	if err := mc.Set(context.Background(), &TorrentInfo{InfoHash: hex, Name: "P", Files: []FileInfo{{Index: 0, Path: "P/a.mkv", Size: 1234}}}); err != nil {
 		t.Fatalf("cache Set: %v", err)
 	}
 	if got, ok := s.CachedFileSize(relpathHash(t, hex), 0); !ok || got != 1234 {

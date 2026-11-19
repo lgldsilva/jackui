@@ -42,7 +42,10 @@ func (s *Streamer) cachedFileMeta(h metainfo.Hash, fileIdx int) (string, int64, 
 	if s == nil || fileIdx < 0 {
 		return "", 0, false
 	}
-	if cm := s.cache.Get(h.HexString()); cm != nil {
+	dbc, cancel := dbCtx()
+	cm := s.cache.Get(dbc, h.HexString())
+	cancel()
+	if cm != nil {
 		for _, f := range cm.Files {
 			if f.Index == fileIdx {
 				return f.Path, f.Size, true

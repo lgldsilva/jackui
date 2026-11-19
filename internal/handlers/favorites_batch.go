@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -39,7 +40,7 @@ func FavoritesBatchRemove(s *streamer.Streamer) gin.HandlerFunc {
 		}
 		userID, isAdmin, _ := auth.UserIDFromCtx(c)
 		includeAll := isAdmin && queryBool(c, "all")
-		affected, failed := batchRemoveFavorites(favs, req.Names, userID, includeAll)
+		affected, failed := batchRemoveFavorites(c.Request.Context(), favs, req.Names, userID, includeAll)
 		c.JSON(http.StatusOK, gin.H{
 			"affected": affected,
 			"total":    len(req.Names),
@@ -48,7 +49,7 @@ func FavoritesBatchRemove(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
-func batchRemoveFavorites(favs *streamer.FavoritesStore, names []string, userID int, includeAll bool) (int, []string) {
+func batchRemoveFavorites(parent context.Context, favs *streamer.FavoritesStore, names []string, userID int, includeAll bool) (int, []string) {
 	seen := make(map[string]struct{}, len(names))
 	affected := 0
 	failed := make([]string, 0)
@@ -62,7 +63,12 @@ func batchRemoveFavorites(favs *streamer.FavoritesStore, names []string, userID 
 			continue
 		}
 		seen[name] = struct{}{}
-		if err := favs.Remove(name, userID, includeAll); err != nil {
+		// Each row is written on a ctx detached from the request: a batch cut off by
+		// a client disconnect would otherwise leave an arbitrary half applied.
+		wctx, cancel := httpshared.DetachedCtx(parent)
+		err := favs.Remove(wctx, name, userID, includeAll)
+		cancel()
+		if err != nil {
 			failed = append(failed, name)
 			continue
 		}
@@ -101,7 +107,7 @@ func FavoritesBatchSetFolder(s *streamer.Streamer) gin.HandlerFunc {
 		if !req.ToRoot {
 			folder = req.FolderID
 		}
-		affected, failed := batchSetFavoriteFolder(favs, req.Names, userID, folder)
+		affected, failed := batchSetFavoriteFolder(c.Request.Context(), favs, req.Names, userID, folder)
 		c.JSON(http.StatusOK, gin.H{
 			"affected": affected,
 			"total":    len(req.Names),
@@ -110,7 +116,7 @@ func FavoritesBatchSetFolder(s *streamer.Streamer) gin.HandlerFunc {
 	}
 }
 
-func batchSetFavoriteFolder(favs *streamer.FavoritesStore, names []string, userID int, folder *int) (int, []string) {
+func batchSetFavoriteFolder(parent context.Context, favs *streamer.FavoritesStore, names []string, userID int, folder *int) (int, []string) {
 	seen := make(map[string]struct{}, len(names))
 	affected := 0
 	failed := make([]string, 0)
@@ -124,7 +130,10 @@ func batchSetFavoriteFolder(favs *streamer.FavoritesStore, names []string, userI
 			continue
 		}
 		seen[name] = struct{}{}
-		if err := favs.MoveFavoriteToFolder(userID, name, folder); err != nil {
+		wctx, cancel := httpshared.DetachedCtx(parent)
+		err := favs.MoveFavoriteToFolder(wctx, userID, name, folder)
+		cancel()
+		if err != nil {
 			failed = append(failed, name)
 			continue
 		}

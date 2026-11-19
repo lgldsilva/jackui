@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/base64"
 	"net/http/httptest"
 	"testing"
@@ -81,7 +82,7 @@ func TestDropHiddenLocalLibrary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	s, fav := newCurtainStreamer(t)
 	const uid = 4
-	if err := fav.SetLocalPathHidden(uid, "Movies", "secret", true); err != nil {
+	if err := fav.SetLocalPathHidden(context.Background(), uid, "Movies", "secret", true); err != nil {
 		t.Fatalf("hide: %v", err)
 	}
 	secretHash := "local-" + base64.RawURLEncoding.EncodeToString([]byte(`{"mount":"Movies","path":"secret/a.mkv"}`))
