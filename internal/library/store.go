@@ -8,12 +8,17 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lgldsilva/jackui/internal/dbutil"
 )
 
 const sqlAndUserID = " AND user_id = ?"
+
+// MagnetPrefix is the canonical magnet scheme prefix — reconstructed for
+// progress-only upserts that don't carry a real magnet (issue #201).
+const MagnetPrefix = "magnet:?xt=urn:btih:"
 
 // ErrNotFound is returned when the library entry does not exist or is not
 // owned by the caller. Handlers map it to HTTP 404 (sweep e2e 2026-11-06).
@@ -41,13 +46,16 @@ type Entry struct {
 	PrimaryFileIndex int    `json:"primaryFileIndex"`
 	// LastFileIndex is the file the user actually last watched (for multi-file
 	// torrents / season packs). -1 = never tracked → fall back to primary.
-	LastFileIndex   int       `json:"lastFileIndex"`
-	TotalSize       int64     `json:"totalSize"`
-	ResumeSeconds   float64   `json:"resumeSeconds"`
-	DurationSeconds float64   `json:"durationSeconds"`
-	Kind            string    `json:"kind"` // "video" | "audio" | ""
-	LastPlayedAt    time.Time `json:"lastPlayedAt"`
-	AddedAt         time.Time `json:"addedAt"`
+	LastFileIndex   int     `json:"lastFileIndex"`
+	TotalSize       int64   `json:"totalSize"`
+	ResumeSeconds   float64 `json:"resumeSeconds"`
+	DurationSeconds float64 `json:"durationSeconds"`
+	Kind            string  `json:"kind"` // "video" | "audio" | ""
+	// Watched mirrors the latest progress heartbeat: position ≥ 90% of the
+	// duration. Rewatching from the start clears it (issue #201).
+	Watched      bool      `json:"watched"`
+	LastPlayedAt time.Time `json:"lastPlayedAt"`
+	AddedAt      time.Time `json:"addedAt"`
 }
 
 type Store struct {
@@ -166,7 +174,7 @@ func (s *Store) DeleteAllIncognito(ctx context.Context) error {
 func (s *Store) GetByHash(ctx context.Context, userID int, infoHash string) (*Entry, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
-		       resume_seconds, duration_seconds, kind, last_played_at, added_at
+		       resume_seconds, duration_seconds, kind, watched, last_played_at, added_at
 		FROM library WHERE user_id = ? AND info_hash = ?
 	`, userID, infoHash)
 	return scanEntry(row)
@@ -177,7 +185,7 @@ func (s *Store) GetByHash(ctx context.Context, userID int, infoHash string) (*En
 func (s *Store) GetByHashPublic(ctx context.Context, userID int, infoHash string) (*Entry, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
-		       resume_seconds, duration_seconds, kind, last_played_at, added_at
+		       resume_seconds, duration_seconds, kind, watched, last_played_at, added_at
 		FROM library WHERE user_id = ? AND info_hash = ? AND incognito = 0
 	`, userID, infoHash)
 	return scanEntry(row)
@@ -187,7 +195,7 @@ func (s *Store) GetByHashPublic(ctx context.Context, userID int, infoHash string
 func (s *Store) GetByID(ctx context.Context, id int, userID int, includeAll bool) (*Entry, error) {
 	q := `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
-		       resume_seconds, duration_seconds, kind, last_played_at, added_at
+		       resume_seconds, duration_seconds, kind, watched, last_played_at, added_at
 		FROM library WHERE id = ?`
 	args := []any{id}
 	if !includeAll {
@@ -202,7 +210,7 @@ func (s *Store) GetByID(ctx context.Context, id int, userID int, includeAll bool
 func (s *Store) List(ctx context.Context, userID int, includeAll bool, limit int) ([]Entry, error) {
 	q := `
 		SELECT id, user_id, info_hash, magnet, name, primary_file_index, last_file_index, total_size,
-		       resume_seconds, duration_seconds, kind, last_played_at, added_at
+		       resume_seconds, duration_seconds, kind, watched, last_played_at, added_at
 		FROM library
 		WHERE incognito = 0`
 	args := []any{}
@@ -317,6 +325,60 @@ func (s *Store) UpdateResume(ctx context.Context, id, userID int, resumeSeconds,
 	return nil
 }
 
+// ProgressInput groups the parameters for UpdateProgressByHash (issue #201).
+type ProgressInput struct {
+	InfoHash string
+	// FileIndex is the file being watched; -1 means "unknown, keep current".
+	FileIndex int
+	Position  float64
+	Duration  float64
+}
+
+// watchedRatio is the position/duration fraction at which a title counts as
+// watched (issue #201): ≥ 90%.
+const watchedRatio = 0.9
+
+// IsWatched reports whether a progress heartbeat marks the title watched.
+func IsWatched(position, duration float64) bool {
+	return duration > 0 && position/duration >= watchedRatio
+}
+
+// UpdateProgressByHash saves a playback heartbeat keyed by (user, infoHash)
+// instead of the library row ID — native clients track hashes (issue #201).
+// Upsert semantics: a missing row is created (magnet reconstructed from the
+// hash, name = hash); an existing row keeps its identity. A zero Duration or
+// a negative FileIndex never clobbers the stored values. The watched flag
+// mirrors the LATEST heartbeat (position/duration ≥ 90%), so rewatching from
+// the start clears it.
+func (s *Store) UpdateProgressByHash(ctx context.Context, userID int, in ProgressInput) error {
+	hash := strings.TrimSpace(in.InfoHash)
+	if hash == "" {
+		return errors.New("infoHash is required")
+	}
+	watched := 0
+	if IsWatched(in.Position, in.Duration) {
+		watched = 1
+	}
+	fileIndex := in.FileIndex
+	if fileIndex < 0 {
+		fileIndex = -1
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO library (user_id, info_hash, magnet, name, primary_file_index, total_size,
+		                     resume_seconds, duration_seconds, kind, last_file_index, watched)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, '', ?, ?)
+		ON CONFLICT (user_id, info_hash) DO UPDATE SET
+			resume_seconds   = EXCLUDED.resume_seconds,
+			duration_seconds = CASE WHEN EXCLUDED.duration_seconds > 0
+			                    THEN EXCLUDED.duration_seconds ELSE library.duration_seconds END,
+			last_file_index  = CASE WHEN EXCLUDED.last_file_index >= 0
+			                    THEN EXCLUDED.last_file_index ELSE library.last_file_index END,
+			watched          = EXCLUDED.watched,
+			last_played_at   = CURRENT_TIMESTAMP
+	`, userID, hash, MagnetPrefix+hash, hash, max(fileIndex, 0), in.Position, in.Duration, fileIndex, watched)
+	return err
+}
+
 // Delete removes an entry. Returns an error if the entry isn't owned by user (unless admin).
 func (s *Store) Delete(ctx context.Context, id, userID int, includeAll bool) error {
 	q := `DELETE FROM library WHERE id = ?`
@@ -359,7 +421,7 @@ func scanEntry(row interface{ Scan(...any) error }) (*Entry, error) {
 	err := row.Scan(
 		&e.ID, &e.UserID, &e.InfoHash, &e.Magnet, &e.Name,
 		&e.PrimaryFileIndex, &e.LastFileIndex, &e.TotalSize,
-		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind,
+		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind, &e.Watched,
 		&e.LastPlayedAt, &e.AddedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -377,7 +439,7 @@ func scanEntryRows(rows *sql.Rows) (*Entry, error) {
 	err := rows.Scan(
 		&e.ID, &e.UserID, &e.InfoHash, &e.Magnet, &e.Name,
 		&e.PrimaryFileIndex, &e.LastFileIndex, &e.TotalSize,
-		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind,
+		&e.ResumeSeconds, &e.DurationSeconds, &e.Kind, &e.Watched,
 		&e.LastPlayedAt, &e.AddedAt,
 	)
 	if err != nil {

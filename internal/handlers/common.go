@@ -19,6 +19,7 @@ const (
 
 	ErrInvalidID         = "invalid id"
 	ErrNotFound          = "not found"
+	ErrInfoHashRequired  = "infoHash is required"
 	ErrNameRequired      = "name is required"
 	ErrQueryRequired     = "query parameter 'q' is required"
 	ErrFileIdxOutOfRange = "file index out of range"
