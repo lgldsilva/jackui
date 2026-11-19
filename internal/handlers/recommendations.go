@@ -226,10 +226,14 @@ func DismissRecommendation(lib *library.Store) gin.HandlerFunc {
 // names), bypassing the reveal curtain on purpose: recommendations must never
 // be seeded from hidden content regardless of X-JackUI-Reveal-Hidden. Zero
 // curtain ⇒ "filter nothing".
-func recHiddenCurtain(ctx context.Context, s *streamer.Streamer, userID int) streamer.HiddenCurtain {
+func recHiddenCurtain(parent context.Context, s *streamer.Streamer, userID int) streamer.HiddenCurtain {
 	if s == nil || s.Favorites() == nil {
 		return streamer.HiddenCurtain{}
 	}
+	// Detached: whether the curtain holds must not depend on the request staying
+	// connected (a cancelled read used to read as "nothing hidden").
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
 	curtain, err := s.Favorites().HiddenFavorites(ctx, userID, false)
 	if err != nil {
 		log.Printf("recommendations: hidden curtain query failed (failing open): %v", err)

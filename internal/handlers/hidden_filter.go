@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 	"log"
 	"os"
 	"strings"
@@ -29,7 +30,11 @@ func hiddenCurtain(c *gin.Context, s *streamer.Streamer, userID int, includeAll 
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil {
 		return streamer.HiddenCurtain{}
 	}
-	curtain, err := s.Favorites().HiddenFavorites(c.Request.Context(), userID, includeAll)
+	// Detached: whether the curtain holds must not depend on the request staying
+	// connected (a cancelled read used to read as "nothing hidden").
+	dctx, dcancel := httpshared.DetachedCtx(c.Request.Context())
+	defer dcancel()
+	curtain, err := s.Favorites().HiddenFavorites(dctx, userID, includeAll)
 	if err != nil {
 		log.Printf("hidden curtain: favourites query failed (failing open): %v", err)
 		return streamer.HiddenCurtain{}
@@ -102,7 +107,11 @@ func buildHiddenDownloadFilter(c *gin.Context, s *streamer.Streamer, b *local.Br
 		return hiddenDownloadFilter{}
 	}
 	f := hiddenDownloadFilter{}
-	if curtain, err := s.Favorites().HiddenFavorites(c.Request.Context(), userID, includeAll); err == nil {
+	// Detached: whether the curtain holds must not depend on the request staying
+	// connected (a cancelled read used to read as "nothing hidden").
+	dctx, dcancel := httpshared.DetachedCtx(c.Request.Context())
+	defer dcancel()
+	if curtain, err := s.Favorites().HiddenFavorites(dctx, userID, includeAll); err == nil {
 		f.curtain = curtain
 	} else {
 		log.Printf("hidden curtain: favourites query failed (failing open): %v", err)
@@ -138,7 +147,11 @@ func hiddenLocalPrefixes(ctx context.Context, s *streamer.Streamer, b *local.Bro
 
 // collectHiddenLocalPaths fetches the hidden local paths for a single user, or
 // for everyone when includeAll is set (admin view).
-func collectHiddenLocalPaths(ctx context.Context, s *streamer.Streamer, userID int, includeAll bool) []streamer.HiddenLocalPathOwned {
+func collectHiddenLocalPaths(parent context.Context, s *streamer.Streamer, userID int, includeAll bool) []streamer.HiddenLocalPathOwned {
+	// Detached: whether the curtain holds must not depend on the request staying
+	// connected (a cancelled read used to read as "nothing hidden").
+	ctx, cancel := httpshared.DetachedCtx(parent)
+	defer cancel()
 	if includeAll {
 		all, err := s.Favorites().HiddenLocalPathsAll(ctx)
 		if err != nil {
@@ -202,7 +215,9 @@ func dropHiddenLocalLibrary(c *gin.Context, s *streamer.Streamer, list []library
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil || len(list) == 0 {
 		return list
 	}
-	paths, err := s.Favorites().HiddenLocalPaths(c.Request.Context(), userID)
+	dctx, dcancel := httpshared.DetachedCtx(c.Request.Context())
+	defer dcancel()
+	paths, err := s.Favorites().HiddenLocalPaths(dctx, userID)
 	if err != nil || len(paths) == 0 {
 		return list
 	}

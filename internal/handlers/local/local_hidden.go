@@ -27,12 +27,23 @@ func normLocalRel(p string) string {
 // nil when the request opened the curtain / favourites is unavailable. Keyed by
 // the user-facing (post StripUserScope) relative path, matching lb.Entry.Path.
 func hiddenLocalSet(c *gin.Context, s *streamer.Streamer, userID int, mount string) map[string]bool {
+	set, _ := hiddenLocalSetErr(c, s, userID, mount)
+	return set
+}
+
+// hiddenLocalSetErr is hiddenLocalSet that also reports a failed read. The read
+// runs on a ctx detached from the request: whether the curtain holds must not
+// depend on the client staying connected (a cancelled read used to read as
+// "nothing hidden").
+func hiddenLocalSetErr(c *gin.Context, s *streamer.Streamer, userID int, mount string) (map[string]bool, error) {
 	if middleware.IsRevealHidden(c) || s == nil || s.Favorites() == nil {
-		return nil
+		return nil, nil
 	}
-	paths, err := s.Favorites().HiddenLocalPaths(c.Request.Context(), userID)
-	if err != nil || len(paths) == 0 {
-		return nil
+	ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+	defer cancel()
+	paths, err := s.Favorites().HiddenLocalPaths(ctx, userID)
+	if err != nil {
+		return nil, err
 	}
 	set := map[string]bool{}
 	for _, p := range paths {
@@ -43,9 +54,9 @@ func hiddenLocalSet(c *gin.Context, s *streamer.Streamer, userID int, mount stri
 		}
 	}
 	if len(set) == 0 {
-		return nil
+		return nil, nil
 	}
-	return set
+	return set, nil
 }
 
 // dropHiddenLocalEntries removes entries whose path the user has hidden. A
@@ -139,7 +150,13 @@ func IsLocalPathHidden(c *gin.Context, s *streamer.Streamer, mount, path string)
 		return false
 	}
 	userID, _, _ := auth.UserIDFromCtx(c)
-	return localPathHidden(path, hiddenLocalSet(c, s, userID, mount))
+	set, err := hiddenLocalSetErr(c, s, userID, mount)
+	if err != nil {
+		// Fail CLOSED: this feeds the gate in front of every local resolve and
+		// mutation, so an unanswerable "is it hidden?" is treated as hidden.
+		return true
+	}
+	return localPathHidden(path, set)
 }
 
 // AbortIfLocalPathHidden writes 404 and returns true when the path is hidden

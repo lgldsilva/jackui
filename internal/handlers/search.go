@@ -50,17 +50,19 @@ type resultEnricher struct {
 // (reveal=false) hidden-folder favourites are subtracted from the fav set so a
 // hidden title never shows the heart badge in search / history replay — the
 // badge is a per-title state leak even when the title itself isn't shown.
-func buildEnricher(ctx context.Context, favs *streamer.FavoritesStore, dls *downloads.Store, userID int, includeAll, reveal bool) *resultEnricher {
+func buildEnricher(parent context.Context, favs *streamer.FavoritesStore, dls *downloads.Store, userID int, includeAll, reveal bool) *resultEnricher {
 	e := &resultEnricher{
 		favHashes: map[string]bool{},
 		dlHashes:  map[string]bool{},
 	}
 	if favs != nil {
-		if m, err := favs.HashSetForUser(ctx, userID, includeAll); err == nil {
+		if m, err := favs.HashSetForUser(parent, userID, includeAll); err == nil {
 			e.favHashes = m
 		}
 		if !reveal {
-			if curtain, err := favs.HiddenFavorites(ctx, userID, includeAll); err == nil {
+			cctx, ccancel := httpshared.DetachedCtx(parent) // curtain read: see hiddenCurtain
+			defer ccancel()
+			if curtain, err := favs.HiddenFavorites(cctx, userID, includeAll); err == nil {
 				for h := range curtain.Hashes {
 					delete(e.favHashes, strings.ToLower(strings.TrimSpace(h)))
 				}

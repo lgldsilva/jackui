@@ -343,6 +343,9 @@ func StreamHealthBatch(s *streamer.Streamer) gin.HandlerFunc {
 				continue
 			}
 			snapshot, active := s.HealthSnapshot(c.Request.Context(), h)
+			if httpshared.AbortIfClientGone(c, c.Request.Context().Err()) {
+				return
+			}
 			r := gin.H{"active": active, "refreshing": false, "known": snapshot != nil}
 			if snapshot != nil {
 				r["seeders"] = snapshot.Seeders
