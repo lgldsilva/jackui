@@ -1,0 +1,762 @@
+openapi: 3.1.0
+info:
+  title: JackUI API — lean-back subset
+  version: 1.0.0
+  description: >
+    Spec-first contract for native clients (Android TV, #201 item 1). Covers
+    the lean-back subset only: auth, device pairing, library, TMDB, search,
+    stream (add/info/probe/file/viewer/thumb/art), HLS, subtitles and
+    favorites. The openapi.routes test walks router.Routes() and fails when a
+    lean-back route is not documented here; response validation with
+    kin-openapi runs in httptest.
+# servers omitted: the spec is relative — clients fill the discovered
+# base URL (mDNS TXT url= or manual entry), and kin-openapi validation in
+# httptest must accept any host:port.
+tags:
+  - name: auth
+  - name: device
+  - name: library
+  - name: tmdb
+  - name: search
+  - name: stream
+  - name: hls
+  - name: subtitles
+  - name: favorites
+
+paths:
+  /api/auth/login:
+    post:
+      operationId: authLogin
+      tags: [auth]
+      summary: Password login; returns the token bundle and sets the httpOnly refresh cookie (web only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+                remember: { type: boolean, default: false }
+                totp: { type: string, default: '' }
+      responses:
+        '200':
+          description: Token bundle
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenBundle' }
+        '401': { $ref: '#/components/responses/AuthError' }
+        '429': { $ref: '#/components/responses/AuthError' }
+
+  /api/auth/refresh:
+    post:
+      operationId: authRefresh
+      tags: [auth]
+      summary: Rotate the refresh token. Native clients send the body token; the web sends only the cookie.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh: { type: string, description: Native clients only; the web relies on the httpOnly cookie }
+      responses:
+        '200':
+          description: Fresh token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenBundle' }
+        '400': { $ref: '#/components/responses/AuthError' }
+        '401': { $ref: '#/components/responses/AuthError' }
+
+  /api/auth/logout:
+    post:
+      operationId: authLogout
+      tags: [auth]
+      summary: Revoke the presented refresh (body or cookie), clear the cookie, purge incognito data.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /api/auth/me:
+    get:
+      operationId: authMe
+      tags: [auth]
+      summary: Current user profile.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/AuthError' }
+
+  /api/auth/device/start:
+    post:
+      operationId: deviceStart
+      tags: [device]
+      summary: Begin device pairing (RFC 8628 shape); anonymous.
+      responses:
+        '200':
+          description: Pairing offer
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceStart' }
+        '429': { $ref: '#/components/responses/AuthError' }
+
+  /api/auth/device/token:
+    post:
+      operationId: deviceToken
+      tags: [device]
+      summary: Poll the pairing result; returns the device token bundle once approved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_code]
+              properties:
+                device_code: { type: string }
+                user_code: { type: string }
+      responses:
+        '200':
+          description: Pending → empty authorization_pending shape; approved → bundle
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceTokenResult' }
+        '400': { $ref: '#/components/responses/AuthError' }
+
+  /api/auth/device/session:
+    post:
+      operationId: deviceSession
+      tags: [device]
+      summary: 'Exchange a device key for a session (Authorization: Device <key>).'
+      responses:
+        '200':
+          description: Session bundle
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenBundle' }
+        '401': { $ref: '#/components/responses/AuthError' }
+
+  /api/auth/device/profiles:
+    get:
+      operationId: deviceProfiles
+      tags: [device]
+      summary: 'List users available for profile switching on this device (Authorization: Device <key>).'
+      responses:
+        '200':
+          description: Profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DeviceProfile' }
+
+  /api/library:
+    get:
+      operationId: libraryList
+      tags: [library]
+      summary: Library entries for the lean-back home grid.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        '200':
+          description: Entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LibraryEntry' }
+        '401': { $ref: '#/components/responses/AuthError' }
+
+  /api/library/hash/{hash}:
+    get:
+      operationId: libraryByHash
+      tags: [library]
+      summary: Library row by torrent hash (native clients key progress on hash, not row id).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryEntry' }
+        '404': { $ref: '#/components/responses/AuthError' }
+
+  /api/library/{id}:
+    get:
+      operationId: libraryGet
+      tags: [library]
+      summary: Library entry by row id.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryEntry' }
+    patch:
+      operationId: libraryPatch
+      tags: [library]
+      summary: Edit library metadata.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: Updated entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryEntry' }
+
+  /api/library/progress:
+    put:
+      operationId: libraryProgressUpsert
+      tags: [library]
+      summary: >
+        Upsert playback progress keyed on (user, info_hash) — native clients
+        no longer need the library row id. watched flips at >=90%.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [infoHash, position]
+              properties:
+                infoHash: { type: string }
+                fileIndex: { type: integer, description: Omit/null = whole-torrent progress }
+                position: { type: number, description: Seconds }
+                duration: { type: number, description: Seconds; enables the 90% watched flip }
+      responses:
+        '200': { description: Upserted }
+
+  /api/tmdb/trending:
+    get:
+      operationId: tmdbTrending
+      tags: [tmdb]
+      summary: Trending titles for the home row.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Trending items
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/tmdb/match:
+    get:
+      operationId: tmdbMatch
+      tags: [tmdb]
+      summary: Match a library entry to a TMDB title.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Match
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/tmdb/genres:
+    get:
+      operationId: tmdbGenres
+      tags: [tmdb]
+      summary: Genre map for filters.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Genres
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/tmdb/videos:
+    get:
+      operationId: tmdbVideos
+      tags: [tmdb]
+      summary: Trailers/videos for a TMDB id.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Videos
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/search:
+    get:
+      operationId: search
+      tags: [search]
+      summary: Torrent search (Jackett-backed).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Results
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/AuthError' }
+
+  /api/search/stream:
+    get:
+      operationId: searchStream
+      tags: [search]
+      summary: Streaming (SSE) variant of search for incremental results.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /api/stream/add:
+    post:
+      operationId: streamAdd
+      tags: [stream]
+      summary: Add a torrent (magnet or URL) to the streaming session store.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [magnet]
+              properties:
+                magnet: { type: string }
+                title: { type: string }
+      responses:
+        '200':
+          description: Added torrent descriptor
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { $ref: '#/components/responses/AuthError' }
+
+  /api/stream/info/{hash}:
+    get:
+      operationId: streamInfo
+      tags: [stream]
+      summary: Torrent file list and readiness for the picker.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Torrent info
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/stream/probe/{hash}/{file}:
+    get:
+      operationId: streamProbe
+      tags: [stream]
+      summary: >
+        Playback decision for the file: direct vs transcode. Native clients
+        send caps (mkv,hevc,av1,ac3,eac3,dts,truehd,ass,pgs); omitting caps
+        keeps the browser whitelist.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+        - { name: caps, in: query, required: false, schema: { type: string }, description: Comma-separated client capabilities }
+      responses:
+        '200':
+          description: Playback decision
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProbeResult' }
+
+  /api/stream/{hash}/{file}:
+    get:
+      operationId: streamFile
+      tags: [stream]
+      summary: Stream the file (progressive or via HLS rendition negotiation).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+        - { name: Range, in: header, required: false, schema: { type: string } }
+      responses:
+        '200':
+          description: Media bytes
+          content:
+            video/mp4: { schema: { type: string, format: binary } }
+            video/webm: { schema: { type: string, format: binary } }
+        '206':
+          description: Partial content
+          content:
+            video/mp4: { schema: { type: string, format: binary } }
+
+  /api/stream/{hash}/viewer:
+    post:
+      operationId: streamViewer
+      tags: [stream]
+      summary: Mark a file as being watched by this session (active stream registry).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+    delete:
+      operationId: streamViewerClose
+      tags: [stream]
+      summary: Close the viewer session (stops its HLS/transcode work).
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /api/stream/thumb/{hash}/{file}:
+    get:
+      operationId: streamThumb
+      tags: [stream]
+      summary: Thumbnail for the file.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Image
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+
+  /api/stream/art/{hash}:
+    get:
+      operationId: streamArt
+      tags: [stream]
+      summary: Poster/fanart for the torrent.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Image
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+
+  /api/stream/hls/{hash}/{file}/index.m3u8:
+    get:
+      operationId: hlsMaster
+      tags: [hls]
+      summary: HLS master playlist.
+      security: [{ mediaTokenAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Master playlist
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+
+  /api/stream/hls/{hash}/{file}/{seg}:
+    get:
+      operationId: hlsSegment
+      tags: [hls]
+      summary: HLS media segment.
+      security: [{ mediaTokenAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+        - { name: seg, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Segment
+          content:
+            video/mp2t: { schema: { type: string, format: binary } }
+
+  /api/stream/hls/{hash}/{file}/v/{variant}/index.m3u8:
+    get:
+      operationId: hlsVideoVariant
+      tags: [hls]
+      summary: HLS video-variant playlist.
+      security: [{ mediaTokenAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+        - { name: variant, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Variant playlist
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+
+  /api/stream/hls/{hash}/{file}/a/{track}/index.m3u8:
+    get:
+      operationId: hlsAudioTrack
+      tags: [hls]
+      summary: HLS audio-track playlist.
+      security: [{ mediaTokenAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+        - { name: track, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Audio playlist
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+
+  /api/stream/hls/{hash}/{file}/sub/{track}/index.m3u8:
+    get:
+      operationId: hlsSubtitleTrack
+      tags: [hls]
+      summary: HLS subtitle-track playlist.
+      security: [{ mediaTokenAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+        - { name: track, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Subtitle playlist
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+
+  /api/subtitles/auto/{hash}/{file}:
+    get:
+      operationId: subtitlesAuto
+      tags: [subtitles]
+      summary: Auto-search subtitles for the file.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: hash, in: path, required: true, schema: { type: string } }
+        - { name: file, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200':
+          description: Candidates
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/subtitles/search:
+    get:
+      operationId: subtitlesSearch
+      tags: [subtitles]
+      summary: Manual subtitle search.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Results
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/subtitles/download/{fileId}:
+    get:
+      operationId: subtitlesDownload
+      tags: [subtitles]
+      summary: Download a subtitle by provider file id.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: fileId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Subtitle file
+          content:
+            application/x-subrip: { schema: { type: string } }
+            text/vtt: { schema: { type: string } }
+
+  /api/stream/favorites:
+    get:
+      operationId: favoritesList
+      tags: [favorites]
+      summary: Favorite torrents.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Favorites
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/stream/favorite:
+    post:
+      operationId: favoriteAdd
+      tags: [favorites]
+      summary: Add a favorite.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: OK }
+
+  /api/stream/favorite/{name}:
+    delete:
+      operationId: favoriteRemove
+      tags: [favorites]
+      summary: Remove a favorite.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+
+  /api/stream/favorites/folders:
+    get:
+      operationId: favoriteFoldersList
+      tags: [favorites]
+      summary: Favorite folders.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Folders
+          content:
+            application/json:
+              schema: { type: object }
+    post:
+      operationId: favoriteFoldersAdd
+      tags: [favorites]
+      summary: Create a favorite folder.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: OK }
+
+  /api/stream/favorites/folders/{id}:
+    patch:
+      operationId: favoriteFoldersRename
+      tags: [favorites]
+      summary: Rename a favorite folder.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200': { description: OK }
+    delete:
+      operationId: favoriteFoldersDelete
+      tags: [favorites]
+      summary: Delete a favorite folder.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: OK }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    mediaTokenAuth: { type: http, scheme: bearer, bearerFormat: JWT, description: Short-lived media token (POST /api/auth/media-token) }
+  responses:
+    AuthError:
+      description: Stable error shape {"error","code"} (issue #201 item 2)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+  schemas:
+    ApiError:
+      type: object
+      required: [error, code]
+      properties:
+        error: { type: string, description: Human message (English for auth) }
+        code: { type: string, description: Stable machine code }
+    TokenBundle:
+      type: object
+      required: [access, user]
+      properties:
+        access: { type: string }
+        refresh: { type: string, description: Body refresh for native clients; the web keeps it in the cookie }
+        expiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+    User:
+      type: object
+      required: [id, username, role]
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        role: { type: string, enum: [admin, user, guest] }
+        email: { type: string }
+    DeviceStart:
+      type: object
+      required: [device_code, user_code, verification_uri, interval, expires_in]
+      properties:
+        device_code: { type: string }
+        user_code: { type: string }
+        verification_uri: { type: string, description: Web /link page }
+        interval: { type: integer, description: Polling interval seconds }
+        expires_in: { type: integer }
+    DeviceTokenResult:
+      oneOf:
+        - type: object
+          properties:
+            status: { type: string, enum: [authorization_pending, slow_down] }
+        - $ref: '#/components/schemas/TokenBundle'
+    DeviceProfile:
+      type: object
+      required: [id, username]
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        requiresPin: { type: boolean }
+    LibraryEntry:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        hash: { type: string }
+        progress: { type: number }
+        watched: { type: boolean }
+        poster: { type: string }
+        tmdbId: { type: integer }
+    ProbeResult:
+      type: object
+      required: [playMethod, reason]
+      properties:
+        playMethod: { type: string, enum: [direct, transcode] }
+        reason: { type: string }

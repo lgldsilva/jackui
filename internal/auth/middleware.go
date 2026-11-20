@@ -16,6 +16,14 @@ const (
 	ctxClaimsKey = "auth.claims"
 )
 
+// Stable machine-readable codes for auth rejections (#201 item 2): native
+// clients branch on `code`, never on the prose message.
+const (
+	AuthCodeMissingToken = "AUTH_TOKEN_MISSING"
+	AuthCodeInvalidToken = "AUTH_TOKEN_INVALID"
+	AuthCodeWrongScope   = "AUTH_TOKEN_SCOPE"
+)
+
 // logReject records a 401 with the caller identity so "who is calling wrong"
 // is greppable in the structured log instead of having to be reverse-engineered
 // from the gin access log (the bug that motivated this: an unauthenticated
@@ -39,18 +47,21 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 		raw := extractToken(c)
 		if raw == "" {
 			logReject(c, "missing access token")
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing access token"})
+			httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "missing access token",
+				gin.H{httpshared.CodeField: AuthCodeMissingToken})
 			return
 		}
 		claims, err := tm.ParseAccess(raw)
 		if err != nil {
 			logReject(c, "invalid or expired token")
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+			httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "invalid or expired token",
+				gin.H{httpshared.CodeField: AuthCodeInvalidToken})
 			return
 		}
 		if claims.Scope == ScopeMedia && !mediaTokenAllowed(c) {
 			logReject(c, "media token outside media route")
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "media token not accepted here"})
+			httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "media token not accepted here",
+				gin.H{httpshared.CodeField: AuthCodeWrongScope})
 			return
 		}
 		c.Set(ctxClaimsKey, claims)
