@@ -587,6 +587,9 @@ func registerLibraryRoutes(api *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/library", handlers.LibraryList(deps.libraryStore, deps.streamSrv))
+	// Hash-keyed progress upsert for native clients (issue #201). Static path
+	// BEFORE /library/:id so "progress" is never parsed as an ID.
+	api.PUT("/library/progress", handlers.LibraryProgress(deps.libraryStore))
 	// Static path must be registered before /library/:id so "hash" is not parsed as an id.
 	api.GET("/library/hash/:hash", handlers.LibraryGetByHash(deps.libraryStore, deps.streamSrv))
 	// Personalized recommendations derived from the watched library (additive).
