@@ -127,25 +127,8 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
           const { data } = await api.get<AuthUser>('/auth/me')
           setUser(data)
         } catch (meErr) {
-          // The 401 interceptor already owns genuine rejections (refresh →
-          // retry → logout, marked config._retry). Re-running the refresh for
-          // them would re-POST an already-torn-down session — only failures
-          // the interceptor skipped (5xx/transport, the deploy window) are
-          // bootstrapped here with the retry/backoff ladder.
-          if (!shouldBootstrapRefresh(meErr)) {
-            if (refreshAuthFailed(meErr)) clearTokens()
-          } else {
-            try {
-              await refreshTokens()
-              const { data } = await api.get<AuthUser>('/auth/me')
-              setUser(data)
-            } catch (e) {
-              // Only drop the session on a genuine auth rejection. On a transient
-              // failure (backend mid-deploy) keep the tokens so a retry/reload
-              // recovers instead of forcing a re-login.
-              if (refreshAuthFailed(e)) clearTokens()
-            }
-          }
+          const restored = await bootstrapMeAfterFailure(meErr)
+          if (restored) setUser(restored)
         }
       }
       setLoading(false)
@@ -260,6 +243,31 @@ async function refreshTokens(): Promise<void> {
   if (refreshInFlight) return refreshInFlight
   refreshInFlight = doRefresh().finally(() => { refreshInFlight = null })
   return refreshInFlight
+}
+
+// bootstrapMeAfterFailure is restore()'s own refresh fallback after /auth/me
+// failed. The 401 interceptor already owns genuine rejections (refresh →
+// retry → logout, marked config._retry): re-running the refresh for them
+// would re-POST an already-torn-down session. Only failures the interceptor
+// skipped (5xx/transport — the deploy window) are bootstrapped here with the
+// retry/backoff ladder; on a real rejection the session is dropped.
+// Returns the restored user, or null when the session could not be recovered.
+async function bootstrapMeAfterFailure(meErr: unknown): Promise<AuthUser | null> {
+  if (!shouldBootstrapRefresh(meErr)) {
+    if (refreshAuthFailed(meErr)) clearTokens()
+    return null
+  }
+  try {
+    await refreshTokens()
+    const { data } = await api.get<AuthUser>('/auth/me')
+    return data
+  } catch (e) {
+    // Only drop the session on a genuine auth rejection. On a transient
+    // failure (backend mid-deploy) keep the tokens so a retry/reload
+    // recovers instead of forcing a re-login.
+    if (refreshAuthFailed(e)) clearTokens()
+    return null
+  }
 }
 
 async function doRefresh(): Promise<void> {
