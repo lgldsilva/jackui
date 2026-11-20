@@ -5,7 +5,7 @@ import { load, save, remove } from '../lib/storage'
 import { isIncognito, resetIncognitoFlag, clearIncognitoData } from '../lib/incognito'
 import { setRevealHidden } from '../lib/reveal'
 import { clearPlaylistSnapshot } from '../components/player/playlistSnapshot'
-import { REFRESH_MAX_ATTEMPTS, httpStatusOf, isAuthRejection, refreshBackoffMs, shouldAttemptRefresh } from './refreshPolicy'
+import { REFRESH_MAX_ATTEMPTS, httpStatusOf, isAuthRejection, refreshBackoffMs, shouldAttemptRefresh, shouldBootstrapRefresh } from './refreshPolicy'
 
 export type Role = 'admin' | 'user' | 'guest'
 
@@ -126,16 +126,25 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
         try {
           const { data } = await api.get<AuthUser>('/auth/me')
           setUser(data)
-        } catch {
-          try {
-            await refreshTokens()
-            const { data } = await api.get<AuthUser>('/auth/me')
-            setUser(data)
-          } catch (e) {
-            // Only drop the session on a genuine auth rejection. On a transient
-            // failure (backend mid-deploy) keep the tokens so a retry/reload
-            // recovers instead of forcing a re-login.
-            if (refreshAuthFailed(e)) clearTokens()
+        } catch (meErr) {
+          // The 401 interceptor already owns genuine rejections (refresh →
+          // retry → logout, marked config._retry). Re-running the refresh for
+          // them would re-POST an already-torn-down session — only failures
+          // the interceptor skipped (5xx/transport, the deploy window) are
+          // bootstrapped here with the retry/backoff ladder.
+          if (!shouldBootstrapRefresh(meErr)) {
+            if (refreshAuthFailed(meErr)) clearTokens()
+          } else {
+            try {
+              await refreshTokens()
+              const { data } = await api.get<AuthUser>('/auth/me')
+              setUser(data)
+            } catch (e) {
+              // Only drop the session on a genuine auth rejection. On a transient
+              // failure (backend mid-deploy) keep the tokens so a retry/reload
+              // recovers instead of forcing a re-login.
+              if (refreshAuthFailed(e)) clearTokens()
+            }
           }
         }
       }
@@ -148,14 +157,16 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const login = useCallback(async (username: string, password: string, remember: boolean, totp?: string) => {
     const { data } = await api.post<TokenBundle>('/auth/login', { username, password, remember, totp: totp || '' })
     save(ACCESS_KEY, data.access)
-    save(REFRESH_KEY, data.refresh)
+    // The refresh rides the httpOnly cookie now (issue #201); wipe any
+    // legacy localStorage copy so it can't outlive its rotation.
+    remove(REFRESH_KEY)
     setUser(data.user)
   }, [])
 
   const loginWithPasskey = useCallback(async (username: string, remember: boolean) => {
     const data = await passkeyAuthenticate(username, remember)
     save(ACCESS_KEY, data.access)
-    save(REFRESH_KEY, data.refresh)
+    remove(REFRESH_KEY)
     setUser(data.user)
   }, [])
 
@@ -163,7 +174,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   // single-use code at /auth/oauth/exchange).
   const completeOAuthLogin = useCallback((bundle: { access: string; refresh: string; user: AuthUser }) => {
     save(ACCESS_KEY, bundle.access)
-    save(REFRESH_KEY, bundle.refresh)
+    remove(REFRESH_KEY)
     setUser(bundle.user)
   }, [])
 
@@ -173,11 +184,13 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     if (isIncognito()) {
       try { await clearIncognitoData() } catch { /* ignore */ }
     }
+    // Legacy body refresh when a pre-cookie session has one; the cookie
+    // carries it otherwise (backend reads both, issue #201).
     const refresh = load<string>(REFRESH_KEY, '')
     // Marks the call as lifecycle: the 401 interceptor must not react to a
     // 401 from /auth/logout (the token is already dead in an expired session) — otherwise
     // logout re-enters refresh and the loop returns. Best-effort by design.
-    try { if (refresh) await api.post('/auth/logout', { refresh }, sessionLifecycle()) } catch { /* ignore */ }
+    try { await api.post('/auth/logout', { refresh }, sessionLifecycle()) } catch { /* ignore */ }
     clearTokens()
     setUser(null)
   }, [])
@@ -250,16 +263,19 @@ async function refreshTokens(): Promise<void> {
 }
 
 async function doRefresh(): Promise<void> {
-  const refresh = load<string>(REFRESH_KEY, '')
-  if (!refresh) throw new RefreshError(true)
+  // The refresh token lives in an httpOnly cookie now (issue #201) — the
+  // body carries only a LEGACY localStorage copy for sessions logged in
+  // before the migration; empty is normal, the backend falls back to the
+  // cookie. On success the legacy copy is dropped: the cookie now owns it.
+  const legacyRefresh = load<string>(REFRESH_KEY, '')
   // Retry transient failures: the backend's rotation grace window makes a
   // re-sent (possibly already-consumed) token reissue a fresh pair instead of
   // revoking, so retrying across a deploy's restart window is safe.
   for (let attempt = 0; attempt < REFRESH_MAX_ATTEMPTS; attempt++) {
     try {
-      const { data } = await api.post<TokenBundle>('/auth/refresh', { refresh })
+      const { data } = await api.post<TokenBundle>('/auth/refresh', { refresh: legacyRefresh })
       save(ACCESS_KEY, data.access)
-      save(REFRESH_KEY, data.refresh)
+      if (legacyRefresh) remove(REFRESH_KEY)
       return
     } catch (e) {
       if (isAuthRejection(httpStatusOf(e))) throw new RefreshError(true)

@@ -147,7 +147,7 @@ func PasskeyLoginFinish(store *auth.Store, tm *auth.TokenManager, wa *auth.WAMan
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user})
+		writeTokens(c, tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user}, ttl == refreshTTLRemember)
 	}
 }
 

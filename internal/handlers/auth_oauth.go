@@ -233,7 +233,7 @@ func (h *GoogleOAuthHandlers) Exchange() gin.HandlerFunc {
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
 		}
-		c.JSON(http.StatusOK, resp)
+		writeTokens(c, resp, remember)
 	}
 }
 
