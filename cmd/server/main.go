@@ -36,6 +36,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/localstream"
 	"github.com/lgldsilva/jackui/internal/lyrics"
 	"github.com/lgldsilva/jackui/internal/mailer"
+	jackuimdns "github.com/lgldsilva/jackui/internal/mdns"
 	"github.com/lgldsilva/jackui/internal/metrics"
 	"github.com/lgldsilva/jackui/internal/musictrending"
 	"github.com/lgldsilva/jackui/internal/playlists"
@@ -243,6 +244,12 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", deps.cfg.Port)
 	log.Printf("JackUI starting on http://localhost%s", addr)
+	// Optional LAN discovery (_jackui._tcp, issue #201 item 6): opt-in via
+	// JACKUI_MDNS=1 — prod runs in gluetun's netns where multicast cannot
+	// reach the LAN, so off by default and never blocking startup/shutdown.
+	stopMDNS := jackuimdns.Announce("jackui", deps.cfg.Port,
+		jackuimdns.BaseURLForAnnounce(deps.cfg.BaseURL, deps.cfg.Port))
+	deps.addCleanup(stopMDNS)
 	// ReadHeaderTimeout bounds how long a client may take to send request
 	// headers — without it a slow-loris connection can hold a goroutine open
 	// indefinitely (gosec G112). MaxHeaderBytes caps header size (default 1MB
