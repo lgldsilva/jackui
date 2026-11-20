@@ -152,6 +152,51 @@ func LibraryUpdateResume(lib *library.Store) gin.HandlerFunc {
 	}
 }
 
+// LibraryProgress handles PUT /api/library/progress with body
+// {infoHash, fileIndex, position, duration} — the native-client counterpart
+// of LibraryUpdateResume: it keys on the infoHash instead of the library row
+// ID and upserts (issue #201). The watched flag flips at position ≥ 90% of
+// duration.
+func LibraryProgress(lib *library.Store) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			InfoHash  string  `json:"infoHash"`
+			FileIndex *int    `json:"fileIndex"`
+			Position  float64 `json:"position"`
+			Duration  float64 `json:"duration"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, httpshared.ErrInvalidData)
+			return
+		}
+		if strings.TrimSpace(req.InfoHash) == "" {
+			httpshared.RespondErrorMessage(c, http.StatusBadRequest, ErrInfoHashRequired)
+			return
+		}
+		// Pointer so an omitted fileIndex stays -1 (keep the stored value).
+		fileIndex := -1
+		if req.FileIndex != nil {
+			fileIndex = *req.FileIndex
+		}
+		userID, _, _ := auth.UserIDFromCtx(c)
+		// Detached: native clients save-and-close on exit; a hard close must
+		// not drop the heartbeat (same contract as LibraryUpdateResume).
+		ctx, cancel := httpshared.DetachedCtx(c.Request.Context())
+		defer cancel()
+		err := lib.UpdateProgressByHash(ctx, userID, library.ProgressInput{
+			InfoHash:  req.InfoHash,
+			FileIndex: fileIndex,
+			Position:  req.Position,
+			Duration:  req.Duration,
+		})
+		if err != nil {
+			httpshared.RespondError(c, http.StatusInternalServerError, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "saved"})
+	}
+}
+
 // LibraryDeleteAll handles DELETE /api/library — clears the caller's whole
 // Continue-Watching list. Honors ?all=1 for admins to wipe across users.
 func LibraryDeleteAll(lib *library.Store) gin.HandlerFunc {
