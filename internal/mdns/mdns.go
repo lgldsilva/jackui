@@ -32,6 +32,8 @@ func Enabled() bool {
 // (e.g. https://jackui.internal.lgldsilva.com.br) carried in TXT so clients
 // that prefer a URL skip the IP:port reconstruction.
 func Announce(instance string, port int, baseURL string) (stop func()) {
+	// noop is the disabled/no-interfaces stop func: safe to call any number
+	// of times and deliberately empty (S1186) — there is nothing to release.
 	noop := func() {}
 	if !Enabled() {
 		return noop
@@ -100,7 +102,10 @@ func BaseURLForAnnounce(baseURL string, port int) string {
 	}
 	for _, a := range ips {
 		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil && ipnet.IP.IsPrivate() {
-			return fmt.Sprintf("http://%s:%d", ipnet.IP.String(), port)
+			// LAN discovery advertises the plain-http URL on purpose: the
+			// private network has no TLS terminator, and clients fall back to
+			// manual https:// entry when the operator fronts it with TLS.
+			return fmt.Sprintf("http://%s:%d", ipnet.IP.String(), port) //NOSONAR: S5332 — intranet discovery URL, no TLS terminator by design
 		}
 	}
 	return ""
