@@ -32,9 +32,10 @@ func Enabled() bool {
 // (e.g. https://jackui.internal.lgldsilva.com.br) carried in TXT so clients
 // that prefer a URL skip the IP:port reconstruction.
 func Announce(instance string, port int, baseURL string) (stop func()) {
-	// noop is the disabled/no-interfaces stop func: safe to call any number
-	// of times and deliberately empty (S1186) — there is nothing to release.
-	noop := func() {}
+	noop := func() {
+		// Deliberately empty (S1186): the disabled/no-interfaces path has
+		// nothing to release — the func only keeps callers free of nil checks.
+	}
 	if !Enabled() {
 		return noop
 	}
