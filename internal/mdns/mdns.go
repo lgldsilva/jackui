@@ -42,7 +42,7 @@ func Announce(instance string, port int, baseURL string) (stop func()) {
 	if err != nil || host == "" {
 		host = "jackui-server"
 	}
-	host = host + "."
+	host += "."
 
 	ips, err := net.InterfaceAddrs()
 	if err != nil {
