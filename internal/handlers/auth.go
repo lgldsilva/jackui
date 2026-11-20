@@ -70,7 +70,7 @@ func Login(store *auth.Store, tm *auth.TokenManager, lockout *auth.Lockout) gin.
 			httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
 			return
 		}
-		c.JSON(http.StatusOK, resp)
+		writeTokens(c, resp, req.Remember)
 	}
 }
 
@@ -138,7 +138,15 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		var req struct {
 			Refresh string `json:"refresh"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil || req.Refresh == "" {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			req.Refresh = ""
+		}
+		// The web sends no body refresh anymore — it relies on the httpOnly
+		// cookie (issue #201). Native clients keep the body token.
+		if req.Refresh == "" {
+			req.Refresh = refreshFromCookie(c)
+		}
+		if req.Refresh == "" {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "refresh token required")
 			return
 		}
@@ -164,7 +172,7 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
-		c.JSON(http.StatusOK, resp)
+		writeTokens(c, resp, remember)
 	}
 }
 
@@ -319,6 +327,11 @@ func Logout(store *auth.Store, cleaners ...incognitoCleanable) gin.HandlerFunc {
 			Refresh string `json:"refresh"`
 		}
 		_ = c.ShouldBindJSON(&req)
+		// Web no longer keeps the refresh in localStorage — fall back to the
+		// httpOnly cookie (issue #201). Native clients still send the body.
+		if req.Refresh == "" {
+			req.Refresh = refreshFromCookie(c)
+		}
 		if req.Refresh != "" {
 			// Logout often fires on page unload: the revocation must not be
 			// droppable by the connection closing.
@@ -326,6 +339,8 @@ func Logout(store *auth.Store, cleaners ...incognitoCleanable) gin.HandlerFunc {
 			defer rcancel()
 			_ = store.ConsumeRefreshToken(rctx, req.Refresh)
 		}
+		// The cookie dies regardless of whether a token was presented.
+		clearRefreshCookie(c)
 		// Clean up any incognito history/library entries for this user.
 		if claims, ok := auth.ClaimsFromCtx(c); ok {
 			// Detached: privacy cleanup must finish even if the client drops now.
@@ -375,6 +390,11 @@ func ListSessions(store *auth.Store) gin.HandlerFunc {
 			Refresh string `json:"refresh"`
 		}
 		_ = c.ShouldBindJSON(&req)
+		// The cookie is the web's refresh carrier now (issue #201); the body
+		// token stays for native clients.
+		if req.Refresh == "" {
+			req.Refresh = refreshFromCookie(c)
+		}
 		sessions, err := store.ListSessions(c.Request.Context(), claims.UserID, req.Refresh)
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
@@ -414,7 +434,13 @@ func RevokeOtherSessions(store *auth.Store) gin.HandlerFunc {
 		var req struct {
 			Refresh string `json:"refresh"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil || req.Refresh == "" {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			req.Refresh = ""
+		}
+		if req.Refresh == "" {
+			req.Refresh = refreshFromCookie(c)
+		}
+		if req.Refresh == "" {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "refresh token required")
 			return
 		}
@@ -466,6 +492,9 @@ func ChangePassword(store *auth.Store) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil || req.New == "" {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "current and new password are required")
 			return
+		}
+		if req.Refresh == "" {
+			req.Refresh = refreshFromCookie(c)
 		}
 		if len(req.New) < 6 {
 			httpshared.RespondErrorMessage(c, http.StatusBadRequest, "the new password must be at least 6 characters")

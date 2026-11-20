@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { httpStatusOf, isAuthRejection, refreshBackoffMs, REFRESH_MAX_ATTEMPTS, shouldAttemptRefresh } from './refreshPolicy'
+import { httpStatusOf, isAuthRejection, refreshBackoffMs, REFRESH_MAX_ATTEMPTS, shouldAttemptRefresh, shouldBootstrapRefresh } from './refreshPolicy'
 
 describe('httpStatusOf', () => {
   it('extracts the status from an axios-style error', () => {
@@ -68,5 +68,30 @@ describe('shouldAttemptRefresh', () => {
   })
   it('only needs the 401 + skipAuthRefresh flag regardless of retry state', () => {
     expect(shouldAttemptRefresh({ status: 401, retried: true, isRefreshCall: true, skipAuthRefresh: true })).toBe(false)
+  })
+})
+
+describe('shouldBootstrapRefresh', () => {
+  // restore()'s own refresh fallback: the 401 interceptor already owns
+  // genuine rejections (refresh → retry → logout, marked config._retry) —
+  // re-running it there re-POSTs an already-torn-down session (the stale-
+  // bootstrap regression). Only failures the interceptor skipped (5xx,
+  // transport) may bootstrap-refresh, preserving the deploy-window retry.
+  const me401Handled = { response: { status: 401 }, config: { _retry: true } }
+  const me401Untouched = { response: { status: 401 }, config: {} }
+
+  it('skips when the interceptor already refreshed (config._retry)', () => {
+    expect(shouldBootstrapRefresh(me401Handled)).toBe(false)
+  })
+  it('allows 5xx (interceptor skips them; deploy window retry)', () => {
+    expect(shouldBootstrapRefresh({ response: { status: 502 }, config: {} })).toBe(true)
+    expect(shouldBootstrapRefresh({ response: { status: 500 }, config: {} })).toBe(true)
+  })
+  it('allows transport errors (no response)', () => {
+    expect(shouldBootstrapRefresh({ config: {} })).toBe(true)
+    expect(shouldBootstrapRefresh(undefined)).toBe(true)
+  })
+  it('skips untouched 401s (interceptor owns every genuine rejection)', () => {
+    expect(shouldBootstrapRefresh(me401Untouched)).toBe(false)
   })
 })

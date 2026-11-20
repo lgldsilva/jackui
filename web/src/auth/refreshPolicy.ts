@@ -50,3 +50,17 @@ export function shouldAttemptRefresh(opts: {
 }): boolean {
   return opts.status === 401 && !opts.retried && !opts.isRefreshCall && !opts.skipAuthRefresh
 }
+
+// shouldBootstrapRefresh decides whether restore()'s own refresh fallback
+// runs after the initial /auth/me failure. The 401 interceptor already owns
+// genuine rejections — it refreshes, retries the request and logs out on a
+// real rejection (marked config._retry); re-running the refresh there would
+// re-POST a session that is already torn down. Failures the interceptor
+// SKIPPED (5xx, transport errors) are the deploy-window case: bootstrap
+// retries them with backoff, so the session survives a backend restart.
+export function shouldBootstrapRefresh(e: unknown): boolean {
+  const err = e as { config?: { _retry?: boolean } } | null | undefined
+  if (err?.config?._retry) return false
+  const status = httpStatusOf(e)
+  return status === undefined || status >= 500
+}
