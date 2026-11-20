@@ -39,6 +39,34 @@ func Announce(instance string, port int, baseURL string) (stop func()) {
 	if !Enabled() {
 		return noop
 	}
+	ips, err := net.InterfaceAddrs()
+	if err != nil {
+		log.Printf("[jackui-mdns] disabled: cannot enumerate interfaces: %v", err)
+		return noop
+	}
+	localIPs := nonLoopbackIPv4(ips)
+	if len(localIPs) == 0 {
+		log.Printf("[jackui-mdns] disabled: no non-loopback IPv4 address (server likely behind gluetun)")
+		return noop
+	}
+	return announceOn(instance, port, baseURL, localIPs)
+}
+
+// nonLoopbackIPv4 keeps the IPv4 addresses the mdns zone advertises. Pure —
+// unit-testable (loopback and IPv6 are excluded: the zone binds IPv4 only).
+func nonLoopbackIPv4(addrs []net.Addr) []net.IP {
+	var out []net.IP
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+			out = append(out, ipnet.IP)
+		}
+	}
+	return out
+}
+
+// announceOn binds the real mDNS server for the given addresses. Separated
+// from Announce so the enabled path is unit-testable (loopback IPs injected).
+func announceOn(instance string, port int, baseURL string, localIPs []net.IP) (stop func()) {
 	// The zone wants a hostname; fall back to the local machine name and,
 	// when even that fails, a stable synthetic name.
 	host, err := os.Hostname()
@@ -46,22 +74,6 @@ func Announce(instance string, port int, baseURL string) (stop func()) {
 		host = "jackui-server"
 	}
 	host += "."
-
-	ips, err := net.InterfaceAddrs()
-	if err != nil {
-		log.Printf("[jackui-mdns] disabled: cannot enumerate interfaces: %v", err)
-		return noop
-	}
-	var localIPs []net.IP
-	for _, a := range ips {
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
-			localIPs = append(localIPs, ipnet.IP)
-		}
-	}
-	if len(localIPs) == 0 {
-		log.Printf("[jackui-mdns] disabled: no non-loopback IPv4 address (server likely behind gluetun)")
-		return noop
-	}
 
 	txt := []string{"path=/"}
 	if baseURL != "" {
@@ -71,12 +83,12 @@ func Announce(instance string, port int, baseURL string) (stop func()) {
 	server, err := mdns.NewMDNSService(instance, "_jackui._tcp", "", host, port, localIPs, txt)
 	if err != nil {
 		log.Printf("[jackui-mdns] disabled: service setup failed: %v", err)
-		return noop
+		return noopStop
 	}
 	srv, err := mdns.NewServer(&mdns.Config{Zone: server})
 	if err != nil {
 		log.Printf("[jackui-mdns] disabled: server start failed: %v", err)
-		return noop
+		return noopStop
 	}
 	log.Printf("[jackui-mdns] advertising %s on port %s (%d IPv4 interfaces)", instance, strconv.Itoa(port), len(localIPs))
 	once := false
@@ -89,6 +101,11 @@ func Announce(instance string, port int, baseURL string) (stop func()) {
 			log.Printf("[jackui-mdns] shutdown: %v", err)
 		}
 	}
+}
+
+// noopStop mirrors Announce's noop: a stop func with nothing to release.
+var noopStop = func() {
+	// Deliberately empty (S1186): see announceOn's failure paths.
 }
 
 // BaseURLForAnnounce picks the URL to advertise: the configured external base

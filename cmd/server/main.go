@@ -64,6 +64,16 @@ const instanceLockName = ".jackui.lock"
 // multi-process safe). Returns (nil, nil) for an empty dataDir — nothing to
 // protect (tests/CI configs without a DataDir). The lock lives as long as the
 // returned file stays open; closing it (or process exit) releases it.
+// startDiscovery wires the optional LAN discovery (_jackui._tcp, issue #201
+// item 6): opt-in via JACKUI_MDNS=1 — prod runs in gluetun's netns where
+// multicast cannot reach the LAN, so off by default and never blocking
+// startup/shutdown. Extracted from main so the wiring is unit-testable.
+func startDiscovery(deps *appDeps) {
+	stopMDNS := jackuimdns.Announce("jackui", deps.cfg.Port,
+		jackuimdns.BaseURLForAnnounce(deps.cfg.BaseURL, deps.cfg.Port))
+	deps.addCleanup(stopMDNS)
+}
+
 func acquireInstanceLock(dataDir string) (*os.File, error) {
 	if dataDir == "" {
 		return nil, nil
@@ -244,12 +254,7 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", deps.cfg.Port)
 	log.Printf("JackUI starting on http://localhost%s", addr)
-	// Optional LAN discovery (_jackui._tcp, issue #201 item 6): opt-in via
-	// JACKUI_MDNS=1 — prod runs in gluetun's netns where multicast cannot
-	// reach the LAN, so off by default and never blocking startup/shutdown.
-	stopMDNS := jackuimdns.Announce("jackui", deps.cfg.Port,
-		jackuimdns.BaseURLForAnnounce(deps.cfg.BaseURL, deps.cfg.Port))
-	deps.addCleanup(stopMDNS)
+	startDiscovery(deps)
 	// ReadHeaderTimeout bounds how long a client may take to send request
 	// headers — without it a slow-loris connection can hold a goroutine open
 	// indefinitely (gosec G112). MaxHeaderBytes caps header size (default 1MB
