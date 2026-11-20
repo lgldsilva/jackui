@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,14 +17,11 @@ const (
 	RefreshCookiePath = "/api/auth"
 )
 
-// refreshCookieSecure reports whether the request arrived over TLS — either
-// terminated at this process or flagged by the reverse proxy.
-func refreshCookieSecure(c *gin.Context) bool {
-	if c.Request.TLS != nil {
-		return true
-	}
-	return strings.EqualFold(c.Request.Header.Get("X-Forwarded-Proto"), "https")
-}
+// refreshCookieSecure is always true: browsers exempt Secure cookies from the
+// TLS requirement on http://localhost, so local development keeps working,
+// and production terminates TLS at the reverse proxy. A plain-HTTP LAN client
+// would silently drop the cookie — the documented deployments are the
+// https:// domain or localhost.
 
 // cookieTTL is the cookie lifetime: it mirrors the refresh token's sliding
 // window (24h normal / 30d remember) so an idle browser stops carrying it
@@ -51,7 +47,7 @@ func setRefreshCookie(c *gin.Context, token string, ttl time.Duration) {
 		Path:     RefreshCookiePath,
 		MaxAge:   int(ttl / time.Second),
 		HttpOnly: true,
-		Secure:   refreshCookieSecure(c),
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 }
@@ -66,7 +62,7 @@ func clearRefreshCookie(c *gin.Context) {
 		Path:     RefreshCookiePath,
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   refreshCookieSecure(c),
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
 }

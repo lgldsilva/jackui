@@ -186,38 +186,32 @@ func TestLogout_ClearsRefreshCookie(t *testing.T) {
 	}
 }
 
-func TestRefreshCookie_SecureOnTLS(t *testing.T) {
+// Secure is always true (S2092): browsers exempt Secure cookies on
+// http://localhost, production terminates TLS at the proxy — so even a
+// plain-HTTP request carries the Secure attribute.
+func TestRefreshCookie_SecureAlwaysSet(t *testing.T) {
 	store := newAuthStore(t)
-	createTestUser(t, store, "tlsuser", "correctpass")
+	createTestUser(t, store, "secureuser", "correctpass")
 	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
 
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body, _ := json.Marshal(map[string]any{"username": "tlsuser", "password": "correctpass"})
-	c.Request = httptest.NewRequest("POST", "/api/auth/login", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Request.TLS = &pseudoTLSState
-	Login(store, tm, nil)(c)
+	for name, mutate := range map[string]func(*http.Request){
+		"plain http":  func(r *http.Request) {},
+		"TLS request": func(r *http.Request) { r.TLS = &pseudoTLSState },
+		"https proxy": func(r *http.Request) { r.Header.Set("X-Forwarded-Proto", "https") },
+		"http proxy":  func(r *http.Request) { r.Header.Set("X-Forwarded-Proto", "http") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			body, _ := json.Marshal(map[string]any{"username": "secureuser", "password": "correctpass"})
+			c.Request = httptest.NewRequest("POST", "/api/auth/login", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			mutate(c.Request)
+			Login(store, tm, nil)(c)
 
-	if !strings.Contains(w.Header().Get("Set-Cookie"), "Secure") {
-		t.Errorf("TLS request must set Secure cookie: %q", w.Header().Get("Set-Cookie"))
-	}
-}
-
-func TestRefreshCookie_SecureOnForwardedProto(t *testing.T) {
-	store := newAuthStore(t)
-	createTestUser(t, store, "proxyuser", "correctpass")
-	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
-
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	body, _ := json.Marshal(map[string]any{"username": "proxyuser", "password": "correctpass"})
-	c.Request = httptest.NewRequest("POST", "/api/auth/login", bytes.NewReader(body))
-	c.Request.Header.Set("Content-Type", "application/json")
-	c.Request.Header.Set("X-Forwarded-Proto", "https")
-	Login(store, tm, nil)(c)
-
-	if !strings.Contains(w.Header().Get("Set-Cookie"), "Secure") {
-		t.Errorf("https-proxied request must set Secure cookie: %q", w.Header().Get("Set-Cookie"))
+			if !strings.Contains(w.Header().Get("Set-Cookie"), "Secure") {
+				t.Errorf("%s: cookie must always carry Secure: %q", name, w.Header().Get("Set-Cookie"))
+			}
+		})
 	}
 }
