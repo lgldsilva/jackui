@@ -31,6 +31,16 @@ func Enabled() bool {
 // instance name, port the HTTP port, baseURL the externally reachable URL
 // (e.g. https://jackui.internal.lgldsilva.com.br) carried in TXT so clients
 // that prefer a URL skip the IP:port reconstruction.
+// Indirections for tests: the failure paths (interface enumeration, server
+// bind) are otherwise untestable — production always takes the happy path
+// after the guards.
+var (
+	interfaceAddrs = net.InterfaceAddrs
+	newMDNSServer  = func(zone *mdns.Config) (interface{ Shutdown() error }, error) {
+		return mdns.NewServer(zone)
+	}
+)
+
 func Announce(instance string, port int, baseURL string) (stop func()) {
 	noop := func() {
 		// Deliberately empty (S1186): the disabled/no-interfaces path has
@@ -39,7 +49,7 @@ func Announce(instance string, port int, baseURL string) (stop func()) {
 	if !Enabled() {
 		return noop
 	}
-	ips, err := net.InterfaceAddrs()
+	ips, err := interfaceAddrs()
 	if err != nil {
 		log.Printf("[jackui-mdns] disabled: cannot enumerate interfaces: %v", err)
 		return noop
@@ -85,7 +95,7 @@ func announceOn(instance string, port int, baseURL string, localIPs []net.IP) (s
 		log.Printf("[jackui-mdns] disabled: service setup failed: %v", err)
 		return noopStop
 	}
-	srv, err := mdns.NewServer(&mdns.Config{Zone: server})
+	srv, err := newMDNSServer(&mdns.Config{Zone: server})
 	if err != nil {
 		log.Printf("[jackui-mdns] disabled: server start failed: %v", err)
 		return noopStop
@@ -114,7 +124,7 @@ func BaseURLForAnnounce(baseURL string, port int) string {
 	if baseURL != "" {
 		return baseURL
 	}
-	ips, err := net.InterfaceAddrs()
+	ips, err := interfaceAddrs()
 	if err != nil {
 		return ""
 	}

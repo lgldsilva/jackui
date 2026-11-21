@@ -1,9 +1,12 @@
 package mdns
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"testing"
+
+	"github.com/hashicorp/mdns"
 )
 
 func TestEnabled(t *testing.T) {
@@ -141,4 +144,57 @@ func mustCIDR(t *testing.T, s string) *net.IPNet {
 		t.Fatal(err)
 	}
 	return n
+}
+
+// TestAnnounceErrorPaths covers the guards that production cannot hit:
+// interface enumeration failure, no non-loopback IPv4 (gluetun netns), and
+// the mDNS server bind failure.
+func TestAnnounceErrorPaths(t *testing.T) {
+	t.Setenv("JACKUI_MDNS", "1")
+	v4 := mustCIDR(t, "192.168.0.10/24")
+
+	origAddrs, origServer := interfaceAddrs, newMDNSServer
+	t.Cleanup(func() { interfaceAddrs, newMDNSServer = origAddrs, origServer })
+
+	t.Run("interface enumeration fails", func(t *testing.T) {
+		interfaceAddrs = func() ([]net.Addr, error) { return nil, fmt.Errorf("boom") }
+		stop := Announce("jackui", 8989, "")
+		if stop == nil {
+			t.Fatal("stop não-nil esperado")
+		}
+		stop()
+	})
+
+	t.Run("no non-loopback IPv4 (gluetun)", func(t *testing.T) {
+		loop := mustCIDR(t, "127.0.0.1/8")
+		interfaceAddrs = func() ([]net.Addr, error) { return []net.Addr{loop}, nil }
+		stop := Announce("jackui", 8989, "")
+		if stop == nil {
+			t.Fatal("stop não-nil esperado")
+		}
+		stop()
+	})
+
+	t.Run("server bind fails", func(t *testing.T) {
+		interfaceAddrs = func() ([]net.Addr, error) { return []net.Addr{v4}, nil }
+		newMDNSServer = func(*mdns.Config) (interface{ Shutdown() error }, error) {
+			return nil, fmt.Errorf("bind boom")
+		}
+		stop := Announce("jackui", 8989, "")
+		if stop == nil {
+			t.Fatal("stop não-nil esperado")
+		}
+		stop()
+	})
+}
+
+// TestBaseURLForAnnounceErrorPath covers the interface-enumeration failure
+// branch of the URL reconstruction.
+func TestBaseURLForAnnounceErrorPath(t *testing.T) {
+	origAddrs := interfaceAddrs
+	t.Cleanup(func() { interfaceAddrs = origAddrs })
+	interfaceAddrs = func() ([]net.Addr, error) { return nil, fmt.Errorf("boom") }
+	if got := BaseURLForAnnounce("", 8989); got != "" {
+		t.Fatalf("expected empty URL on enumeration failure, got %q", got)
+	}
 }
