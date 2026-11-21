@@ -87,6 +87,9 @@ COPY internal ./internal
 COPY ui ./ui
 COPY web ./web
 COPY electron ./electron
+# The OpenAPI spec feeds the lean-back routes-coverage + response-validation
+# tests (docs/api/openapi.yaml read from cmd/server via ../../docs).
+COPY docs/api/openapi.yaml ./docs/api/openapi.yaml
 COPY scripts/ci-container.sh ./scripts/ci-container.sh
 
 ENTRYPOINT ["/workspace/scripts/ci-container.sh"]
