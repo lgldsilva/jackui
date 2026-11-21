@@ -49,6 +49,9 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 			logReject(c, "missing access token")
 			httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "missing access token",
 				gin.H{httpshared.CodeField: AuthCodeMissingToken})
+			// Abort, not just return: without it the group handler still runs and
+			// appends its own JSON object, making the body invalid JSON (#286).
+			c.Abort()
 			return
 		}
 		claims, err := tm.ParseAccess(raw)
@@ -56,12 +59,14 @@ func Required(tm *TokenManager) gin.HandlerFunc {
 			logReject(c, "invalid or expired token")
 			httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "invalid or expired token",
 				gin.H{httpshared.CodeField: AuthCodeInvalidToken})
+			c.Abort()
 			return
 		}
 		if claims.Scope == ScopeMedia && !mediaTokenAllowed(c) {
 			logReject(c, "media token outside media route")
 			httpshared.RespondErrorMessageFields(c, http.StatusUnauthorized, "media token not accepted here",
 				gin.H{httpshared.CodeField: AuthCodeWrongScope})
+			c.Abort()
 			return
 		}
 		c.Set(ctxClaimsKey, claims)
