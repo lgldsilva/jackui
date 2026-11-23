@@ -46,6 +46,25 @@ jobs:
   gremlins:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    # gremlins first runs the whole module's tests to collect coverage. With
+    # CI=true the PG-backed packages refuse to skip, so the coverage run failed
+    # (18 packages) without a database. Same image/credentials as ci.yml.
+    services:
+      postgres:
+        image: postgres:16.15-bookworm@sha256:60f4761b9035e0b8d5218f701a8c3382f641bf12b1604822574cf5be3baeb537
+        env:
+          POSTGRES_DB: jackui_test
+          POSTGRES_USER: jackui
+          POSTGRES_PASSWORD: jackui_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jackui -d jackui_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      JACKUI_TEST_DATABASE_URL: postgres://jackui:jackui_ci_test_only@127.0.0.1:5432/jackui_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
