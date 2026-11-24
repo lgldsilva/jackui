@@ -170,6 +170,10 @@ export type SystemStatus = {
   goVersion: string
   db: string
   time: string
+  /** "primary" | "edge" (multi-node deployments). */
+  role?: string
+  /** Edge only: its database fell back to a read-only standby. */
+  degraded?: boolean
 }
 
 // Build metadata served by GET /status (a public ROOT endpoint, not under /api).

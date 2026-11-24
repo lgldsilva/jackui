@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"net/url"
 	"os"
@@ -25,16 +26,37 @@ func initDB(deps *appDeps) {
 		cancel()
 		log.Fatalf("PostgreSQL init failed: %v", err)
 	}
-	if err := appdb.Migrate(pool); err != nil {
-		cancel()
-		log.Fatalf("PostgreSQL migrate failed: %v", err)
-	}
 	deps.db = pool
 	if err := metrics.RegisterDBStats(pool); err != nil {
 		log.Printf("metrics: DB pool stats not exported: %v", err)
 	}
 	deps.addCleanup(func() { _ = pool.Close() })
+	if deps.cfg.IsEdge() {
+		initEdgeDB(ctx, deps, pool)
+		return
+	}
+	if err := appdb.Migrate(pool); err != nil {
+		cancel()
+		log.Fatalf("PostgreSQL migrate failed: %v", err)
+	}
 	log.Printf("PostgreSQL pool ready; schema migrated")
+}
+
+// initEdgeDB: the edge never migrates (the primary owns the schema and the pool
+// may sit on a read-only standby); it checks the schema and watches for the
+// fallback to the standby so writes can be refused cleanly while degraded.
+func initEdgeDB(ctx context.Context, deps *appDeps, pool *sql.DB) {
+	if err := appdb.CheckSchema(ctx, pool); err != nil {
+		log.Fatalf("PostgreSQL schema check failed: %v", err)
+	}
+	// Short lifetime so connections opened on the standby during an outage are
+	// recycled back to the primary soon after it returns.
+	pool.SetConnMaxLifetime(time.Minute)
+	deps.dbProbe = appdb.NewReadOnlyProbe(pool)
+	probeCtx, stop := context.WithCancel(context.Background())
+	deps.addCleanup(stop)
+	go deps.dbProbe.Run(probeCtx, 10*time.Second)
+	log.Printf("PostgreSQL pool ready (edge: schema checked, not migrated)")
 }
 
 func initAuth(deps *appDeps) {

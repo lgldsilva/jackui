@@ -1948,5 +1948,9 @@
     "pin_placeholder": "PIN (4–6 digits)",
     "pin_save": "Save PIN",
     "pin_clear": "Remove PIN"
+  },
+  "degraded": {
+    "title": "Main server unreachable — read-only mode",
+    "body": "You can keep searching and playing. Saving progress, favorites, lists and downloads come back when the main server returns."
   }
 }

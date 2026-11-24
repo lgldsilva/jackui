@@ -23,6 +23,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	appdb "github.com/lgldsilva/jackui/internal/db"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
@@ -97,7 +98,8 @@ func acquireInstanceLock(dataDir string) (*os.File, error) {
 type appDeps struct {
 	cfg            *config.Config
 	configPath     string
-	db             *sql.DB // shared PostgreSQL pool (all stores)
+	db             *sql.DB              // shared PostgreSQL pool (all stores)
+	dbProbe        *appdb.ReadOnlyProbe // edge only: pool fell back to a read-only standby
 	jackettClient  *jackett.Client
 	localBrowser   *local.Browser
 	historyStore   *history.Store

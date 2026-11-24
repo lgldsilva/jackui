@@ -146,10 +146,15 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	router.Use(metrics.HTTPMiddleware())
 
 	router.Use(corsMiddleware())
+	if deps.cfg.IsEdge() {
+		// Must precede route registration: gin only applies middleware to routes
+		// added after Use.
+		router.Use(middleware.ReadOnlyGuard(deps.dbProbe.Degraded))
+	}
 
 	router.GET("/healthz", handlers.Health(deps.historyStore, func() bool { return deps.streamSrv != nil }))
 	// Public build metadata (commit/build time/version) — checkable without a token.
-	router.GET("/status", handlers.BuildInfo(deps.historyStore, deps.cfg.NodeRoleName()))
+	router.GET("/status", handlers.BuildInfo(deps.historyStore, deps.cfg.NodeRoleName(), deps.dbProbe.Degraded))
 	// Prometheus metrics. With auth enabled the endpoint requires either the
 	// static scraper token (JACKUI_METRICS_TOKEN — JWTs expire, scrape configs
 	// don't refresh) or an admin JWT; labels could otherwise leak torrent/file

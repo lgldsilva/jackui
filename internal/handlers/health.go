@@ -40,7 +40,9 @@ func dbHealth(ctx context.Context, store *history.Store) string {
 // the running version can be checked with a plain curl, no token needed (the
 // repo is open-source, so the commit/version aren't sensitive). The Jackett
 // probe lives in the authenticated /api/status instead.
-func BuildInfo(store *history.Store, role string) gin.HandlerFunc {
+// degraded reports an edge whose database fell back to a read-only standby; the
+// UI polls it to show the read-only banner.
+func BuildInfo(store *history.Store, role string, degraded func() bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		info := version.Get()
 		c.JSON(http.StatusOK, gin.H{
@@ -51,6 +53,7 @@ func BuildInfo(store *history.Store, role string) gin.HandlerFunc {
 			"goVersion": info.GoVersion,
 			"db":        dbHealth(c.Request.Context(), store),
 			"role":      role,
+			"degraded":  degraded(),
 			"time":      time.Now().UTC().Format(time.RFC3339),
 		})
 	}

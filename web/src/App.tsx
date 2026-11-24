@@ -33,6 +33,7 @@ import { ToastProvider } from './components/Toast'
 import ErrorBoundary from './components/ErrorBoundary'
 import { TransfersProvider } from './lib/transfers'
 import TransfersDock from './components/TransfersDock'
+import { DegradedBanner } from './components/DegradedBanner'
 import SkipLink from './components/SkipLink'
 
 function ProtectedRoute({ children }: { readonly children: React.ReactNode }) {
@@ -150,6 +151,7 @@ function App() {
           <PlayerProvider>
             <div className="min-h-screen bg-surface">
               <RouteRestorer />
+              <DegradedBanner />
               {/* Global crash net: a render error in any page would otherwise blank
                   the whole app (white screen). Show a recoverable message; reset
                   does a hard reload to home so a wedged route always recovers. */}
