@@ -175,13 +175,33 @@ func TestStatus_DbDegraded(t *testing.T) {
 	}
 }
 
+func TestBuildInfo_ReportsNodeRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, role := range []string{"primary", "edge"} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("GET", "/status", nil)
+		BuildInfo(nil, role, func() bool { return role == "edge" })(c)
+		var body map[string]interface{}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal("invalid JSON:", err)
+		}
+		if body["role"] != role {
+			t.Errorf("role = %v, want %q", body["role"], role)
+		}
+		if body["degraded"] != (role == "edge") {
+			t.Errorf("degraded = %v for %s", body["degraded"], role)
+		}
+	}
+}
+
 func TestBuildInfo_NilStore(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/status", nil)
 
-	BuildInfo(nil)(c)
+	BuildInfo(nil, "primary", func() bool { return false })(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -211,7 +231,7 @@ func TestBuildInfo_WithStore(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/status", nil)
 
-	BuildInfo(db)(c)
+	BuildInfo(db, "primary", func() bool { return false })(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", w.Code)
@@ -239,7 +259,7 @@ func TestBuildInfo_DbDown(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest("GET", "/status", nil)
 
-	BuildInfo(store)(c)
+	BuildInfo(store, "primary", func() bool { return false })(c)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (build info is informational)", w.Code)

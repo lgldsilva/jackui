@@ -93,46 +93,67 @@ const (
 //
 // Returns the owning user + remember flag for the issue-tokens outcomes.
 func (s *Store) RotateRefreshToken(ctx context.Context, plain string, grace time.Duration) (*User, bool, RefreshOutcome, error) {
-	hash := sha256Hex(plain)
-	var userID, remember int
-	var exp time.Time
-	var consumed sql.NullTime
-	err := s.db.QueryRowContext(ctx,
-		"SELECT user_id, expires_at, remember_me, consumed_at FROM refresh_tokens WHERE token_hash = ?",
-		hash,
-	).Scan(&userID, &exp, &remember, &consumed)
-	if err == sql.ErrNoRows {
-		return nil, false, RefreshInvalid, nil
-	}
-	if err != nil {
-		return nil, false, RefreshInvalid, err
-	}
-	if time.Now().UTC().After(exp) {
-		return nil, false, RefreshInvalid, nil
-	}
-	u, err := s.GetUserByID(ctx, userID)
-	if err != nil {
-		return nil, false, RefreshInvalid, err
-	}
-	if consumed.Valid {
-		if time.Since(consumed.Time) <= grace {
-			return u, remember == 1, RefreshGraceReissue, nil
-		}
-		return u, remember == 1, RefreshReuse, nil
+	u, remember, outcome, active, err := s.lookupRefreshToken(ctx, plain, grace)
+	if err != nil || !active {
+		return u, remember, outcome, err
 	}
 	// Active token: try to consume it. We may lose to a concurrent refresh that
 	// flipped consumed_at first — that's a benign grace reissue, not reuse.
 	res, err := s.db.ExecContext(ctx,
 		"UPDATE refresh_tokens SET consumed_at = ? WHERE token_hash = ? AND consumed_at IS NULL",
-		time.Now().UTC(), hash,
+		time.Now().UTC(), sha256Hex(plain),
 	)
 	if err != nil {
 		return nil, false, RefreshInvalid, err
 	}
 	if n, _ := res.RowsAffected(); n == 1 {
-		return u, remember == 1, RefreshRotated, nil
+		return u, remember, RefreshRotated, nil
 	}
-	return u, remember == 1, RefreshGraceReissue, nil
+	return u, remember, RefreshGraceReissue, nil
+}
+
+// PeekRefreshToken validates a refresh token WITHOUT consuming it. Only for an
+// edge whose database is a read-only standby (primary unreachable): rotation
+// cannot write there, so the caller reissues an access token and hands the same
+// refresh token back; normal rotation resumes once the primary is back.
+func (s *Store) PeekRefreshToken(ctx context.Context, plain string, grace time.Duration) (*User, bool, RefreshOutcome, error) {
+	u, remember, outcome, active, err := s.lookupRefreshToken(ctx, plain, grace)
+	if err == nil && active {
+		outcome = RefreshRotated
+	}
+	return u, remember, outcome, err
+}
+
+// lookupRefreshToken is the read-only half of rotation. active=true means the
+// token is valid and not yet consumed (outcome is then meaningless).
+func (s *Store) lookupRefreshToken(ctx context.Context, plain string, grace time.Duration) (*User, bool, RefreshOutcome, bool, error) {
+	var userID, remember int
+	var exp time.Time
+	var consumed sql.NullTime
+	err := s.db.QueryRowContext(ctx,
+		"SELECT user_id, expires_at, remember_me, consumed_at FROM refresh_tokens WHERE token_hash = ?",
+		sha256Hex(plain),
+	).Scan(&userID, &exp, &remember, &consumed)
+	if err == sql.ErrNoRows {
+		return nil, false, RefreshInvalid, false, nil
+	}
+	if err != nil {
+		return nil, false, RefreshInvalid, false, err
+	}
+	if time.Now().UTC().After(exp) {
+		return nil, false, RefreshInvalid, false, nil
+	}
+	u, err := s.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, false, RefreshInvalid, false, err
+	}
+	if !consumed.Valid {
+		return u, remember == 1, RefreshInvalid, true, nil
+	}
+	if time.Since(consumed.Time) <= grace {
+		return u, remember == 1, RefreshGraceReissue, false, nil
+	}
+	return u, remember == 1, RefreshReuse, false, nil
 }
 
 // ConsumeRefreshToken deletes a refresh token (use on logout, or rolling rotation).

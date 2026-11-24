@@ -13,6 +13,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/edgeproxy"
 	"github.com/lgldsilva/jackui/internal/gluetun"
 	"github.com/lgldsilva/jackui/internal/handlers"
 	lh "github.com/lgldsilva/jackui/internal/handlers/local"
@@ -145,10 +146,16 @@ func setupRouter(deps *appDeps) *gin.Engine {
 	router.Use(metrics.HTTPMiddleware())
 
 	router.Use(corsMiddleware())
+	if deps.cfg.IsEdge() {
+		deps.edgeRelay = mustEdgeRelay(deps.cfg.Node.PrimaryURL)
+		// Must precede route registration: gin only applies middleware to routes
+		// added after Use.
+		router.Use(middleware.ReadOnlyGuard(deps.dbProbe.Degraded))
+	}
 
 	router.GET("/healthz", handlers.Health(deps.historyStore, func() bool { return deps.streamSrv != nil }))
 	// Public build metadata (commit/build time/version) — checkable without a token.
-	router.GET("/status", handlers.BuildInfo(deps.historyStore))
+	router.GET("/status", handlers.BuildInfo(deps.historyStore, deps.cfg.NodeRoleName(), deps.dbProbe.Degraded))
 	// Prometheus metrics. With auth enabled the endpoint requires either the
 	// static scraper token (JACKUI_METRICS_TOKEN — JWTs expire, scrape configs
 	// don't refresh) or an admin JWT; labels could otherwise leak torrent/file
@@ -284,11 +291,13 @@ func registerAdminRoutes(api *gin.RouterGroup, deps *appDeps) *gin.RouterGroup {
 	adminAPI.PUT("/config", handlers.UpdateConfig(deps.cfg, deps.configPath, deps.jackettClient, deps.streamSrv))
 	adminAPI.GET("/stream/settings", handlers.StreamGetSettings(deps.cfg, deps.streamSrv))
 	adminAPI.PUT("/stream/settings", handlers.StreamUpdateSettings(deps.cfg, deps.configPath, deps.streamSrv))
-	adminAPI.PUT("/downloads/settings", handlers.DownloadsUpdateSettings(deps.cfg, deps.configPath, func(n int) {
-		if deps.streamSrv != nil {
-			deps.streamSrv.SetVerifyConcurrency(n)
-		}
-	}))
+	if !deps.cfg.IsEdge() { // edge: /downloads/* is relayed to the primary
+		adminAPI.PUT("/downloads/settings", handlers.DownloadsUpdateSettings(deps.cfg, deps.configPath, func(n int) {
+			if deps.streamSrv != nil {
+				deps.streamSrv.SetVerifyConcurrency(n)
+			}
+		}))
+	}
 	adminAPI.POST("/settings/subtitles", handlers.SubtitlesUpdateSettings(deps.cfg, deps.configPath))
 	adminAPI.GET("/mounts", handlers.MountsGet(deps.cfg))
 	adminAPI.PUT("/mounts", handlers.MountsUpdate(deps.cfg, deps.configPath, deps.localBrowser))
@@ -300,7 +309,7 @@ func registerAdminRoutes(api *gin.RouterGroup, deps *appDeps) *gin.RouterGroup {
 	adminAPI.PUT("/ai/benchmark/cases", handlers.PutAICases(deps.aiBench))
 	adminAPI.PUT("/ai/settings", handlers.PutAICostConfig(deps.aiClient, deps.aiBench))
 
-	if deps.downloadsStore != nil && deps.authStore != nil {
+	if deps.downloadsStore != nil && deps.authStore != nil && !deps.cfg.IsEdge() {
 		adminAPI.GET("/downloads/all", handlers.DownloadsListAll(deps.downloadsStore, deps.authStore, deps.streamSrv, deps.localBrowser))
 		adminAPI.GET("/downloads/users", handlers.DownloadsUsers(deps.downloadsStore, deps.authStore))
 	}
@@ -367,9 +376,11 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.POST("/stream/health/batch", handlers.StreamHealthBatch(deps.streamSrv))
 	api.GET("/stream/trackers/:hash", handlers.StreamTrackers(deps.streamSrv))
 	api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(deps.streamSrv))
-	api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
-	api.POST("/stream/art/resolve/batch", handlers.ResolveArtBatch(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
-	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
+	if !deps.cfg.IsEdge() { // edge relays /stream/art/* (see edgeProxyPaths)
+		api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
+		api.POST("/stream/art/resolve/batch", handlers.ResolveArtBatch(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
+		api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
+	}
 	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore, handlers.StreamAutoHook{
 		Meta:    deps.subtitleAutoMeta,
 		Fetcher: subtitlesAutoDep(deps),
@@ -385,11 +396,16 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	adminAPI.POST("/stream/drop/batch", handlers.StreamDropBatch(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	adminAPI.DELETE("/stream/:hash", handlers.StreamDrop(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 
-	api.GET("/transfers", handlers.TransfersList(deps.transferTracker))
-	api.DELETE("/transfers/:id", handlers.TransfersCancel(deps.transferTracker))
-
-	registerLocalRoutes(api, deps)
-	registerDownloadRoutes(api, deps)
+	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
+	api.GET("/music/trending", handlers.MusicTrending(deps.musicTrending))
+	if deps.cfg.IsEdge() {
+		registerEdgeProxyRoutes(api, deps)
+	} else {
+		api.GET("/transfers", handlers.TransfersList(deps.transferTracker))
+		api.DELETE("/transfers/:id", handlers.TransfersCancel(deps.transferTracker))
+		registerLocalRoutes(api, deps)
+		registerDownloadRoutes(api, deps)
+	}
 	registerHLSRoutes(api, adminAPI, deps)
 	registerPreviewRoutes(api, deps)
 }
@@ -402,6 +418,9 @@ func registerPreviewRoutes(api *gin.RouterGroup, deps *appDeps) {
 	// LocalHiddenGate is a no-op when the request uses ?hash= (torrent source)
 	// instead of ?mount=&path= — only local previews are curtain-gated.
 	gate := lh.LocalHiddenGate(deps.streamSrv)
+	if deps.edgeRelay != nil {
+		gate = relayMountPreview(deps.edgeRelay)
+	}
 	d := handlers.PreviewDeps{Streamer: deps.streamSrv, Downloads: deps.downloadsStore, Local: deps.localBrowser}
 	api.GET("/preview/archive", gate, handlers.PreviewArchiveList(d))
 	api.GET("/preview/archive/entry", gate, handlers.PreviewArchiveEntry(d))
@@ -410,6 +429,19 @@ func registerPreviewRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/preview/epub", gate, handlers.PreviewEpubManifest(d))
 	api.GET("/preview/epub/chapter", gate, handlers.PreviewEpubChapter(d))
 	api.GET("/preview/epub/res", gate, handlers.PreviewEpubResource(d))
+}
+
+// relayMountPreview replaces the hidden-curtain gate on an edge: a ?mount=
+// preview names a file on the primary's disks, so it goes there (and the
+// primary applies the curtain); a ?hash= torrent preview stays local.
+func relayMountPreview(relay gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Query("mount") != "" {
+			relay(c)
+			return
+		}
+		c.Next()
+	}
 }
 
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
@@ -454,8 +486,6 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.POST("/local/play/batch", lh.LocalPlayBatch(deps.localBrowser, deps.streamSrv))
 	api.GET("/local/audio/meta", gate, lh.LocalAudioMeta(deps.localBrowser, deps.audioMetaStore))
 	api.GET("/local/audio/cover", gate, lh.LocalAudioCover(deps.localBrowser, deps.audioMetaStore, deps.webSearch))
-	api.GET("/lyrics", handlers.LyricsGet(deps.lyricsClient))
-	api.GET("/music/trending", handlers.MusicTrending(deps.musicTrending))
 	api.GET("/local/probe", gate, lh.LocalProbe(deps.localBrowser))
 	api.GET("/local/sidecars", gate, lh.LocalSidecars(deps.localBrowser))
 	api.GET("/local/sidecar", gate, lh.LocalSidecarRead(deps.localBrowser))
@@ -471,6 +501,45 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 		api.GET("/local/subtitles/auto/:hash/:file", gate, lh.LocalSubtitlesAutoStatus(
 			deps.localBrowser, deps.subtitleLinks, deps.subtitleClient, subtitlesAutoDep(deps), deps.cfg))
 	}
+}
+
+// edgeProxyPaths are the routes an edge relays to the primary: they act on the
+// primary's disks (download/promote destinations, local mounts) or on its
+// downloads worker and Transfers dock. Local media under /local/* is therefore
+// served from the primary's uplink, not the edge's. Per-torrent art is relayed
+// too: the shared metadata row stores a path into ONE node's art dir, so letting
+// each node resolve and persist its own would overwrite the other's art with a
+// file it cannot read.
+var edgeProxyPaths = []string{
+	"/stream/art/*path",
+	"/downloads", "/downloads/*path",
+	"/transfers", "/transfers/*path",
+	"/promote/*path",
+	"/local/*path",
+}
+
+func mustEdgeRelay(primaryURL string) gin.HandlerFunc {
+	h, err := edgeproxy.New(primaryURL)
+	if err != nil {
+		log.Fatalf("edge proxy: %v", err)
+	}
+	return h
+}
+
+func registerEdgeProxyRoutes(api *gin.RouterGroup, deps *appDeps) {
+	for _, p := range edgeProxyPaths {
+		api.Any(p, deps.edgeRelay)
+	}
+	log.Printf("Edge node: relaying %v to %s", edgeProxyPaths, deps.cfg.Node.PrimaryURL)
+}
+
+// watchlistKickerDep mirrors downloadRemoverDep: an edge node runs no watchlist
+// worker, and a typed-nil *Worker would slip past the handler's `k != nil` guard.
+func watchlistKickerDep(deps *appDeps) handlers.WatchlistKicker {
+	if deps.watchlistWkr == nil {
+		return nil
+	}
+	return deps.watchlistWkr
 }
 
 // downloadRemoverDep returns the worker as the handlers' downloadRemover, or a
@@ -566,9 +635,11 @@ func registerHLSRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	// references the existing /stream/subtrack endpoint (ExtractSubtitle → VTT).
 	api.GET("/stream/hls/:hash/:file/sub/:track/index.m3u8", handlers.StreamHLSSubtitle(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
 	api.GET("/stream/hls/:hash/:file/:seg", handlers.StreamHLSSegment(deps.streamSrv, deps.hlsMgr, deps.downloadsStore))
-	gate := lh.LocalHiddenGate(deps.streamSrv)
-	api.GET("/local/hls/index.m3u8", gate, lh.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
-	api.GET("/local/hls/seg", gate, lh.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
+	if !deps.cfg.IsEdge() { // edge relays /local/* (files live on the primary)
+		gate := lh.LocalHiddenGate(deps.streamSrv)
+		api.GET("/local/hls/index.m3u8", gate, lh.LocalHLSMaster(deps.localBrowser, deps.hlsMgr, deps.localStream, deps.localCache))
+		api.GET("/local/hls/seg", gate, lh.LocalHLSSegment(deps.localBrowser, deps.hlsMgr))
+	}
 	adminAPI.GET("/transcode/active", handlers.TranscodeActive(deps.hlsMgr))
 	adminAPI.DELETE("/transcode/active/:key", handlers.TranscodeKill(deps.hlsMgr))
 }
@@ -618,7 +689,7 @@ func registerWatchlistRoutes(api *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/watchlists", handlers.WatchlistList(deps.watchlistStore))
-	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore, deps.watchlistWkr))
+	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore, watchlistKickerDep(deps)))
 	api.PUT("/watchlists/:id", handlers.WatchlistUpdate(deps.watchlistStore))
 	api.DELETE("/watchlists/:id", handlers.WatchlistDelete(deps.watchlistStore))
 	api.GET("/watchlists/:id/hits", handlers.WatchlistHits(deps.watchlistStore))

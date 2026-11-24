@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lgldsilva/jackui/internal/auth"
+	"github.com/lgldsilva/jackui/internal/dbutil"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
@@ -160,6 +161,10 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 		// Atomic rotation with a grace window: distinguishes a benign concurrent
 		// refresh (reissue) from a real replay of a long-rotated token (revoke).
 		user, remember, outcome, err := store.RotateRefreshToken(ctx, req.Refresh, refreshGrace)
+		if dbutil.IsReadOnlyErr(err) {
+			refreshReadOnly(ctx, c, store, tm, req.Refresh)
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
@@ -168,12 +173,39 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			return
 		}
 		resp, err := issueTokenPair(ctx, store, tm, user, remember, c.Request.UserAgent(), c.ClientIP())
+		if dbutil.IsReadOnlyErr(err) {
+			// Grace reissue skipped the UPDATE, so the read-only error only
+			// surfaces when inserting the new pair.
+			refreshReadOnly(ctx, c, store, tm, req.Refresh)
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return
 		}
 		writeTokens(c, resp, remember)
 	}
+}
+
+// refreshReadOnly serves /refresh while the database is a read-only standby
+// (degraded edge): validate without consuming, sign a new access token and hand
+// back the SAME refresh token. Reuse detection still rejects, but cannot revoke
+// until the primary is back.
+func refreshReadOnly(ctx context.Context, c *gin.Context, store *auth.Store, tm *auth.TokenManager, refresh string) {
+	user, remember, outcome, err := store.PeekRefreshToken(ctx, refresh, refreshGrace)
+	if err != nil {
+		httpshared.RespondError(c, http.StatusServiceUnavailable, err)
+		return
+	}
+	if !refreshOutcomeOK(ctx, c, store, user, outcome) {
+		return
+	}
+	access, exp, err := tm.SignAccess(user)
+	if err != nil {
+		httpshared.RespondErrorMessage(c, http.StatusInternalServerError, errTokenSigningFailed)
+		return
+	}
+	writeTokens(c, tokenResp{Access: access, Refresh: refresh, ExpiresAt: exp, User: user}, remember)
 }
 
 // refreshOutcomeOK writes the error response for a failed rotation and returns false.
@@ -270,6 +302,13 @@ func StartIncognitoReaper(cleaners ...incognitoCleanable) {
 	for _, cl := range cleaners {
 		_ = cl.DeleteAllIncognito(context.Background())
 	}
+	go reaperLoop(cleaners)
+}
+
+// StartIncognitoReaperLoop starts only the TTL loop, without the boot-time purge
+// of every user's incognito rows. Used by edge nodes that share the database
+// with a primary whose incognito sessions may still be live.
+func StartIncognitoReaperLoop(cleaners ...incognitoCleanable) {
 	go reaperLoop(cleaners)
 }
 

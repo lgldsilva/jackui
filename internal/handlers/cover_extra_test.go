@@ -129,6 +129,16 @@ func TestStartIncognitoReaper_MultipleCleaners(t *testing.T) {
 	}
 }
 
+func TestStartIncognitoReaperLoop_SkipsBootPurge(t *testing.T) {
+	// Edge nodes share the DB with a primary whose incognito sessions may be
+	// live: the loop variant must NOT run the global DeleteAllIncognito purge.
+	mc := &mockCleanable2{}
+	StartIncognitoReaperLoop(mc)
+	if mc.deleteAllCalls != 0 {
+		t.Errorf("DeleteAllIncognito called %d times, want 0 (edge must not purge at boot)", mc.deleteAllCalls)
+	}
+}
+
 func TestNtfyBaseURL_Default_Extra(t *testing.T) {
 	cfg := &config.Config{}
 	got := ntfyBaseURL(cfg)

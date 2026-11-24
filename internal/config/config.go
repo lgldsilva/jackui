@@ -38,6 +38,11 @@ type Config struct {
 	// Env: JACKUI_TRUSTED_PROXIES (comma-separated).
 	TrustedProxies []string `yaml:"trusted_proxies,omitempty"`
 
+	// Node selects primary (default) vs edge in a multi-node deployment. Env-only
+	// (never persisted): a role written into config.yaml by a Settings save would
+	// keep a node on edge after the operator drops JACKUI_NODE_ROLE.
+	Node NodeConfig `yaml:"-"`
+
 	// persist separates what config.yaml holds from the env-merged values in
 	// this struct; nil for a Config that did not come from Load.
 	persist *persistState
@@ -323,6 +328,9 @@ func Load(path string) (*Config, error) {
 			if err := applyEnvLayer(cfg); err != nil {
 				return nil, err
 			}
+			if err := cfg.Node.Validate(); err != nil {
+				return nil, err
+			}
 			if saveErr := cfg.Save(path); saveErr != nil {
 				return nil, fmt.Errorf("failed to create default config: %w", saveErr)
 			}
@@ -343,6 +351,9 @@ func Load(path string) (*Config, error) {
 	applySubtitlesDefaults(&cfg, data)
 
 	if err := applyEnvLayer(&cfg); err != nil {
+		return nil, err
+	}
+	if err := cfg.Node.Validate(); err != nil {
 		return nil, err
 	}
 

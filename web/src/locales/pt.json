@@ -1948,5 +1948,9 @@
     "pin_placeholder": "PIN (4–6 dígitos)",
     "pin_save": "Salvar PIN",
     "pin_clear": "Remover PIN"
+  },
+  "degraded": {
+    "title": "Servidor principal fora do ar — modo somente leitura",
+    "body": "Você pode continuar buscando e assistindo. Salvar progresso, favoritos, listas e downloads volta quando o servidor principal retornar."
   }
 }

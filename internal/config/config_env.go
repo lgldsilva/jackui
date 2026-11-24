@@ -23,6 +23,7 @@ func applyEnvOverrides(cfg *Config) {
 	applySMTPEnv(cfg)
 	applyAIEnv(cfg)
 	applyDownloadsQueueEnv(cfg)
+	applyNodeEnv(cfg)
 
 	applyEnvPositiveInt(&cfg.External.MaxUploadMB, "JACKUI_MAX_UPLOAD_MB")
 	applyEnvPositiveInt(&cfg.External.LocalReadaheadMB, "JACKUI_LOCAL_READAHEAD_MB")
@@ -176,6 +177,7 @@ func ActiveEnvOverrides() map[string]string {
 		"JACKUI_MAX_UPLOAD_MB", "JACKUI_LOCAL_READAHEAD_MB", "JACKUI_LOCAL_CACHE_GB", "JACKUI_HLS_VOD_MODE", "JACKUI_HLS_MEDIA_RENDITIONS", "JACKUI_MAX_GPU_TRANSCODES",
 		"JACKUI_DL_MAX_ACTIVE", "JACKUI_DL_PER_USER_MAX", "JACKUI_DL_STALL_MIN", "JACKUI_DL_MAX_STALLS",
 		"JACKUI_DL_AGING_STEP_MIN", "JACKUI_DL_AGING_CAP", "JACKUI_DL_ROTATION",
+		"JACKUI_NODE_ROLE", "JACKUI_PRIMARY_URL",
 	}
 	out := make(map[string]string, len(keys))
 	for _, k := range keys {

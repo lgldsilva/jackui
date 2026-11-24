@@ -23,6 +23,7 @@ import (
 	"github.com/lgldsilva/jackui/internal/audiometa"
 	"github.com/lgldsilva/jackui/internal/auth"
 	"github.com/lgldsilva/jackui/internal/config"
+	appdb "github.com/lgldsilva/jackui/internal/db"
 	"github.com/lgldsilva/jackui/internal/downloads"
 	"github.com/lgldsilva/jackui/internal/handlers"
 	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
@@ -97,7 +98,9 @@ func acquireInstanceLock(dataDir string) (*os.File, error) {
 type appDeps struct {
 	cfg            *config.Config
 	configPath     string
-	db             *sql.DB // shared PostgreSQL pool (all stores)
+	db             *sql.DB              // shared PostgreSQL pool (all stores)
+	dbProbe        *appdb.ReadOnlyProbe // edge only: pool fell back to a read-only standby
+	edgeRelay      gin.HandlerFunc      // edge only: reverse proxy to the primary
 	jackettClient  *jackett.Client
 	localBrowser   *local.Browser
 	historyStore   *history.Store
@@ -286,6 +289,7 @@ func removedSubcommand(args []string) error {
 func bootstrapApp() *appDeps {
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
+	log.Printf("Node role: %s", deps.cfg.NodeRoleName())
 	// Single-instance guard: two processes on one DataDir would race on the
 	// anacrolix bolt DB and piece storage. Fail fast; the running instance wins.
 	lock, err := acquireInstanceLock(deps.cfg.Stream.DataDir)
@@ -333,7 +337,13 @@ func bootstrapApp() *appDeps {
 	deps.promoteDests = buildPromoteDests(deps.cfg)
 	deps.destinations = newDestinationService(deps)
 	initHLSManager(deps)
-	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+	if deps.cfg.IsEdge() {
+		// The boot purge wipes EVERY user's incognito rows — on an edge that would
+		// kill sessions live on the primary. Keep only the TTL loop for its own.
+		handlers.StartIncognitoReaperLoop(deps.historyStore, deps.libraryStore)
+	} else {
+		handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+	}
 	startStreamWorkers(deps)
 	startTranscodeProbe()
 	return deps

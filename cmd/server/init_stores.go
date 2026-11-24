@@ -27,6 +27,9 @@ func initHistoryStore(deps *appDeps) {
 	}
 	deps.historyStore = store
 	log.Printf("History store: PostgreSQL")
+	if deps.cfg.IsEdge() {
+		return // retention is a singleton job: the primary owns it
+	}
 	go func() {
 		// Prune shortly after boot, then daily. Sleeping a full day BEFORE the
 		// first pass meant an instance redeployed more often than that never
@@ -108,7 +111,19 @@ func initDownloadsStore(deps *appDeps) {
 	}
 	deps.downloadsStore = d
 	log.Printf("Downloads: PostgreSQL")
+	if deps.cfg.IsEdge() {
+		// The queue lives in the shared DB but only the primary runs the worker:
+		// a second worker would leech every active row, steal in-flight moves at
+		// boot and reconcile away the primary's pending transfers.
+		log.Printf("Downloads worker: disabled on edge node (primary %s owns the queue)", deps.cfg.Node.PrimaryURL)
+		return
+	}
+	startDownloadsWorker(deps, d)
+}
 
+// startDownloadsWorker wires the primary-only side of downloads: pending-transfer
+// resume, the completed-file resolvers and the queue worker itself.
+func startDownloadsWorker(deps *appDeps, d *downloads.Store) {
 	// Pending-transfers store: persists move/promote copy intents so a deploy or
 	// crash mid-copy resumes them on the next boot (resume-aware copy finishes
 	// only what's left). Best-effort — a failure here just disables resume.
@@ -121,7 +136,35 @@ func initDownloadsStore(deps *appDeps) {
 
 	// Wired BEFORE the per-file resolver: boot-time seeding gates on
 	// HasFilePathResolver, so the batch one must already be in place by then.
-	deps.streamSrv.SetFileLayoutResolver(func(h metainfo.Hash, relPaths []string) map[int]string {
+	deps.streamSrv.SetFileLayoutResolver(completedLayoutResolver(d))
+	deps.streamSrv.SetFilePathResolver(completedFileResolver(deps, d))
+
+	worker := downloads.NewWorker(downloads.WorkerConfig{
+		Store:           d,
+		Streamer:        deps.streamSrv,
+		DataDir:         deps.streamCfg.DataDir,
+		DownloadDir:     deps.cfg.Stream.DownloadDir,
+		SharedDir:       deps.cfg.Stream.SharedDir,
+		Interval:        2 * time.Second,
+		NtfyBaseURL:     deps.cfg.Notifications.NtfyBaseURL,
+		NtfyTopic:       deps.cfg.Notifications.NtfyDefaultTopic,
+		NtfyToken:       deps.cfg.Notifications.NtfyToken,
+		ResolveUsername: usernameResolver(deps),
+		FallbackUser:    deps.cfg.Auth.AdminUsername,
+		Settings:        queueSettingsFunc(deps),
+		Jackett:         deps.jackettClient,
+		AIClient:        deps.aiClient,
+		TMDBClient:      deps.tmdbClient,
+		Tracker:         deps.transferTracker,
+	})
+	deps.downloadsWkr = worker
+	worker.Start()
+	deps.addCleanup(worker.Stop)
+	log.Printf("Downloads worker started (tick=2s, ntfy=%q)", deps.cfg.Notifications.NtfyDefaultTopic)
+}
+
+func completedLayoutResolver(d *downloads.Store) func(metainfo.Hash, []string) map[int]string {
+	return func(h metainfo.Hash, relPaths []string) map[int]string {
 		ctx, cancel := context.WithTimeout(context.Background(), resolverDBTimeout)
 		defer cancel()
 		paths, err := d.GetCompletedPathsRel(ctx, h.HexString(), relPaths, -1)
@@ -129,8 +172,13 @@ func initDownloadsStore(deps *appDeps) {
 			return nil
 		}
 		return paths
-	})
-	deps.streamSrv.SetFilePathResolver(func(h metainfo.Hash, fileIdx int) (string, bool) {
+	}
+}
+
+// completedFileResolver maps (info_hash, file index) to a completed file on this
+// node's disk so streaming serves it without touching the swarm.
+func completedFileResolver(deps *appDeps, d *downloads.Store) func(metainfo.Hash, int) (string, bool) {
+	return func(h metainfo.Hash, fileIdx int) (string, bool) {
 		// FileRelPath lets the store resolve files inside whole-torrent rows
 		// (file_path = destination DIRECTORY) without activating the torrent.
 		relPath := deps.streamSrv.FileRelPath(h, fileIdx)
@@ -144,9 +192,11 @@ func initDownloadsStore(deps *appDeps) {
 			return "", false
 		}
 		return path, true
-	})
+	}
+}
 
-	usernameResolver := func(userID int) string {
+func usernameResolver(deps *appDeps) func(int) string {
+	return func(userID int) string {
 		if deps.authStore == nil {
 			return ""
 		}
@@ -156,9 +206,12 @@ func initDownloadsStore(deps *appDeps) {
 		}
 		return u.Username
 	}
-	// Live queue settings: the worker reads this each tick, so PUT /downloads/settings
-	// (which mutates deps.cfg.DownloadsQueue) takes effect without a restart.
-	queueSettings := func() downloads.QueueSettings {
+}
+
+// queueSettingsFunc is read by the worker each tick, so PUT /downloads/settings
+// (which mutates deps.cfg.DownloadsQueue) takes effect without a restart.
+func queueSettingsFunc(deps *appDeps) func() downloads.QueueSettings {
+	return func() downloads.QueueSettings {
 		q := deps.cfg.DownloadsQueueSnapshot()
 		return downloads.QueueSettings{
 			MaxActive:         q.MaxActive,
@@ -171,28 +224,6 @@ func initDownloadsStore(deps *appDeps) {
 			AutoPromoteArr:    q.AutoPromoteArr,
 		}
 	}
-	worker := downloads.NewWorker(downloads.WorkerConfig{
-		Store:           d,
-		Streamer:        deps.streamSrv,
-		DataDir:         deps.streamCfg.DataDir,
-		DownloadDir:     deps.cfg.Stream.DownloadDir,
-		SharedDir:       deps.cfg.Stream.SharedDir,
-		Interval:        2 * time.Second,
-		NtfyBaseURL:     deps.cfg.Notifications.NtfyBaseURL,
-		NtfyTopic:       deps.cfg.Notifications.NtfyDefaultTopic,
-		NtfyToken:       deps.cfg.Notifications.NtfyToken,
-		ResolveUsername: usernameResolver,
-		FallbackUser:    deps.cfg.Auth.AdminUsername,
-		Settings:        queueSettings,
-		Jackett:         deps.jackettClient,
-		AIClient:        deps.aiClient,
-		TMDBClient:      deps.tmdbClient,
-		Tracker:         deps.transferTracker,
-	})
-	deps.downloadsWkr = worker
-	worker.Start()
-	deps.addCleanup(worker.Stop)
-	log.Printf("Downloads worker started (tick=2s, ntfy=%q)", deps.cfg.Notifications.NtfyDefaultTopic)
 }
 
 // migrateUserSubpathMounts relocates loose files at the root of any per-user
@@ -202,7 +233,9 @@ func initDownloadsStore(deps *appDeps) {
 // record (manual uploads, external sources) fall back to the admin's subdir.
 // Idempotent and logged — runs every boot, a no-op once everything is scoped.
 func migrateUserSubpathMounts(deps *appDeps) {
-	if deps.localBrowser == nil || deps.downloadsStore == nil || deps.authStore == nil {
+	// Ownership comes from the shared downloads rows, whose paths are the
+	// primary's: on an edge nothing would match and files would land under admin.
+	if deps.cfg.IsEdge() || deps.localBrowser == nil || deps.downloadsStore == nil || deps.authStore == nil {
 		return
 	}
 	users, err := deps.authStore.ListUsers(context.Background())
@@ -302,6 +335,12 @@ func initWatchlistStore(deps *appDeps) {
 	}
 	deps.watchlistStore = w
 	log.Printf("Watchlist: PostgreSQL")
+	if deps.cfg.IsEdge() {
+		// CRUD stays local; the scheduled checks (Jackett search, notify,
+		// auto-download) run once, on the primary.
+		log.Printf("Watchlist worker: disabled on edge node")
+		return
+	}
 	interval := time.Duration(deps.cfg.Notifications.WatchlistInterval) * time.Minute
 	if interval <= 0 {
 		interval = 15 * time.Minute
