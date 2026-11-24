@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"github.com/anacrolix/torrent/metainfo"
 	"net/http"
 	"strconv"
 	"strings"
@@ -154,7 +155,12 @@ func StreamSubtitleExtract(s *streamer.Streamer) gin.HandlerFunc {
 // a single JPEG frame captured `at` seconds into the file. Used by the player
 // progress-bar hover preview. The path quantizes `at` to 10s buckets so hovering
 // across the bar reuses cached thumbs instead of running ffmpeg per pixel.
-func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
+// thumbnailExtractor is the slice of *streamer.Streamer the hover endpoint needs.
+type thumbnailExtractor interface {
+	TryExtractThumbnail(ctx context.Context, hash metainfo.Hash, fileIdx int, atSeconds int) ([]byte, bool, error)
+}
+
+func StreamThumbnail(s thumbnailExtractor) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h, ok := bindHash(c)
 		if !ok {

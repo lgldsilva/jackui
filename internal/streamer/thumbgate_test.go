@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/anacrolix/torrent/metainfo"
 )
 
 // Hover previews used to start one ffmpeg per 10s bucket with no bound: on a
@@ -106,5 +108,28 @@ func TestThumbGateWaitBlocksUntilSlotOrCtx(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("wait never got the released slot")
+	}
+}
+
+// The hover entry point fails fast while every slot is held, then works once
+// one frees up.
+func TestTryExtractThumbnailBusyThenServes(t *testing.T) {
+	path := strmGenVideo(t)
+	s := strmResolverStreamer(t, path)
+	hash := metainfo.HashBytes([]byte("strm-thumb-try"))
+
+	for i := 0; i < maxThumbExtractions; i++ {
+		thumbExtractions.sem <- struct{}{}
+	}
+	if _, _, err := s.TryExtractThumbnail(context.Background(), hash, 0, 0); !errors.Is(err, ErrThumbnailBusy) {
+		t.Fatalf("full gate: err=%v, want ErrThumbnailBusy", err)
+	}
+	for i := 0; i < maxThumbExtractions; i++ {
+		<-thumbExtractions.sem
+	}
+	var noCtx context.Context // legacy callers pass nil; it must still work
+	jpeg, _, err := s.TryExtractThumbnail(noCtx, hash, 0, 0)
+	if err != nil || len(jpeg) == 0 {
+		t.Fatalf("free gate: %d bytes, err=%v", len(jpeg), err)
 	}
 }
