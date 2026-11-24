@@ -53,7 +53,8 @@ func initEdgeDB(ctx context.Context, deps *appDeps, pool *sql.DB) {
 	// recycled back to the primary soon after it returns.
 	pool.SetConnMaxLifetime(time.Minute)
 	deps.dbProbe = appdb.NewReadOnlyProbe(pool)
-	probeCtx, stop := context.WithCancel(context.Background())
+	// Outlives the boot-time deadline of ctx, stopped at shutdown instead.
+	probeCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	deps.addCleanup(stop)
 	go deps.dbProbe.Run(probeCtx, 10*time.Second)
 	log.Printf("PostgreSQL pool ready (edge: schema checked, not migrated)")

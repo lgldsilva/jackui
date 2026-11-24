@@ -104,6 +104,26 @@ func TestRefresh_ReadOnlyGraceReissueFallsBack(t *testing.T) {
 	}
 }
 
+// A disabled account is still refused while degraded (the revocation write is
+// lost, but no new access token is issued).
+func TestRefresh_ReadOnlyRejectsDisabledAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, pool := readOnlyAuthStore(t)
+	user := createTestUser(t, store, "disabled", "pass")
+	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
+	refresh, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(context.Background(), `UPDATE users SET status = 'disabled' WHERE id = $1`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	setReadOnly(t, pool)
+	if w := postRefresh(t, store, tm, refresh); w.Code != http.StatusForbidden {
+		t.Fatalf("disabled account in degraded mode = %d, want 403; body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestRefresh_ReadOnlyStillRejectsInvalid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store, pool := readOnlyAuthStore(t)

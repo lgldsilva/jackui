@@ -83,7 +83,7 @@ func (p *ReadOnlyProbe) Check(ctx context.Context) bool {
 	var inRecovery bool
 	err := p.pool.QueryRowContext(ctx, `SELECT pg_is_in_recovery()`).Scan(&inRecovery)
 	now := err != nil || inRecovery
-	if was := p.degraded.Swap(now); was != now {
+	if p.degraded.Swap(now) != now {
 		log.Printf("database degraded=%v (err=%v)", now, err)
 	}
 	return now

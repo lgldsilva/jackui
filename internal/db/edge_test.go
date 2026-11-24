@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lgldsilva/jackui/internal/db"
 	"github.com/lgldsilva/jackui/internal/dbtest"
@@ -63,5 +64,30 @@ func TestReadOnlyProbe(t *testing.T) {
 	_ = pool.Close()
 	if !p.Check(context.Background()) || !p.Degraded() {
 		t.Fatal("unreachable database must count as degraded")
+	}
+}
+
+// Run probes immediately, keeps probing on each tick and returns on cancel.
+func TestReadOnlyProbeRun(t *testing.T) {
+	pool := dbtest.NewDB(t)
+	p := db.NewReadOnlyProbe(pool)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { p.Run(ctx, 10*time.Millisecond); close(done) }()
+
+	_ = pool.Close() // next tick must flip to degraded
+	deadline := time.After(2 * time.Second)
+	for !p.Degraded() {
+		select {
+		case <-deadline:
+			t.Fatal("Run never re-probed after the database went away")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after cancel")
 	}
 }
