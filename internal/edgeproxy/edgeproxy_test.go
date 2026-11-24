@@ -1,7 +1,9 @@
 package edgeproxy
 
 import (
+	"bytes"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,5 +119,22 @@ func TestUnproxiedRouteStaysLocal(t *testing.T) {
 	newRouter(t, upstream.URL).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/local-only", nil))
 	if w.Body.String() != "edge" {
 		t.Fatalf("got %q", w.Body.String())
+	}
+}
+
+// The 502 log line must not let a crafted path forge extra log entries.
+func TestPrimaryDownLogIsSanitized(t *testing.T) {
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	upstream := httptest.NewServer(http.NotFoundHandler())
+	url := upstream.URL
+	upstream.Close()
+	w := httptest.NewRecorder()
+	newRouter(t, url).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/downloads/x%0Aforged-entry", nil))
+	if strings.Count(buf.String(), "\n") != 1 || !strings.Contains(buf.String(), "forged-entry") {
+		t.Fatalf("log line not sanitized: %q", buf.String())
 	}
 }

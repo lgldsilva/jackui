@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/lgldsilva/jackui/internal/handlers/httpshared"
 )
 
 // HeaderForwardedBy marks a proxied request so a misconfigured primary that
@@ -48,7 +50,7 @@ func New(primaryURL string) (gin.HandlerFunc, error) {
 			MaxIdleConnsPerHost:   16,
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			log.Printf("edgeproxy: %s %s → primary failed: %v", r.Method, r.URL.Path, err)
+			log.Printf("edgeproxy: %s %s → primary failed: %v", r.Method, httpshared.SanitizeForLog(r.URL.Path), err)
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusBadGateway)
 			_, _ = w.Write([]byte(`{"error":"primary unavailable"}`))
