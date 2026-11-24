@@ -55,6 +55,9 @@ func TestEdgeRouterRelaysToPrimary(t *testing.T) {
 		{http.MethodGet, "/api/promote/destinations"},
 		{http.MethodGet, "/api/local/list?mount=m&path=p"},
 		{http.MethodGet, "/api/local/hls/index.m3u8?mount=m&path=p"},
+		{http.MethodGet, "/api/stream/art/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?token=t"},
+		{http.MethodPost, "/api/stream/art/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/resolve?file=0"},
+		{http.MethodPost, "/api/stream/art/resolve/batch"},
 	}
 	for _, rq := range relayed {
 		w := httptest.NewRecorder()
@@ -81,7 +84,7 @@ func TestEdgeRouterRelaysToPrimary(t *testing.T) {
 func TestPrimaryRouterBuildsAndKeepsLocalRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := setupRouter(routerDeps(t, config.NodeConfig{}))
-	want := map[string]bool{"/api/transfers": false, "/api/local/list": false, "/api/local/hls/index.m3u8": false, "/api/lyrics": false}
+	want := map[string]bool{"/api/stream/art/:hash": false, "/api/transfers": false, "/api/local/list": false, "/api/local/hls/index.m3u8": false, "/api/lyrics": false}
 	for _, ri := range r.Routes() {
 		if _, ok := want[ri.Path]; ok {
 			want[ri.Path] = true

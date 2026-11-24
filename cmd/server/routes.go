@@ -370,9 +370,11 @@ func registerStreamRoutes(api, adminAPI *gin.RouterGroup, deps *appDeps) {
 	api.POST("/stream/health/batch", handlers.StreamHealthBatch(deps.streamSrv))
 	api.GET("/stream/trackers/:hash", handlers.StreamTrackers(deps.streamSrv))
 	api.GET("/stream/thumb/:hash/:file", handlers.StreamThumbnail(deps.streamSrv))
-	api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
-	api.POST("/stream/art/resolve/batch", handlers.ResolveArtBatch(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
-	api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
+	if !deps.cfg.IsEdge() { // edge relays /stream/art/* (see edgeProxyPaths)
+		api.GET("/stream/art/:hash", handlers.StreamArt(deps.streamSrv))
+		api.POST("/stream/art/resolve/batch", handlers.ResolveArtBatch(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
+		api.POST("/stream/art/:hash/resolve", handlers.ResolveArt(deps.streamSrv, deps.tmdbClient, deps.aiClient, deps.webSearch))
+	}
 	api.GET("/stream/:hash/:file", handlers.StreamFile(deps.streamSrv, deps.downloadsStore, handlers.StreamAutoHook{
 		Meta:    deps.subtitleAutoMeta,
 		Fetcher: subtitlesAutoDep(deps),
@@ -482,8 +484,12 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 // edgeProxyPaths are the routes an edge relays to the primary: they act on the
 // primary's disks (download/promote destinations, local mounts) or on its
 // downloads worker and Transfers dock. Local media under /local/* is therefore
-// served from the primary's uplink, not the edge's.
+// served from the primary's uplink, not the edge's. Per-torrent art is relayed
+// too: the shared metadata row stores a path into ONE node's art dir, so letting
+// each node resolve and persist its own would overwrite the other's art with a
+// file it cannot read.
 var edgeProxyPaths = []string{
+	"/stream/art/*path",
 	"/downloads", "/downloads/*path",
 	"/transfers", "/transfers/*path",
 	"/promote/*path",
