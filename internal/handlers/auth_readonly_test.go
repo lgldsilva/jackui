@@ -82,6 +82,28 @@ func TestRefresh_ReadOnlyReissuesAccessWithoutRotation(t *testing.T) {
 	}
 }
 
+// A token consumed just before the outage, presented again within the grace
+// window: rotation reports a grace reissue (no UPDATE), then the INSERT of a new
+// pair fails read-only. That must fall back to the read-only path, not 500.
+func TestRefresh_ReadOnlyGraceReissueFallsBack(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, pool := readOnlyAuthStore(t)
+	user := createTestUser(t, store, "graceuser", "pass")
+	tm := auth.NewTokenManager([]byte("test-secret-key-32-bytes-long!!"), 15*time.Minute)
+	refresh, err := store.CreateRefreshToken(context.Background(), user.ID, time.Hour, false, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := postRefresh(t, store, tm, refresh); w.Code != http.StatusOK {
+		t.Fatalf("healthy rotation = %d", w.Code)
+	}
+	setReadOnly(t, pool)
+	w := postRefresh(t, store, tm, refresh)
+	if w.Code != http.StatusOK {
+		t.Fatalf("degraded grace reissue = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestRefresh_ReadOnlyStillRejectsInvalid(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	store, pool := readOnlyAuthStore(t)

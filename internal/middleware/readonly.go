@@ -22,6 +22,17 @@ var readOnlyAllowed = []string{
 	"/api/tmdb/",
 }
 
+// readOnlyExact are POSTs that only read shared state (exact path match, so a
+// sibling such as /auth/sessions/revoke-others stays blocked). The media token
+// is what keeps playback working; logout must still clear the refresh cookie
+// even though the revocation write is lost.
+var readOnlyExact = map[string]bool{
+	"/api/auth/media-token":          true,
+	"/api/auth/logout":               true,
+	"/api/auth/sessions":             true,
+	"/api/watchlists/schedule/parse": true,
+}
+
 // ReadOnlyGuard answers 503 to state-changing requests while degraded() is true,
 // instead of letting them reach a store and fail with an opaque 500.
 func ReadOnlyGuard(degraded func() bool) gin.HandlerFunc {
@@ -40,6 +51,9 @@ func ReadOnlyGuard(degraded func() bool) gin.HandlerFunc {
 }
 
 func readOnlyPathAllowed(path string) bool {
+	if readOnlyExact[path] {
+		return true
+	}
 	for _, p := range readOnlyAllowed {
 		if strings.HasPrefix(path, p) {
 			return true

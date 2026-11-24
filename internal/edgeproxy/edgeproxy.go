@@ -39,8 +39,11 @@ func New(primaryURL string) (gin.HandlerFunc, error) {
 		// instead of being buffered on the edge.
 		FlushInterval: -1,
 		Transport: &http.Transport{
-			Proxy:                 nil,
-			ResponseHeaderTimeout: 60 * time.Second,
+			Proxy: nil,
+			// Above the primary's own slowest synchronous waits (local HLS
+			// master up to 60s, duplicate/walk scans), so the primary's
+			// diagnosis reaches the client instead of a bare 502.
+			ResponseHeaderTimeout: 3 * time.Minute,
 			IdleConnTimeout:       90 * time.Second,
 			MaxIdleConnsPerHost:   16,
 		},

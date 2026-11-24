@@ -173,6 +173,12 @@ func Refresh(store *auth.Store, tm *auth.TokenManager) gin.HandlerFunc {
 			return
 		}
 		resp, err := issueTokenPair(ctx, store, tm, user, remember, c.Request.UserAgent(), c.ClientIP())
+		if dbutil.IsReadOnlyErr(err) {
+			// Grace reissue skipped the UPDATE, so the read-only error only
+			// surfaces when inserting the new pair.
+			refreshReadOnly(ctx, c, store, tm, req.Refresh)
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusInternalServerError, err)
 			return

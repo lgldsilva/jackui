@@ -100,6 +100,7 @@ type appDeps struct {
 	configPath     string
 	db             *sql.DB              // shared PostgreSQL pool (all stores)
 	dbProbe        *appdb.ReadOnlyProbe // edge only: pool fell back to a read-only standby
+	edgeRelay      gin.HandlerFunc      // edge only: reverse proxy to the primary
 	jackettClient  *jackett.Client
 	localBrowser   *local.Browser
 	historyStore   *history.Store

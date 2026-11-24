@@ -147,6 +147,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 
 	router.Use(corsMiddleware())
 	if deps.cfg.IsEdge() {
+		deps.edgeRelay = mustEdgeRelay(deps.cfg.Node.PrimaryURL)
 		// Must precede route registration: gin only applies middleware to routes
 		// added after Use.
 		router.Use(middleware.ReadOnlyGuard(deps.dbProbe.Degraded))
@@ -417,6 +418,9 @@ func registerPreviewRoutes(api *gin.RouterGroup, deps *appDeps) {
 	// LocalHiddenGate is a no-op when the request uses ?hash= (torrent source)
 	// instead of ?mount=&path= — only local previews are curtain-gated.
 	gate := lh.LocalHiddenGate(deps.streamSrv)
+	if deps.edgeRelay != nil {
+		gate = relayMountPreview(deps.edgeRelay)
+	}
 	d := handlers.PreviewDeps{Streamer: deps.streamSrv, Downloads: deps.downloadsStore, Local: deps.localBrowser}
 	api.GET("/preview/archive", gate, handlers.PreviewArchiveList(d))
 	api.GET("/preview/archive/entry", gate, handlers.PreviewArchiveEntry(d))
@@ -425,6 +429,19 @@ func registerPreviewRoutes(api *gin.RouterGroup, deps *appDeps) {
 	api.GET("/preview/epub", gate, handlers.PreviewEpubManifest(d))
 	api.GET("/preview/epub/chapter", gate, handlers.PreviewEpubChapter(d))
 	api.GET("/preview/epub/res", gate, handlers.PreviewEpubResource(d))
+}
+
+// relayMountPreview replaces the hidden-curtain gate on an edge: a ?mount=
+// preview names a file on the primary's disks, so it goes there (and the
+// primary applies the curtain); a ?hash= torrent preview stays local.
+func relayMountPreview(relay gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Query("mount") != "" {
+			relay(c)
+			return
+		}
+		c.Next()
+	}
 }
 
 func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
@@ -501,13 +518,17 @@ var edgeProxyPaths = []string{
 	"/local/*path",
 }
 
-func registerEdgeProxyRoutes(api *gin.RouterGroup, deps *appDeps) {
-	h, err := edgeproxy.New(deps.cfg.Node.PrimaryURL)
+func mustEdgeRelay(primaryURL string) gin.HandlerFunc {
+	h, err := edgeproxy.New(primaryURL)
 	if err != nil {
 		log.Fatalf("edge proxy: %v", err)
 	}
+	return h
+}
+
+func registerEdgeProxyRoutes(api *gin.RouterGroup, deps *appDeps) {
 	for _, p := range edgeProxyPaths {
-		api.Any(p, h)
+		api.Any(p, deps.edgeRelay)
 	}
 	log.Printf("Edge node: relaying %v to %s", edgeProxyPaths, deps.cfg.Node.PrimaryURL)
 }

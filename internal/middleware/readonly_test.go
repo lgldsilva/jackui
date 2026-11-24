@@ -40,6 +40,14 @@ func TestReadOnlyGuard(t *testing.T) {
 		{http.MethodPost, "/api/diag/log", http.StatusNoContent},
 		{http.MethodPost, "/api/user/incognito/heartbeat", http.StatusNoContent},
 		{http.MethodPost, "/api/tmdb/match/batch", http.StatusNoContent},
+		// Read-only POSTs: playback needs the media token, and logout must still
+		// clear the cookie.
+		{http.MethodPost, "/api/auth/media-token", http.StatusNoContent},
+		{http.MethodPost, "/api/auth/logout", http.StatusNoContent},
+		{http.MethodPost, "/api/auth/sessions", http.StatusNoContent},
+		{http.MethodPost, "/api/watchlists/schedule/parse", http.StatusNoContent},
+		{http.MethodPost, "/api/auth/sessions/revoke-others", http.StatusServiceUnavailable},
+		{http.MethodPost, "/api/auth/media-token-x", http.StatusServiceUnavailable},
 	}
 	for _, tc := range cases {
 		if got := do(tc.method, tc.path); got != tc.want {
