@@ -346,6 +346,24 @@ func (s *Streamer) resolveProbeInput(hash metainfo.Hash, fileIdx int, readahead 
 // decode at that timestamp (rare — likely seeking past the end). The handler
 // translates that into HTTP 204.
 func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fileIdx int, atSeconds int) ([]byte, bool, error) {
+	return s.extractThumbnail(ctx, hash, fileIdx, atSeconds, true)
+}
+
+// TryExtractThumbnail is ExtractThumbnail for the hover preview: when every
+// extraction slot is busy it returns ErrThumbnailBusy at once instead of
+// queueing, so scrubbing across the bar can't pile up ffmpeg runs.
+func (s *Streamer) TryExtractThumbnail(ctx context.Context, hash metainfo.Hash, fileIdx int, atSeconds int) ([]byte, bool, error) {
+	return s.extractThumbnail(ctx, hash, fileIdx, atSeconds, false)
+}
+
+// thumbExtractions is process-wide: one streamer per process, and the bound is
+// about host resources (bandwidth, RSS), not per-instance state.
+var thumbExtractions = newThumbGate(maxThumbExtractions)
+
+func (s *Streamer) extractThumbnail(ctx context.Context, hash metainfo.Hash, fileIdx int, atSeconds int, waitForSlot bool) ([]byte, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if atSeconds < 0 {
 		atSeconds = 0
 	}
@@ -357,9 +375,24 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 		return data, true, nil
 	}
 
+	run := func() ([]byte, error) { return s.runThumbnailFFmpeg(ctx, hash, fileIdx, bucket, cacheDir, cachePath) }
+	key := cachePath
+	var out []byte
+	var err error
+	if waitForSlot {
+		out, err = thumbExtractions.wait(ctx, key, run)
+	} else {
+		out, err = thumbExtractions.try(key, run)
+	}
+	return out, false, err
+}
+
+// runThumbnailFFmpeg grabs one frame at bucket*10s and caches it. A failed
+// decode returns (nil, nil) — the caller answers 204.
+func (s *Streamer) runThumbnailFFmpeg(ctx context.Context, hash metainfo.Hash, fileIdx, bucket int, cacheDir, cachePath string) ([]byte, error) {
 	pi, ierr := s.resolveProbeInput(hash, fileIdx, 8*1024*1024)
 	if ierr != nil {
-		return nil, false, ierr
+		return nil, ierr
 	}
 	if pi.closeFn != nil {
 		defer pi.closeFn()
@@ -384,14 +417,14 @@ func (s *Streamer) ExtractThumbnail(ctx context.Context, hash metainfo.Hash, fil
 	}
 	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
-		return nil, false, nil
+		return nil, nil
 	}
 	// #nosec G301 -- media/cache dir; 0755 intentional so the media server can read it
 	if err := os.MkdirAll(cacheDir, 0o755); err == nil {
 		// media/cache file; 0644 intentional for readability
 		_ = os.WriteFile(cachePath, out, 0o644)
 	}
-	return out, false, nil
+	return out, nil
 }
 
 // ExtractArtwork pulls the embedded cover-art picture stream out of an audio
