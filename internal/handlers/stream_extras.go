@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -166,7 +167,13 @@ func StreamThumbnail(s *streamer.Streamer) gin.HandlerFunc {
 		at, _ := strconv.Atoi(c.Query("at"))
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 		defer cancel()
-		data, _, err := s.ExtractThumbnail(ctx, h, fileIdx, at)
+		data, _, err := s.TryExtractThumbnail(ctx, h, fileIdx, at)
+		if errors.Is(err, streamer.ErrThumbnailBusy) {
+			// Not cacheable: the same position may succeed a moment later.
+			c.Header(httpshared.CacheControl, "no-store")
+			c.Status(http.StatusNoContent)
+			return
+		}
 		if err != nil {
 			httpshared.RespondError(c, http.StatusNotFound, err)
 			return
