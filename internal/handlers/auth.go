@@ -273,6 +273,13 @@ func StartIncognitoReaper(cleaners ...incognitoCleanable) {
 	go reaperLoop(cleaners)
 }
 
+// StartIncognitoReaperLoop starts only the TTL loop, without the boot-time purge
+// of every user's incognito rows. Used by edge nodes that share the database
+// with a primary whose incognito sessions may still be live.
+func StartIncognitoReaperLoop(cleaners ...incognitoCleanable) {
+	go reaperLoop(cleaners)
+}
+
 func reaperLoop(cleaners []incognitoCleanable) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()

@@ -136,7 +136,7 @@ func serveProbe(t *testing.T, ctx context.Context, h gin.HandlerFunc) (int, map[
 func probeHandlers(t *testing.T, store *history.Store) map[string]gin.HandlerFunc {
 	t.Helper()
 	return map[string]gin.HandlerFunc{
-		"/status":     BuildInfo(store),
+		"/status":     BuildInfo(store, "primary"),
 		"/healthz":    Health(store, func() bool { return true }),
 		"/api/status": Status(okJackett(t), store),
 	}
@@ -223,7 +223,7 @@ func TestHealthProbe_HealthyShapeUnchanged(t *testing.T) {
 		h    gin.HandlerFunc
 		keys []string
 	}{
-		"/status":     {BuildInfo(store), []string{"status", "db", "version", "commit", "buildTime", "goVersion", "time"}},
+		"/status":     {BuildInfo(store, "primary"), []string{"status", "db", "role", "version", "commit", "buildTime", "goVersion", "time"}},
 		"/healthz":    {Health(store, func() bool { return true }), []string{"status", "db", "streamer", "time"}},
 		"/api/status": {Status(okJackett(t), store), []string{"status", "db", "jackett", "time"}},
 	}

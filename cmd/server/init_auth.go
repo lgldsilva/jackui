@@ -53,6 +53,9 @@ func initAuth(deps *appDeps) {
 	initJWTSecret(deps)
 	initPasskeys(deps)
 	bootstrapAdmin(deps)
+	if deps.cfg.IsEdge() {
+		return // expired-token cleanup runs on the primary
+	}
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)

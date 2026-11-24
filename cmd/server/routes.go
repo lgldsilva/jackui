@@ -148,7 +148,7 @@ func setupRouter(deps *appDeps) *gin.Engine {
 
 	router.GET("/healthz", handlers.Health(deps.historyStore, func() bool { return deps.streamSrv != nil }))
 	// Public build metadata (commit/build time/version) — checkable without a token.
-	router.GET("/status", handlers.BuildInfo(deps.historyStore))
+	router.GET("/status", handlers.BuildInfo(deps.historyStore, deps.cfg.NodeRoleName()))
 	// Prometheus metrics. With auth enabled the endpoint requires either the
 	// static scraper token (JACKUI_METRICS_TOKEN — JWTs expire, scrape configs
 	// don't refresh) or an admin JWT; labels could otherwise leak torrent/file
@@ -476,6 +476,15 @@ func registerLocalRoutes(api *gin.RouterGroup, deps *appDeps) {
 // downloadRemoverDep returns the worker as the handlers' downloadRemover, or a
 // true-nil interface when no worker is running. Returning the typed pointer
 // directly would wrap a nil *Worker in a non-nil interface (the classic Go
+// watchlistKickerDep mirrors downloadRemoverDep: an edge node runs no watchlist
+// worker, and a typed-nil *Worker would slip past the handler's `k != nil` guard.
+func watchlistKickerDep(deps *appDeps) handlers.WatchlistKicker {
+	if deps.watchlistWkr == nil {
+		return nil
+	}
+	return deps.watchlistWkr
+}
+
 // typed-nil trap), defeating the handler's nil guard.
 func downloadRemoverDep(deps *appDeps) handlers.DownloadRemover {
 	if deps.downloadsWkr == nil {
@@ -618,7 +627,7 @@ func registerWatchlistRoutes(api *gin.RouterGroup, deps *appDeps) {
 		return
 	}
 	api.GET("/watchlists", handlers.WatchlistList(deps.watchlistStore))
-	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore, deps.watchlistWkr))
+	api.POST("/watchlists", handlers.WatchlistCreate(deps.watchlistStore, watchlistKickerDep(deps)))
 	api.PUT("/watchlists/:id", handlers.WatchlistUpdate(deps.watchlistStore))
 	api.DELETE("/watchlists/:id", handlers.WatchlistDelete(deps.watchlistStore))
 	api.GET("/watchlists/:id/hits", handlers.WatchlistHits(deps.watchlistStore))

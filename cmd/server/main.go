@@ -286,6 +286,7 @@ func removedSubcommand(args []string) error {
 func bootstrapApp() *appDeps {
 	deps := &appDeps{}
 	deps.cfg, deps.configPath = loadConfig()
+	log.Printf("Node role: %s", deps.cfg.NodeRoleName())
 	// Single-instance guard: two processes on one DataDir would race on the
 	// anacrolix bolt DB and piece storage. Fail fast; the running instance wins.
 	lock, err := acquireInstanceLock(deps.cfg.Stream.DataDir)
@@ -333,7 +334,13 @@ func bootstrapApp() *appDeps {
 	deps.promoteDests = buildPromoteDests(deps.cfg)
 	deps.destinations = newDestinationService(deps)
 	initHLSManager(deps)
-	handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+	if deps.cfg.IsEdge() {
+		// The boot purge wipes EVERY user's incognito rows — on an edge that would
+		// kill sessions live on the primary. Keep only the TTL loop for its own.
+		handlers.StartIncognitoReaperLoop(deps.historyStore, deps.libraryStore)
+	} else {
+		handlers.StartIncognitoReaper(deps.historyStore, deps.libraryStore)
+	}
 	startStreamWorkers(deps)
 	startTranscodeProbe()
 	return deps

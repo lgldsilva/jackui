@@ -152,6 +152,11 @@ func prepareStreamConfig(cfg *config.Config, restart chan<- struct{}) streamer.C
 	if sc.DataDir == "" {
 		sc.DataDir = "/data/streams"
 	}
+	if cfg.IsEdge() {
+		// Seed-tracker torrents are never idle-dropped; on an edge that would
+		// announce the primary's passkey from a second IP while the primary seeds.
+		sc.SeedTrackers = nil
+	}
 	return sc
 }
 
@@ -182,6 +187,13 @@ func initStreamer(deps *appDeps) {
 		log.Printf("Metadata cache: PostgreSQL")
 	} else {
 		log.Printf("Warning: metadata cache init failed: %v", mcerr)
+	}
+	if deps.cfg.IsEdge() {
+		// Seed resume/persistence and favorites repair are singleton jobs: two
+		// nodes resuming the same seeds would announce one passkey from two IPs,
+		// and the boot re-search would double the Jackett load.
+		log.Printf("Seeds/favorites recovery: disabled on edge node")
+		return
 	}
 	go recoverFavorites(s, deps.jackettClient)
 	if seeds, serr := streamer.NewSeeds(deps.db); serr == nil {

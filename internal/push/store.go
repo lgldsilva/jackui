@@ -58,7 +58,12 @@ func (s *Store) LoadOrCreateVAPID(ctx context.Context) (publicKey, privateKey st
 		if err != nil {
 			return "", "", err
 		}
-		_, err = s.db.ExecContext(ctx, `INSERT INTO vapid_keys(id, public_key, private_key) VALUES(1, ?, ?)`, publicKey, privateKey)
+		// ON CONFLICT + re-read: two nodes booting on an empty shared DB both
+		// generate a pair; the loser must adopt the winner's, not error out.
+		if _, err = s.db.ExecContext(ctx, `INSERT INTO vapid_keys(id, public_key, private_key) VALUES(1, ?, ?) ON CONFLICT (id) DO NOTHING`, publicKey, privateKey); err != nil {
+			return "", "", err
+		}
+		err = s.db.QueryRowContext(ctx, `SELECT public_key, private_key FROM vapid_keys WHERE id=1`).Scan(&publicKey, &privateKey)
 		return publicKey, privateKey, err
 	default:
 		return "", "", err
