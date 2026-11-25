@@ -91,5 +91,7 @@ COPY electron ./electron
 # tests (docs/api/openapi.yaml read from cmd/server via ../../docs).
 COPY docs/api/openapi.yaml ./docs/api/openapi.yaml
 COPY scripts/ci-container.sh ./scripts/ci-container.sh
+# Workflow definitions feed the CI-wiring guard in internal/dbtest.
+COPY .github/workflows ./.github/workflows
 
 ENTRYPOINT ["/workspace/scripts/ci-container.sh"]
